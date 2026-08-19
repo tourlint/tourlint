@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3535171",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "감자적",
+            "treatmenu": "감자옹심이/감자적/도토리들깨수제비",
+            "smoking": "",
+            "packing": "",
+            "infocenterfood": "",
+            "scalefood": "",
+            "parkingfood": "있음",
+            "opendatefood": "",
+            "opentimefood": "10:00~20:30",
+            "restdatefood": "매주 수요일",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "",
+            "lcnsno": "20020386318"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

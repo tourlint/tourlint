@@ -1,0 +1,34 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3539725",
+            "contenttypeid": "14",
+            "scale": "",
+            "usefee": "무료로 이용 가능",
+            "discountinfo": "",
+            "spendtime": "",
+            "parkingfee": "",
+            "infocenterculture": "033-641-8200",
+            "accomcountculture": "",
+            "usetimeculture": "예약시 운영",
+            "restdateculture": "예약시 운영",
+            "parkingculture": "가능",
+            "chkbabycarriageculture": "",
+            "chkpetculture": "",
+            "chkcreditcardculture": ""
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3534495",
+            "contenttypeid": "32",
+            "roomcount": "",
+            "roomtype": "1",
+            "refundregulation": "",
+            "checkintime": "15:00",
+            "checkouttime": "11:00",
+            "chkcooking": "",
+            "seminar": "0",
+            "sports": "0",
+            "sauna": "0",
+            "beauty": "0",
+            "beverage": "0",
+            "karaoke": "0",
+            "barbecue": "0",
+            "campfire": "0",
+            "bicycle": "0",
+            "fitness": "0",
+            "publicpc": "0",
+            "publicbath": "0",
+            "subfacility": "",
+            "foodplace": "",
+            "reservationurl": "",
+            "pickup": "",
+            "infocenterlodging": "010-2554-5294",
+            "parkinglodging": "있음",
+            "reservationlodging": "",
+            "scalelodging": "",
+            "accomcountlodging": ""
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2868869",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "장칼국수",
+            "treatmenu": "흑임자 옹심이 / 감자적 / 닭발 등",
+            "smoking": "",
+            "packing": "가능",
+            "infocenterfood": "0507-1495-8120",
+            "scalefood": "",
+            "parkingfood": "가능",
+            "opendatefood": "",
+            "opentimefood": "- 10:00~20:30<br>- 준비시간 14:30~15:00<br>- 마지막 주문 19:45",
+            "restdatefood": "연중무휴",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "",
+            "lcnsno": "20210404708"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

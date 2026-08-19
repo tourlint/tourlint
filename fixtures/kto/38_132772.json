@@ -1,0 +1,36 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "132772",
+            "contenttypeid": "38",
+            "saleitem": "메밀적(메밀맷돌부치기) / 감자옹심이 / 야채 / 건어물 등",
+            "saleitemcost": "",
+            "fairday": "",
+            "opendateshopping": "1977년 6월 15일",
+            "shopguide": "지상4층~지하1층<br>\n1층 - 잡화상 / 슈퍼마켓 / 간이주점 / 식당 등<br>\n2층 - 생선 / 채소류 / 상점 / 떡과 식용유를 만들어 판매하는 편의품 위주의 상점 등<br>\n3, 4층 - 98세대의 아파트로 상인들이 주로 거주",
+            "culturecenter": "",
+            "restroom": "",
+            "infocentershopping": "033-647-7999",
+            "scaleshopping": "- 영업장 면적 10,120㎡ <br />\n- 매장 면적 6,770㎡",
+            "restdateshopping": "점포별 상이함",
+            "parkingshopping": "가능 (약 소형 150대)<br>요금 (1시간 무료)",
+            "chkbabycarriageshopping": "",
+            "chkpetshopping": "",
+            "chkcreditcardshopping": "가능",
+            "opentime": "06:00~23:00<br>※ 점포별 상이함"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

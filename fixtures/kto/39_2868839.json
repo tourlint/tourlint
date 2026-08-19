@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2868839",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "감자전",
+            "treatmenu": "장칼옹심이, 장칼국수, 순옹심이 등",
+            "smoking": "",
+            "packing": "가능",
+            "infocenterfood": "0507-1313-3266",
+            "scalefood": "",
+            "parkingfood": "가능",
+            "opendatefood": "",
+            "opentimefood": "10:30~20:00",
+            "restdatefood": "매주 화요일",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "가능",
+            "lcnsno": "20220541045"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

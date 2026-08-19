@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2941250",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "메밀 김밥 필 무렵",
+            "treatmenu": "감자수프 / 항정살 감자 솥밥 / 포파누들 등",
+            "smoking": "",
+            "packing": "",
+            "infocenterfood": "0507-1370-7117",
+            "scalefood": "",
+            "parkingfood": "",
+            "opendatefood": "",
+            "opentimefood": "- 11:00~20:00- 준비시간 15:30~17:00- 점심 마지막 주문 15:00 / 저녁 마지막 주문 19:30",
+            "restdatefood": "매주 수요일",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "",
+            "lcnsno": "20220541103"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

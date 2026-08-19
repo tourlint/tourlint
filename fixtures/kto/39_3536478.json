@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3536478",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "쌈생선구이정식",
+            "treatmenu": "생선구이 등",
+            "smoking": "",
+            "packing": "가능",
+            "infocenterfood": "",
+            "scalefood": "",
+            "parkingfood": "있음",
+            "opendatefood": "",
+            "opentimefood": "09:00~22:00",
+            "restdatefood": "연중무휴",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "",
+            "lcnsno": "19900386151"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}
