@@ -1,0 +1,35 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2792194",
+            "contenttypeid": "28",
+            "openperiod": "",
+            "reservation": "",
+            "infocenterleports": "010-4846-7122",
+            "scaleleports": "",
+            "accomcountleports": "",
+            "restdateleports": "연중무휴",
+            "usetimeleports": "- 입실 15:00- 퇴실 11:00",
+            "usefeeleports": "",
+            "expagerangeleports": "",
+            "parkingleports": "",
+            "parkingfeeleports": "무료",
+            "chkbabycarriageleports": "",
+            "chkpetleports": "",
+            "chkcreditcardleports": ""
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

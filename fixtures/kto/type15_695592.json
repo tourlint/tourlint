@@ -1,0 +1,41 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "695592",
+            "contenttypeid": "15",
+            "sponsor1": "강릉시",
+            "sponsor1tel": "033-640-5130",
+            "sponsor2": "",
+            "sponsor2tel": "",
+            "eventenddate": "20260411",
+            "playtime": "평일 13:00~18:00(주말 11:00~18:00 *벚꽃길은 상시 개방)",
+            "eventplace": "경포 습지광장",
+            "eventhomepage": "",
+            "agelimit": "",
+            "bookingplace": "",
+            "placeinfo": "",
+            "subevent": "",
+            "program": "1. 메인프로그램 : 벚꽃 산책길, 벚꽃 라이트닝 터널\n2. 무대프로그램: 벚꽃 버스킹, 벚꽃 운동회\n3. 부대프로그램: 벚꽃 피크닉, 체험 프로그램, 이벤트(벚꽃 도둑을 잡아라!), 벚꽃소원월, 벚꽃가요제\n\n주차 안내: 삼일기념탑주차장(경포로 330), 경포대주차장(강릉시 저동 126-1), 참소리박물관 주차장(경포로 393), 경포번영회 주차장(경포로475번길 5)",
+            "eventstartdate": "20260404",
+            "usetimefestival": "무료",
+            "discountinfofestival": "",
+            "spendtimefestival": "",
+            "festivalgrade": "",
+            "progresstype": "선택안함",
+            "festivaltype": ""
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

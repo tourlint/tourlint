@@ -1,0 +1,36 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "1756581",
+            "contenttypeid": "38",
+            "saleitem": "청과류 (과일 / 채소)",
+            "saleitemcost": "",
+            "fairday": "",
+            "opendateshopping": "1999년 11월 19일",
+            "shopguide": "",
+            "culturecenter": "",
+            "restroom": "있음",
+            "infocentershopping": "㈜강릉농산물도매시장 관리소 033-646-4654",
+            "scaleshopping": "대지  65,825㎡ / 건물  14,021㎡",
+            "restdateshopping": "연중무휴",
+            "parkingshopping": "가능 (약 262대)",
+            "chkbabycarriageshopping": "",
+            "chkpetshopping": "",
+            "chkcreditcardshopping": "",
+            "opentime": "09:00~18:00"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "4074363",
+            "contenttypeid": "32",
+            "roomcount": "1",
+            "roomtype": "양실",
+            "refundregulation": "",
+            "checkintime": "15:00",
+            "checkouttime": "11:00",
+            "chkcooking": "가능",
+            "seminar": "0",
+            "sports": "0",
+            "sauna": "0",
+            "beauty": "0",
+            "beverage": "0",
+            "karaoke": "0",
+            "barbecue": "0",
+            "campfire": "0",
+            "bicycle": "0",
+            "fitness": "0",
+            "publicpc": "0",
+            "publicbath": "0",
+            "subfacility": "",
+            "foodplace": "",
+            "reservationurl": "",
+            "pickup": "",
+            "infocenterlodging": "033-652-1442",
+            "parkinglodging": "",
+            "reservationlodging": "에어비앤비",
+            "scalelodging": "",
+            "accomcountlodging": ""
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}
