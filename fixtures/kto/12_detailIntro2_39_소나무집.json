@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "134338",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "해물짬뽕순두부전골",
+            "treatmenu": "순두부백반 / 두부조림 등",
+            "smoking": "",
+            "packing": "가능",
+            "infocenterfood": "033-653-4488",
+            "scalefood": "",
+            "parkingfood": "가능",
+            "opendatefood": "",
+            "opentimefood": "[월요일]- 07:40~16:00- 마지막 주문 15:45[수요일~일요일]- 07:40~19:30- 준비시간 15:30~17:00- 마지막 주문 19:15",
+            "restdatefood": "매주 화요일 / 설·추석 당일",
+            "discountinfofood": "",
+            "chkcreditcardfood": "가능",
+            "reservationfood": "전화 예약 문의 (033-651-1356)",
+            "lcnsno": "19970386269"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

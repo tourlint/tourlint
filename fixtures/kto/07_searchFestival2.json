@@ -1,0 +1,48 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "addr1": "강원특별자치도 강릉시 창해로14번길 20-1 (견소동)",
+            "addr2": "",
+            "zipcode": "25556",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "contentid": "825295",
+            "contenttypeid": "15",
+            "createdtime": "20091022232428",
+            "eventstartdate": "20261021",
+            "eventenddate": "20261025",
+            "firstimage": "https://tong.visitkorea.or.kr/cms/resource/24/3546224_image2_1.JPG",
+            "firstimage2": "https://tong.visitkorea.or.kr/cms/resource/24/3546224_image3_1.JPG",
+            "cpyrhtDivCd": "Type3",
+            "mapx": "128.9473094259",
+            "mapy": "37.7726104945",
+            "mlevel": "6",
+            "modifiedtime": "20260618175538",
+            "areacode": "",
+            "sigungucode": "",
+            "tel": "033-647-6802",
+            "title": "강릉커피축제",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "EV",
+            "lclsSystm2": "EV01",
+            "lclsSystm3": "EV010100",
+            "progresstype": "선택안함",
+            "festivaltype": ""
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

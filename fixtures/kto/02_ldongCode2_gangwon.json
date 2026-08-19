@@ -1,0 +1,67 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "rnum": 1,
+            "code": "110",
+            "name": "춘천시"
+          },
+          {
+            "rnum": 2,
+            "code": "130",
+            "name": "원주시"
+          },
+          {
+            "rnum": 3,
+            "code": "150",
+            "name": "강릉시"
+          },
+          {
+            "rnum": 4,
+            "code": "170",
+            "name": "동해시"
+          },
+          {
+            "rnum": 5,
+            "code": "190",
+            "name": "태백시"
+          },
+          {
+            "rnum": 6,
+            "code": "210",
+            "name": "속초시"
+          },
+          {
+            "rnum": 7,
+            "code": "230",
+            "name": "삼척시"
+          },
+          {
+            "rnum": 8,
+            "code": "720",
+            "name": "홍천군"
+          },
+          {
+            "rnum": 9,
+            "code": "730",
+            "name": "횡성군"
+          },
+          {
+            "rnum": 10,
+            "code": "750",
+            "name": "영월군"
+          }
+        ]
+      },
+      "numOfRows": 10,
+      "pageNo": 1,
+      "totalCount": 18
+    }
+  }
+}
