@@ -1,0 +1,16 @@
+# TourLint D0 — 로컬 PostgreSQL
+# 실행: docker compose up -d   접속: psql postgresql://tourlint:tourlint@localhost:5432/tourlint
+services:
+  db:
+    image: postgres:16
+    container_name: tourlint-db
+    environment:
+      POSTGRES_USER: tourlint
+      POSTGRES_PASSWORD: tourlint
+      POSTGRES_DB: tourlint
+    ports:
+      - "5432:5432"
+    volumes:
+      - tourlint_pgdata:/var/lib/postgresql/data
+volumes:
+  tourlint_pgdata:
