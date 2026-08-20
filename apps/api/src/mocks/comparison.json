@@ -1,0 +1,75 @@
+{
+  "patchApplicationId": 44,
+  "before": {
+    "auditRunId": 812,
+    "executedAt": "2026-09-15T14:32:07+09:00"
+  },
+  "after": {
+    "auditRunId": 815,
+    "executedAt": "2026-09-15T14:41:33+09:00"
+  },
+  "metrics": [
+    {
+      "key": "blocker",
+      "label": "차단",
+      "before": 2,
+      "after": 0
+    },
+    {
+      "key": "error",
+      "label": "오류",
+      "before": 1,
+      "after": 0
+    },
+    {
+      "key": "warning",
+      "label": "주의",
+      "before": 2,
+      "after": 1
+    },
+    {
+      "key": "unverified",
+      "label": "확인 불가",
+      "before": 1,
+      "after": 1
+    },
+    {
+      "key": "deduction",
+      "label": "총 감점",
+      "before": 71,
+      "after": 7,
+      "formulaBefore": "50+10+8+3",
+      "formulaAfter": "0+0+4+3"
+    },
+    {
+      "key": "readinessScore",
+      "label": "출시 준비도",
+      "before": 29,
+      "after": 93
+    },
+    {
+      "key": "travelMinutes",
+      "label": "총 이동시간",
+      "before": 190,
+      "after": 145,
+      "sourceBadge": "EXTERNAL_REF",
+      "externalSource": "카카오모빌리티"
+    },
+    {
+      "key": "travelMeters",
+      "label": "총 이동거리",
+      "before": 86000,
+      "after": 63000,
+      "sourceBadge": "EXTERNAL_REF",
+      "externalSource": "카카오모빌리티"
+    },
+    {
+      "key": "targetFit",
+      "label": "수요 적합성",
+      "beforeText": "야간·체험 콘텐츠 없음",
+      "afterText": "야간축제 반영"
+    }
+  ],
+  "warningBanner": null,
+  "revertible": true
+}

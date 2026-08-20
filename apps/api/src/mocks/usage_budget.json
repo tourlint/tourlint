@@ -1,0 +1,31 @@
+{
+  "quotaDate": "2026-09-15",
+  "dailyQuota": 800,
+  "used": 214,
+  "usageRatio": 0.268,
+  "state": "NORMAL",
+  "batchAutoStopped": false,
+  "topOperations": [
+    {
+      "operation": "searchKeyword2",
+      "count": 72
+    },
+    {
+      "operation": "detailIntro2",
+      "count": 64
+    },
+    {
+      "operation": "detailCommon2",
+      "count": 64
+    },
+    {
+      "operation": "locationBasedList2",
+      "count": 9
+    },
+    {
+      "operation": "searchFestival2",
+      "count": 5
+    }
+  ],
+  "resetAt": "2026-09-16T00:00:00+09:00"
+}

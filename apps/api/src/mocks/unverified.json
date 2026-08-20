@@ -1,0 +1,26 @@
+{
+  "totalCount": 3,
+  "items": [
+    {
+      "findingId": 9105,
+      "contentid": "1234567",
+      "placeLabel": "B전망대",
+      "reason": "운영시간이 데이터에서 확인되지 않습니다",
+      "reasonCode": "PARSE_REFERENCE",
+      "location": {
+        "dayNo": 2,
+        "seq": 1,
+        "startTime": "09:00"
+      },
+      "confirmedAt": null,
+      "excludedFromScore": false
+    },
+    {
+      "findingId": 9109,
+      "reason": "출발 전 운영기관 최종 확인",
+      "reasonCode": "PRE_DEPARTURE_CHECK",
+      "excludedFromScore": true,
+      "note": "공사 데이터의 D+1 구조적 시차로 자동 생성된 항목이며 감점 대상이 아닙니다"
+    }
+  ]
+}

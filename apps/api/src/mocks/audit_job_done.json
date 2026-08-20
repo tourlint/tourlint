@@ -1,0 +1,11 @@
+{
+  "jobId": 5501,
+  "status": "DONE",
+  "progress": {
+    "done": 8,
+    "total": 8,
+    "label": "8곳 중 8곳 조회 완료"
+  },
+  "auditRunId": 812,
+  "finishedAt": "2026-09-15T14:32:11+09:00"
+}

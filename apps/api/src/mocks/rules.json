@@ -1,0 +1,85 @@
+{
+  "rulesetVersion": "v1.3.0",
+  "rules": [
+    {
+      "code": "R01",
+      "name": "휴무일 · 운영시간 충돌",
+      "version": "1.0.0",
+      "defaultSeverity": "BLOCKER",
+      "requiresExternal": false,
+      "basis": "KTO_ONLY"
+    },
+    {
+      "code": "R02",
+      "name": "행사기간 불일치",
+      "version": "1.0.0",
+      "defaultSeverity": "BLOCKER",
+      "requiresExternal": false,
+      "basis": "KTO_ONLY"
+    },
+    {
+      "code": "R03",
+      "name": "일정 시간 중복",
+      "version": "1.0.0",
+      "defaultSeverity": "ERROR",
+      "requiresExternal": false,
+      "basis": "KTO_ONLY"
+    },
+    {
+      "code": "R04",
+      "name": "콘텐츠 편중",
+      "version": "1.0.0",
+      "defaultSeverity": "WARNING",
+      "requiresExternal": false,
+      "basis": "KTO_ONLY"
+    },
+    {
+      "code": "R05",
+      "name": "데이터 검증 불가",
+      "version": "1.0.0",
+      "defaultSeverity": "UNVERIFIED",
+      "requiresExternal": false,
+      "basis": "KTO_ONLY"
+    },
+    {
+      "code": "R06",
+      "name": "데이터 변경 감지",
+      "version": "1.0.0",
+      "defaultSeverity": null,
+      "requiresExternal": false,
+      "basis": "KTO_ONLY"
+    },
+    {
+      "code": "R07",
+      "name": "식사 · 휴식 누락",
+      "version": "1.0.0",
+      "defaultSeverity": "WARNING",
+      "requiresExternal": false,
+      "basis": "ITINERARY_ONLY"
+    },
+    {
+      "code": "R08",
+      "name": "이동시간 부족",
+      "version": "1.0.0",
+      "defaultSeverity": "ERROR",
+      "requiresExternal": true,
+      "basis": "KTO_PLUS_EXTERNAL"
+    },
+    {
+      "code": "R09",
+      "name": "우천 리스크",
+      "version": "1.0.0",
+      "defaultSeverity": "WARNING",
+      "requiresExternal": true,
+      "basis": "KTO_PLUS_EXTERNAL"
+    },
+    {
+      "code": "R10",
+      "name": "상품 타깃-콘텐츠 적합성",
+      "version": "1.0.0",
+      "defaultSeverity": "WARNING",
+      "requiresExternal": false,
+      "basis": "KTO_ONLY"
+    }
+  ]
+}
