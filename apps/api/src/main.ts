@@ -9,7 +9,7 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.enableCors({ origin: true, credentials: true });
   const port = Number(process.env.PORT ?? 3001);
-  await app.listen(port, '0.0.0.0');
+  await app.listen(port, '::');
   // eslint-disable-next-line no-console
   console.log(`TourLint API (mock) → http://localhost:${port}  ·  health: /health`);
 }
