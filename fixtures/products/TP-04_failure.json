@@ -1,0 +1,39 @@
+{
+  "fixtureId": "TP-04",
+  "title": "실패 — 부분 검수 50% 경계 (1박 2일 8곳 · 실패 주입 2케이스)",
+  "purpose": "FR-AU-029의 '실패 콘텐츠 50% 초과 시 점수 미산출' 경계를 정확히 검증한다. 실패는 존재하지 않는 contentid가 아니라 조회 강제 실패로 주입한다 — 공사 API는 없는 ID에 대해 0건 정상 응답(EX-EI-004)을 주므로 '조회 실패'와 다른 경로다.",
+  "product": {
+    "name": "강릉 실패 격리 검증 1박 2일",
+    "ldongRegnCd": "51",
+    "ldongSignguCd": "150",
+    "startDate": "2026-10-08",
+    "nights": 1,
+    "transport": "CAR",
+    "target": "50~60대",
+    "concept": "힐링·역사",
+    "headcount": 10
+  },
+  "items": [
+    { "dayNo": 1, "seq": 1, "startTime": "10:00", "endTime": "11:30", "placeLabel": "강릉 경포대",             "itemType": "SIGHT", "contentId": "125790",  "contentTypeId": 12, "lclsSystm2": "HS01" },
+    { "dayNo": 1, "seq": 2, "startTime": "12:00", "endTime": "13:00", "placeLabel": "감천골",                 "itemType": "MEAL",  "contentId": "3536478", "contentTypeId": 39, "lclsSystm2": "FD01" },
+    { "dayNo": 1, "seq": 3, "startTime": "13:30", "endTime": "15:00", "placeLabel": "강릉 오죽헌·시립박물관", "itemType": "SIGHT", "contentId": "129784",  "contentTypeId": 14, "lclsSystm2": "VE07" },
+    { "dayNo": 1, "seq": 4, "startTime": "15:30", "endTime": "16:30", "placeLabel": "강릉 농산물도매시장",     "itemType": "SIGHT", "contentId": "1756581", "contentTypeId": 38, "lclsSystm2": "SH06" },
+    { "dayNo": 1, "seq": 5, "startTime": "17:30", "endTime": null,    "placeLabel": "강릉강변스테이",         "itemType": "STAY",  "contentId": "4074363", "contentTypeId": 32, "lclsSystm2": "AC06" },
+
+    { "dayNo": 2, "seq": 1, "startTime": "10:00", "endTime": "11:00", "placeLabel": "강릉 남산공원",           "itemType": "SIGHT", "contentId": "3022373", "contentTypeId": 12, "lclsSystm2": "VE03" },
+    { "dayNo": 2, "seq": 2, "startTime": "12:00", "endTime": "13:00", "placeLabel": "감자적본부",             "itemType": "MEAL",  "contentId": "2868869", "contentTypeId": 39, "lclsSystm2": "FD01" },
+    { "dayNo": 2, "seq": 3, "startTime": "14:00", "endTime": "15:00", "placeLabel": "강릉 굴산사지",           "itemType": "SIGHT", "contentId": "125769",  "contentTypeId": 12, "lclsSystm2": "HS01" }
+  ],
+  "injections": {
+    "TP-04a": {
+      "note": "8곳 중 4곳 실패 = 50% — '초과'가 아니므로 점수를 산출해야 한다",
+      "failContentIds": ["129784", "1756581", "2868869", "125769"],
+      "mode": "detailIntro2 · detailCommon2 를 재시도 2회 후에도 5xx로 응답"
+    },
+    "TP-04b": {
+      "note": "8곳 중 5곳 실패 = 62.5% — 초과이므로 부분 검수로 승격, 점수 미산출",
+      "failContentIds": ["129784", "1756581", "2868869", "125769", "3022373"],
+      "mode": "동일"
+    }
+  }
+}

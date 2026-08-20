@@ -1,0 +1,32 @@
+{
+  "fixtureId": "TP-01",
+  "title": "표준 — 출시 가능 상태 (2박 3일 12곳)",
+  "purpose": "정상 경로 회귀. 차단·오류 0건이 유지되는지, 규칙이 과탐하지 않는지 확인한다.",
+  "product": {
+    "name": "강릉 역사·힐링 2박 3일",
+    "ldongRegnCd": "51",
+    "ldongSignguCd": "150",
+    "startDate": "2026-10-08",
+    "nights": 2,
+    "transport": "CAR",
+    "target": "50~60대",
+    "concept": "힐링·역사",
+    "headcount": 20
+  },
+  "items": [
+    { "dayNo": 1, "seq": 1, "startTime": "10:00", "endTime": "11:30", "placeLabel": "강릉 경포대",              "itemType": "SIGHT", "contentId": "125790",  "contentTypeId": 12, "lclsSystm2": "HS01" },
+    { "dayNo": 1, "seq": 2, "startTime": "12:00", "endTime": "13:00", "placeLabel": "가람집옹심이",             "itemType": "MEAL",  "contentId": "2868839", "contentTypeId": 39, "lclsSystm2": "FD01" },
+    { "dayNo": 1, "seq": 3, "startTime": "13:30", "endTime": "15:00", "placeLabel": "강릉 오죽헌·시립박물관",   "itemType": "SIGHT", "contentId": "129784",  "contentTypeId": 14, "lclsSystm2": "VE07" },
+    { "dayNo": 1, "seq": 4, "startTime": "15:30", "endTime": "16:30", "placeLabel": "강릉 농산물도매시장",       "itemType": "SIGHT", "contentId": "1756581", "contentTypeId": 38, "lclsSystm2": "SH06" },
+    { "dayNo": 1, "seq": 5, "startTime": "17:30", "endTime": null,    "placeLabel": "강릉강변스테이",           "itemType": "STAY",  "contentId": "4074363", "contentTypeId": 32, "lclsSystm2": "AC06" },
+
+    { "dayNo": 2, "seq": 1, "startTime": "10:00", "endTime": "11:00", "placeLabel": "강릉 한복 문화 창작소",     "itemType": "SIGHT", "contentId": "3379937", "contentTypeId": 14, "lclsSystm2": "VE12" },
+    { "dayNo": 2, "seq": 2, "startTime": "12:00", "endTime": "13:00", "placeLabel": "감천골",                   "itemType": "MEAL",  "contentId": "3536478", "contentTypeId": 39, "lclsSystm2": "FD01" },
+    { "dayNo": 2, "seq": 3, "startTime": "14:00", "endTime": "15:30", "placeLabel": "강릉 녹색도시체험센터",     "itemType": "SIGHT", "contentId": "2465063", "contentTypeId": 12, "lclsSystm2": "EX06" },
+    { "dayNo": 2, "seq": 4, "startTime": "17:30", "endTime": null,    "placeLabel": "강릉관광호텔",             "itemType": "STAY",  "contentId": "3540781", "contentTypeId": 32, "lclsSystm2": "AC01" },
+
+    { "dayNo": 3, "seq": 1, "startTime": "09:30", "endTime": "10:30", "placeLabel": "강릉 남산공원",             "itemType": "SIGHT", "contentId": "3022373", "contentTypeId": 12, "lclsSystm2": "VE03" },
+    { "dayNo": 3, "seq": 2, "startTime": "12:00", "endTime": "13:00", "placeLabel": "감자적본부",               "itemType": "MEAL",  "contentId": "2868869", "contentTypeId": 39, "lclsSystm2": "FD01" },
+    { "dayNo": 3, "seq": 3, "startTime": "14:00", "endTime": "15:00", "placeLabel": "강릉 굴산사지",             "itemType": "SIGHT", "contentId": "125769",  "contentTypeId": 12, "lclsSystm2": "HS01" }
+  ]
+}
