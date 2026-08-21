@@ -1,0 +1,253 @@
+import type { ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
+import type { Pool } from 'pg';
+import type { Finding } from '../engine/rules/types';
+import { calculateReadiness, type ScorableFinding, type ScoreResult } from '../engine/score';
+import { withTransaction, type Queryable } from './db';
+
+/**
+ * 검수 결과 저장 (DB 명세서 3-5 · 3-6 · 3-7 · 파이프라인 9단계).
+ *
+ * 세 테이블(`audit_run` · `finding` · `content_fingerprint`)을 **한 트랜잭션으로** 쓴다.
+ * 나눠 쓰면 finding 이 빠진 `audit_run` 이 남을 수 있는데, 그러면 화면에 **점수는 있는데
+ * 근거가 없는** 검수 결과가 뜬다. 근거 없는 판정을 보여주지 않는 것이 이 서비스의 전제다.
+ *
+ * ⚠️ `audit_run` 은 불변이다 (`PM-NG-004`, DB 트리거가 UPDATE 를 막는다). 무시 처리로 점수가
+ * 달라져도 저장값을 고치지 않고 **조회 시점에 다시 계산한다** (FR-AU-046).
+ */
+
+export interface FingerprintToSave {
+  readonly ktoContentId: string;
+  readonly contentTypeId: number;
+  readonly fetchedAt: Date;
+  /** 원본 `YYYYMMDDHHmmss` 문자열. 비교 목적이므로 변환하지 않는다 (DR-PR-008) */
+  readonly ktoModifiedTime: string;
+  readonly showFlag: 0 | 1;
+  readonly fieldNames: readonly string[];
+  readonly fieldHash: string;
+  /** 정규화 결과. 파싱 전면 실패면 null */
+  readonly normalizedJson: unknown | null;
+  readonly parseConfidence: ParseConfidence;
+}
+
+export interface AuditResultToSave {
+  readonly productId: number;
+  readonly executedAt: Date;
+  readonly rulesetVersion: string;
+  readonly targetCount: number;
+  readonly failedCount: number;
+  readonly findings: readonly Finding[];
+  readonly fingerprints: readonly FingerprintToSave[];
+  /** 산출 시점 가중치. 설정 변경의 소급 적용을 막는다 (DR-CF-006) */
+  readonly weights: Readonly<Record<Severity, number>>;
+  readonly score: ScoreResult;
+}
+
+export interface StoredFinding extends ScorableFinding {
+  readonly id: number;
+  readonly ruleCode: string;
+  readonly reasonCode: ReasonCode;
+  readonly targetItemId: number | null;
+  readonly targetItemId2: number | null;
+  readonly message: string;
+  readonly evidence: Readonly<Record<string, unknown>>;
+  readonly requiresExternal: boolean;
+  readonly externalSource: string | null;
+  readonly dismissReason: string | null;
+  readonly confirmed: boolean;
+}
+
+export interface StoredAuditRun {
+  readonly id: number;
+  readonly productId: number;
+  readonly executedAt: Date;
+  readonly rulesetVersion: string;
+  /** **저장 시점** 점수. 무시 처리가 반영되지 않은 값이다 */
+  readonly storedScore: number | null;
+  readonly isPartial: boolean;
+  readonly targetCount: number;
+  readonly failedCount: number;
+  readonly weights: Readonly<Record<Severity, number>>;
+  readonly findings: readonly StoredFinding[];
+  /** **조회 시점** 재계산 결과. 화면·리포트는 이 값을 쓴다 (FR-AU-046) */
+  readonly current: ScoreResult;
+}
+
+export class AuditResultRepository {
+  constructor(private readonly pool: Pool) {}
+
+  /** 세 테이블을 한 트랜잭션으로 쓴다. 새 `audit_run.id` 를 돌려준다 */
+  async save(result: AuditResultToSave): Promise<number> {
+    return withTransaction(this.pool, async (client) => {
+      const runId = await insertAuditRun(client, result);
+      await insertFindings(client, runId, result.findings);
+      await insertFingerprints(client, runId, result.fingerprints);
+      return runId;
+    });
+  }
+
+  /**
+   * 검수 실행 하나를 읽는다.
+   *
+   * **점수를 다시 계산해 돌려준다.** 저장값은 `storedScore` 로 함께 주되, 화면에 쓰는 값은
+   * `current` 다 — 무시 · 무시 해제는 과거 저장값을 바꾸지 않고 조회 시점에 반영된다
+   * (FR-AU-046 · PM-NG-004).
+   */
+  async findById(auditRunId: number): Promise<StoredAuditRun | null> {
+    const run = await this.pool.query<AuditRunRow>(
+      `SELECT id, product_id, executed_at, ruleset_version, readiness_score, is_partial,
+              target_count, failed_count, weight_snapshot
+         FROM audit_run WHERE id = $1`,
+      [auditRunId],
+    );
+    const row = run.rows[0];
+    if (row === undefined) return null;
+
+    const findings = await this.findingsOf(auditRunId);
+    const weights = row.weight_snapshot;
+
+    return {
+      id: Number(row.id),
+      productId: Number(row.product_id),
+      executedAt: row.executed_at,
+      rulesetVersion: row.ruleset_version,
+      storedScore: row.readiness_score === null ? null : Number(row.readiness_score),
+      isPartial: row.is_partial,
+      targetCount: row.target_count,
+      failedCount: row.failed_count,
+      weights,
+      findings,
+      // 저장값을 그대로 쓰지 않는다. 무시 상태가 바뀌었을 수 있다
+      current: calculateReadiness({
+        findings,
+        weights,
+        targetCount: row.target_count,
+        failedCount: row.failed_count,
+      }),
+    };
+  }
+
+  async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
+    const { rows } = await this.pool.query<FindingRow>(
+      `SELECT id, rule_code, severity, reason_code, target_item_id, target_item_id2,
+              message, evidence, requires_external, external_source,
+              dismissed_at, dismiss_reason, confirmed_at
+         FROM finding WHERE audit_run_id = $1 ORDER BY id`,
+      [auditRunId],
+    );
+    return rows.map(toStoredFinding);
+  }
+}
+
+// ── 쓰기 ──────────────────────────────────────────────────────────────
+
+async function insertAuditRun(client: Queryable, r: AuditResultToSave): Promise<number> {
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO audit_run
+       (product_id, executed_at, ruleset_version, readiness_score, is_partial,
+        target_count, failed_count, blocker_cnt, error_cnt, warn_cnt, unverified_cnt, weight_snapshot)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     RETURNING id`,
+    [
+      r.productId, r.executedAt, r.rulesetVersion,
+      r.score.score, r.score.isPartial,
+      r.targetCount, r.failedCount,
+      // 저장하는 건수는 **전체**다. 무시는 저장 이후에 일어나고 조회 시점에 반영된다
+      r.score.counts.BLOCKER, r.score.counts.ERROR, r.score.counts.WARNING, r.score.counts.UNVERIFIED,
+      JSON.stringify(r.weights),
+    ],
+  );
+  const id = rows[0]?.id;
+  if (id === undefined) throw new Error('audit_run 을 만들지 못했다');
+  return Number(id);
+}
+
+async function insertFindings(client: Queryable, runId: number, findings: readonly Finding[]): Promise<void> {
+  for (const f of findings) {
+    await client.query(
+      `INSERT INTO finding
+         (audit_run_id, rule_code, rule_version, severity, reason_code,
+          target_item_id, target_item_id2, message, evidence, requires_external, external_source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        runId, f.ruleCode, f.ruleVersion, f.severity, f.reasonCode,
+        f.targetItemId, f.targetItemId2 ?? null, f.message,
+        /*
+         * `finding` 에 확인 필요 여부를 담을 컬럼이 없어 `evidence` 로 내려보낸다.
+         * 목록에서 체크한 **시각**은 `confirmed_at` 이 갖는다 — 둘은 다른 정보다.
+         */
+        JSON.stringify({ ...f.evidence, needsConfirmation: f.needsConfirmation }),
+        f.requiresExternal, f.externalSource,
+      ],
+    );
+  }
+}
+
+async function insertFingerprints(
+  client: Queryable,
+  runId: number,
+  fingerprints: readonly FingerprintToSave[],
+): Promise<void> {
+  for (const fp of fingerprints) {
+    await client.query(
+      `INSERT INTO content_fingerprint
+         (audit_run_id, kto_content_id, content_type_id, fetched_at, kto_modified_time,
+          show_flag, field_names, field_hash, normalized_json, parse_confidence)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        runId, fp.ktoContentId, fp.contentTypeId, fp.fetchedAt, fp.ktoModifiedTime,
+        fp.showFlag, fp.fieldNames, fp.fieldHash,
+        fp.normalizedJson === null ? null : JSON.stringify(fp.normalizedJson),
+        fp.parseConfidence,
+      ],
+    );
+  }
+}
+
+// ── 행 매핑 ───────────────────────────────────────────────────────────
+
+interface AuditRunRow {
+  id: string;
+  product_id: string;
+  executed_at: Date;
+  ruleset_version: string;
+  readiness_score: number | null;
+  is_partial: boolean;
+  target_count: number;
+  failed_count: number;
+  weight_snapshot: Record<Severity, number>;
+}
+
+interface FindingRow {
+  id: string;
+  rule_code: string;
+  severity: Severity;
+  reason_code: ReasonCode;
+  target_item_id: string | null;
+  target_item_id2: string | null;
+  message: string;
+  evidence: Record<string, unknown>;
+  requires_external: boolean;
+  external_source: string | null;
+  dismissed_at: Date | null;
+  dismiss_reason: string | null;
+  confirmed_at: Date | null;
+}
+
+function toStoredFinding(row: FindingRow): StoredFinding {
+  return {
+    id: Number(row.id),
+    ruleCode: row.rule_code,
+    severity: row.severity,
+    reasonCode: row.reason_code,
+    targetItemId: row.target_item_id === null ? null : Number(row.target_item_id),
+    targetItemId2: row.target_item_id2 === null ? null : Number(row.target_item_id2),
+    message: row.message,
+    evidence: row.evidence,
+    requiresExternal: row.requires_external,
+    externalSource: row.external_source,
+    dismissed: row.dismissed_at !== null,
+    dismissReason: row.dismiss_reason,
+    confirmed: row.confirmed_at !== null,
+    needsConfirmation: row.evidence.needsConfirmation === true,
+  };
+}
