@@ -7,3 +7,4 @@ allowBuilds:
   "unrs-resolver": true
   "@tailwindcss/oxide": true
   "sharp": true
+  esbuild: true

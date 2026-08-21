@@ -1,12 +1,14 @@
 {
   "name": "tourlint",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "관광상품 출시 검수 · 수요 적합성 · 데이터 신선도 관리 플랫폼",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "pnpm --filter @tourlint/shared build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "verify": "pnpm build && pnpm lint && pnpm typecheck && pnpm test"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
