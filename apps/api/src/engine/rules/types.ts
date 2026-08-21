@@ -1,5 +1,5 @@
 import type {
-  ContentTypeId, ItemType, MatchStatus, ParseConfidence, ReasonCode, Severity,
+  ContentTypeId, EndTimeSource, ItemType, MatchStatus, ParseConfidence, ReasonCode, Severity,
 } from '@tourlint/shared';
 import type { HolidayCalendar } from '../calendar/holidays';
 import type { IsoDate } from '../calendar/dates';
@@ -24,6 +24,14 @@ export interface MatchedContent {
   readonly normalized: NormalizedOperatingInfo | null;
   /** 1 = 표출 · 0 = 비표출 */
   readonly showFlag: 0 | 1;
+  /**
+   * 행사(15) 개최 기간. 그 밖의 유형은 null.
+   *
+   * 운영정보 스키마(DR-NM)에 두지 않은 이유 — 그 스키마는 **휴무와 운영시간** 두 축의 계약이고,
+   * 행사 기간은 다른 축이다. 러너가 `detailIntro2` 의 `eventstartdate` · `eventenddate` 를
+   * `YYYYMMDD` → `YYYY-MM-DD` 로 옮겨 넣는다. **결측이면 null 이며 차단하지 않는다** (FR-RU-023).
+   */
+  readonly eventPeriod: { readonly start: IsoDate | null; readonly end: IsoDate | null } | null;
 }
 
 export interface AuditItem {
@@ -35,6 +43,10 @@ export interface AuditItem {
   readonly startTime: TimeOfDay;
   /** 미입력이면 체류시간으로 보완된 값. 보완도 못 했으면 null */
   readonly endTime: TimeOfDay | null;
+  /** 종료시간의 출처. 보완값으로 내린 판정은 그 사실을 메시지에 밝혀야 한다 (FR-RU-031) */
+  readonly endTimeSource: EndTimeSource;
+  /** 신분류체계 중분류. 체류시간 보완과 R09 실내외 판정의 입력 */
+  readonly lclsSystm2: string | null;
   readonly itemType: ItemType;
   /** **사용자가 입력한** 일정 항목명. 공사 원문이 아니다 (DR-PR-001) */
   readonly placeLabel: string;

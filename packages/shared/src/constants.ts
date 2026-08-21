@@ -123,6 +123,43 @@ export const RULE_CONSTANTS = {
   R10_NIGHT_SLOT_FROM: '19:00',
 } as const;
 
+/**
+ * 신분류체계 **중분류별 기본 체류시간(분)** 초기값 (FR-IN-011 · FR-OP-021 · DR-CF-002).
+ *
+ * 종료시간이 입력되지 않은 항목을 이 표로 보완한 뒤 R03 중복을 판정한다 (FR-RU-031).
+ * 매핑이 없는 중분류에는 `SETTING_DEFAULTS.dwellFallbackMinutes`(90분)를 적용한다.
+ *
+ * ⚠️ **소요시간을 공사 데이터에서 취득한다고 전제하지 않는다.** 2026.08.12 실호출에서
+ *    반복정보 조회에 소요시간 필드가 없었고, 문화시설(14)의 `spendtime` 은 빈 문자열이었다
+ *    (EI-KT-020). 이 표가 유일한 근거다.
+ *
+ * ⚠️ **숙박(`AC*`)에는 체류시간을 두지 않는다** (FR-AU-011). 입실 · 퇴실만 해석하므로
+ *    보완 대상이 아니다. 잘못 보완하면 입실 17:30 + 90분 = 19:00 구간이 생겨
+ *    **없는 시간 중복**이 만들어진다.
+ *
+ * 픽스처 22건이 실제로 쓰는 8개만 담는다. 나머지는 W3 에 59행으로 채운다.
+ */
+export const DWELL_MINUTES_SEED: Readonly<Record<string, number>> = {
+  HS01: 60,  // 역사관광지 — 경포대 · 굴산사지
+  VE03: 60,  // 자연공원 — 강남축구공원 · 3·1운동기념공원 · 남산공원
+  VE07: 90,  // 박물관 · 기념관 — 오죽헌·시립박물관 · 갈골한과체험전시관
+  VE12: 90,  // 문화체험 — 한복 문화 창작소
+  EX06: 90,  // 체험시설 — 녹색도시체험센터
+  EV01: 120, // 축제 — 경포벚꽃축제 · 강릉커피축제
+  FD01: 60,  // 음식점
+  SH06: 60,  // 시장 — 농산물도매시장 · 동부시장
+};
+
+/** 실내 · 야외 구분 초기값. R09 야외 비중 계산에만 쓴다 (FR-RU-090 · FR-OP-021) */
+export const INDOOR_OUTDOOR = ['INDOOR', 'OUTDOOR', 'MIXED'] as const;
+export type IndoorOutdoor = (typeof INDOOR_OUTDOOR)[number];
+
+export const INDOOR_OUTDOOR_SEED: Readonly<Record<string, IndoorOutdoor>> = {
+  HS01: 'OUTDOOR', VE03: 'OUTDOOR', VE07: 'MIXED', VE12: 'INDOOR',
+  EX06: 'INDOOR', EV01: 'OUTDOOR', FD01: 'INDOOR', SH06: 'MIXED',
+  AC01: 'INDOOR', AC03: 'INDOOR', AC05: 'MIXED', AC06: 'INDOOR',
+};
+
 /** 계정 설정 기본값 — 실제 판정에는 user_setting 값을 쓴다 */
 export const SETTING_DEFAULTS = {
   r07SpanHours: 6,

@@ -33,6 +33,8 @@ function evaluate(input: CaseInput): readonly Finding[] {
     date: input.date,
     startTime: input.start ?? '10:00',
     endTime: input.end === undefined ? '11:00' : input.end,
+    endTimeSource: 'INPUT',
+    lclsSystm2: null,
     itemType: input.itemType ?? 'SIGHT',
     placeLabel: input.placeLabel ?? '테스트 장소',
     matchStatus: 'CONFIRMED',
@@ -41,6 +43,7 @@ function evaluate(input: CaseInput): readonly Finding[] {
       contentTypeId: input.contentTypeId,
       normalized: parseOperatingInfo({ contentTypeId: input.contentTypeId, raw: input.raw }),
       showFlag: 1,
+      eventPeriod: null,
     },
   };
   const ctx: ItineraryContext = { productId: 1, items: [item], holidays: KOREAN_HOLIDAYS };
@@ -323,6 +326,7 @@ describe('대상 제외 (FR-AU-011 · FR-RU-014)', () => {
   it('매칭되지 않은 항목은 판정하지 않는다 — R05 가 다룬다', () => {
     const item: AuditItem = {
       id: 9, dayNo: 1, seq: 1, date: '2026-10-13', startTime: '12:00', endTime: '13:00',
+      endTimeSource: 'INPUT', lclsSystm2: null,
       itemType: 'SIGHT', placeLabel: '이름만 있는 곳', matchStatus: 'PENDING', content: null,
     };
     expect(rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS })).toHaveLength(0);
