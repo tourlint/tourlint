@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
 import type { Finding } from '../engine/rules/types';
 import { calculateReadiness } from '../engine/score';
@@ -19,6 +19,7 @@ import { AuditResultRepository, type AuditResultToSave, type FingerprintToSave }
  */
 
 const URL = process.env.TEST_DATABASE_URL;
+let counter = 0;
 
 // CI 에서 조용히 건너뛰면 이 파일은 있으나 마나다. 반드시 돌아야 하는 환경에서는 실패시킨다
 if (URL === undefined && process.env.REQUIRE_DB_TESTS === '1') {
@@ -40,12 +41,23 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
     await pool.end();
   });
 
+  /*
+   * **전역 TRUNCATE 를 쓰지 않는다.** 테스트 파일이 병렬로 돌면 한 파일의 TRUNCATE 가
+   * 다른 파일이 방금 만든 데이터를 지워 버린다. 각자 자기 계정만 만들고 자기 것만 지운다 —
+   * `ON DELETE CASCADE` 가 상품 · 실행 · finding · 지문을 함께 걷어 간다.
+   */
+  let accountId: number;
+
+  afterEach(async () => {
+    await pool.query('DELETE FROM account WHERE id = $1', [accountId]);
+  });
+
   beforeEach(async () => {
-    // audit_run · finding · content_fingerprint 는 CASCADE 로 함께 지워진다
-    await pool.query('TRUNCATE account RESTART IDENTITY CASCADE');
     const account = await pool.query<{ id: string }>(
-      `INSERT INTO account (email, password_hash) VALUES ('t@example.com', 'x') RETURNING id`,
+      `INSERT INTO account (email, password_hash) VALUES ($1, 'x') RETURNING id`,
+      [`repo-${String(process.pid)}-${String(counter++)}@example.com`],
     );
+    accountId = Number(account.rows[0]?.id);
     const product = await pool.query<{ id: string }>(
       `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
        VALUES ($1, '강릉 2박 3일', '51', DATE '2026-10-22', 2, 'CAR') RETURNING id`,
@@ -128,7 +140,7 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
     it('실패하면 아무것도 남지 않는다 — 근거 없는 점수를 만들지 않는다', async () => {
       // 해시 형식이 틀리면 ck_fp_hash 가 막는다. 그때 audit_run 만 남으면 안 된다
       await expect(repo.save(build({ fingerprints: [fingerprint({ fieldHash: 'not-a-hash' })] }))).rejects.toThrow();
-      const run = await pool.query('SELECT count(*)::int AS n FROM audit_run');
+      const run = await pool.query('SELECT count(*)::int AS n FROM audit_run WHERE product_id = $1', [productId]);
       expect(run.rows[0]).toEqual({ n: 0 });
     });
   });

@@ -48,7 +48,8 @@ export class KtoQuotaExceededError extends KtoError {
  */
 export class KtoFetchError extends KtoError {
   readonly reasonCode = 'KTO_FETCH_FAILED' as const;
-  readonly retryable = true;
+  // 리터럴 `true` 로 좁히면 하위 클래스가 뒤집을 수 없다 (FixtureMissingError)
+  readonly retryable: boolean = true;
   constructor(
     operation: KtoOperation,
     detail: string,
@@ -57,6 +58,16 @@ export class KtoFetchError extends KtoError {
   ) {
     super(operation, detail);
   }
+}
+
+/**
+ * 픽스처 리플레이에 그 콘텐츠가 없다 (`KTO_MODE=fixture`).
+ *
+ * **재시도하지 않는다.** 없는 스냅샷은 다시 불러도 없다. 재시도하면 개발 중 호출 로그가
+ * 3배로 부풀어 예산 집계와 호출 수 검증이 실제와 어긋난다.
+ */
+export class FixtureMissingError extends KtoFetchError {
+  override readonly retryable = false;
 }
 
 /** 연결 3초 · 응답 10초 초과 (EI-CM-004). 호출 로그에 `TIMEOUT` 으로 남는다 */
