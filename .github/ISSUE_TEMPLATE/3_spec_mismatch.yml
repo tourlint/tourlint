@@ -1,0 +1,38 @@
+name: 코드 ↔ 명세 불일치
+description: 구현이 노션 문서와 다르거나, 문서끼리 서로 어긋난다
+labels: ["spec-mismatch"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        문서 12종이 상호 참조로 얽혀 있어 한 곳을 고치면 다른 문서가 조용히 어긋난다.
+        **어느 쪽이 맞는지 먼저 정하고**, 계약을 바꿔야 하면 코드보다 문서를 먼저 고친다(SC-CM-001).
+  - type: textarea
+    id: spec
+    attributes:
+      label: 명세는 이렇게 말한다
+      description: 문서명 · 항목 ID · 원문 인용
+      placeholder: "API 설계 3-2 — 오류 응답은 reasonCode · unit · fieldErrors · occurredAt 을 갖는다"
+    validations: { required: true }
+  - type: textarea
+    id: code
+    attributes:
+      label: 코드는 이렇게 되어 있다
+      description: 파일 경로 · 줄 번호
+      placeholder: "apps/api/src/common/all-exceptions.filter.ts — errorCode · path · timestamp(UTC Z)"
+    validations: { required: true }
+  - type: dropdown
+    id: direction
+    attributes:
+      label: 어느 쪽을 고쳐야 하나
+      options:
+        - 코드를 명세에 맞춘다 (명세가 옳다)
+        - 명세를 코드에 맞춘다 (실측·구현 결과가 옳다 → 노션 개정 필요)
+        - 아직 모르겠다 (2인 합의 필요)
+    validations: { required: true }
+  - type: textarea
+    id: blast
+    attributes:
+      label: 연쇄 영향
+      description: 같은 값을 인용하는 다른 문서·코드. 같이 안 고치면 모순이 남는다.
+    validations: { required: true }
