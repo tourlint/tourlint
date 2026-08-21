@@ -4,9 +4,12 @@
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepare": "pnpm build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo \"(shared: 린터 미도입)\"",
     "test": "vitest run --passWithNoTests"
