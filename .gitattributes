@@ -1,0 +1,15 @@
+# 회귀 정답셋은 바이트가 고정돼야 한다.
+# 줄바꿈이 정규화되면 환경마다 파일이 달라져 "실측 원본"이라는 성질이 깨진다.
+fixtures/operating_info.csv -text
+fixtures/daily_changes.csv  -text
+
+# KTO 실호출 스냅샷도 같은 이유로 손대지 않는다.
+fixtures/kto/*.json -text
+
+# 나머지 소스는 LF 로 통일
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.sql  text eol=lf
