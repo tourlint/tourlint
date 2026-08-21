@@ -1,0 +1,21 @@
+{
+  "name": "@tourlint/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "pnpm build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"(shared: 린터 미도입)\"",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

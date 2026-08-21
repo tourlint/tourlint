@@ -1,0 +1,85 @@
+{
+  "note": "노션 정본 페이지 레지스트리. page_id 는 notion-fetch / notion-update-page 에 그대로 넘긴다.",
+  "workspace": "2026 관광데이터 활용 공모전(웹ㆍ앱 구현 부문)",
+  "pages": {
+    "plan": {
+      "title": "서비스 기획서",
+      "file": "00_기획서.md",
+      "page_id": "3b2ec0325d5b801fbceccf52e9ccc1f9",
+      "url": "https://app.notion.com/p/3b2ec0325d5b801fbceccf52e9ccc1f9"
+    },
+    "req": {
+      "title": "통합 요구사항 명세서 (허브)",
+      "file": "10_통합요구사항명세서.md",
+      "page_id": "3a3ec0325d5b8040ac0cce7a15d2b155",
+      "url": "https://app.notion.com/p/3a3ec0325d5b8040ac0cce7a15d2b155",
+      "caution": "하위 9종 링크만 있는 목차 페이지. replace_content 로 덮으면 자식 페이지가 날아갈 수 있으니 update_content 만 쓴다."
+    },
+    "scope": {
+      "title": "서비스 범위 요구사항 (SC)",
+      "file": "11_서비스범위.md",
+      "page_id": "3b9ec0325d5b800d94f8e3849ef0643c",
+      "url": "https://app.notion.com/p/3b9ec0325d5b800d94f8e3849ef0643c"
+    },
+    "terms": {
+      "title": "용어 정의 요구사항 (TM · G)",
+      "file": "12_용어정의.md",
+      "page_id": "3b9ec0325d5b805d91daf80dd36941dd",
+      "url": "https://app.notion.com/p/3b9ec0325d5b805d91daf80dd36941dd"
+    },
+    "fr": {
+      "title": "기능 요구사항 (FR)",
+      "file": "13_기능요구사항.md",
+      "page_id": "3b9ec0325d5b8012bfffc3684b70afd7",
+      "url": "https://app.notion.com/p/3b9ec0325d5b8012bfffc3684b70afd7"
+    },
+    "ui": {
+      "title": "화면 요구사항 (UI)",
+      "file": "14_화면요구사항.md",
+      "page_id": "3b9ec0325d5b8056a33dc71ee59a876f",
+      "url": "https://app.notion.com/p/3b9ec0325d5b8056a33dc71ee59a876f"
+    },
+    "pm": {
+      "title": "권한 요구사항 (PM)",
+      "file": "15_권한요구사항.md",
+      "page_id": "3b9ec0325d5b80be9812de31c18c3984",
+      "url": "https://app.notion.com/p/3b9ec0325d5b80be9812de31c18c3984"
+    },
+    "dr": {
+      "title": "데이터 요구사항 (DR)",
+      "file": "16_데이터요구사항.md",
+      "page_id": "3b9ec0325d5b80a4a428cf1a84272430",
+      "url": "https://app.notion.com/p/3b9ec0325d5b80a4a428cf1a84272430"
+    },
+    "nf": {
+      "title": "비기능 요구사항 (NF)",
+      "file": "17_비기능요구사항.md",
+      "page_id": "3b9ec0325d5b80a7a019e00a1c534026",
+      "url": "https://app.notion.com/p/3b9ec0325d5b80a7a019e00a1c534026"
+    },
+    "ei": {
+      "title": "외부 연동 요구사항 (EI)",
+      "file": "18_외부연동요구사항.md",
+      "page_id": "3b9ec0325d5b80c197ddc50575d4a383",
+      "url": "https://app.notion.com/p/3b9ec0325d5b80c197ddc50575d4a383"
+    },
+    "ex": {
+      "title": "예외처리 요구사항 (EX)",
+      "file": "19_예외처리요구사항.md",
+      "page_id": "3b9ec0325d5b807fa27fd1d6c589884c",
+      "url": "https://app.notion.com/p/3b9ec0325d5b807fa27fd1d6c589884c"
+    },
+    "db": {
+      "title": "DB 명세서",
+      "file": "20_DB명세서.md",
+      "page_id": "3a3ec0325d5b8081b8d6f8d7d32ab523",
+      "url": "https://app.notion.com/p/3a3ec0325d5b8081b8d6f8d7d32ab523"
+    },
+    "api": {
+      "title": "API · 백엔드 설계",
+      "file": "21_API백엔드설계.md",
+      "page_id": "3a3ec0325d5b806ca94bf7da69bc5be3",
+      "url": "https://app.notion.com/p/3a3ec0325d5b806ca94bf7da69bc5be3"
+    }
+  }
+}

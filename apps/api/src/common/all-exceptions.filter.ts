@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 
@@ -10,6 +10,8 @@ import type { Request, Response } from 'express';
  */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
+  private readonly logger = new Logger(AllExceptionsFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
@@ -26,7 +28,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
         : status === 403 ? 'FORBIDDEN_ACTION'
         : 'INTERNAL_ERROR';
 
-    if (status >= 500) console.error(`[${traceId}] ${req.method} ${req.url}`, exception);
+    // 처리되지 않은 예외만 서버 로그에 남긴다 (NF-OB-005).
+    // console 대신 Nest Logger 를 쓰는 이유는 출력 대상을 한 곳에서 통제하기 위해서다 —
+    // 공사 응답 본문이 예외 메시지에 실려 로그로 새는 경로를 막아야 한다 (DB 명세서 6-4 누출 경로 ②).
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      this.logger.error(`[${traceId}] ${req.method} ${req.url} → ${errorCode}`, exception);
+    }
 
     res.status(status).json({
       errorCode,

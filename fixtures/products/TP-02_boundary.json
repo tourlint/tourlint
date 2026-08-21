@@ -9,9 +9,9 @@
     "startDate": "2026-10-15",
     "nights": 2,
     "transport": "CAR",
-    "target": "50~60대",
-    "concept": "힐링·역사",
-    "headcount": 15
+    "targetKey": "50~60대",
+    "conceptKey": "힐링·역사",
+    "headCount": 15
   },
   "items": [
     { "dayNo": 1, "seq": 1, "startTime": "09:00", "endTime": "10:30", "placeLabel": "강릉 녹색도시체험센터",   "itemType": "SIGHT", "contentId": "2465063", "contentTypeId": 12, "lclsSystm2": "EX06",
@@ -20,14 +20,14 @@
       "boundaryNote": "매주 화요일 휴무 — 10/15는 목요일. 휴무 요일 오판 여부 확인." },
     { "dayNo": 1, "seq": 3, "startTime": "16:45", "endTime": "17:45", "placeLabel": "강릉 오죽헌·시립박물관", "itemType": "SIGHT", "contentId": "129784",  "contentTypeId": 14, "lclsSystm2": "VE07",
       "boundaryNote": "매표 09:00~17:00 / 관람 09:00~18:00 — 매표 마감 15분 전 도착, 관람 종료 전 퇴장. 라벨 분기가 되면 정상." },
-    { "dayNo": 1, "seq": 4, "startTime": "18:00", "endTime": null,    "placeLabel": "강릉강변스테이",         "itemType": "STAY",  "contentId": "4074363", "contentTypeId": 32, "lclsSystm2": "AC06",
+    { "dayNo": 1, "seq": 4, "startTime": "18:00", "endTime": null,    "placeLabel": "강릉강변스테이",         "itemType": "LODGING","contentId": "4074363", "contentTypeId": 32, "lclsSystm2": "AC06",
       "boundaryNote": "입실 15:00 — 이후 도착이므로 정상." },
 
     { "dayNo": 2, "seq": 1, "startTime": "09:00", "endTime": "10:00", "placeLabel": "강릉 한복 문화 창작소",   "itemType": "SIGHT", "contentId": "3379937", "contentTypeId": 14, "lclsSystm2": "VE12",
       "boundaryNote": "매주 토요일~일요일 휴무 — 10/16은 금요일. 요일 '범위' 표현 해석 확인." },
     { "dayNo": 2, "seq": 2, "startTime": "15:30", "endTime": "16:30", "placeLabel": "감자유원지",             "itemType": "MEAL",  "contentId": "2941250", "contentTypeId": 39, "lclsSystm2": "FD01",
       "boundaryNote": "준비시간 15:30~17:00 정확히 걸침 → IN_BREAK_TIME 주의 기대." },
-    { "dayNo": 2, "seq": 3, "startTime": "18:00", "endTime": null,    "placeLabel": "강릉관광호텔",           "itemType": "STAY",  "contentId": "3540781", "contentTypeId": 32, "lclsSystm2": "AC01" },
+    { "dayNo": 2, "seq": 3, "startTime": "18:00", "endTime": null,    "placeLabel": "강릉관광호텔",           "itemType": "LODGING","contentId": "3540781", "contentTypeId": 32, "lclsSystm2": "AC01" },
 
     { "dayNo": 3, "seq": 1, "startTime": "10:00", "endTime": "11:00", "placeLabel": "강릉 경포대",             "itemType": "SIGHT", "contentId": "125790",  "contentTypeId": 12, "lclsSystm2": "HS01",
       "boundaryNote": "상시 개방 — alwaysOpen 처리 확인." },
