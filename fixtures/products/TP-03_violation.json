@@ -9,9 +9,9 @@
     "startDate": "2026-10-13",
     "nights": 1,
     "transport": "CAR",
-    "target": "20대",
-    "concept": "감성",
-    "headcount": 12
+    "targetKey": "20대",
+    "conceptKey": "감성",
+    "headCount": 12
   },
   "items": [
     { "dayNo": 1, "seq": 1, "startTime": "10:00", "endTime": "11:30", "placeLabel": "강릉 경포대",             "itemType": "SIGHT", "contentId": "125790",  "contentTypeId": 12, "lclsSystm2": "HS01",
@@ -20,7 +20,7 @@
       "expect": "차단 ① REST_DAY_CONFLICT — 매주 화요일 휴무, 10/13은 화요일" },
     { "dayNo": 1, "seq": 3, "startTime": "12:30", "endTime": "14:00", "placeLabel": "강릉 오죽헌·시립박물관", "itemType": "SIGHT", "contentId": "129784",  "contentTypeId": 14, "lclsSystm2": "VE07",
       "expect": "오류 ① TIME_OVERLAP — seq2(12:00~13:00)와 30분 중복" },
-    { "dayNo": 1, "seq": 4, "startTime": "19:00", "endTime": null,    "placeLabel": "강릉강변스테이",         "itemType": "STAY",  "contentId": "4074363", "contentTypeId": 32, "lclsSystm2": "AC06",
+    { "dayNo": 1, "seq": 4, "startTime": "19:00", "endTime": null,    "placeLabel": "강릉강변스테이",         "itemType": "LODGING","contentId": "4074363", "contentTypeId": 32, "lclsSystm2": "AC06",
       "expect": "정상 — 입실 15:00 이후" },
 
     { "dayNo": 2, "seq": 1, "startTime": "09:00", "endTime": "10:00", "placeLabel": "강릉 경포벚꽃축제",       "itemType": "SIGHT", "contentId": "695592",  "contentTypeId": 15, "lclsSystm2": "EV01",
