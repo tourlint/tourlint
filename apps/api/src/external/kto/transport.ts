@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { KtoOperation } from '@tourlint/shared';
 import { KTO_OPERATIONS } from '@tourlint/shared';
-import { KtoFetchError, KtoTimeoutError } from './kto.errors';
+import { FixtureMissingError, KtoFetchError, KtoTimeoutError } from './kto.errors';
 
 /**
  * 공사 OpenAPI 로 나가는 **유일한 출구**.
@@ -127,7 +127,7 @@ export class FixtureKtoTransport implements KtoTransport {
       return { body: readFileSync(file, 'utf8'), httpStatus: null };
     }
 
-    throw new KtoFetchError(
+    throw new FixtureMissingError(
       operation,
       contentId === undefined
         ? `픽스처가 없다. ${this.fixtureDir} 에 ${operation} 스냅샷을 추가할 것`

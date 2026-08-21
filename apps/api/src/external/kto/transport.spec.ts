@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseKtoResponse } from './envelope';
-import { KtoFetchError, KtoTimeoutError } from './kto.errors';
+import { FixtureMissingError, KtoFetchError, KtoTimeoutError } from './kto.errors';
 import { FixtureKtoTransport, HttpKtoTransport } from './transport';
 
 const FIXTURES = join(__dirname, '../../../../../fixtures/kto');
@@ -47,6 +47,12 @@ describe('FixtureKtoTransport — 픽스처 리플레이 (KTO_MODE=fixture)', ()
   it('없는 콘텐츠는 다른 응답으로 대체하지 않고 던진다', async () => {
     // 슬쩍 다른 관광지를 돌려주면 검수 결과가 그럴듯하게 틀린다
     await expect(transport.request('detailIntro2', { contentId: '99999999' })).rejects.toBeInstanceOf(KtoFetchError);
+  });
+
+  it('픽스처 미스는 재시도 대상이 아니다 — 없는 스냅샷은 다시 불러도 없다', async () => {
+    const e = await transport.request('detailIntro2', { contentId: '99999999' }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(FixtureMissingError);
+    expect((e as FixtureMissingError).retryable).toBe(false);
   });
 
   it('없는 콘텐츠 오류는 보유 목록을 알려준다', async () => {

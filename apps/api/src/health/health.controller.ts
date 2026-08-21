@@ -32,7 +32,9 @@ export class HealthController {
     return {
       status: db === 'up' || !url ? 'ok' : 'degraded',
       db,
-      mode: 'mock',
+      // 'mock' 을 고정으로 박아두면 실엔진으로 바뀐 뒤에도 목업처럼 보인다.
+      // 공사 호출을 모의로 전면 대체했는지는 심사 항목이므로(NF-CO-002) 사실대로 보여준다
+      mode: process.env.KTO_MODE === 'fixture' ? 'fixture' : 'live',
       latencyMs: Date.now() - started,
       timestamp: new Date().toISOString(),
     };
