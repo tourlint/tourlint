@@ -2,6 +2,13 @@ name: 작업
 description: 구현하거나 조사해야 하는 일
 labels: ["task"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        생성한 뒤 오른쪽에서 마일스톤(목표 주차)과 담당자를 지정한다.
+        주차는 라벨이 아니라 마일스톤으로 관리한다 — 마감일과 진행률이 함께 보인다.
+
+        본문은 800자 안쪽으로. 배경 설명이 길어지면 docs/ 에 두고 링크한다.
   - type: textarea
     id: what
     attributes:
@@ -28,12 +35,6 @@ body:
         - A — 검수 엔진 (apps/api/src/engine)
         - B — 제품 표면 (apps/web · 인증 · 상품 CRUD)
         - 공동 (문서 · 제출물 · 인프라)
-    validations: { required: true }
-  - type: dropdown
-    id: week
-    attributes:
-      label: 목표 주차
-      options: ["W1 (~8/28)", "W2 (~9/4)", "W3 (~9/11)", "W4 (~9/14 기능 동결)", "W5 (~9/20 제출)", "미정"]
     validations: { required: true }
   - type: textarea
     id: done
