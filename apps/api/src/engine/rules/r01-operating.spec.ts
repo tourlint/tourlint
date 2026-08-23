@@ -5,6 +5,7 @@ import type { ContentTypeId } from '@tourlint/shared';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
 import { parseOperatingInfo } from '../normalize/parse';
 import { R01OperatingRule } from './r01-operating';
+import { DEFAULT_AUDIT_SETTINGS } from './types';
 import type { AuditItem, Finding, ItineraryContext } from './types';
 
 const FIXTURES = join(__dirname, '../../../../../fixtures/kto');
@@ -34,7 +35,11 @@ function evaluate(input: CaseInput): readonly Finding[] {
     startTime: input.start ?? '10:00',
     endTime: input.end === undefined ? '11:00' : input.end,
     endTimeSource: 'INPUT',
+    lclsSystm1: null,
     lclsSystm2: null,
+    lclsSystm3: null,
+    mapX: null,
+    mapY: null,
     itemType: input.itemType ?? 'SIGHT',
     placeLabel: input.placeLabel ?? '테스트 장소',
     matchStatus: 'CONFIRMED',
@@ -44,9 +49,10 @@ function evaluate(input: CaseInput): readonly Finding[] {
       normalized: parseOperatingInfo({ contentTypeId: input.contentTypeId, raw: input.raw }),
       showFlag: 1,
       eventPeriod: null,
+      changeVerdict: null,
     },
   };
-  const ctx: ItineraryContext = { productId: 1, items: [item], holidays: KOREAN_HOLIDAYS };
+  const ctx: ItineraryContext = { productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS };
   return rule.evaluate(ctx);
 }
 
@@ -326,10 +332,10 @@ describe('대상 제외 (FR-AU-011 · FR-RU-014)', () => {
   it('매칭되지 않은 항목은 판정하지 않는다 — R05 가 다룬다', () => {
     const item: AuditItem = {
       id: 9, dayNo: 1, seq: 1, date: '2026-10-13', startTime: '12:00', endTime: '13:00',
-      endTimeSource: 'INPUT', lclsSystm2: null,
+      endTimeSource: 'INPUT', lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, mapX: null, mapY: null,
       itemType: 'SIGHT', placeLabel: '이름만 있는 곳', matchStatus: 'PENDING', content: null,
     };
-    expect(rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS })).toHaveLength(0);
+    expect(rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS })).toHaveLength(0);
   });
 });
 

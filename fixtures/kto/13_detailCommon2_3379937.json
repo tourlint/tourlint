@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3379937",
+            "contenttypeid": "14",
+            "title": "강릉 한복 문화 창작소",
+            "createdtime": "20241004131207",
+            "modifiedtime": "20260402174347",
+            "tel": "",
+            "telname": "",
+            "homepage": "공식 홈페이지 http://gnhcc.co.kr공식 인스타그램 https://www.instagram.com/gn_hcc/",
+            "firstimage": "https://tong.visitkorea.or.kr/cms/resource/50/3379850_image2_1.jpg",
+            "firstimage2": "https://tong.visitkorea.or.kr/cms/resource/50/3379850_image3_1.jpg",
+            "cpyrhtDivCd": "Type3",
+            "areacode": "",
+            "sigungucode": "",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "VE",
+            "lclsSystm2": "VE12",
+            "lclsSystm3": "VE120300",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "addr1": "강원특별자치도 강릉시 동부시장3길 9 (옥천동)",
+            "addr2": "",
+            "zipcode": "25552",
+            "mapx": "128.90058574629984",
+            "mapy": "37.75876088749246",
+            "mlevel": "6",
+            "overview": "강릉한복문화창작소는 문화체육관광부가 주최하고 한국공예디자인문화진흥원과 강릉시가 주관하며 강릉문화원이 수행하는 사업이다. 예향의 도시로서 이름을 알리고 있는 강릉이 한복문화창작소를 세우기 적합하다고 판단되어 2023년부터 지역한복문화창작소의 역할을 하고 있다. 1층 메인전시실은 입구 및 로비와 이어져 있어서 바로 전시를 관람할 수 있는 탁 트인 전시실로 한복과 관련되어 있는 전시를 열고 있으며  콘퍼런스룸은 평소 회의 공간으로서 활용하고 있지만 때에 따라서 전시실로 탈바꿈될 수 있는 서브 전시공간으로 마련돼 있다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

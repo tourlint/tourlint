@@ -79,7 +79,7 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
 
   const finding = (over: Partial<Finding> = {}): Finding => ({
     ruleCode: 'R01', ruleVersion: '1.0.0', severity: 'BLOCKER', reasonCode: 'REST_DAY_CONFLICT',
-    targetItemId: itemId, message: '가람집옹심이 — 10/13(화) 매주 화요일 휴무',
+    targetItemId: itemId as number | null, message: '가람집옹심이 — 10/13(화) 매주 화요일 휴무',
     evidence: { step: '1-4', date: '2026-10-13' },
     requiresExternal: false, externalSource: null, needsConfirmation: false, ...over,
   });
@@ -242,6 +242,45 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
 
     it('없는 실행은 null 이다', async () => {
       expect(await repo.findById(999999)).toBeNull();
+    });
+  });
+
+  describe('직전 지문 조회 (FR-MO-004)', () => {
+    it('저장한 지문을 contentid 로 찾는다', async () => {
+      await repo.save(build());
+      const prev = await repo.previousFingerprints(productId);
+      expect(prev.get('125266')).toEqual({
+        fieldNames: ['restdatefood', 'opentimefood'],
+        fieldHash: 'a'.repeat(64),
+        showFlag: 1,
+        ktoModifiedTime: '20260820103000',
+      });
+    });
+
+    it('가장 최근 실행의 지문을 준다', async () => {
+      await repo.save(build());
+      await repo.save(build({
+        executedAt: new Date('2026-10-05T09:00:00Z'),
+        fingerprints: [fingerprint({ fetchedAt: new Date('2026-10-05T09:00:00Z'), fieldHash: 'c'.repeat(64), showFlag: 0 })],
+      }));
+      const prev = await repo.previousFingerprints(productId);
+      expect(prev.get('125266')).toMatchObject({ fieldHash: 'c'.repeat(64), showFlag: 0 });
+    });
+
+    it('다른 상품의 지문은 섞이지 않는다', async () => {
+      // 다른 상품이 먼저 검수해 만든 지문을 직전으로 삼으면
+      // 이 상품 사용자는 못 본 변경을 "이미 알렸다" 고 넘긴다
+      await repo.save(build());
+      const other = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+         VALUES ($1, '다른 상품', '51', DATE '2026-10-22', 1, 'CAR') RETURNING id`,
+        [accountId],
+      );
+      expect((await repo.previousFingerprints(Number(other.rows[0]?.id))).size).toBe(0);
+    });
+
+    it('검수한 적 없으면 비어 있다 — 최초 검수다', async () => {
+      expect((await repo.previousFingerprints(productId)).size).toBe(0);
     });
   });
 

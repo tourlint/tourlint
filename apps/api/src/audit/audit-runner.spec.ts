@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
-import { AuditRunner, uniqueContentIds, type ItineraryItemRow, type ProductRow } from './audit-runner';
+import { AuditRunner, departureStamp, uniqueContentIds, type ItineraryItemRow, type ProductRow } from './audit-runner';
 import { RULESET_VERSION } from './rule-registry';
 
 /**
@@ -31,12 +31,12 @@ function makeRunner(opts: { concurrency?: number; onProgress?: (d: number, t: nu
   });
 }
 
-const product: ProductRow = { id: 31, startDate: '2026-10-13', nights: 1 };
+const product: ProductRow = { id: 31, startDate: '2026-10-13', nights: 1, transport: 'CAR' };
 
 const item = (over: Partial<ItineraryItemRow> & Pick<ItineraryItemRow, 'id' | 'dayNo' | 'seq'>): ItineraryItemRow => ({
   startTime: '10:00', endTime: '11:00', endTimeSource: 'INPUT',
   placeLabel: '테스트', itemType: 'SIGHT', ktoContentId: null, contentTypeId: null,
-  lclsSystm2: null, matchStatus: 'CONFIRMED', ...over,
+  lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, mapX: null, mapY: null, matchStatus: 'CONFIRMED', ...over,
 });
 
 /** TP-03 의 축약판 — 실제 픽스처가 있는 콘텐츠만 골랐다 */
@@ -156,7 +156,13 @@ describe('AuditRunner — 관통', () => {
 
       expect(result.failedCount).toBe(1);
       const isolated = result.findings.find((f) => f.evidence.isolated === true);
-      expect(isolated).toMatchObject({ severity: 'UNVERIFIED', targetItemId: 9, needsConfirmation: true });
+      // 조회가 안 된 것이라 휴무 판정과 무관하다. 사유는 실패한 이유 그대로 단다
+      expect(isolated).toMatchObject({
+        severity: 'UNVERIFIED', targetItemId: 9, needsConfirmation: true,
+        // 리플레이에서 스냅샷이 없는 건 조회 실패다. 실호출에서 공사가 없다고 답하면
+        // `CONTENT_NOT_FOUND` 가 온다 — 둘을 뭉뚱그리지 않는다
+        ruleCode: 'R05', reasonCode: 'KTO_FETCH_FAILED',
+      });
       // 실패한 곳을 결과에서 지우지 않는다 (EX-CM-003)
       expect(isolated?.message).toContain('없는 관광지');
       // 나머지는 그대로 판정된다
@@ -192,6 +198,44 @@ describe('AuditRunner — 관통', () => {
     expect(result.score.score).toBe(100);
   });
 
+  describe('R05 — 아무도 안 보던 항목 (FR-RU-050 ~ 052)', () => {
+    it('매칭이 확정되지 않은 항목이 결과에 남는다', async () => {
+      /*
+       * 이 항목은 R01 · R02 · R06 이 모두 물러난다. R05 가 없으면 결과에 한 줄도 안 남고
+       * 화면에서는 검수를 통과한 것처럼 보인다 — 픽스처에 PENDING 항목이 하나도 없어
+       * 정답셋으로는 이 경로가 안 돈다. 여기서 돌린다
+       */
+      const result = await runner().run(product, [
+        ...TP03_LIKE,
+        item({ id: 9, dayNo: 1, seq: 9, placeLabel: '이름만 적힌 곳', matchStatus: 'PENDING', ktoContentId: null }),
+      ]);
+
+      const f = result.findings.find((x) => x.targetItemId === 9);
+      expect(f).toMatchObject({
+        ruleCode: 'R05', severity: 'UNVERIFIED', reasonCode: 'PLACE_UNRESOLVED', needsConfirmation: true,
+      });
+      expect(f?.message).toContain('이름만 적힌 곳');
+    });
+
+    it('수정안을 만들지 않는다 (FR-RU-052) — 무엇을 고칠지 우리가 모른다', async () => {
+      const result = await runner().run(product, [
+        item({ id: 9, dayNo: 1, seq: 9, matchStatus: 'PENDING', ktoContentId: null }),
+      ]);
+      const f = result.findings.find((x) => x.ruleCode === 'R05');
+      expect(f).toBeDefined();
+      expect(f?.patches ?? []).toHaveLength(0);
+    });
+
+    it('확인 불가도 감점이다 — 모른다고 만점을 주지 않는다 (FR-RU-051)', async () => {
+      const result = await runner().run(product, [
+        item({ id: 1, dayNo: 1, seq: 1, ktoContentId: '2868839', contentTypeId: 39 }),
+        item({ id: 9, dayNo: 1, seq: 9, matchStatus: 'PENDING', ktoContentId: null }),
+      ]);
+      expect(result.score.counts.UNVERIFIED).toBeGreaterThan(0);
+      expect(result.score.score).not.toBe(100);
+    });
+  });
+
   it('결정론성 — 같은 입력이면 같은 결과다 (NF-MT-001)', async () => {
     const runs = [];
     for (let i = 0; i < 3; i++) runs.push(await runner().run(product, TP03_LIKE));
@@ -207,5 +251,24 @@ describe('AuditRunner — 관통', () => {
     const eight = await runner({ concurrency: 8 }).run(product, TP03_LIKE);
     expect(one.findings).toEqual(eight.findings);
     expect(one.runFingerprint).toBe(eight.runFingerprint);
+  });
+});
+
+describe('출발시각 조립 (EI-KM-003)', () => {
+  it('YYYYMMDDHHMM 12자리를 만든다', () => {
+    expect(departureStamp('2026-10-22', '13:00')).toBe('202610221300');
+  });
+
+  it('초가 붙어 와도 12자리다 — 여기서 틀리면 다른 시간대 소요시간이 온다', () => {
+    // DB 의 time 타입은 HH:MM:SS 로 온다. 위층이 자르는 데 기대면 안 된다
+    expect(departureStamp('2026-10-22', '13:00:00')).toBe('202610221300');
+  });
+
+  it('자정 넘김도 자리수를 지킨다', () => {
+    expect(departureStamp('2026-01-05', '09:05')).toBe('202601050905');
+  });
+
+  it('시각이 깨져 있으면 붙이지 않는다 — 지어낸 시각으로 부르지 않는다', () => {
+    expect(departureStamp('2026-10-22', '13')).toBeNull();
   });
 });

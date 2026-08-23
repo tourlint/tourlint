@@ -1,3 +1,4 @@
+import { createHttpFetch, isTimeoutError } from '../http-client';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { KtoOperation } from '@tourlint/shared';
@@ -52,7 +53,8 @@ export class HttpKtoTransport implements KtoTransport {
     }
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    // 연결 3초 · 응답 10초를 나눠 건다 (EI-CM-004)
+    this.fetchImpl = options.fetchImpl ?? createHttpFetch();
   }
 
   async request(operation: KtoOperation, params: KtoParams): Promise<KtoTransportResult> {
@@ -64,9 +66,8 @@ export class HttpKtoTransport implements KtoTransport {
         headers: { Accept: 'application/json' },
       });
     } catch (e) {
-      if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
-        throw new KtoTimeoutError(operation, this.timeoutMs);
-      }
+      // 연결 타임아웃도 타임아웃이다 — undici 는 이름이 아니라 cause.code 로 알린다
+      if (isTimeoutError(e)) throw new KtoTimeoutError(operation, this.timeoutMs);
       // ⚠️ url 을 메시지에 넣지 않는다 — 인증키가 붙어 있다 (EI-CM-002)
       throw new KtoFetchError(operation, `네트워크 오류: ${(e as Error).name}`);
     }

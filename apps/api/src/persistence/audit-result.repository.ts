@@ -1,6 +1,8 @@
 import type { ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
 import type { Pool } from 'pg';
+import type { FingerprintSnapshot } from '../engine/fingerprint/types';
 import type { Finding } from '../engine/rules/types';
+import type { Patch } from '../audit/patch-types';
 import { calculateReadiness, type ScorableFinding, type ScoreResult } from '../engine/score';
 import { withTransaction, type Queryable } from './db';
 
@@ -54,6 +56,7 @@ export interface StoredFinding extends ScorableFinding {
   readonly externalSource: string | null;
   readonly dismissReason: string | null;
   readonly confirmed: boolean;
+  readonly patches: readonly Patch[];
 }
 
 export interface StoredAuditRun {
@@ -126,15 +129,77 @@ export class AuditResultRepository {
     };
   }
 
+  /**
+   * 그 상품의 **직전 검수**에서 만든 지문을 `kto_content_id` 로 찾는다 (FR-MO-004).
+   *
+   * 콘텐츠 전역이 아니라 상품 단위로 본다 — `FR-RU-060` 이 "직전 **검수** 지문과 현재 지문을
+   * 비교" 라고 정하고, 알림도 상품 단위로 만들어지기 때문이다. 다른 상품이 먼저 검수해
+   * 만든 지문을 직전으로 삼으면 이 상품 사용자는 못 본 변경을 "이미 알렸다" 고 넘긴다.
+   */
+  async previousFingerprints(productId: number): Promise<ReadonlyMap<string, FingerprintSnapshot>> {
+    const { rows } = await this.pool.query<PreviousFingerprintRow>(
+      `SELECT DISTINCT ON (f.kto_content_id)
+              f.kto_content_id, f.field_names, f.field_hash, f.show_flag, f.kto_modified_time
+         FROM content_fingerprint f
+         JOIN audit_run r ON r.id = f.audit_run_id
+        WHERE r.product_id = $1
+        ORDER BY f.kto_content_id, f.fetched_at DESC`,
+      [productId],
+    );
+    return new Map(rows.map((r) => [r.kto_content_id, {
+      fieldNames: r.field_names,
+      fieldHash: r.field_hash,
+      showFlag: (r.show_flag === 0 ? 0 : 1) as 0 | 1,
+      ktoModifiedTime: r.kto_modified_time,
+    }]));
+  }
+
+  /**
+   * 그 상품의 가장 최근 검수 실행 id.
+   *
+   * 패치 확정이 `before_audit_run_id` 로 붙잡는 값이다 (FR-PA-025 · 전후 비교의 좌측).
+   * 한 번도 검수하지 않은 상품이면 `null` 이고, 그때는 비교할 좌측이 없다.
+   */
+  async latestRunIdOf(productId: number): Promise<number | null> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT id FROM audit_run WHERE product_id = $1 ORDER BY id DESC LIMIT 1`,
+      [productId],
+    );
+    const row = rows[0];
+    return row === undefined ? null : Number(row.id);
+  }
+
   async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
     const { rows } = await this.pool.query<FindingRow>(
       `SELECT id, rule_code, severity, reason_code, target_item_id, target_item_id2,
-              message, evidence, requires_external, external_source,
+              message, evidence, requires_external, external_source, patches,
               dismissed_at, dismiss_reason, confirmed_at
          FROM finding WHERE audit_run_id = $1 ORDER BY id`,
       [auditRunId],
     );
     return rows.map(toStoredFinding);
+  }
+
+  /**
+   * 선택된 수정안을 finding 에서 꺼낸다.
+   *
+   * **상품 소유를 SQL 에서 확인한다.** 위층에서 확인하고 여기서 안 하면, 다른 상품의
+   * finding id 를 넣어 남의 일정을 미리 볼 수 있게 된다. 조건을 쿼리에 붙여 두면
+   * 호출 경로가 늘어도 새지 않는다.
+   */
+  async patchesOfProduct(
+    productId: number,
+    findingIds: readonly number[],
+  ): Promise<ReadonlyMap<number, readonly Patch[]>> {
+    if (findingIds.length === 0) return new Map();
+    const { rows } = await this.pool.query<{ id: string; patches: unknown }>(
+      `SELECT f.id, f.patches
+         FROM finding f
+         JOIN audit_run r ON r.id = f.audit_run_id
+        WHERE r.product_id = $1 AND f.id = ANY($2::bigint[])`,
+      [productId, findingIds],
+    );
+    return new Map(rows.map((r) => [Number(r.id), (r.patches ?? []) as readonly Patch[]]));
   }
 }
 
@@ -166,8 +231,8 @@ async function insertFindings(client: Queryable, runId: number, findings: readon
     await client.query(
       `INSERT INTO finding
          (audit_run_id, rule_code, rule_version, severity, reason_code,
-          target_item_id, target_item_id2, message, evidence, requires_external, external_source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          target_item_id, target_item_id2, message, evidence, requires_external, external_source, patches)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         runId, f.ruleCode, f.ruleVersion, f.severity, f.reasonCode,
         f.targetItemId, f.targetItemId2 ?? null, f.message,
@@ -177,6 +242,8 @@ async function insertFindings(client: Queryable, runId: number, findings: readon
          */
         JSON.stringify({ ...f.evidence, needsConfirmation: f.needsConfirmation }),
         f.requiresExternal, f.externalSource,
+        // 표시 문구(label)를 담지 않는다. 대체 관광지 명칭은 공사 원문이다 (DR-PR-001)
+        JSON.stringify(f.patches ?? []),
       ],
     );
   }
@@ -217,6 +284,14 @@ interface AuditRunRow {
   weight_snapshot: Record<Severity, number>;
 }
 
+interface PreviousFingerprintRow {
+  kto_content_id: string;
+  field_names: string[];
+  field_hash: string;
+  show_flag: number;
+  kto_modified_time: string;
+}
+
 interface FindingRow {
   id: string;
   rule_code: string;
@@ -228,6 +303,7 @@ interface FindingRow {
   evidence: Record<string, unknown>;
   requires_external: boolean;
   external_source: string | null;
+  patches: unknown[];
   dismissed_at: Date | null;
   dismiss_reason: string | null;
   confirmed_at: Date | null;
@@ -245,6 +321,7 @@ function toStoredFinding(row: FindingRow): StoredFinding {
     evidence: row.evidence,
     requiresExternal: row.requires_external,
     externalSource: row.external_source,
+    patches: (row.patches ?? []) as StoredFinding['patches'],
     dismissed: row.dismissed_at !== null,
     dismissReason: row.dismiss_reason,
     confirmed: row.confirmed_at !== null,

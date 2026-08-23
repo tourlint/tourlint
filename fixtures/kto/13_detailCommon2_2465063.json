@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2465063",
+            "contenttypeid": "12",
+            "title": "강릉 녹색도시체험센터",
+            "createdtime": "20161220190353",
+            "modifiedtime": "20260312090840",
+            "tel": "",
+            "telname": "",
+            "homepage": "https://www.gn.go.kr/greencity/index.do",
+            "firstimage": "https://tong.visitkorea.or.kr/cms/resource/33/3072433_image2_1.jpg",
+            "firstimage2": "https://tong.visitkorea.or.kr/cms/resource/33/3072433_image3_1.jpg",
+            "cpyrhtDivCd": "Type3",
+            "areacode": "",
+            "sigungucode": "",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "EX",
+            "lclsSystm2": "EX06",
+            "lclsSystm3": "EX061000",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "addr1": "강원특별자치도 강릉시 난설헌로 131 (초당동)",
+            "addr2": "",
+            "zipcode": "25466",
+            "mapx": "128.9065001770321",
+            "mapy": "37.7879160027723",
+            "mlevel": "6",
+            "overview": "저탄소 녹색 라이프를 지향한다. 녹색도시 체험센터는 저탄소 녹색시범도시인 강릉시를 상징하기 위하여 태양열, 지열 등 순수 청정 자연에너지만을 사용하여 건축되었다. 친환경 에너지와 관련하여 다양한 체험 프로그램을 이용할 수 있다. 특히 어린이와 청소년을 위한 다양한 프로그램이 기간별로 준비되어 있으니 홈페이지를 참조하여 이용할 수 있다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

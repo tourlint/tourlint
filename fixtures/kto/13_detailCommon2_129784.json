@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "129784",
+            "contenttypeid": "14",
+            "title": "강릉 오죽헌·시립박물관",
+            "createdtime": "20071106103001",
+            "modifiedtime": "20260318101005",
+            "tel": "",
+            "telname": "",
+            "homepage": "http://www.gn.go.kr/museum/",
+            "firstimage": "https://tong.visitkorea.or.kr/cms/resource/38/3527138_image2_1.jpg",
+            "firstimage2": "https://tong.visitkorea.or.kr/cms/resource/38/3527138_image3_1.jpg",
+            "cpyrhtDivCd": "Type1",
+            "areacode": "",
+            "sigungucode": "",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "VE",
+            "lclsSystm2": "VE07",
+            "lclsSystm3": "VE070100",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "addr1": "강원특별자치도 강릉시 율곡로3139번길 24 (죽헌동)",
+            "addr2": "",
+            "zipcode": "25465",
+            "mapx": "128.87966210169768",
+            "mapy": "37.779138874844655",
+            "mlevel": "6",
+            "overview": "조선시대의 대학자 율곡 이이와 관련하여 유명해진 강릉 지역의 대표적인 유적지인 오죽헌은 오죽헌과 강릉시립박물관으로 구분된다. 오죽헌은 조선초기의 건축물로 건축사적인 면에서 그 중요성을 인정받아 보물로 지정되었다. 이곳 오죽헌 몽룡실에서 율곡 이이가 태어났다. 경내에는 오죽헌을 비롯하여 문성사(文成祠), 사랑채, 어제각(御製閣), 율곡기념관 등이 있으며, 율곡기념관에는 사임당, 율곡, 매창, 옥산의 예술적 면모를 살펴볼 수 있는 유작들이 전시되어 있다. 1962년부터 현재까지 매년 율곡을 추모하는 대현 이율곡선생 제곡제를 봉행하고 있다. 시립박물관은 영동지방의 민속자료와 향토 유물을 수집·보관·연구·전시하며, 전통문화를 계승 발전시키고 사회교육 및 시민의 정서 함양에 기여하기 위한 취지로 설립되었다. 전시관은 영동지방에서 사용하던 생업도구와 의식주 관련 용품들이 전시된 향토민속관, 강릉지방에서 출토된 선사유물·불교유물·자기·전적·서화류가 전시된 역사문화관, 석조물과 영동지방의 묘제가 복원된 야외전시장으로 구분된다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

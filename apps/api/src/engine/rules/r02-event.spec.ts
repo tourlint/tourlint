@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
 import { parseIsoDate } from '../calendar/dates';
 import { R02EventPeriodRule, evaluateEventPeriod } from './r02-event';
+import { DEFAULT_AUDIT_SETTINGS } from './types';
 import type { AuditItem, Finding } from './types';
 
 const rule = new R02EventPeriodRule();
@@ -16,14 +17,14 @@ const at = (iso: string): NonNullable<ReturnType<typeof parseIsoDate>> => {
 function festival(date: string, period: { start: string | null; end: string | null } | null, contentTypeId = 15): readonly Finding[] {
   const item: AuditItem = {
     id: 1, dayNo: 1, seq: 1, date, startTime: '09:00', endTime: '10:00',
-    endTimeSource: 'INPUT', lclsSystm2: 'EV01', itemType: 'SIGHT',
+    endTimeSource: 'INPUT', lclsSystm1: 'EV', lclsSystm2: 'EV01', lclsSystm3: 'EV010200', mapX: null, mapY: null, itemType: 'SIGHT',
     placeLabel: '경포벚꽃축제', matchStatus: 'CONFIRMED',
     content: {
       ktoContentId: '695592', contentTypeId: contentTypeId as 15,
-      normalized: null, showFlag: 1, eventPeriod: period,
+      normalized: null, showFlag: 1, eventPeriod: period, changeVerdict: null,
     },
   };
-  return rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS });
+  return rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS });
 }
 
 describe('evaluateEventPeriod — 경계는 포함이다', () => {
@@ -76,12 +77,31 @@ describe('R02 — 행사 기간 불일치', () => {
     expect(festival('2026-04-07', { start: '2026-04-04', end: '2026-04-11' })).toHaveLength(0);
   });
 
-  it('FR-RU-023 — 행사 일자가 결측이면 차단하지 않고 확인 불가로 넘긴다', () => {
-    // 모르는 것을 틀렸다고 말하지 않는다
+  it('FR-RU-023 — 행사 일자가 결측이면 차단하지 않고 R05 에 넘긴다', () => {
+    /*
+     * 모르는 것을 틀렸다고 말하지 않는다. 다만 확인 불가를 여기서 내지는 않는다 —
+     * 같은 항목이 확인 필요 목록에 두 줄로 뜬다. R05 가 `PARSE_MISSING` 으로 올린다
+     * (`r05-unverifiable.spec.ts` 의 "행사 기간 결측").
+     */
     for (const period of [null, { start: null, end: null }]) {
-      const [f] = festival('2026-10-14', period);
-      expect(f).toMatchObject({ severity: 'UNVERIFIED', needsConfirmation: true });
+      expect(festival('2026-10-14', period)).toHaveLength(0);
     }
+  });
+
+  it('날짜가 있는데 해석이 안 되면 확인 불가고, 행사 종료라고 말하지 않는다', () => {
+    /*
+     * R05 는 "값이 없는" 경우를 맡는다. 값은 있는데 못 읽는 경우는 여기 남는다.
+     * `EVENT_ENDED` 를 달면 화면에 "행사 종료" 로 뜬다 — 끝났다고 말하려면 끝난 날짜를
+     * 봤어야 하는데, 우리가 본 건 읽을 수 없는 문자열뿐이다
+     */
+    const [f] = festival('2026-10-14', { start: '2026-13-45', end: null });
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_MISSING', ruleCode: 'R02' });
+    expect(f?.message).not.toContain('끝났');
+  });
+
+  it('한쪽만 정상이면 그걸로 판정한다 — 끝 날짜만 있어도 종료는 말할 수 있다', () => {
+    const [f] = festival('2026-10-14', { start: null, end: '2026-04-11' });
+    expect(f).toMatchObject({ severity: 'BLOCKER', reasonCode: 'EVENT_ENDED' });
   });
 
   it('행사가 아닌 콘텐츠에는 개념 자체가 없다', () => {

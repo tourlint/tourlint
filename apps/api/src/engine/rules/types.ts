@@ -1,6 +1,11 @@
+import { SETTING_DEFAULTS } from '@tourlint/shared';
 import type {
-  ContentTypeId, EndTimeSource, ItemType, MatchStatus, ParseConfidence, ReasonCode, Severity,
+  ContentTypeId, EndTimeSource, ExceptionReasonCode, ItemType, MatchStatus,
+  ParseConfidence, ReasonCode, Severity,
 } from '@tourlint/shared';
+import type { Patch } from '../../audit/patch-types';
+import type { ChangeVerdict } from '../fingerprint/types';
+import type { TravelSegment } from './r08-travel';
 import type { HolidayCalendar } from '../calendar/holidays';
 import type { IsoDate } from '../calendar/dates';
 import type { NormalizedOperatingInfo, TimeOfDay } from '../normalize/types';
@@ -32,6 +37,13 @@ export interface MatchedContent {
    * `YYYYMMDD` → `YYYY-MM-DD` 로 옮겨 넣는다. **결측이면 null 이며 차단하지 않는다** (FR-RU-023).
    */
   readonly eventPeriod: { readonly start: IsoDate | null; readonly end: IsoDate | null } | null;
+  /**
+   * 직전 지문과 비교한 결과. 러너가 채운다 (FR-MO-004).
+   *
+   * 규칙이 DB 를 읽지 않게 하려고 여기 담는다 — 규칙 평가는 메모리 전용이다 (NF-PF-014).
+   * 직전 지문이 없으면 `FIRST` 이고, 지문 자체를 못 만들었으면 null 이다.
+   */
+  readonly changeVerdict: ChangeVerdict | null;
 }
 
 export interface AuditItem {
@@ -45,8 +57,16 @@ export interface AuditItem {
   readonly endTime: TimeOfDay | null;
   /** 종료시간의 출처. 보완값으로 내린 판정은 그 사실을 메시지에 밝혀야 한다 (FR-RU-031) */
   readonly endTimeSource: EndTimeSource;
-  /** 신분류체계 중분류. 체류시간 보완과 R09 실내외 판정의 입력 */
+  /** 신분류체계 대분류(2자). R04 집계의 상위 축 */
+  readonly lclsSystm1: string | null;
+  /** 중분류(4자). 체류시간 보완과 R09 실내외 판정의 입력 */
   readonly lclsSystm2: string | null;
+  /** 소분류(8자). R04 집계 축. 상세 조회에는 없고 공통·목록 조회에서 수집한다 (EI-KT-018) */
+  readonly lclsSystm3: string | null;
+  /** 경도. 대체 관광지 탐색과 R08 이동시간이 쓴다 */
+  readonly mapX: number | null;
+  /** 위도 */
+  readonly mapY: number | null;
   readonly itemType: ItemType;
   /** **사용자가 입력한** 일정 항목명. 공사 원문이 아니다 (DR-PR-001) */
   readonly placeLabel: string;
@@ -54,11 +74,48 @@ export interface AuditItem {
   readonly content: MatchedContent | null;
 }
 
+/**
+ * 판정에 쓰는 계정 설정 (`user_setting`).
+ *
+ * 설정 화면에서 조정할 수 있어야 하므로(FR-RU-072 · FR-OP-021) 규칙이 상수를 직접 읽지 않고
+ * 러너가 주입한다. 변경은 다음 검수부터 적용되고 과거 결과를 소급하지 않는다 (FR-OP-026).
+ */
+export interface AuditSettings {
+  /** R07 연속 일정 기준 시간 */
+  readonly r07SpanHours: number;
+  /** R07 최소 식사 시간(분) */
+  readonly r07MealMinutes: number;
+  /** R04 콘텐츠 편중 임계 */
+  readonly r04Threshold: number;
+  /**
+   * R04 집계에서 뺄 분류코드 (FR-RU-042).
+   *
+   * 상품 콘셉트에 반복이 의도된 키워드("카페투어" · "미식" · "사찰순례")가 있으면 그 유형을
+   * 판정에서 제외한다. **키워드를 분류코드로 옮기는 표는 아직 없다** — 분류체계 59행이
+   * 들어오는 W3 에 붙인다. 그때까지는 비어 있고, 기제는 여기 준비돼 있다.
+   */
+  readonly r04ExcludedKeys: readonly string[];
+}
+
+/** 계정 설정을 아직 읽지 않았을 때 쓰는 기본값 (`SETTING_DEFAULTS`) */
+export const DEFAULT_AUDIT_SETTINGS: AuditSettings = {
+  r07SpanHours: SETTING_DEFAULTS.r07SpanHours,
+  r07MealMinutes: SETTING_DEFAULTS.r07MealMinutes,
+  r04Threshold: SETTING_DEFAULTS.r04Threshold,
+  r04ExcludedKeys: [],
+};
+
 export interface ItineraryContext {
   readonly productId: number;
   readonly items: readonly AuditItem[];
   /** 규칙이 시계를 보지 않게 달력을 주입한다 (NF-MT-001) */
   readonly holidays: HolidayCalendar;
+  readonly settings: AuditSettings;
+  /**
+   * 구간별 이동 산출값. 러너가 파이프라인 4단계에서 채운다 (FR-RU-080).
+   * 키는 `segmentKey(앞 항목 id, 뒤 항목 id)`.
+   */
+  readonly travelTimes?: ReadonlyMap<string, TravelSegment>;
 }
 
 /**
@@ -71,8 +128,16 @@ export interface Finding {
   readonly ruleCode: string;
   readonly ruleVersion: string;
   readonly severity: Severity;
-  readonly reasonCode: ReasonCode;
-  readonly targetItemId: number;
+  /**
+   * 판정 사유코드 또는 예외 사유코드. **두 네임스페이스가 공존한다** (EX-CM-002).
+   * R06 의 비표출 전환처럼 판정 사유코드 15종에 없는 경우가 있다.
+   */
+  readonly reasonCode: ReasonCode | ExceptionReasonCode;
+  /**
+   * 지목하는 일정 항목. **일차 단위 · 상품 단위 판정은 null 이다** (R04 · R07 · R10).
+   * DB `finding.target_item_id` 도 NULL 을 허용한다.
+   */
+  readonly targetItemId: number | null;
   readonly targetItemId2?: number;
   readonly message: string;
   readonly evidence: Readonly<Record<string, unknown>>;
@@ -85,6 +150,11 @@ export interface Finding {
    * 목록에서 체크한 시각은 `confirmed_at` 이 갖는다.
    */
   readonly needsConfirmation: boolean;
+  /**
+   * 수정안. **규칙이 만들지 않는다** — 판정 이후 별도 단계에서 러너가 붙인다
+   * (API 설계 6-1 8단계). 대체 관광지 탐색에 외부 호출이 필요해서다.
+   */
+  readonly patches?: readonly Patch[];
 }
 
 export interface AuditRule {

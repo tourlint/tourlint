@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { EndTimeSource, ItemType, MatchStatus } from '@tourlint/shared';
+import type { EndTimeSource, ItemType, MatchStatus, Transport } from '@tourlint/shared';
 import type { ItineraryItemRow, ProductRow } from './audit-runner';
 
 /**
@@ -12,23 +12,39 @@ export class ProductRepository {
   constructor(private readonly pool: Pool) {}
 
   async findProduct(productId: number): Promise<ProductRow | null> {
-    const { rows } = await this.pool.query<{ id: string; start_date: Date | string; nights: number }>(
-      `SELECT id, start_date, nights FROM product WHERE id = $1`,
+    const { rows } = await this.pool.query<{ id: string; start_date: Date | string; nights: number; transport: Transport }>(
+      `SELECT id, start_date, nights, transport FROM product WHERE id = $1`,
       [productId],
     );
     const row = rows[0];
     if (row === undefined) return null;
-    return { id: Number(row.id), startDate: toIsoDate(row.start_date), nights: row.nights };
+    return { id: Number(row.id), startDate: toIsoDate(row.start_date), nights: row.nights, transport: row.transport };
   }
 
   async findItems(productId: number): Promise<readonly ItineraryItemRow[]> {
     const { rows } = await this.pool.query<ItemRow>(
       `SELECT id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
-              kto_content_id, content_type_id, lcls_systm2, match_status
+              kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy, match_status
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
     return rows.map(toItem);
+  }
+
+  /**
+   * 상품 주인의 계정 id (`patch_application.applied_by`).
+   *
+   * 로그인 계층은 B 트랙이 붙인다. 그전까지 "누가 반영했는가" 에 답할 수 있는 것은 상품
+   * 소유자뿐이다 — 이 값이 없으면 이력을 아예 남길 수 없어(`applied_by` NOT NULL)
+   * FR-PA-028 을 못 지킨다. 로그인이 붙으면 요청자 계정으로 바꾼다.
+   */
+  async findOwner(productId: number): Promise<number | null> {
+    const { rows } = await this.pool.query<{ account_id: string }>(
+      `SELECT account_id FROM product WHERE id = $1`,
+      [productId],
+    );
+    const row = rows[0];
+    return row === undefined ? null : Number(row.account_id);
   }
 
   /** 미확정 매칭이 남아 있으면 검수를 시작하지 않는다 (EX-AU-001) */
@@ -53,7 +69,11 @@ interface ItemRow {
   item_type: ItemType;
   kto_content_id: string | null;
   content_type_id: number | null;
+  lcls_systm1: string | null;
   lcls_systm2: string | null;
+  lcls_systm3: string | null;
+  mapx: string | null;
+  mapy: string | null;
   match_status: MatchStatus;
 }
 
@@ -69,7 +89,12 @@ function toItem(row: ItemRow): ItineraryItemRow {
     itemType: row.item_type,
     ktoContentId: row.kto_content_id,
     contentTypeId: row.content_type_id,
+    lclsSystm1: row.lcls_systm1,
     lclsSystm2: row.lcls_systm2,
+    lclsSystm3: row.lcls_systm3,
+    // NUMERIC 은 pg 가 문자열로 준다. 정밀도 손실을 막으려는 기본 동작이라 여기서 옮긴다
+    mapX: row.mapx === null ? null : Number(row.mapx),
+    mapY: row.mapy === null ? null : Number(row.mapy),
     matchStatus: row.match_status,
   };
 }

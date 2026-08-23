@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2868839",
+            "contenttypeid": "39",
+            "title": "가람집옹심이",
+            "createdtime": "20221018094613",
+            "modifiedtime": "20250904141526",
+            "tel": "",
+            "telname": "",
+            "homepage": "",
+            "firstimage": "http://tong.visitkorea.or.kr/cms/resource/29/2868829_image2_1.jpeg",
+            "firstimage2": "http://tong.visitkorea.or.kr/cms/resource/29/2868829_image3_1.jpeg",
+            "cpyrhtDivCd": "Type3",
+            "areacode": "32",
+            "sigungucode": "1",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "FD",
+            "lclsSystm2": "FD01",
+            "lclsSystm3": "FD010100",
+            "cat1": "A05",
+            "cat2": "A0502",
+            "cat3": "A05020100",
+            "addr1": "강원특별자치도 강릉시 공항길30번길 16",
+            "addr2": "",
+            "zipcode": "25617",
+            "mapx": "128.9393320379",
+            "mapy": "37.7611934162",
+            "mlevel": "6",
+            "overview": "가람집옹심이는 강릉시 공항길에 있는 강원도 토속 음식점이다. 주메뉴는 갓 부쳐낸 감자전, 뜨끈하면서도 매콤하고 시원한 장칼옹심이, 장칼국수, 새알심만으로 만든 순옹심이 등이다. 모든 음식을 주문받는 즉시 조리를 시작해 시간이 좀 걸리는 편이다. 반찬은 무생채와 김치가 제공되는데 셀프 바에서 필요한 만큼 추가로 먹을 수 있다. 가격이 합리적이고 강원도의 토속 음식 맛을 제대로 낸 집이라 현지인들도 많이 찾고 있어 대기가 있을 수 있다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

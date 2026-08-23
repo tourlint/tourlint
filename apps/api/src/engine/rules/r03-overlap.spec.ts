@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EndTimeSource } from '@tourlint/shared';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
 import { R03TimeOverlapRule, overlapMinutes } from './r03-overlap';
+import { DEFAULT_AUDIT_SETTINGS } from './types';
 import type { AuditItem, Finding } from './types';
 
 const rule = new R03TimeOverlapRule();
@@ -21,11 +22,11 @@ function evaluate(specs: readonly Spec[]): readonly Finding[] {
   const items: AuditItem[] = specs.map((s) => ({
     id: s.id, dayNo: s.dayNo ?? 1, seq: s.seq, date: '2026-10-13',
     startTime: s.start, endTime: s.end, endTimeSource: s.source ?? 'INPUT',
-    lclsSystm2: null, itemType: s.itemType ?? 'SIGHT', placeLabel: s.label,
+    lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, mapX: null, mapY: null, itemType: s.itemType ?? 'SIGHT', placeLabel: s.label,
     matchStatus: 'CONFIRMED',
-    content: { ktoContentId: String(s.id), contentTypeId: 12, normalized: null, showFlag: 1, eventPeriod: null },
+    content: { ktoContentId: String(s.id), contentTypeId: 12, normalized: null, showFlag: 1, eventPeriod: null, changeVerdict: null },
   }));
-  return rule.evaluate({ productId: 1, items, holidays: KOREAN_HOLIDAYS });
+  return rule.evaluate({ productId: 1, items, holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS });
 }
 
 describe('overlapMinutes — 1분이라도 겹치면 중복이다', () => {

@@ -75,16 +75,36 @@ describe('compareFingerprint (DR-FP 6-2)', () => {
     expect(compareFingerprint(snap({ showFlag: 0 }), snap({ showFlag: 1 })).kind).toBe('UNCHANGED');
   });
 
-  it('field_names 불일치가 비표출 전환보다 먼저 걸려도 showFlagTurnedOff 는 남는다', () => {
-    // 명세(6-2)의 판정 순서상 INCOMPARABLE 이 먼저 걸린다. 그런데 비표출 노출 금지는
-    // 공사 승인 회신의 의무 조항(PM-NG-009)이라 호출자가 이 사실을 놓치면 안 된다.
-    const v = compareFingerprint(
-      snap({ showFlag: 1 }),
-      snap({ showFlag: 0, fieldNames: ['restdate'] }),
-    );
-    expect(v.kind).toBe('INCOMPARABLE');
-    expect(v.showFlagTurnedOff).toBe(true);
+  describe('비표출 전환은 비교 불가보다 먼저 본다 (이슈 #13)', () => {
+    const hiddenAndRenamed = (): ReturnType<typeof compareFingerprint> =>
+      compareFingerprint(
+        { fieldNames: ['restdate'], fieldHash: 'a'.repeat(64), showFlag: 1, ktoModifiedTime: '20260801000000' },
+        { fieldNames: ['restdate', 'usetime'], fieldHash: 'b'.repeat(64), showFlag: 0, ktoModifiedTime: '20260901000000' },
+      );
+
+    it('둘 다 성립하면 HIDDEN 이다', () => {
+      // show_flag 는 지문 필드가 아니라 별도 컬럼이라 field_names 가 달라도 비교가 성립한다.
+      // 비표출은 무조건 차단이고 사유 불명 자체가 차단 근거다 (FR-RU-065 · 068)
+      expect(hiddenAndRenamed().kind).toBe('HIDDEN');
+      expect(hiddenAndRenamed().reasonCode).toBe('CONTENT_HIDDEN');
+    });
+
+    it('비교 불가라는 사실도 잃지 않는다', () => {
+      expect(hiddenAndRenamed().fieldNamesChanged).toBe(true);
+      expect(hiddenAndRenamed().reaudit).toBe(true);
+    });
+
+    it('비표출이 아니면 그대로 비교 불가다', () => {
+      const v = compareFingerprint(
+        { fieldNames: ['restdate'], fieldHash: 'a'.repeat(64), showFlag: 1, ktoModifiedTime: '20260801000000' },
+        { fieldNames: ['restdate', 'usetime'], fieldHash: 'b'.repeat(64), showFlag: 1, ktoModifiedTime: '20260901000000' },
+      );
+      expect(v.kind).toBe('INCOMPARABLE');
+      expect(v.notify).toBe(false);
+      expect(v.showFlagTurnedOff).toBe(false);
+    });
   });
+
 
   it('같은 입력이면 언제나 같은 판정이다 (NF-MT-001)', () => {
     const p = snap();

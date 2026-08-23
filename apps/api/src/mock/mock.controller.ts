@@ -7,8 +7,6 @@ import contentsSearch from '../mocks/contents_search.json';
 import itemMatch from '../mocks/item_match.json';
 import auditRun from '../mocks/audit_run.json';
 import unverified from '../mocks/unverified.json';
-import patchPreview from '../mocks/patch_preview.json';
-import patchApplied from '../mocks/patch_applied.json';
 import comparison from '../mocks/comparison.json';
 import rules from '../mocks/rules.json';
 import usageBudget from '../mocks/usage_budget.json';
@@ -77,11 +75,7 @@ export class MockController {
   @Get('rules') rulesList() { return rules; }
   @Get('products/:productId/audit-runs') runHistory() { return { content: [auditRun], page: 0, size: 20, totalElements: 1 }; }
 
-  // ── 패치 (F08~F10) ──
-  @Post('products/:productId/patch-preview') preview() { return patchPreview; }
-  @Post('products/:productId/patch-applications') @HttpCode(202) apply() { return patchApplied; }
-  @Get('patch-applications/:id') patchApp(@Param('id') id: string) { return { patchApplicationId: Number(id), revertedAt: null }; }
-  @Post('patch-applications/:id/revert') revert(@Param('id') id: string) { return { patchApplicationId: Number(id), revertedAt: new Date().toISOString() }; }
+  // ── 패치 (F10 전후 비교만 남았다. F08 미리보기 · F09 확정 · 되돌리기는 실엔진이 가져갔다) ──
   @Get('products/:productId/comparison') compare() { return comparison; }
 
   // ── 리포트 (F11) ──
