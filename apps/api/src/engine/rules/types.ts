@@ -1,3 +1,4 @@
+import { SETTING_DEFAULTS } from '@tourlint/shared';
 import type {
   ContentTypeId, EndTimeSource, ItemType, MatchStatus, ParseConfidence, ReasonCode, Severity,
 } from '@tourlint/shared';
@@ -54,11 +55,34 @@ export interface AuditItem {
   readonly content: MatchedContent | null;
 }
 
+/**
+ * 판정에 쓰는 계정 설정 (`user_setting`).
+ *
+ * 설정 화면에서 조정할 수 있어야 하므로(FR-RU-072 · FR-OP-021) 규칙이 상수를 직접 읽지 않고
+ * 러너가 주입한다. 변경은 다음 검수부터 적용되고 과거 결과를 소급하지 않는다 (FR-OP-026).
+ */
+export interface AuditSettings {
+  /** R07 연속 일정 기준 시간 */
+  readonly r07SpanHours: number;
+  /** R07 최소 식사 시간(분) */
+  readonly r07MealMinutes: number;
+  /** R04 콘텐츠 편중 임계 */
+  readonly r04Threshold: number;
+}
+
+/** 계정 설정을 아직 읽지 않았을 때 쓰는 기본값 (`SETTING_DEFAULTS`) */
+export const DEFAULT_AUDIT_SETTINGS: AuditSettings = {
+  r07SpanHours: SETTING_DEFAULTS.r07SpanHours,
+  r07MealMinutes: SETTING_DEFAULTS.r07MealMinutes,
+  r04Threshold: SETTING_DEFAULTS.r04Threshold,
+};
+
 export interface ItineraryContext {
   readonly productId: number;
   readonly items: readonly AuditItem[];
   /** 규칙이 시계를 보지 않게 달력을 주입한다 (NF-MT-001) */
   readonly holidays: HolidayCalendar;
+  readonly settings: AuditSettings;
 }
 
 /**
@@ -72,7 +96,11 @@ export interface Finding {
   readonly ruleVersion: string;
   readonly severity: Severity;
   readonly reasonCode: ReasonCode;
-  readonly targetItemId: number;
+  /**
+   * 지목하는 일정 항목. **일차 단위 · 상품 단위 판정은 null 이다** (R04 · R07 · R10).
+   * DB `finding.target_item_id` 도 NULL 을 허용한다.
+   */
+  readonly targetItemId: number | null;
   readonly targetItemId2?: number;
   readonly message: string;
   readonly evidence: Readonly<Record<string, unknown>>;

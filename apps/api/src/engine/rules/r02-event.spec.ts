@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
 import { parseIsoDate } from '../calendar/dates';
 import { R02EventPeriodRule, evaluateEventPeriod } from './r02-event';
+import { DEFAULT_AUDIT_SETTINGS } from './types';
 import type { AuditItem, Finding } from './types';
 
 const rule = new R02EventPeriodRule();
@@ -23,7 +24,7 @@ function festival(date: string, period: { start: string | null; end: string | nu
       normalized: null, showFlag: 1, eventPeriod: period,
     },
   };
-  return rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS });
+  return rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS });
 }
 
 describe('evaluateEventPeriod — 경계는 포함이다', () => {
