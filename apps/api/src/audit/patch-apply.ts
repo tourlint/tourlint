@@ -188,7 +188,16 @@ export function applyPatches(
           lclsSystm3: null,
           mapX: null,
           mapY: null,
-          matchStatus: 'PENDING',
+          /*
+           * `EXCLUDED` 다. `PENDING` 으로 두면 확정 직후의 자동 재검수가 **자기가 넣은
+           * 항목 때문에** `PLACE_UNRESOLVED` 로 거절당한다 (EX-AU-001 · FR-PA-022) —
+           * 사용자는 수정안을 반영했는데 검수가 안 도는 상태를 보게 된다.
+           *
+           * 뜻으로도 이쪽이 맞다. 여기 들어오는 것은 식사·휴식처럼 공사에 물어볼 것이
+           * 없는 시간대라 매칭을 기다리는 게 아니라 매칭 대상이 아니다. R05 도
+           * `EXCLUDED` 는 확인 불가로 세지 않는다.
+           */
+          matchStatus: 'EXCLUDED',
         };
         working.push(inserted);
         break;

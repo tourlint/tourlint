@@ -154,6 +154,21 @@ export class AuditResultRepository {
     }]));
   }
 
+  /**
+   * 그 상품의 가장 최근 검수 실행 id.
+   *
+   * 패치 확정이 `before_audit_run_id` 로 붙잡는 값이다 (FR-PA-025 · 전후 비교의 좌측).
+   * 한 번도 검수하지 않은 상품이면 `null` 이고, 그때는 비교할 좌측이 없다.
+   */
+  async latestRunIdOf(productId: number): Promise<number | null> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT id FROM audit_run WHERE product_id = $1 ORDER BY id DESC LIMIT 1`,
+      [productId],
+    );
+    const row = rows[0];
+    return row === undefined ? null : Number(row.id);
+  }
+
   async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
     const { rows } = await this.pool.query<FindingRow>(
       `SELECT id, rule_code, severity, reason_code, target_item_id, target_item_id2,

@@ -35,37 +35,55 @@ describe('앱 부팅', () => {
     expect(app).toBeDefined();
   });
 
-  it('실엔진 엔드포인트 4종이 등록돼 있다', () => {
-    const paths = registeredPaths(app);
-    for (const p of [
-      '/api/v1/products/:productId/audit-jobs',
-      '/api/v1/audit-jobs/:jobId',
-      '/api/v1/audit-runs/:runId',
-      '/api/v1/audit-runs/:runId/findings',
+  it('실엔진 엔드포인트가 등록돼 있다', () => {
+    const routes = registeredRoutes(app);
+    for (const r of [
+      'POST /api/v1/products/:productId/audit-jobs',
+      'GET /api/v1/audit-jobs/:jobId',
+      'GET /api/v1/audit-runs/:runId',
+      'GET /api/v1/audit-runs/:runId/findings',
+      // F08 · F09
+      'POST /api/v1/products/:productId/patch-preview',
+      'POST /api/v1/products/:productId/patch-applications',
+      'GET /api/v1/patch-applications/:id',
+      'POST /api/v1/patch-applications/:id/revert',
     ]) {
-      expect(paths, p).toContain(p);
+      expect(routes, r).toContain(r);
     }
   });
 
   it('교체된 mock 라우트가 남아 있지 않다 (NF-CO-002)', () => {
-    // 같은 경로가 mock 과 실엔진에 둘 다 있으면 먼저 등록된 쪽이 이긴다
-    const paths = registeredPaths(app);
-    const audit = paths.filter((p) => p.includes('audit-jobs') || p === '/api/v1/audit-runs/:runId');
-    expect(new Set(audit).size).toBe(audit.length);
+    /*
+     * 같은 메서드 · 같은 경로가 mock 과 실엔진에 둘 다 있으면 **먼저 등록된 쪽이 이긴다.**
+     * 실엔진을 붙였는데 mock 을 안 지우면 화면은 여전히 모의 응답을 받고, 그 사실은
+     * 아무 테스트도 말해 주지 않는다 — 공사 호출을 모의로 전면 대체한 채 제출하면
+     * 심사에서 제외된다 (FR-OP-009).
+     *
+     * 특정 경로만 세지 않고 전체에서 중복을 본다. 다음에 mock 을 걷어낼 때도 이 검사가
+     * 그대로 작동해야 한다.
+     */
+    const routes = registeredRoutes(app);
+    const seen = new Set<string>();
+    const duplicated = routes.filter((r) => (seen.has(r) ? true : (seen.add(r), false)));
+    expect(duplicated).toEqual([]);
   });
 
   it('/health 가 인증 없이 응답한다 (NF-AV-004)', () => {
-    expect(registeredPaths(app)).toContain('/health');
+    expect(registeredRoutes(app)).toContain('GET /health');
   });
 });
 
-/** Express 라우터에서 등록된 경로를 긁는다 */
-function registeredPaths(app: INestApplication): string[] {
+/** Express 라우터에서 등록된 `메서드 경로` 를 긁는다 */
+function registeredRoutes(app: INestApplication): string[] {
   const server = app.getHttpServer() as { _events?: { request?: { _router?: { stack?: unknown[] } } } };
   const stack = server._events?.request?._router?.stack ?? [];
   const out: string[] = [];
-  for (const layer of stack as { route?: { path?: string } }[]) {
-    if (typeof layer.route?.path === 'string') out.push(layer.route.path);
+  for (const layer of stack as { route?: { path?: string; methods?: Record<string, boolean> } }[]) {
+    const path = layer.route?.path;
+    if (typeof path !== 'string') continue;
+    for (const [method, on] of Object.entries(layer.route?.methods ?? {})) {
+      if (on) out.push(`${method.toUpperCase()} ${path}`);
+    }
   }
   return out;
 }
