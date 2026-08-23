@@ -2,6 +2,7 @@ import { R01OperatingRule } from '../engine/rules/r01-operating';
 import { R02EventPeriodRule } from '../engine/rules/r02-event';
 import { R03TimeOverlapRule } from '../engine/rules/r03-overlap';
 import { R04ImbalanceRule } from '../engine/rules/r04-imbalance';
+import { R05UnverifiableRule } from '../engine/rules/r05-unverifiable';
 import { R06ChangeRule } from '../engine/rules/r06-change';
 import { R07MealRestRule } from '../engine/rules/r07-meal-rest';
 import { R08TravelTimeRule } from '../engine/rules/r08-travel';
@@ -20,6 +21,7 @@ export const RULES: readonly AuditRule[] = [
   new R02EventPeriodRule(),
   new R03TimeOverlapRule(),
   new R04ImbalanceRule(),
+  new R05UnverifiableRule(),
   new R06ChangeRule(),
   new R07MealRestRule(),
   new R08TravelTimeRule(),

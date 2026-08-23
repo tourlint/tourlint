@@ -63,10 +63,9 @@ export class R02EventPeriodRule implements AuditRule {
     if (visit === null) return null;
 
     const period = item.content.eventPeriod;
-    if (period === null || (period.start === null && period.end === null)) {
-      // FR-RU-023 — 결측은 차단이 아니라 확인 불가다. R05 가 목록에 올린다
-      return unverified(item, `${item.placeLabel} — 행사 기간 정보가 없어 개최 여부를 확인할 수 없습니다`);
-    }
+    // FR-RU-023 — 기간이 아예 없으면 차단이 아니라 확인 불가고, 그건 R05 가 올린다.
+    // 여기서도 내면 같은 항목이 목록에 두 줄로 뜬다
+    if (period === null || (period.start === null && period.end === null)) return null;
 
     const verdict = evaluateEventPeriod(visit, period);
     if (verdict === 'IN_PERIOD') return null;
@@ -99,7 +98,12 @@ function unverified(item: AuditItem, message: string): Finding {
     ruleCode: 'R02',
     ruleVersion: R02_VERSION,
     severity: 'UNVERIFIED',
-    reasonCode: 'EVENT_ENDED',
+    /*
+     * 기간이 반쪽만 있어 개최 여부를 못 정한 경우다. `EVENT_ENDED` 를 달면 화면에
+     * "행사 종료" 라고 뜬다 — 끝났다고 말하려면 끝난 날짜를 봤어야 한다. 우리가 본 건
+     * 날짜가 모자라다는 사실뿐이다
+     */
+    reasonCode: 'PARSE_MISSING',
     targetItemId: item.id,
     message,
     evidence: { verdict: 'UNKNOWN', visitDate: item.date, unverified: true },
