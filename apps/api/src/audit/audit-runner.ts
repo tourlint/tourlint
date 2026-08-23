@@ -16,6 +16,9 @@ import type { AuditItem, AuditSettings, Finding, ItineraryContext, MatchedConten
 import { calculateReadiness, type ScoreResult } from '../engine/score';
 import { isKtoError, type KtoClient } from '../external/kto';
 import type { FingerprintToSave } from '../persistence/audit-result.repository';
+import { proposeLocalPatches } from './patch-local';
+import { proposeReplacements } from './patch-remote';
+import { MAX_PATCHES_PER_FINDING, type Patch } from './patch-types';
 import { RULESET_VERSION, evaluateAll } from './rule-registry';
 
 /**
@@ -28,7 +31,7 @@ import { RULESET_VERSION, evaluateAll } from './rule-registry';
  *   5) ItineraryContext 조립   ← 여기까지가 I/O
  *   6) 규칙 평가          ★ 메모리 상에서만
  *   7) 등급 · 출시 준비도
- *   8) 수정안 생성        — W2
+ *   8) 수정안 생성        ★ 판정 이후. 대체 관광지 탐색에만 외부 호출
  *   9) 저장               — 호출자가 한 트랜잭션으로
  *
  * **5단계에서 I/O 가 끝난다.** 6단계를 메모리 전용으로 못 박은 것은 성능뿐 아니라
@@ -50,6 +53,8 @@ export interface ItineraryItemRow {
   readonly lclsSystm1: string | null;
   readonly lclsSystm2: string | null;
   readonly lclsSystm3: string | null;
+  readonly mapX: number | null;
+  readonly mapY: number | null;
   readonly matchStatus: MatchStatus;
 }
 
@@ -75,6 +80,13 @@ export interface AuditRunnerOptions {
    * 없으면 최초 검수로 본다.
    */
   readonly previousFingerprints?: ReadonlyMap<string, FingerprintSnapshot>;
+  /**
+   * 대체 관광지 탐색(`locationBasedList2`) 호출 상한. 기본 3콜.
+   *
+   * 수정안은 판정이 아니라 **거들기**다. 여기서 예산을 많이 쓰면 정작 검수할 몫이 줄어든다
+   * (API 설계 6-1 8단계 "약 3콜").
+   */
+  readonly maxReplacementCalls?: number;
 }
 
 export interface AuditRunResult {
@@ -110,6 +122,7 @@ export class AuditRunner {
   private readonly weights: Readonly<Record<Severity, number>>;
   private readonly settings: AuditSettings;
   private readonly previous: ReadonlyMap<string, FingerprintSnapshot>;
+  private readonly maxReplacementCalls: number;
   private readonly clock: () => Date;
   private readonly onProgress: (done: number, total: number) => void | Promise<void>;
 
@@ -119,6 +132,7 @@ export class AuditRunner {
     this.weights = options.weights ?? SEVERITY_WEIGHT_DEFAULT;
     this.settings = options.settings ?? DEFAULT_AUDIT_SETTINGS;
     this.previous = options.previousFingerprints ?? new Map();
+    this.maxReplacementCalls = options.maxReplacementCalls ?? 3;
     this.clock = options.clock ?? ((): Date => new Date());
     this.onProgress = options.onProgress ?? ((): void => undefined);
   }
@@ -187,8 +201,10 @@ export class AuditRunner {
     // 조회에 실패한 콘텐츠는 "정상" 이 아니라 "확인 불가" 다 (FR-AU-009 · FR-AU-027)
     const isolated = isolationFindings(items, failures);
 
+    // ── 8) 수정안 생성 (판정 이후 별도 단계) ──
+    const all = await this.attachPatches([...findings, ...isolated], ctx, fetched);
+
     // ── 7) 등급 · 출시 준비도 ──
-    const all = [...findings, ...isolated];
     const score = calculateReadiness({
       findings: all.map((f) => ({
         severity: f.severity, reasonCode: f.reasonCode,
@@ -213,6 +229,48 @@ export class AuditRunner {
         : buildRunFingerprint(fingerprints.map((f) => ({ ktoContentId: f.ktoContentId, fieldHash: f.fieldHash }))),
       failedRules,
     };
+  }
+
+  /**
+   * [8단계] 수정안을 붙인다.
+   *
+   * 규칙이 만들지 않는 이유는 대체 관광지 탐색에 외부 호출이 필요해서다. 규칙 평가는
+   * 메모리 전용이라야 결정론적이다 (NF-PF-014 · NF-MT-001).
+   *
+   * 로컬 수정안은 전부 만들고, 외부 호출이 필요한 대체 관광지는 **호출 상한 안에서만**
+   * 만든다. 수정안을 못 붙이는 것은 판정 실패가 아니다 — 없으면 사용자가 직접 고치면 된다.
+   */
+  private async attachPatches(
+    findings: readonly Finding[],
+    ctx: ItineraryContext,
+    fetched: ReadonlyMap<string, FetchedContent>,
+  ): Promise<readonly Finding[]> {
+    const knownConfidence = new Map(
+      [...fetched].map(([id, c]) => [id, c.normalized.confidence.overall] as const),
+    );
+    let calls = 0;
+
+    const out: Finding[] = [];
+    for (const finding of findings) {
+      const local = proposeLocalPatches({ finding, items: ctx.items, holidays: ctx.holidays });
+      let patches: Patch[] = [...local];
+
+      // 대체 관광지는 R01 과 R06-b 만 낸다 (FR-RU-013③ · FR-RU-067)
+      const wantsReplacement =
+        (finding.ruleCode === 'R01' || finding.ruleCode === 'R06') && finding.targetItemId !== null;
+      const target = ctx.items.find((i) => i.id === finding.targetItemId);
+
+      if (wantsReplacement && target !== undefined && calls < this.maxReplacementCalls) {
+        calls++;
+        patches = [
+          ...patches,
+          ...(await proposeReplacements(target, { kto: this.kto, knownConfidence }, patches.length)),
+        ];
+      }
+
+      out.push(patches.length === 0 ? finding : { ...finding, patches: patches.slice(0, MAX_PATCHES_PER_FINDING) });
+    }
+    return out;
   }
 
   /**
@@ -267,6 +325,8 @@ export class AuditRunner {
         lclsSystm1: item.lclsSystm1,
         lclsSystm2: item.lclsSystm2,
         lclsSystm3: item.lclsSystm3,
+        mapX: item.mapX,
+        mapY: item.mapY,
         matchStatus: item.matchStatus,
         content: toMatchedContent(item, fetched, verdicts),
       };

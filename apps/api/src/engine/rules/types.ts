@@ -3,6 +3,7 @@ import type {
   ContentTypeId, EndTimeSource, ExceptionReasonCode, ItemType, MatchStatus,
   ParseConfidence, ReasonCode, Severity,
 } from '@tourlint/shared';
+import type { Patch } from '../../audit/patch-types';
 import type { ChangeVerdict } from '../fingerprint/types';
 import type { HolidayCalendar } from '../calendar/holidays';
 import type { IsoDate } from '../calendar/dates';
@@ -61,6 +62,10 @@ export interface AuditItem {
   readonly lclsSystm2: string | null;
   /** 소분류(8자). R04 집계 축. 상세 조회에는 없고 공통·목록 조회에서 수집한다 (EI-KT-018) */
   readonly lclsSystm3: string | null;
+  /** 경도. 대체 관광지 탐색과 R08 이동시간이 쓴다 */
+  readonly mapX: number | null;
+  /** 위도 */
+  readonly mapY: number | null;
   readonly itemType: ItemType;
   /** **사용자가 입력한** 일정 항목명. 공사 원문이 아니다 (DR-PR-001) */
   readonly placeLabel: string;
@@ -139,6 +144,11 @@ export interface Finding {
    * 목록에서 체크한 시각은 `confirmed_at` 이 갖는다.
    */
   readonly needsConfirmation: boolean;
+  /**
+   * 수정안. **규칙이 만들지 않는다** — 판정 이후 별도 단계에서 러너가 붙인다
+   * (API 설계 6-1 8단계). 대체 관광지 탐색에 외부 호출이 필요해서다.
+   */
+  readonly patches?: readonly Patch[];
 }
 
 export interface AuditRule {

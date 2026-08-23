@@ -23,7 +23,7 @@ function item(s: Spec): AuditItem {
     id: nextId++, dayNo: s.day ?? 1, seq: s.seq ?? 1,
     date: '2026-10-22', startTime: s.start,
     endTime: s.end === undefined ? null : s.end,
-    endTimeSource: 'INPUT', lclsSystm1: null, lclsSystm2: null, lclsSystm3: null,
+    endTimeSource: 'INPUT', lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, mapX: null, mapY: null,
     itemType: s.type ?? 'SIGHT', placeLabel: s.label ?? '장소',
     matchStatus: 'CONFIRMED', content: null,
   };

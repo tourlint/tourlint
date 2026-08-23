@@ -25,7 +25,7 @@ function evaluate(
 ): readonly Finding[] {
   const item: AuditItem = {
     id: 7, dayNo: 1, seq: 1, date: '2026-10-22', startTime: '10:00', endTime: '11:00',
-    endTimeSource: 'INPUT', lclsSystm1: null, lclsSystm2: null, lclsSystm3: null,
+    endTimeSource: 'INPUT', lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, mapX: null, mapY: null,
     itemType: 'SIGHT', placeLabel: over.label ?? '강릉 경포대', matchStatus: 'CONFIRMED',
     content: {
       ktoContentId: '125790', contentTypeId: 12,
@@ -103,7 +103,7 @@ describe('대상 제외', () => {
   it('매칭되지 않은 항목은 보지 않는다', () => {
     const item: AuditItem = {
       id: 9, dayNo: 1, seq: 1, date: '2026-10-22', startTime: '10:00', endTime: '11:00',
-      endTimeSource: 'INPUT', lclsSystm1: null, lclsSystm2: null, lclsSystm3: null,
+      endTimeSource: 'INPUT', lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, mapX: null, mapY: null,
       itemType: 'SIGHT', placeLabel: '이름만 있는 곳', matchStatus: 'PENDING', content: null,
     };
     expect(rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS }))

@@ -23,7 +23,7 @@ function item(s: Spec = {}): AuditItem {
   return {
     id: nextId++, dayNo: s.day ?? 1, seq: nextId, date: '2026-10-22',
     startTime: '10:00', endTime: '11:00', endTimeSource: 'INPUT',
-    lclsSystm1: null, lclsSystm2: null, lclsSystm3: s.l3 === undefined ? 'AA010100' : s.l3,
+    lclsSystm1: null, lclsSystm2: null, lclsSystm3: s.l3 === undefined ? 'AA010100' : s.l3, mapX: null, mapY: null,
     itemType: s.type ?? 'SIGHT', placeLabel: s.label ?? '장소', matchStatus: 'CONFIRMED',
     content: { ktoContentId: String(nextId), contentTypeId: ctid, normalized: null, showFlag: 1, eventPeriod: null, changeVerdict: null },
   };
@@ -45,7 +45,7 @@ function fromFixture(file: string): AuditItem[] {
   return d.items.map((i, idx) => ({
     id: idx + 1, dayNo: i.dayNo, seq: i.seq, date: '2026-10-22',
     startTime: i.startTime, endTime: i.endTime ?? null, endTimeSource: 'INPUT',
-    lclsSystm1: i.lclsSystm1 ?? null, lclsSystm2: i.lclsSystm2 ?? null, lclsSystm3: i.lclsSystm3 ?? null,
+    lclsSystm1: i.lclsSystm1 ?? null, lclsSystm2: i.lclsSystm2 ?? null, lclsSystm3: i.lclsSystm3 ?? null, mapX: null, mapY: null,
     itemType: i.itemType, placeLabel: i.placeLabel, matchStatus: 'CONFIRMED',
     content: i.contentId === undefined ? null : {
       ktoContentId: i.contentId, contentTypeId: (i.contentTypeId ?? 12) as 12,

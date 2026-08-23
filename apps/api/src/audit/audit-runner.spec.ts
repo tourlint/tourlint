@@ -36,7 +36,7 @@ const product: ProductRow = { id: 31, startDate: '2026-10-13', nights: 1 };
 const item = (over: Partial<ItineraryItemRow> & Pick<ItineraryItemRow, 'id' | 'dayNo' | 'seq'>): ItineraryItemRow => ({
   startTime: '10:00', endTime: '11:00', endTimeSource: 'INPUT',
   placeLabel: '테스트', itemType: 'SIGHT', ktoContentId: null, contentTypeId: null,
-  lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, matchStatus: 'CONFIRMED', ...over,
+  lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, mapX: null, mapY: null, matchStatus: 'CONFIRMED', ...over,
 });
 
 /** TP-03 의 축약판 — 실제 픽스처가 있는 콘텐츠만 골랐다 */
