@@ -1,31 +1,24 @@
-name: 코드 ↔ 명세 불일치
-description: 구현이 노션 문서와 다르거나, 문서끼리 어긋난다
+name: 명세 불일치
+description: 구현이 문서와 다르거나 문서끼리 어긋난다
 labels: ["spec-mismatch"]
 body:
   - type: markdown
     attributes:
-      value: |
-        문서 12종이 서로 참조하고 있어서 한 곳을 고치면 다른 데가 조용히 어긋납니다.
-        어느 쪽이 맞는지 먼저 정하고, 계약을 바꿔야 하면 코드보다 문서를 먼저 고칩니다(SC-CM-001).
+      value: 계약을 바꿔야 하면 코드보다 문서가 먼저다 (SC-CM-001).
   - type: textarea
-    id: spec
+    id: gap
     attributes:
-      label: 문서는 이렇게 되어 있다
-      description: 문서명, 항목 ID, 원문 인용.
-    validations: { required: true }
-  - type: textarea
-    id: code
-    attributes:
-      label: 코드는 이렇게 되어 있다
+      label: 문서 / 코드
+      description: 문서는 뭐라고 하고 코드는 어떻게 되어 있는지.
     validations: { required: true }
   - type: textarea
     id: decision
     attributes:
       label: 어떻게 할지
-      description: 선택지가 여럿이면 나눠서. 아직 안 정했으면 그렇게 적어도 됩니다.
+      description: 선택지가 여럿이면 나눠서. 안 정했으면 그렇게 적는다.
     validations: { required: true }
   - type: textarea
     id: impact
     attributes:
       label: 같이 봐야 할 것
-      description: 이걸 고치면 어느 문서나 화면이 따라 바뀌는지.
+      description: 고치면 따라 바뀌는 문서나 화면.

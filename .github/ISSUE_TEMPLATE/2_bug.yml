@@ -2,30 +2,15 @@ name: 결함
 description: 동작이 기대와 다르다
 labels: ["bug"]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        만든 뒤 오른쪽에서 마일스톤과 담당자, `track:` 라벨을 지정해 주세요.
   - type: textarea
     id: actual
     attributes:
       label: 증상
-      description: 실제로 뭐가 일어나는지.
+      description: 재현되는 픽스처(TP-01~04)가 있으면 같이.
     validations: { required: true }
   - type: textarea
     id: expected
     attributes:
       label: 기대한 동작
-      description: 근거가 되는 요구사항 ID나 기대값 표 항목이 있으면 같이.
+      description: 근거 조항이나 기대값 표 항목.
     validations: { required: true }
-  - type: textarea
-    id: repro
-    attributes:
-      label: 재현
-      description: 픽스처로 재현되면 그 ID(TP-01~04)와 항목 번호.
-    validations: { required: true }
-  - type: input
-    id: impact
-    attributes:
-      label: 영향
-      placeholder: "판정이 틀어지는지, 화면만 이상한지, 데이터가 남는지"
