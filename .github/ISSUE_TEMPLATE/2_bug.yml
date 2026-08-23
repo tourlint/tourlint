@@ -5,40 +5,27 @@ body:
   - type: markdown
     attributes:
       value: |
-        생성한 뒤 오른쪽에서 마일스톤(목표 주차)과 담당자를 지정한다.
-        주차는 라벨이 아니라 마일스톤으로 관리한다 — 마감일과 진행률이 함께 보인다.
-
-        본문은 800자 안쪽으로. 배경 설명이 길어지면 docs/ 에 두고 링크한다.
+        만든 뒤 오른쪽에서 마일스톤과 담당자, `track:` 라벨을 지정해 주세요.
+  - type: textarea
+    id: actual
+    attributes:
+      label: 증상
+      description: 실제로 뭐가 일어나는지.
+    validations: { required: true }
   - type: textarea
     id: expected
     attributes:
       label: 기대한 동작
-      description: 근거가 되는 요구사항 ID 나 기대값 표 항목을 함께 적는다.
-    validations: { required: true }
-  - type: textarea
-    id: actual
-    attributes:
-      label: 실제 동작
+      description: 근거가 되는 요구사항 ID나 기대값 표 항목이 있으면 같이.
     validations: { required: true }
   - type: textarea
     id: repro
     attributes:
-      label: 재현 방법
-      description: 픽스처로 재현되면 그 ID(TP-01~04)와 항목 번호를 적는다.
-      value: |
-        1.
-        2.
-        3.
+      label: 재현
+      description: 픽스처로 재현되면 그 ID(TP-01~04)와 항목 번호.
     validations: { required: true }
-  - type: dropdown
-    id: severity
+  - type: input
+    id: impact
     attributes:
       label: 영향
-      options:
-        - 판정이 틀린다 (오탐/과탐) — 최우선
-        - 결정론성이 깨진다 (같은 입력에 다른 결과)
-        - 무저장 원칙 위반 (공사 원문이 어딘가 남는다)
-        - 전면 금지 동작이 우회된다 (PM-NG)
-        - 서비스가 죽는다 (NF-AV 가동 의무)
-        - 그 외
-    validations: { required: true }
+      placeholder: "판정이 틀어지는지, 화면만 이상한지, 데이터가 남는지"

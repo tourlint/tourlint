@@ -5,41 +5,30 @@ body:
   - type: markdown
     attributes:
       value: |
-        생성한 뒤 오른쪽에서 마일스톤(목표 주차)과 담당자를 지정한다.
-        주차는 라벨이 아니라 마일스톤으로 관리한다 — 마감일과 진행률이 함께 보인다.
-
-        본문은 800자 안쪽으로. 배경 설명이 길어지면 docs/ 에 두고 링크한다.
+        만든 뒤 오른쪽에서 마일스톤(목표 주차)과 담당자, `track:` 라벨을 지정해 주세요.
   - type: textarea
     id: what
     attributes:
-      label: 무엇을
-      description: 끝났을 때 무엇이 달라져 있는지로 쓴다.
+      label: 할 일
+      description: 끝났을 때 뭐가 달라져 있는지 한두 줄로.
     validations: { required: true }
   - type: textarea
     id: why
     attributes:
-      label: 왜 필요한가
-      description: 지금 안 하면 무엇이 막히는지. 근거 조항 ID 가 있으면 함께 적는다.
-    validations: { required: true }
-  - type: input
-    id: refs
-    attributes:
-      label: 근거 조항
-      placeholder: "FR-AU-004 · DR-TD-003 · NF-MT-001 (없으면 '해당 없음')"
-    validations: { required: true }
-  - type: dropdown
-    id: track
-    attributes:
-      label: 트랙
-      options:
-        - A — 검수 엔진 (apps/api/src/engine)
-        - B — 제품 표면 (apps/web · 인증 · 상품 CRUD)
-        - 공동 (문서 · 제출물 · 인프라)
+      label: 배경
+      description: 지금 안 하면 뭐가 막히는지.
     validations: { required: true }
   - type: textarea
     id: done
     attributes:
-      label: 완료 판정
-      description: 무엇을 확인하면 끝난 것인가. 측정 가능하게 쓴다.
-      placeholder: "예) TP-03 이 29점 · 차단 2 · 오류 1 · 주의 2 · 확인불가 1 을 낸다"
+      label: 체크
+      description: 뭘 확인하면 끝난 건지. 측정 가능하게.
+      value: |
+        - [ ] 
     validations: { required: true }
+  - type: input
+    id: refs
+    attributes:
+      label: 참고
+      description: 근거가 되는 요구사항 ID나 문서 링크. 없으면 비워도 됩니다.
+      placeholder: "FR-AU-004, DR-TD-003"
