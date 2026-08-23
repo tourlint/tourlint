@@ -5,6 +5,7 @@ import type { ContentTypeId } from '@tourlint/shared';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
 import { parseOperatingInfo } from '../normalize/parse';
 import { R01OperatingRule } from './r01-operating';
+import { DEFAULT_AUDIT_SETTINGS } from './types';
 import type { AuditItem, Finding, ItineraryContext } from './types';
 
 const FIXTURES = join(__dirname, '../../../../../fixtures/kto');
@@ -46,7 +47,7 @@ function evaluate(input: CaseInput): readonly Finding[] {
       eventPeriod: null,
     },
   };
-  const ctx: ItineraryContext = { productId: 1, items: [item], holidays: KOREAN_HOLIDAYS };
+  const ctx: ItineraryContext = { productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS };
   return rule.evaluate(ctx);
 }
 
@@ -329,7 +330,7 @@ describe('대상 제외 (FR-AU-011 · FR-RU-014)', () => {
       endTimeSource: 'INPUT', lclsSystm2: null,
       itemType: 'SIGHT', placeLabel: '이름만 있는 곳', matchStatus: 'PENDING', content: null,
     };
-    expect(rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS })).toHaveLength(0);
+    expect(rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS })).toHaveLength(0);
   });
 });
 

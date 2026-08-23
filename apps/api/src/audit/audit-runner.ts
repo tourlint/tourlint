@@ -8,7 +8,8 @@ import { buildContentFingerprint, buildRunFingerprint, isSupportedContentTypeId 
 import { resolveEndTime } from '../engine/itinerary/dwell';
 import { parseOperatingInfo } from '../engine/normalize/parse';
 import type { NormalizedOperatingInfo } from '../engine/normalize/types';
-import type { AuditItem, Finding, ItineraryContext, MatchedContent } from '../engine/rules/types';
+import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
+import type { AuditItem, AuditSettings, Finding, ItineraryContext, MatchedContent } from '../engine/rules/types';
 import { calculateReadiness, type ScoreResult } from '../engine/score';
 import { isKtoError, type KtoClient } from '../external/kto';
 import type { FingerprintToSave } from '../persistence/audit-result.repository';
@@ -59,6 +60,8 @@ export interface AuditRunnerOptions {
   /** 관광지 단위 동시 조회 수. 기본 8 (NF-PF-010) */
   readonly concurrency?: number;
   readonly weights?: Readonly<Record<Severity, number>>;
+  /** 계정 설정. 주지 않으면 기본값을 쓴다 (FR-RU-072 · FR-OP-026) */
+  readonly settings?: AuditSettings;
   readonly clock?: () => Date;
   /** 폴링 응답에 반영할 진행률 */
   readonly onProgress?: (done: number, total: number) => void | Promise<void>;
@@ -95,6 +98,7 @@ export class AuditRunner {
   private readonly kto: KtoClient;
   private readonly concurrency: number;
   private readonly weights: Readonly<Record<Severity, number>>;
+  private readonly settings: AuditSettings;
   private readonly clock: () => Date;
   private readonly onProgress: (done: number, total: number) => void | Promise<void>;
 
@@ -102,6 +106,7 @@ export class AuditRunner {
     this.kto = options.kto;
     this.concurrency = options.concurrency ?? 8;
     this.weights = options.weights ?? SEVERITY_WEIGHT_DEFAULT;
+    this.settings = options.settings ?? DEFAULT_AUDIT_SETTINGS;
     this.clock = options.clock ?? ((): Date => new Date());
     this.onProgress = options.onProgress ?? ((): void => undefined);
   }
@@ -243,7 +248,7 @@ export class AuditRunner {
       };
     });
 
-    return { productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS };
+    return { productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS, settings: this.settings };
   }
 }
 
