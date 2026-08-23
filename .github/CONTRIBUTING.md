@@ -20,20 +20,29 @@
 
 ## 커밋
 
-Conventional Commits · 제목은 한글.
-
-```
-type(scope): 한글 제목
-
-■ 무엇을 왜 바꿨는지
-■ 근거 조항 (FR- · DR- · NF- · EX- ID)
-■ 검증 결과
-■ 일부러 안 한 것과 그 이유
-```
+`type(scope): 한글 제목`. 첫 줄 50자 안팎, 마침표 없이.
 
 `type` — `feat` `fix` `chore` `docs` `test` `refactor` / `scope` — `engine` `api` `web` `db` `fixtures` `infra` `docs`
 
-**메시지에 "무엇을"만 쓰지 않는다.** 3주 뒤에 이 커밋을 보는 사람이 필요한 건 "왜"다.
+**본문은 필요할 때만 쓴다.** 한 줄 커밋 메시지가 수두룩한 게 정상 히스토리다. 한 줄 변경에
+다섯 문단을 달지 않는다. 매 커밋이 같은 구조(제목 + 배경 + 목록 + 마무리)면 그것부터가 기계
+냄새다 — 급한 커밋은 급하게 쓴 티가 나도 된다.
+
+경어체("~을 수정했습니다")보다 건조체("~ 수정")가 `git log` 에서 읽힌다. 본문에도 교훈이나
+격언으로 마무리하지 않는다.
+
+### 커밋 트레일러를 넣지 않는다
+
+```
+X  Co-Authored-By: Claude <noreply@anthropic.com>
+X  Generated with [Claude Code](https://claude.com/claude-code)
+```
+
+AI 도구가 기본값으로 붙이는 것들이고, 지시하지 않으면 계속 붙는다. PR 본문에서 지워도
+소용없다 — 트레일러는 커밋 메시지에 있다. 금지 문구는 `CLAUDE.md` 에도 박아 뒀다.
+
+한 번 박히면 되돌리기 어렵다. `main` 은 Railway 가 배포 중이라 히스토리 재작성이
+force-push 를 요구하고, 그 비용이 트레일러보다 크다. 머지 전에 확인하는 게 유일한 방법이다.
 
 ## PR
 
@@ -155,7 +164,8 @@ grep -rn '옛값' --include='*.md' --include='*.ts' . | grep -v node_modules
 □ 라벨: 유형 1개 + 영역 1개
 □ Closes #N 있나
 □ 이모지 없나
-□ AI 도구 서명 없나 (Co-Authored-By, Generated with)
+□ PR 본문에 AI 도구 서명 없나
+□ 커밋 메시지에 Co-Authored-By 트레일러 없나
 □ 본문 길이가 변경 크기에 맞나
 □ 격언조 마무리 문장 없나
 □ 수치를 고쳤다면 저장소 전체를 grep 했나

@@ -1,8 +1,11 @@
 blank_issues_enabled: true
 contact_links:
-  - name: 작업 규칙
+  - name: 개발 규칙
+    url: https://github.com/tourlint/tourlint/blob/main/CLAUDE.md
+    about: 코드 작업 전에 반드시 읽는다
+  - name: 이슈·PR 규칙
     url: https://github.com/tourlint/tourlint/blob/main/.github/CONTRIBUTING.md
-    about: 브랜치, 라벨, 제목, 머지. 작업 전에 읽는다
+    about: 브랜치, 라벨, 제목, 커밋, 머지
   - name: 노션 문서 정본
     url: https://app.notion.com/p/3a3ec0325d5b806e99a4dcdd283eed48
     about: 기획서, 통합 요구사항 9종, DB 명세서, API 설계서. 로컬 사본은 docs/notion/
