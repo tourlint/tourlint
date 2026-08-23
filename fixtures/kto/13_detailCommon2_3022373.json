@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3022373",
+            "contenttypeid": "12",
+            "title": "강릉 남산공원",
+            "createdtime": "20231023120535",
+            "modifiedtime": "20260421153442",
+            "tel": "",
+            "telname": "",
+            "homepage": "",
+            "firstimage": "https://tong.visitkorea.or.kr/cms/resource/08/3022208_image2_1.jpg",
+            "firstimage2": "https://tong.visitkorea.or.kr/cms/resource/08/3022208_image3_1.jpg",
+            "cpyrhtDivCd": "Type3",
+            "areacode": "",
+            "sigungucode": "",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "VE",
+            "lclsSystm2": "VE03",
+            "lclsSystm3": "VE030400",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "addr1": "강원특별자치도 강릉시 강변로 224-12 (노암동)",
+            "addr2": "",
+            "zipcode": "25586",
+            "mapx": "128.8934279040127",
+            "mapy": "37.74732001026134",
+            "mlevel": "6",
+            "overview": "강릉 남산공원은 역사와 문화가 공존하며 녹지와 자연이 살아 숨 쉬는 사계절 아름다운 공원으로서 공원 내 전망공간을 비롯해 남대천 등 시가지 전경을 조망할 수 있으며 숲속 산책로와 휴게 공간, 잔디광장이 조성되어 운동, 여가, 휴식을 즐길 수 있는 열린 문화공간이다. 남대천을 걷다가 창포다리를 건너면 남산공원으로 이어지는데 저녁에 이곳을 산책하면 운동도 되고 강릉 야경도 구경하면서 시원하게 즐길 수 있다. 강릉 남산공원에는 유형문화유산인 오성정이라는 나무 정자가 있는데 조선 인조 5년(1627)에 처음 지어졌다고 알려진 정자이다. 지금의 건물은 1927년 정묘생의 동갑계에서 강릉 객사의 일부를 옮겨지은 것이라고 한다. 벚꽃이 필 때는 매우 예뻐서 사람들이 많이 찾는 곳이다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

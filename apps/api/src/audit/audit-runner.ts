@@ -44,7 +44,9 @@ export interface ItineraryItemRow {
   readonly itemType: ItemType;
   readonly ktoContentId: string | null;
   readonly contentTypeId: number | null;
+  readonly lclsSystm1: string | null;
   readonly lclsSystm2: string | null;
+  readonly lclsSystm3: string | null;
   readonly matchStatus: MatchStatus;
 }
 
@@ -242,7 +244,9 @@ export class AuditRunner {
         endTime: resolved.endTime,
         endTimeSource: item.endTime === null ? resolved.source : item.endTimeSource,
         itemType: item.itemType, placeLabel: item.placeLabel,
+        lclsSystm1: item.lclsSystm1,
         lclsSystm2: item.lclsSystm2,
+        lclsSystm3: item.lclsSystm3,
         matchStatus: item.matchStatus,
         content: toMatchedContent(item, fetched),
       };

@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2941250",
+            "contenttypeid": "39",
+            "title": "감자유원지",
+            "createdtime": "20230109092235",
+            "modifiedtime": "20260605094153",
+            "tel": "",
+            "telname": "",
+            "homepage": "",
+            "firstimage": "",
+            "firstimage2": "",
+            "cpyrhtDivCd": "",
+            "areacode": "",
+            "sigungucode": "",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "FD",
+            "lclsSystm2": "FD01",
+            "lclsSystm3": "FD010100",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "addr1": "강원특별자치도 강릉시 경강로2115번길 7",
+            "addr2": "",
+            "zipcode": "25531",
+            "mapx": "128.8973878845",
+            "mapy": "37.7563490042",
+            "mlevel": "6",
+            "overview": "감자유원지는 강릉의 새로운 식문화를 제안하는 감자 식문화 공간이다. 품종부터 연구하고, 직접 강릉과 평창에서 재배한 감자를 활용한 음식과 지역 식재료에 대한 새로운 관점을 담은 캐주얼한 로컬 다이닝을 만날 수 있다. 1층 그로서리&카페에서는 못난이감자를 활용해 농가상생을 돕는 포파칩(솔트, 갈릭&버터, 치즈 및 선물세트), 어포어포 감자순비누, 감자수프와 당근라페 샌드위치를 비롯해 강릉 농식품과 로컬 크리에이터들의 콘텐츠를 만날 수 있다. 2층 감자유원지 키친에서는 메밀김밥 필 무렵, 감자눈 카레우동, 항정살 감자솥밥, 장칼국수를 재해석한 포파누들 등의 메뉴를 만나보실 수 있다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

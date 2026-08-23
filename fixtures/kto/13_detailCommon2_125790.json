@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "125790",
+            "contenttypeid": "12",
+            "title": "강릉 경포대",
+            "createdtime": "20040203090000",
+            "modifiedtime": "20260312090840",
+            "tel": "",
+            "telname": "",
+            "homepage": "https://visitgangneung.net",
+            "firstimage": "https://tong.visitkorea.or.kr/cms/resource/52/3501452_image2_1.jpg",
+            "firstimage2": "https://tong.visitkorea.or.kr/cms/resource/52/3501452_image3_1.jpg",
+            "cpyrhtDivCd": "Type1",
+            "areacode": "",
+            "sigungucode": "",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "HS",
+            "lclsSystm2": "HS01",
+            "lclsSystm3": "HS011200",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "addr1": "강원특별자치도 강릉시 경포로 365",
+            "addr2": "(저동)",
+            "zipcode": "25461",
+            "mapx": "128.896483966593",
+            "mapy": "37.7955136762197",
+            "mlevel": "6",
+            "overview": "강릉 경포대는 강릉을 대표하는 명승지 중 하나로, 국가지정문화재 보물 제2046호로 지정되어 있다. 고려시대의 문화를 보여주고 있는 관동팔경의 하나이며, 경포 호수 북쪽 언덕에 있는 누각이다. 고려 충숙왕 13년에 창건한 후 한차례 이건과 수차례 중수 기록이 대부분 자세히 남아있으며, 특히 창건 이전의 기록도 남아있어 시대별 변화과정을 구체적으로 확인할 수 있는 정자이다. 이름인 ‘경포대’ 전자체 현판은 유한지의 글씨이고, 해서체 현판은 이익회의 글씨이다. 경포대 내부에는 숙종의 직접 지은 ‘어제시’와 율곡 이이가 10세에 지었다는 ‘경포대부’를 비롯해, 조하망의 상량문 등 수많은 명사와 시인 묵객의 글이 게시되어 있다. \n누각 주위에는 소나무와 상수리나무들이 알맞게 우거져 운치 있는 경관을 이루고 있다. 경포 8 경과 경포월삼은 천하의 장관으로 전해져 오고 있다. 경포대 주변 관광지로는 오래된 소나무 숲과 벚나무가 어우러진 경포호가 위치하고 있으며, 경포호를 동해로부터 분리시키고 있는 해안사주는 경포해수욕장을 이루고 있다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}
