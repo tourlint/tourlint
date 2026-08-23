@@ -1,10 +1,11 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { SEVERITY, type Severity } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { shortFingerprint } from '../engine/fingerprint';
 import { BudgetGuard } from '../external/budget-guard';
 import { createKtoClient } from '../external/kto';
+import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
@@ -34,7 +35,7 @@ export class AuditService {
   /** 돌고 있는 검수들. 테스트가 완료를 기다릴 수 있게 붙잡아 둔다 */
   private readonly inFlight = new Set<Promise<void>>();
 
-  constructor(private readonly pool: Pool) {
+  constructor(@Inject(DB_POOL) private readonly pool: Pool) {
     this.jobs = new AuditJobRepository(pool);
     this.products = new ProductRepository(pool);
     this.results = new AuditResultRepository(pool);
