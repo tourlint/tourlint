@@ -9,3 +9,9 @@ probe_out/
 probe2_out/
 probe3_out/
 probe4_out/
+
+# 에디터 · OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
