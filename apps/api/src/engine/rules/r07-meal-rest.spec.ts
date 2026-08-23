@@ -212,3 +212,58 @@ describe('R07 — 일차 단위 판정', () => {
     for (const r of runs) expect(r).toEqual(runs[0]);
   });
 });
+
+describe('휴식 최소 시간 (이슈 #32 A안)', () => {
+  const day = (rest: { start: string; end: string } | null): readonly AuditItem[] => [
+    item({ seq: 1, start: '09:00', end: '12:00' }),
+    ...(rest === null ? [] : [item({ seq: 2, start: rest.start, end: rest.end, type: 'REST', label: '카페 휴식' })]),
+    item({ seq: 3, start: '13:00', end: '18:00' }),
+  ];
+
+  it('5분짜리 휴식으로 9시간 일정을 통과시키지 못한다 — 이슈 #32 가 지적한 구멍이다', () => {
+    expect(evaluateDay(day({ start: '12:00', end: '12:05' }), DEFAULT_AUDIT_SETTINGS)).toBe('MEAL_TIME_SHORT');
+  });
+
+  it('기준을 채운 휴식이면 통과다', () => {
+    expect(evaluateDay(day({ start: '12:00', end: '13:00' }), DEFAULT_AUDIT_SETTINGS)).toBe('OK');
+  });
+
+  it('휴식이 아예 없는 것과 짧은 것을 사유코드로 가른다', () => {
+    expect(evaluateDay(day(null), DEFAULT_AUDIT_SETTINGS)).toBe('MEAL_REST_MISSING');
+    expect(evaluateDay(day({ start: '12:00', end: '12:30' }), DEFAULT_AUDIT_SETTINGS)).toBe('MEAL_TIME_SHORT');
+  });
+
+  it('식사와 휴식을 합산하지 않는다 — 30분씩 두 번은 한 시간 쉰 게 아니다', () => {
+    const many = [
+      item({ seq: 1, start: '09:00', end: '12:00' }),
+      item({ seq: 2, start: '12:00', end: '12:30', type: 'MEAL', label: '분식' }),
+      item({ seq: 3, start: '12:30', end: '13:00', type: 'REST', label: '벤치' }),
+      item({ seq: 4, start: '13:00', end: '18:00' }),
+    ];
+    expect(evaluateDay(many, DEFAULT_AUDIT_SETTINGS)).toBe('MEAL_TIME_SHORT');
+  });
+
+  it('메시지가 휴식을 휴식이라고 부른다', () => {
+    const [f] = evaluate(day({ start: '12:00', end: '12:20' }));
+    expect(f?.message).toContain('휴식(카페 휴식)');
+    expect(f?.message).toContain('20분');
+    expect((f?.evidence as { restItemType?: string }).restItemType).toBe('REST');
+  });
+
+  it('식사가 짧고 휴식이 길면 휴식 쪽을 지목한다 — 더 긴 쪽이 근거다', () => {
+    const mixed = [
+      item({ seq: 1, start: '09:00', end: '12:00' }),
+      item({ seq: 2, start: '12:00', end: '12:10', type: 'MEAL', label: '김밥' }),
+      item({ seq: 3, start: '12:10', end: '12:50', type: 'REST', label: '해변 산책' }),
+      item({ seq: 4, start: '13:00', end: '18:00' }),
+    ];
+    const [f] = evaluate(mixed);
+    expect(f?.message).toContain('휴식(해변 산책)');
+    expect(f?.message).toContain('40분');
+  });
+
+  it('설정을 낮추면 짧은 휴식도 통과한다 — 기준은 지어낸 값이 아니라 설정이다', () => {
+    const loose = { ...DEFAULT_AUDIT_SETTINGS, r07MealMinutes: 15 };
+    expect(evaluateDay(day({ start: '12:00', end: '12:20' }), loose)).toBe('OK');
+  });
+});

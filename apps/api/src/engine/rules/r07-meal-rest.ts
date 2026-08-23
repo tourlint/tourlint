@@ -58,21 +58,29 @@ export function daySpan(items: readonly AuditItem[]): DaySpan | null {
  * (`FR-RU-070` 식사 또는 휴식 항목 부재 · `FR-RU-071` 식사 시간 부족), 둘을 함께 읽으면
  * "그 날 제대로 쉰 구간이 있었나" 하나의 질문이다.
  *
- * ⚠️ 휴식(`REST`) 항목에는 명세가 최소 시간을 걸지 않았다. 5분짜리 휴식도 조건을 만족시킨다.
- *    명세대로 구현하고 그 구멍은 이슈로 남긴다 — 임의로 기준을 지어내지 않는다.
+ * **휴식에도 식사와 같은 기준을 건다** (이슈 #32 A안, 2026-08-23). 명세는 최소 시간을
+ * 식사에만 걸었는데, 그러면 5분짜리 휴식 하나로 8시간 일정이 통과한다. 새 숫자를 지어내는
+ * 대신 명세가 이미 정한 "이만큼은 쉬어야 쉰 것이다" 하나(`r07MealMinutes`)를 재사용한다.
  */
 export function evaluateDay(items: readonly AuditItem[], settings: AuditSettings): MealRestVerdict {
   const span = daySpan(items);
   if (span === null) return 'OK';
   if (span.minutes < settings.r07SpanHours * 60) return 'SHORT_SPAN';
 
-  const meals = items.filter((i) => i.itemType === 'MEAL');
-  const hasRest = items.some((i) => i.itemType === 'REST');
-  const hasAdequateMeal = meals.some((m) => durationMinutes(m) >= settings.r07MealMinutes);
+  const breaks = restItems(items);
+  if (breaks.some((b) => durationMinutes(b) >= settings.r07MealMinutes)) return 'OK';
 
-  if (hasAdequateMeal || hasRest) return 'OK';
-  // 식사를 넣긴 했는데 시간이 모자란 경우와, 아예 없는 경우를 사유코드로 가른다
-  return meals.length > 0 ? 'MEAL_TIME_SHORT' : 'MEAL_REST_MISSING';
+  /*
+   * 휴게를 넣긴 했는데 시간이 모자란 경우와, 아예 없는 경우를 가른다.
+   * 사유코드는 15종으로 고정이라 짧은 휴식도 `MEAL_TIME_SHORT` 를 쓴다 — 어느 항목이
+   * 얼마나 짧은지는 메시지와 근거가 말한다.
+   */
+  return breaks.length > 0 ? 'MEAL_TIME_SHORT' : 'MEAL_REST_MISSING';
+}
+
+/** 그 날의 휴게 항목. 식사와 휴식을 같이 본다 — 규칙의 질문이 "제대로 쉬었나" 하나라서다 */
+export function restItems(items: readonly AuditItem[]): readonly AuditItem[] {
+  return items.filter((i) => i.itemType === 'MEAL' || i.itemType === 'REST');
 }
 
 /** 배정 시간. 종료시간이 없으면 0분으로 본다 — 시간을 배정하지 않은 것이다 */
@@ -97,9 +105,8 @@ export class R07MealRestRule implements AuditRule {
       const span = daySpan(items);
       if (span === null) continue;
 
-      const meals = items.filter((i) => i.itemType === 'MEAL');
-      // 시간이 모자란 쪽은 그 식사 항목을 지목한다. 아예 없으면 지목할 항목이 없다
-      const longest = meals.reduce<AuditItem | null>(
+      // 시간이 모자란 쪽은 가장 긴 휴게 항목을 지목한다. 아예 없으면 지목할 항목이 없다
+      const longest = restItems(items).reduce<AuditItem | null>(
         (best, m) => (best === null || durationMinutes(m) > durationMinutes(best) ? m : best),
         null,
       );
@@ -115,6 +122,7 @@ export class R07MealRestRule implements AuditRule {
           dayNo,
           span: { from: span.from, to: span.to, minutes: span.minutes },
           mealMinutes: longest === null ? null : durationMinutes(longest),
+          restItemType: longest?.itemType ?? null,
           thresholds: { spanHours: ctx.settings.r07SpanHours, mealMinutes: ctx.settings.r07MealMinutes },
         },
         requiresExternal: false,
@@ -140,9 +148,10 @@ function message(
   if (verdict === 'MEAL_REST_MISSING') {
     return `${head} 일정에 식사·휴식 항목이 없습니다. 공백 구간에 식사를 넣어 주세요.`;
   }
+  const kind = longest?.itemType === 'REST' ? '휴식' : '식사';
   const label = longest?.placeLabel ?? '식사';
   const minutes = longest === null ? 0 : durationMinutes(longest);
-  return `${head} 중 식사(${label})가 ${minutes}분으로 최소 ${settings.r07MealMinutes}분보다 짧습니다. 시간을 늘리거나 뒤 일정을 미뤄 주세요.`;
+  return `${head} 중 ${kind}(${label})가 ${minutes}분으로 최소 ${settings.r07MealMinutes}분보다 짧습니다. 시간을 늘리거나 뒤 일정을 미뤄 주세요.`;
 }
 
 function groupByDay(items: readonly AuditItem[]): Map<number, AuditItem[]> {
