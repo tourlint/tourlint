@@ -7,7 +7,6 @@ import contentsSearch from '../mocks/contents_search.json';
 import itemMatch from '../mocks/item_match.json';
 import auditRun from '../mocks/audit_run.json';
 import unverified from '../mocks/unverified.json';
-import patchPreview from '../mocks/patch_preview.json';
 import patchApplied from '../mocks/patch_applied.json';
 import comparison from '../mocks/comparison.json';
 import rules from '../mocks/rules.json';
@@ -78,7 +77,6 @@ export class MockController {
   @Get('products/:productId/audit-runs') runHistory() { return { content: [auditRun], page: 0, size: 20, totalElements: 1 }; }
 
   // ── 패치 (F08~F10) ──
-  @Post('products/:productId/patch-preview') preview() { return patchPreview; }
   @Post('products/:productId/patch-applications') @HttpCode(202) apply() { return patchApplied; }
   @Get('patch-applications/:id') patchApp(@Param('id') id: string) { return { patchApplicationId: Number(id), revertedAt: null }; }
   @Post('patch-applications/:id/revert') revert(@Param('id') id: string) { return { patchApplicationId: Number(id), revertedAt: new Date().toISOString() }; }

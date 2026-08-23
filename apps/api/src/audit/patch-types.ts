@@ -67,3 +67,19 @@ export interface Patch {
 export function patchId(index: number): string {
   return `p-${index + 1}`;
 }
+
+/**
+ * 사용자가 고른 수정안.
+ *
+ * **`patchId` 는 finding 안에서만 유일하다** — 두 finding 이 각각 `p-1` 을 가진다.
+ * 확정 화면은 여러 finding 의 수정안을 한꺼번에 다루므로 `findingId` 가 있어야 서로를
+ * 구분할 수 있다. 이걸 빼면 다른 finding 의 `p-1` 끼리 같은 것으로 취급된다.
+ */
+export interface SelectedPatch extends Patch {
+  readonly findingId: number;
+}
+
+/** 선택 하나를 가리키는 키 */
+export function selectionKey(s: { findingId: number; patchId: string }): string {
+  return `${s.findingId}:${s.patchId}`;
+}

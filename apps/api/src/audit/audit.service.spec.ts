@@ -193,6 +193,61 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
     });
   });
 
+  describe('수정안 미리보기 (F08 · FR-PA-004 ~ 007)', () => {
+    /** 검수를 한 번 돌려 수정안이 붙은 finding 을 얻는다 */
+    const runAndPick = async (): Promise<{ findingId: number; patchId: string }[]> => {
+      const { job } = await service.requestAudit(productId, 'INITIAL');
+      await service.waitForIdle();
+      const run = await service.getRun((await service.getJob(job.id)).auditRunId as number);
+      return run.findings
+        .filter((f) => f.patches.length > 0)
+        .map((f) => ({ findingId: f.id, patchId: f.patches[0]?.patchId ?? '' }));
+    };
+
+    it('충돌 여부와 반영 전후 일정을 돌려준다 — 아무것도 저장하지 않는다', async () => {
+      const picks = await runAndPick();
+      expect(picks.length).toBeGreaterThan(0);
+
+      const before = await pool.query('SELECT count(*)::text AS n FROM patch_application');
+      const preview = await service.previewPatches(productId, [picks[0] as { findingId: number; patchId: string }]);
+      const after = await pool.query('SELECT count(*)::text AS n FROM patch_application');
+
+      expect(preview.previewToken).toBeNull();
+      expect(preview.conflict.hasConflict).toBe(false);
+      expect(preview.before.length).toBeGreaterThan(0);
+      // 확정 전에는 이력이 안 생긴다
+      expect(after.rows[0]).toEqual(before.rows[0]);
+    });
+
+    it('🔴 다른 상품의 finding 으로는 미리 볼 수 없다', async () => {
+      /*
+       * finding id 만 알면 남의 일정을 들여다볼 수 있으면 안 된다. 상품 소유 확인이
+       * SQL 안에 있어야 호출 경로가 늘어도 안 샌다.
+       */
+      const picks = await runAndPick();
+      const other = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+         VALUES ($1,'남의 상품','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+        [accountId],
+      );
+      const otherId = Number(other.rows[0]?.id);
+
+      await expect(
+        service.previewPatches(otherId, [picks[0] as { findingId: number; patchId: string }]),
+      ).rejects.toMatchObject({ reasonCode: 'PATCH_STALE' });
+    });
+
+    it('사라진 수정안은 조용히 빼지 않는다 — 고르지 않은 결과를 주면 안 된다', async () => {
+      await expect(
+        service.previewPatches(productId, [{ findingId: 99_999_999, patchId: 'p-1' }]),
+      ).rejects.toMatchObject({ reasonCode: 'PATCH_STALE' });
+    });
+
+    it('선택이 비어 있으면 미리 볼 것이 없다', async () => {
+      await expect(service.previewPatches(productId, [])).rejects.toMatchObject({ reasonCode: 'PATCH_STALE' });
+    });
+  });
+
   it('결정론성 — 같은 상품을 세 번 검수하면 판정이 완전히 같다 (NF-MT-001)', async () => {
     const signatures: string[] = [];
     for (let i = 0; i < 3; i++) {
