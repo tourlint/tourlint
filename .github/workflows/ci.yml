@@ -1,4 +1,4 @@
-# .github/workflows/ci.yml — build + lint + typecheck + unit
+# .github/workflows/ci.yml — build + lint + typecheck + test(실 DB 포함)
 # 무료 플랜(프라이빗)이라 branch protection 이 걸리지 않는다. 이 워크플로가 사실상 유일한
 # 자동 게이트이므로 실패를 무시하고 머지하지 않는다. 브랜치 흐름은 .github/CONTRIBUTING.md
 name: ci
@@ -9,6 +9,27 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+
+    # DB 명세서는 판정 불변식을 상당 부분 **DB 제약과 트리거**에 맡긴다 — 차단은 무시할 수 없고,
+    # 부분 검수에는 점수가 없고, 실행당 콘텐츠별 1행이다. 가짜 커넥션으로는 아무것도 검증되지
+    # 않으므로 실제 Postgres 를 띄운다.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: tourlint_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/tourlint_test
+      # TEST_DATABASE_URL 이 없으면 DB 테스트가 조용히 건너뛰어진다.
+      # CI 에서 그런 일이 생기면 통과한 것처럼 보이므로 명시적으로 실패시킨다.
+      REQUIRE_DB_TESTS: '1'
+
     steps:
       - uses: actions/checkout@v4
       # pnpm 버전은 package.json 의 packageManager 필드를 따른다.
@@ -17,6 +38,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+
+      - name: 스키마 적용
+        run: psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema.sql
+
       # apps/api 가 @tourlint/shared 의 dist 를 참조하므로 typecheck 앞에서 먼저 빌드한다.
       - run: pnpm build
       - run: pnpm lint

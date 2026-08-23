@@ -47,7 +47,8 @@ export default tseslint.config(
                 '규칙은 external 어댑터를 직접 호출할 수 없다. 필요한 값은 ItineraryContext 로 받는다 (NF-MT-003 · API 설계 6-3).',
             },
             {
-              group: ['**/*.repository', '**/*.repository.ts', '**/repository/**'],
+              group: ['**/*.repository', '**/*.repository.ts', '**/repository/**',
+            '**/persistence/**'],
               message:
                 '규칙 평가는 메모리 상에서만 수행한다. DB 조회가 필요하면 AuditRunner 가 미리 조립한다 (NF-PF-014).',
             },

@@ -5,11 +5,7 @@ import productCreated from '../mocks/product_created.json';
 import productList from '../mocks/product_list.json';
 import contentsSearch from '../mocks/contents_search.json';
 import itemMatch from '../mocks/item_match.json';
-import auditJobQueued from '../mocks/audit_job_queued.json';
-import auditJobRunning from '../mocks/audit_job_running.json';
-import auditJobDone from '../mocks/audit_job_done.json';
 import auditRun from '../mocks/audit_run.json';
-import findings from '../mocks/findings.json';
 import unverified from '../mocks/unverified.json';
 import patchPreview from '../mocks/patch_preview.json';
 import patchApplied from '../mocks/patch_applied.json';
@@ -72,21 +68,8 @@ export class MockController {
   @Get('ldong-codes') ldongCodes() { return { items: codeList(ldong) }; }
   @Get('lcls-codes') lclsCodes() { return { items: codeList(lcls) }; }
 
-  // ── 검수 (F04·F05) ──
-  @Post('products/:productId/audit-jobs') @HttpCode(202) createJob(@Param('productId') id: string) {
-    return { ...auditJobQueued, productId: Number(id), createdAt: new Date().toISOString() };
-  }
   /** mock 진행 시뮬레이션: 호출할 때마다 QUEUED → RUNNING → DONE 으로 넘어간다 */
   private jobPolls = new Map<string, number>();
-  @Get('audit-jobs/:jobId') job(@Param('jobId') jobId: string) {
-    const n = (this.jobPolls.get(jobId) ?? 0) + 1;
-    this.jobPolls.set(jobId, n);
-    if (n === 1) return auditJobQueued;
-    if (n === 2) return auditJobRunning;
-    return auditJobDone;
-  }
-  @Get('audit-runs/:runId') run(@Param('runId') id: string) { return { ...auditRun, auditRunId: Number(id) }; }
-  @Get('audit-runs/:runId/findings') runFindings() { return findings; }
   @Get('audit-runs/:runId/unverified') runUnverified() { return unverified; }
   @Post('findings/:id/dismiss') dismiss(@Param('id') id: string) { return { findingId: Number(id), dismissedAt: new Date().toISOString() }; }
   @Delete('findings/:id/dismiss') undismiss(@Param('id') id: string) { return { findingId: Number(id), dismissedAt: null }; }

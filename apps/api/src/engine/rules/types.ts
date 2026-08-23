@@ -1,0 +1,114 @@
+import type {
+  ContentTypeId, EndTimeSource, ItemType, MatchStatus, ParseConfidence, ReasonCode, Severity,
+} from '@tourlint/shared';
+import type { HolidayCalendar } from '../calendar/holidays';
+import type { IsoDate } from '../calendar/dates';
+import type { NormalizedOperatingInfo, TimeOfDay } from '../normalize/types';
+
+/**
+ * 규칙 평가의 공용 계약 (API 설계 §2 · NF-MT-001 · 002).
+ *
+ * **규칙은 외부를 직접 호출하지 않는다.** 판정에 필요한 데이터는 `AuditRunner` 가 미리 모아
+ * `ItineraryContext` 로 넘기고, 규칙은 **메모리 상에서만** 평가한다 (NF-PF-014).
+ * 이 경계가 결정론성을 구조적으로 보장하는 장치다 — 규칙이 개별적으로 외부를 부르면
+ * 같은 입력에 다른 결과가 나온다.
+ *
+ * 규칙끼리도 서로 참조하지 않는다 (NF-MT-002).
+ */
+
+/** 일정 항목에 붙은 공사 콘텐츠. 매칭에 실패했으면 항목의 `content` 가 null 이다 */
+export interface MatchedContent {
+  readonly ktoContentId: string;
+  readonly contentTypeId: ContentTypeId;
+  /** 파싱이 전면 실패하면 null (DB `normalized_json` 이 NULL 인 경우와 같다) */
+  readonly normalized: NormalizedOperatingInfo | null;
+  /** 1 = 표출 · 0 = 비표출 */
+  readonly showFlag: 0 | 1;
+  /**
+   * 행사(15) 개최 기간. 그 밖의 유형은 null.
+   *
+   * 운영정보 스키마(DR-NM)에 두지 않은 이유 — 그 스키마는 **휴무와 운영시간** 두 축의 계약이고,
+   * 행사 기간은 다른 축이다. 러너가 `detailIntro2` 의 `eventstartdate` · `eventenddate` 를
+   * `YYYYMMDD` → `YYYY-MM-DD` 로 옮겨 넣는다. **결측이면 null 이며 차단하지 않는다** (FR-RU-023).
+   */
+  readonly eventPeriod: { readonly start: IsoDate | null; readonly end: IsoDate | null } | null;
+}
+
+export interface AuditItem {
+  readonly id: number;
+  readonly dayNo: number;
+  readonly seq: number;
+  /** 방문 예정일. 상품 출발일 + (dayNo − 1) 을 러너가 미리 계산해 넣는다 */
+  readonly date: IsoDate;
+  readonly startTime: TimeOfDay;
+  /** 미입력이면 체류시간으로 보완된 값. 보완도 못 했으면 null */
+  readonly endTime: TimeOfDay | null;
+  /** 종료시간의 출처. 보완값으로 내린 판정은 그 사실을 메시지에 밝혀야 한다 (FR-RU-031) */
+  readonly endTimeSource: EndTimeSource;
+  /** 신분류체계 중분류. 체류시간 보완과 R09 실내외 판정의 입력 */
+  readonly lclsSystm2: string | null;
+  readonly itemType: ItemType;
+  /** **사용자가 입력한** 일정 항목명. 공사 원문이 아니다 (DR-PR-001) */
+  readonly placeLabel: string;
+  readonly matchStatus: MatchStatus;
+  readonly content: MatchedContent | null;
+}
+
+export interface ItineraryContext {
+  readonly productId: number;
+  readonly items: readonly AuditItem[];
+  /** 규칙이 시계를 보지 않게 달력을 주입한다 (NF-MT-001) */
+  readonly holidays: HolidayCalendar;
+}
+
+/**
+ * 규칙이 만든 판정 1건. `finding` 테이블 한 행에 대응한다.
+ *
+ * `evidence` 에는 **판정 입력값만** 담는다. 공사 원문은 넣지 않는다 (DR-PR-001).
+ * 정규화 결과는 우리 산출물이므로 담아도 된다.
+ */
+export interface Finding {
+  readonly ruleCode: string;
+  readonly ruleVersion: string;
+  readonly severity: Severity;
+  readonly reasonCode: ReasonCode;
+  readonly targetItemId: number;
+  readonly targetItemId2?: number;
+  readonly message: string;
+  readonly evidence: Readonly<Record<string, unknown>>;
+  readonly requiresExternal: boolean;
+  readonly externalSource: string | null;
+  /**
+   * 확인 필요 목록에 함께 등록할지 (FR-AU-008).
+   *
+   * `finding` 테이블에 전용 컬럼이 없어 저장 시 `evidence` 로 내려간다.
+   * 목록에서 체크한 시각은 `confirmed_at` 이 갖는다.
+   */
+  readonly needsConfirmation: boolean;
+}
+
+export interface AuditRule {
+  readonly code: string;
+  readonly version: string;
+  /** 이 규칙이 기본으로 내는 등급. 신뢰도 게이트로 강등될 수 있다 */
+  readonly defaultSeverity: Severity | null;
+  /** true 면 "외부 참고" 배지를 자동 부착한다 (EI-CM-008) */
+  readonly requiresExternal: boolean;
+  evaluate(ctx: ItineraryContext): readonly Finding[];
+}
+
+/** 규칙이 참조한 경로의 신뢰도만 본다 — `confidence.overall` 은 쓰지 않는다 (DR-NM-034) */
+export function confidenceOfPaths(
+  normalized: NormalizedOperatingInfo,
+  paths: readonly string[],
+): ParseConfidence {
+  let worst: ParseConfidence | null = null;
+  for (const p of paths) {
+    const c = normalized.confidence.byPath[p];
+    if (c === undefined) continue;
+    if (worst === null || RANK[c] < RANK[worst]) worst = c;
+  }
+  return worst ?? 'UNPARSED';
+}
+
+const RANK: Readonly<Record<ParseConfidence, number>> = { CONFIRMED: 2, ESTIMATED: 1, UNPARSED: 0 };
