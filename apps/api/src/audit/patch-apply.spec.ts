@@ -95,10 +95,17 @@ describe('반영', () => {
     expect(out.map((i) => [i.id, i.seq])).toEqual([[3, 1], [1, 2], [2, 3]]);
   });
 
-  it('넣은 항목은 임시 id 를 받고 매칭 전 상태다', () => {
+  it('넣은 항목은 임시 id 를 받고 매칭 대상에서 빠진다', () => {
+    /*
+     * `EXCLUDED` 다. 식사·휴식은 공사에 물어볼 것이 없어 매칭을 기다리는 상태가 아니다 —
+     * `PENDING` 으로 두면 확정 뒤 R05 가 이름도 없는 항목을 확인 불가로 세고, 다음
+     * 사용자 검수가 `PLACE_UNRESOLVED` 로 거절당한다 (EX-AU-001 · FR-PA-022).
+     */
     const out = applyPatches(DAY, [insert('p-1', 1, '12:00', '13:00')]).items;
     const added = out.find((i) => i.id < 0);
-    expect(added).toMatchObject({ itemType: 'MEAL', matchStatus: 'PENDING', placeLabel: '' });
+    expect(added).toMatchObject({ itemType: 'MEAL', matchStatus: 'EXCLUDED', placeLabel: '' });
+    // EXCLUDED 는 contentid 가 없어야 한다 (`ck_item_match_content`)
+    expect(added?.ktoContentId).toBeNull();
   });
 
   it('넣은 항목의 임시 id 가 반영 순서에 흔들리지 않는다', () => {

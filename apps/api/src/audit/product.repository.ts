@@ -31,6 +31,22 @@ export class ProductRepository {
     return rows.map(toItem);
   }
 
+  /**
+   * 상품 주인의 계정 id (`patch_application.applied_by`).
+   *
+   * 로그인 계층은 B 트랙이 붙인다. 그전까지 "누가 반영했는가" 에 답할 수 있는 것은 상품
+   * 소유자뿐이다 — 이 값이 없으면 이력을 아예 남길 수 없어(`applied_by` NOT NULL)
+   * FR-PA-028 을 못 지킨다. 로그인이 붙으면 요청자 계정으로 바꾼다.
+   */
+  async findOwner(productId: number): Promise<number | null> {
+    const { rows } = await this.pool.query<{ account_id: string }>(
+      `SELECT account_id FROM product WHERE id = $1`,
+      [productId],
+    );
+    const row = rows[0];
+    return row === undefined ? null : Number(row.account_id);
+  }
+
   /** 미확정 매칭이 남아 있으면 검수를 시작하지 않는다 (EX-AU-001) */
   async findUnresolvedItems(productId: number): Promise<readonly { id: number; placeLabel: string }[]> {
     const { rows } = await this.pool.query<{ id: string; place_label: string }>(
