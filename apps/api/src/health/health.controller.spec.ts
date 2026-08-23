@@ -12,6 +12,7 @@ describe('HealthController', () => {
     delete process.env.DATABASE_URL;
     delete process.env.KTO_SERVICE_KEY;
     delete process.env.KTO_MODE;
+    delete process.env.KAKAO_REST_API_KEY;
   });
 
   afterEach(() => {
@@ -45,10 +46,18 @@ describe('HealthController', () => {
     expect((body.checks as Record<string, unknown>).schema).toBe('unknown');
   });
 
-  it('ready 는 넷이 모두 맞아야 true 다', async () => {
+  it('ready 는 전부 맞아야 true 다', async () => {
     // DB 없이 키만 있으면 준비된 것이 아니다
     process.env.KTO_SERVICE_KEY = 'k';
+    process.env.KAKAO_REST_API_KEY = 'k';
     expect((await controller.check()).ready).toBe(false);
+  });
+
+  it('카카오 키도 값 없이 유무만 말한다 — R08 이 쓴다', async () => {
+    process.env.KAKAO_REST_API_KEY = 'SECRET-KAKAO-KEY';
+    const body = await controller.check();
+    expect(JSON.stringify(body)).not.toContain('SECRET-KAKAO');
+    expect((body.checks as Record<string, unknown>).kakaoRestApiKey).toBe('ok');
   });
 
   it('연결 문자열을 응답에 담지 않는다', async () => {

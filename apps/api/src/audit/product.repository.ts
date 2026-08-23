@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { EndTimeSource, ItemType, MatchStatus } from '@tourlint/shared';
+import type { EndTimeSource, ItemType, MatchStatus, Transport } from '@tourlint/shared';
 import type { ItineraryItemRow, ProductRow } from './audit-runner';
 
 /**
@@ -12,13 +12,13 @@ export class ProductRepository {
   constructor(private readonly pool: Pool) {}
 
   async findProduct(productId: number): Promise<ProductRow | null> {
-    const { rows } = await this.pool.query<{ id: string; start_date: Date | string; nights: number }>(
-      `SELECT id, start_date, nights FROM product WHERE id = $1`,
+    const { rows } = await this.pool.query<{ id: string; start_date: Date | string; nights: number; transport: Transport }>(
+      `SELECT id, start_date, nights, transport FROM product WHERE id = $1`,
       [productId],
     );
     const row = rows[0];
     if (row === undefined) return null;
-    return { id: Number(row.id), startDate: toIsoDate(row.start_date), nights: row.nights };
+    return { id: Number(row.id), startDate: toIsoDate(row.start_date), nights: row.nights, transport: row.transport };
   }
 
   async findItems(productId: number): Promise<readonly ItineraryItemRow[]> {

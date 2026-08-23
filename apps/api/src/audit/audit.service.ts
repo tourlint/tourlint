@@ -4,6 +4,7 @@ import { SEVERITY, type Severity } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { shortFingerprint } from '../engine/fingerprint';
 import { BudgetGuard } from '../external/budget-guard';
+import { KakaoMobilityClient, createKakaoTransport } from '../external/kakao';
 import { createKtoClient } from '../external/kto';
 import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
@@ -118,6 +119,21 @@ export class AuditService {
     this.inFlight.add(wrapped);
   }
 
+  /**
+   * 길찾기 클라이언트를 만든다. **실패해도 던지지 않는다.**
+   *
+   * 카카오 키가 없다고 검수 전체가 죽으면 안 된다. R08 만 확인 불가로 남고 나머지 규칙은
+   * 그대로 판정한다 (EI-KM-009). 대신 무슨 일이 있었는지는 로그에 남긴다.
+   */
+  private buildKakaoClient(): KakaoMobilityClient | undefined {
+    try {
+      return new KakaoMobilityClient({ transport: createKakaoTransport(), logger: this.callLogger });
+    } catch (e) {
+      this.logger.warn(`길찾기 클라이언트를 만들지 못했다. R08 은 확인 불가로 처리된다: ${(e as Error).message}`);
+      return undefined;
+    }
+  }
+
   /** 큐를 비운다. 동시 실행 상한을 넘지 않는다 */
   private async drain(): Promise<void> {
     if (this.running >= MAX_RUNNING) return;
@@ -151,6 +167,8 @@ export class AuditService {
         onProgress: (done, total) => this.jobs.updateProgress(jobId, done, total),
         // 직전 검수의 지문. 비표출 전환과 판정 필드 변경이 여기서 잡힌다 (FR-MO-004)
         previousFingerprints: await this.results.previousFingerprints(productId),
+        // 이동시간 판정. 키가 없어도 검수는 돈다 — R08 만 확인 불가로 남는다 (EI-KM-009)
+        kakao: this.buildKakaoClient(),
       });
       const result = await runner.run(product, items);
 
