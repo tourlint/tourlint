@@ -22,7 +22,7 @@ function evaluate(specs: readonly Spec[]): readonly Finding[] {
   const items: AuditItem[] = specs.map((s) => ({
     id: s.id, dayNo: s.dayNo ?? 1, seq: s.seq, date: '2026-10-13',
     startTime: s.start, endTime: s.end, endTimeSource: s.source ?? 'INPUT',
-    lclsSystm2: null, itemType: s.itemType ?? 'SIGHT', placeLabel: s.label,
+    lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, itemType: s.itemType ?? 'SIGHT', placeLabel: s.label,
     matchStatus: 'CONFIRMED',
     content: { ktoContentId: String(s.id), contentTypeId: 12, normalized: null, showFlag: 1, eventPeriod: null },
   }));

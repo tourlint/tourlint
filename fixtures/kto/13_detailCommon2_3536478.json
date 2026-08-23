@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3536478",
+            "contenttypeid": "39",
+            "title": "감천골",
+            "createdtime": "20250912153658",
+            "modifiedtime": "20250912153723",
+            "tel": "",
+            "telname": "",
+            "homepage": "",
+            "firstimage": "",
+            "firstimage2": "",
+            "cpyrhtDivCd": "",
+            "areacode": "32",
+            "sigungucode": "1",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "FD",
+            "lclsSystm2": "FD01",
+            "lclsSystm3": "FD010100",
+            "cat1": "A05",
+            "cat2": "A0502",
+            "cat3": "A05020100",
+            "addr1": "강원특별자치도 강릉시 성덕포남로152번길 16 (포남동)",
+            "addr2": "",
+            "zipcode": "25570",
+            "mapx": "128.9130203491",
+            "mapy": "37.7666922663",
+            "mlevel": "6",
+            "overview": "갓구운 생선구이&쌈채소 정식이 주메뉴입니다. 저녁예약은 5인이상부터 예약가능합니다!"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

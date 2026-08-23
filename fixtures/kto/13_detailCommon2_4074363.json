@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "4074363",
+            "contenttypeid": "32",
+            "title": "강릉강변스테이",
+            "createdtime": "20260612122823",
+            "modifiedtime": "20260615134329",
+            "tel": "",
+            "telname": "",
+            "homepage": "",
+            "firstimage": "",
+            "firstimage2": "",
+            "cpyrhtDivCd": "",
+            "areacode": "",
+            "sigungucode": "",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "AC",
+            "lclsSystm2": "AC06",
+            "lclsSystm3": "AC060200",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "addr1": "강원특별자치도 강릉시 강변로372번길 18 (입암동)",
+            "addr2": "",
+            "zipcode": "25581",
+            "mapx": "128.9076948798",
+            "mapy": "37.7557793623",
+            "mlevel": "",
+            "overview": "넓은 공간으로 여러명이 함께 머물기 적합하고 강릉시 중심부에 위치한 숙소입니다.\n강변로에 위치하여 강변로 산책은 물론 아름다운 강릉을 풍경화로 담은 곳입니다. \n도보로 중앙시장 10분 이내, 차로 바다 10분 이내, 기차역은 차로 5분 이내입니다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

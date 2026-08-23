@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "695592",
+            "contenttypeid": "15",
+            "title": "강릉 경포벚꽃축제",
+            "createdtime": "20090219004738",
+            "modifiedtime": "20260521143303",
+            "tel": "033-640-5130",
+            "telname": "강릉시",
+            "homepage": "https://visitgangneung.net/",
+            "firstimage": "https://tong.visitkorea.or.kr/cms/resource/23/4041323_image2_1.jpg",
+            "firstimage2": "https://tong.visitkorea.or.kr/cms/resource/23/4041323_image3_1.jpg",
+            "cpyrhtDivCd": "Type3",
+            "areacode": "",
+            "sigungucode": "",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "EV",
+            "lclsSystm2": "EV01",
+            "lclsSystm3": "EV010200",
+            "cat1": "",
+            "cat2": "",
+            "cat3": "",
+            "addr1": "강원특별자치도 강릉시 경포로 365",
+            "addr2": "경포 습지광장",
+            "zipcode": "25461",
+            "mapx": "128.895500767487",
+            "mapy": "37.7942610311229",
+            "mlevel": "6",
+            "overview": "경포호를 따라 만발한 벚꽃길을 드라이브하고 걸으며 즐길 수 있는 최고의 벚꽃 명소이다. 낮에는 재미있는 공연과 즐길 거리가 마련되고, 저녁에는 경포 전역을 밝히는 벚꽃 조명이 장관이다. 벚꽃길을 따라 걷다보면 경포해변이 나오는 아름다운 풍경이 눈을 사로잡는다. 1993년부터 시작된 경포 벚꽃 축제에는 매년 25만 명 이상이 찾아 강릉의 봄을 함께 즐기고 있다.  주 행사장은 경포 습지광장에서 다양한 체험프로그램과 벚꽃 가요제, 벚꽃 운동회, 피크닉, 놀이존 등이 마련될 예정이다. 경포호수 곳곳에 숨은 벚꽃 도둑을 잡는 벚꽃 도둑을 잡아라! 이벤트도 마련되어 재밌는 요소와 함께 경포 구석구석을 즐길 수 있을 것이다. 경포 벚꽃 축제에서 2026년 봄의 추억을 벚꽃과 함께 남겨볼 수 있다.\n* 행사 일정은 벚꽃 개화 현황에 따라 변경될 수 있다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

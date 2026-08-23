@@ -46,8 +46,12 @@ export interface AuditItem {
   readonly endTime: TimeOfDay | null;
   /** 종료시간의 출처. 보완값으로 내린 판정은 그 사실을 메시지에 밝혀야 한다 (FR-RU-031) */
   readonly endTimeSource: EndTimeSource;
-  /** 신분류체계 중분류. 체류시간 보완과 R09 실내외 판정의 입력 */
+  /** 신분류체계 대분류(2자). R04 집계의 상위 축 */
+  readonly lclsSystm1: string | null;
+  /** 중분류(4자). 체류시간 보완과 R09 실내외 판정의 입력 */
   readonly lclsSystm2: string | null;
+  /** 소분류(8자). R04 집계 축. 상세 조회에는 없고 공통·목록 조회에서 수집한다 (EI-KT-018) */
+  readonly lclsSystm3: string | null;
   readonly itemType: ItemType;
   /** **사용자가 입력한** 일정 항목명. 공사 원문이 아니다 (DR-PR-001) */
   readonly placeLabel: string;
@@ -68,6 +72,14 @@ export interface AuditSettings {
   readonly r07MealMinutes: number;
   /** R04 콘텐츠 편중 임계 */
   readonly r04Threshold: number;
+  /**
+   * R04 집계에서 뺄 분류코드 (FR-RU-042).
+   *
+   * 상품 콘셉트에 반복이 의도된 키워드("카페투어" · "미식" · "사찰순례")가 있으면 그 유형을
+   * 판정에서 제외한다. **키워드를 분류코드로 옮기는 표는 아직 없다** — 분류체계 59행이
+   * 들어오는 W3 에 붙인다. 그때까지는 비어 있고, 기제는 여기 준비돼 있다.
+   */
+  readonly r04ExcludedKeys: readonly string[];
 }
 
 /** 계정 설정을 아직 읽지 않았을 때 쓰는 기본값 (`SETTING_DEFAULTS`) */
@@ -75,6 +87,7 @@ export const DEFAULT_AUDIT_SETTINGS: AuditSettings = {
   r07SpanHours: SETTING_DEFAULTS.r07SpanHours,
   r07MealMinutes: SETTING_DEFAULTS.r07MealMinutes,
   r04Threshold: SETTING_DEFAULTS.r04Threshold,
+  r04ExcludedKeys: [],
 };
 
 export interface ItineraryContext {

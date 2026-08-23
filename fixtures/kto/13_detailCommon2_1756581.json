@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "1756581",
+            "contenttypeid": "38",
+            "title": "강릉 농산물도매시장",
+            "createdtime": "20121123230524",
+            "modifiedtime": "20251023143000",
+            "tel": "",
+            "telname": "",
+            "homepage": "<a href=\"http://www.gnns.co.kr\" target=\"_blank\" title=\"새창 : 강릉농산물도매시장 홈페이지로 이동\">http://www.gnns.co.kr<br></a>",
+            "firstimage": "http://tong.visitkorea.or.kr/cms/resource/70/3378370_image2_1.JPG",
+            "firstimage2": "http://tong.visitkorea.or.kr/cms/resource/70/3378370_image3_1.JPG",
+            "cpyrhtDivCd": "Type3",
+            "areacode": "32",
+            "sigungucode": "1",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "SH",
+            "lclsSystm2": "SH06",
+            "lclsSystm3": "SH060200",
+            "cat1": "A04",
+            "cat2": "A0401",
+            "cat3": "A04010200",
+            "addr1": "강원특별자치도 강릉시 유산로 60 (유산동)",
+            "addr2": "",
+            "zipcode": "25612",
+            "mapx": "128.9182652483",
+            "mapy": "37.7367152805",
+            "mlevel": "6",
+            "overview": "강릉 농산물도매시장은 지난 1999년 11월 개장하여 영동지역 농산물 물류유통의 중심으로 자리매김해 왔다. 농업인이 땀 흘려 생산한 농산물을 전 품목 상장경매를 통하여 공정거래를 선도하고 농업인 실익 증대에 노력하고 있다.\n강릉농산물도매시장에서는 시민의 안전한 먹거리 제공을 위해 도매시장에 반입되는 농산물에 대해 1주일에 간이속성검사 2회(12 품목), 정밀검사 1회(6 품목) 잔류농약 검사를 실시하고 있다. 검사 결과 부적합으로 판정되어 출하된 농산물은 전량 폐기되며, 생산자는 벌칙으로 1개월간 우리 도매시장을 비롯해 전국 공영도매시장으로 출하를 할 수 없으며, 이를 어겨 출하할 경우 고발조치하고 있다. 현재, 강릉농산물도매시장의 농산물 안전성검사(정밀검사)는 강릉시 보건환경연구원에 의뢰하여 실시하고 있다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

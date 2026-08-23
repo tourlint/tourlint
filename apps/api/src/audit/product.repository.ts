@@ -24,7 +24,7 @@ export class ProductRepository {
   async findItems(productId: number): Promise<readonly ItineraryItemRow[]> {
     const { rows } = await this.pool.query<ItemRow>(
       `SELECT id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
-              kto_content_id, content_type_id, lcls_systm2, match_status
+              kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, match_status
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -53,7 +53,9 @@ interface ItemRow {
   item_type: ItemType;
   kto_content_id: string | null;
   content_type_id: number | null;
+  lcls_systm1: string | null;
   lcls_systm2: string | null;
+  lcls_systm3: string | null;
   match_status: MatchStatus;
 }
 
@@ -69,7 +71,9 @@ function toItem(row: ItemRow): ItineraryItemRow {
     itemType: row.item_type,
     ktoContentId: row.kto_content_id,
     contentTypeId: row.content_type_id,
+    lclsSystm1: row.lcls_systm1,
     lclsSystm2: row.lcls_systm2,
+    lclsSystm3: row.lcls_systm3,
     matchStatus: row.match_status,
   };
 }
