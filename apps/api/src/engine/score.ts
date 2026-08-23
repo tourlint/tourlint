@@ -1,6 +1,6 @@
 import {
   PARTIAL_AUDIT_FAILURE_RATIO, READINESS_SCORE_BASE, SEVERITY, SEVERITY_WEIGHT_DEFAULT,
-  type ReasonCode, type Severity,
+  type ExceptionReasonCode, type ReasonCode, type Severity,
 } from '@tourlint/shared';
 
 /**
@@ -15,11 +15,12 @@ import {
  */
 
 /** 출발 전 최종 확인 항목은 감점하지 않는다 (FR-AU-045) */
-const NON_SCORING_REASONS: ReadonlySet<ReasonCode> = new Set(['PRE_DEPARTURE_CHECK']);
+const NON_SCORING_REASONS: ReadonlySet<string> = new Set(['PRE_DEPARTURE_CHECK']);
 
 export interface ScorableFinding {
   readonly severity: Severity;
-  readonly reasonCode: ReasonCode;
+  /** 판정 사유코드 또는 예외 사유코드. 두 네임스페이스가 공존한다 (EX-CM-002) */
+  readonly reasonCode: ReasonCode | ExceptionReasonCode;
   /** 사용자가 무시했는가. `dismissed_at IS NOT NULL` 에 대응한다 */
   readonly dismissed: boolean;
   /** 확인 필요 목록에 올라 있는가 */

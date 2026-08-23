@@ -25,7 +25,7 @@ function item(s: Spec = {}): AuditItem {
     startTime: '10:00', endTime: '11:00', endTimeSource: 'INPUT',
     lclsSystm1: null, lclsSystm2: null, lclsSystm3: s.l3 === undefined ? 'AA010100' : s.l3,
     itemType: s.type ?? 'SIGHT', placeLabel: s.label ?? '장소', matchStatus: 'CONFIRMED',
-    content: { ktoContentId: String(nextId), contentTypeId: ctid, normalized: null, showFlag: 1, eventPeriod: null },
+    content: { ktoContentId: String(nextId), contentTypeId: ctid, normalized: null, showFlag: 1, eventPeriod: null, changeVerdict: null },
   };
 }
 
@@ -49,7 +49,7 @@ function fromFixture(file: string): AuditItem[] {
     itemType: i.itemType, placeLabel: i.placeLabel, matchStatus: 'CONFIRMED',
     content: i.contentId === undefined ? null : {
       ktoContentId: i.contentId, contentTypeId: (i.contentTypeId ?? 12) as 12,
-      normalized: null, showFlag: 1, eventPeriod: null,
+      normalized: null, showFlag: 1, eventPeriod: null, changeVerdict: null,
     },
   }));
 }

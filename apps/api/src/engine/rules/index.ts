@@ -2,5 +2,6 @@ export * from './r01-operating';
 export * from './r02-event';
 export * from './r03-overlap';
 export * from './r04-imbalance';
+export * from './r06-change';
 export * from './r07-meal-rest';
 export * from './types';

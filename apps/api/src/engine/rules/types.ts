@@ -1,7 +1,9 @@
 import { SETTING_DEFAULTS } from '@tourlint/shared';
 import type {
-  ContentTypeId, EndTimeSource, ItemType, MatchStatus, ParseConfidence, ReasonCode, Severity,
+  ContentTypeId, EndTimeSource, ExceptionReasonCode, ItemType, MatchStatus,
+  ParseConfidence, ReasonCode, Severity,
 } from '@tourlint/shared';
+import type { ChangeVerdict } from '../fingerprint/types';
 import type { HolidayCalendar } from '../calendar/holidays';
 import type { IsoDate } from '../calendar/dates';
 import type { NormalizedOperatingInfo, TimeOfDay } from '../normalize/types';
@@ -33,6 +35,13 @@ export interface MatchedContent {
    * `YYYYMMDD` → `YYYY-MM-DD` 로 옮겨 넣는다. **결측이면 null 이며 차단하지 않는다** (FR-RU-023).
    */
   readonly eventPeriod: { readonly start: IsoDate | null; readonly end: IsoDate | null } | null;
+  /**
+   * 직전 지문과 비교한 결과. 러너가 채운다 (FR-MO-004).
+   *
+   * 규칙이 DB 를 읽지 않게 하려고 여기 담는다 — 규칙 평가는 메모리 전용이다 (NF-PF-014).
+   * 직전 지문이 없으면 `FIRST` 이고, 지문 자체를 못 만들었으면 null 이다.
+   */
+  readonly changeVerdict: ChangeVerdict | null;
 }
 
 export interface AuditItem {
@@ -108,7 +117,11 @@ export interface Finding {
   readonly ruleCode: string;
   readonly ruleVersion: string;
   readonly severity: Severity;
-  readonly reasonCode: ReasonCode;
+  /**
+   * 판정 사유코드 또는 예외 사유코드. **두 네임스페이스가 공존한다** (EX-CM-002).
+   * R06 의 비표출 전환처럼 판정 사유코드 15종에 없는 경우가 있다.
+   */
+  readonly reasonCode: ReasonCode | ExceptionReasonCode;
   /**
    * 지목하는 일정 항목. **일차 단위 · 상품 단위 판정은 null 이다** (R04 · R07 · R10).
    * DB `finding.target_item_id` 도 NULL 을 허용한다.

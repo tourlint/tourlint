@@ -149,6 +149,8 @@ export class AuditService {
       const runner = new AuditRunner({
         kto: createKtoClient(this.callLogger),
         onProgress: (done, total) => this.jobs.updateProgress(jobId, done, total),
+        // 직전 검수의 지문. 비표출 전환과 판정 필드 변경이 여기서 잡힌다 (FR-MO-004)
+        previousFingerprints: await this.results.previousFingerprints(productId),
       });
       const result = await runner.run(product, items);
 

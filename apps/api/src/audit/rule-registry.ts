@@ -2,6 +2,7 @@ import { R01OperatingRule } from '../engine/rules/r01-operating';
 import { R02EventPeriodRule } from '../engine/rules/r02-event';
 import { R03TimeOverlapRule } from '../engine/rules/r03-overlap';
 import { R04ImbalanceRule } from '../engine/rules/r04-imbalance';
+import { R06ChangeRule } from '../engine/rules/r06-change';
 import { R07MealRestRule } from '../engine/rules/r07-meal-rest';
 import type { AuditRule, Finding, ItineraryContext } from '../engine/rules/types';
 
@@ -11,13 +12,14 @@ import type { AuditRule, Finding, ItineraryContext } from '../engine/rules/types
  * 규칙을 추가할 때 **기존 규칙 코드를 고치지 않는다.** 여기 한 줄만 늘어난다.
  * 규칙끼리 서로 참조하지 않으므로 순서도 결과에 영향을 주지 않는다.
  *
- * 지금은 다섯이다 — R05 · R06 · R08 은 W2, R09 · R10 은 W3.
+ * 지금은 여섯이다 — R05 · R08 은 W2, R09 · R10 은 W3.
  */
 export const RULES: readonly AuditRule[] = [
   new R01OperatingRule(),
   new R02EventPeriodRule(),
   new R03TimeOverlapRule(),
   new R04ImbalanceRule(),
+  new R06ChangeRule(),
   new R07MealRestRule(),
 ];
 
