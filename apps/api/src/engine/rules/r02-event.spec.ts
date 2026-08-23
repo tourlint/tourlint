@@ -21,7 +21,7 @@ function festival(date: string, period: { start: string | null; end: string | nu
     placeLabel: '경포벚꽃축제', matchStatus: 'CONFIRMED',
     content: {
       ktoContentId: '695592', contentTypeId: contentTypeId as 15,
-      normalized: null, showFlag: 1, eventPeriod: period,
+      normalized: null, showFlag: 1, eventPeriod: period, changeVerdict: null,
     },
   };
   return rule.evaluate({ productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS });

@@ -24,7 +24,7 @@ function evaluate(specs: readonly Spec[]): readonly Finding[] {
     startTime: s.start, endTime: s.end, endTimeSource: s.source ?? 'INPUT',
     lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, itemType: s.itemType ?? 'SIGHT', placeLabel: s.label,
     matchStatus: 'CONFIRMED',
-    content: { ktoContentId: String(s.id), contentTypeId: 12, normalized: null, showFlag: 1, eventPeriod: null },
+    content: { ktoContentId: String(s.id), contentTypeId: 12, normalized: null, showFlag: 1, eventPeriod: null, changeVerdict: null },
   }));
   return rule.evaluate({ productId: 1, items, holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS });
 }

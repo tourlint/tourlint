@@ -47,6 +47,7 @@ function evaluate(input: CaseInput): readonly Finding[] {
       normalized: parseOperatingInfo({ contentTypeId: input.contentTypeId, raw: input.raw }),
       showFlag: 1,
       eventPeriod: null,
+      changeVerdict: null,
     },
   };
   const ctx: ItineraryContext = { productId: 1, items: [item], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS };

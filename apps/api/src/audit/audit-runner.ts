@@ -4,7 +4,10 @@ import {
 } from '@tourlint/shared';
 import { KOREAN_HOLIDAYS } from '../engine/calendar/holidays';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
-import { buildContentFingerprint, buildRunFingerprint, isSupportedContentTypeId } from '../engine/fingerprint';
+import {
+  buildContentFingerprint, buildRunFingerprint, compareFingerprint, isSupportedContentTypeId,
+} from '../engine/fingerprint';
+import type { ChangeVerdict, FingerprintSnapshot } from '../engine/fingerprint/types';
 import { resolveEndTime } from '../engine/itinerary/dwell';
 import { parseOperatingInfo } from '../engine/normalize/parse';
 import type { NormalizedOperatingInfo } from '../engine/normalize/types';
@@ -67,6 +70,11 @@ export interface AuditRunnerOptions {
   readonly clock?: () => Date;
   /** 폴링 응답에 반영할 진행률 */
   readonly onProgress?: (done: number, total: number) => void | Promise<void>;
+  /**
+   * 그 상품의 **직전 검수**에서 만든 지문. `kto_content_id` 로 찾는다 (FR-MO-004).
+   * 없으면 최초 검수로 본다.
+   */
+  readonly previousFingerprints?: ReadonlyMap<string, FingerprintSnapshot>;
 }
 
 export interface AuditRunResult {
@@ -101,6 +109,7 @@ export class AuditRunner {
   private readonly concurrency: number;
   private readonly weights: Readonly<Record<Severity, number>>;
   private readonly settings: AuditSettings;
+  private readonly previous: ReadonlyMap<string, FingerprintSnapshot>;
   private readonly clock: () => Date;
   private readonly onProgress: (done: number, total: number) => void | Promise<void>;
 
@@ -109,6 +118,7 @@ export class AuditRunner {
     this.concurrency = options.concurrency ?? 8;
     this.weights = options.weights ?? SEVERITY_WEIGHT_DEFAULT;
     this.settings = options.settings ?? DEFAULT_AUDIT_SETTINGS;
+    this.previous = options.previousFingerprints ?? new Map();
     this.clock = options.clock ?? ((): Date => new Date());
     this.onProgress = options.onProgress ?? ((): void => undefined);
   }
@@ -140,10 +150,19 @@ export class AuditRunner {
       }
     });
 
-    // ── 3) 지문 생성 + 정규화 ──
+    // ── 3) 지문 생성 + 정규화 + 직전 지문 비교 ──
     const fingerprints: FingerprintToSave[] = [];
+    const verdicts = new Map<string, ChangeVerdict>();
     for (const [contentId, content] of fetched) {
       const fp = buildContentFingerprint({ contentTypeId: content.contentTypeId, raw: content.intro });
+      const showFlag: 0 | 1 = content.common.showflag === '0' ? 0 : 1;
+      // 직전 지문과 비교한다. 비표출 전환이 여기서 잡힌다 (FR-MO-004 · R06-b)
+      verdicts.set(contentId, compareFingerprint(this.previous.get(contentId) ?? null, {
+        fieldNames: fp.fieldNames,
+        fieldHash: fp.fieldHash,
+        showFlag,
+        ktoModifiedTime: String(content.common.modifiedtime ?? ''),
+      }));
       fingerprints.push({
         ktoContentId: contentId,
         contentTypeId: content.contentTypeId,
@@ -160,7 +179,7 @@ export class AuditRunner {
     }
 
     // ── 5) ItineraryContext 조립 (I/O 끝) ──
-    const ctx = this.buildContext(product, items, fetched);
+    const ctx = this.buildContext(product, items, fetched, verdicts);
 
     // ── 6) 규칙 평가 (메모리 전용) ──
     const { findings, failedRules } = evaluateAll(ctx);
@@ -227,6 +246,7 @@ export class AuditRunner {
     product: ProductRow,
     items: readonly ItineraryItemRow[],
     fetched: ReadonlyMap<string, FetchedContent>,
+    verdicts: ReadonlyMap<string, ChangeVerdict>,
   ): ItineraryContext {
     const start = parseIsoDate(product.startDate);
 
@@ -248,7 +268,7 @@ export class AuditRunner {
         lclsSystm2: item.lclsSystm2,
         lclsSystm3: item.lclsSystm3,
         matchStatus: item.matchStatus,
-        content: toMatchedContent(item, fetched),
+        content: toMatchedContent(item, fetched, verdicts),
       };
     });
 
@@ -259,6 +279,7 @@ export class AuditRunner {
 function toMatchedContent(
   item: ItineraryItemRow,
   fetched: ReadonlyMap<string, FetchedContent>,
+  verdicts: ReadonlyMap<string, ChangeVerdict>,
 ): MatchedContent | null {
   if (item.ktoContentId === null) return null;
   const content = fetched.get(item.ktoContentId);
@@ -270,6 +291,7 @@ function toMatchedContent(
     normalized: content.normalized,
     showFlag: content.common.showflag === '0' ? 0 : 1,
     eventPeriod: content.contentTypeId === 15 ? readEventPeriod(content.intro) : null,
+    changeVerdict: verdicts.get(item.ktoContentId) ?? null,
   };
 }
 

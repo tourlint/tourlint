@@ -53,12 +53,13 @@ export interface ChangeVerdict {
    * **판정 무관 변경**이므로 알림을 만들지 않고 최신 조회 시각만 갱신한다 (DR-FP-011).
    */
   readonly modifiedTimeOnly: boolean;
-  /**
-   * 표출 → 비표출 전환이 일어났는가. **판정 종류와 무관하게 항상 채운다.**
-   *
-   * 명세(DR-FP 6-2)의 판정 순서상 `field_names` 불일치가 비표출 전환보다 먼저 걸리는데,
-   * 비표출 노출 금지는 공사 승인 회신의 **의무 조항**(PM-NG-009 · SC-DT-009)이라
-   * 어떤 경로로 판정되든 호출자가 이 사실을 놓치면 안 된다.
-   */
+  /** 표출 → 비표출 전환이 일어났는가. 판정 종류와 무관하게 항상 채운다 */
   readonly showFlagTurnedOff: boolean;
+  /**
+   * 판정 필드 목록이 달라졌는가. 지문 해시 비교가 성립하지 않는다는 뜻이다.
+   *
+   * `HIDDEN` 과 동시에 성립할 수 있어 `kind` 와 별도로 둔다 — 비표출 전환을 먼저 판정하되
+   * 비교 불가라는 사실도 잃지 않기 위해서다.
+   */
+  readonly fieldNamesChanged: boolean;
 }

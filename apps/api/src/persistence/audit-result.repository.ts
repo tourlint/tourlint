@@ -1,5 +1,6 @@
 import type { ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
 import type { Pool } from 'pg';
+import type { FingerprintSnapshot } from '../engine/fingerprint/types';
 import type { Finding } from '../engine/rules/types';
 import { calculateReadiness, type ScorableFinding, type ScoreResult } from '../engine/score';
 import { withTransaction, type Queryable } from './db';
@@ -126,6 +127,31 @@ export class AuditResultRepository {
     };
   }
 
+  /**
+   * 그 상품의 **직전 검수**에서 만든 지문을 `kto_content_id` 로 찾는다 (FR-MO-004).
+   *
+   * 콘텐츠 전역이 아니라 상품 단위로 본다 — `FR-RU-060` 이 "직전 **검수** 지문과 현재 지문을
+   * 비교" 라고 정하고, 알림도 상품 단위로 만들어지기 때문이다. 다른 상품이 먼저 검수해
+   * 만든 지문을 직전으로 삼으면 이 상품 사용자는 못 본 변경을 "이미 알렸다" 고 넘긴다.
+   */
+  async previousFingerprints(productId: number): Promise<ReadonlyMap<string, FingerprintSnapshot>> {
+    const { rows } = await this.pool.query<PreviousFingerprintRow>(
+      `SELECT DISTINCT ON (f.kto_content_id)
+              f.kto_content_id, f.field_names, f.field_hash, f.show_flag, f.kto_modified_time
+         FROM content_fingerprint f
+         JOIN audit_run r ON r.id = f.audit_run_id
+        WHERE r.product_id = $1
+        ORDER BY f.kto_content_id, f.fetched_at DESC`,
+      [productId],
+    );
+    return new Map(rows.map((r) => [r.kto_content_id, {
+      fieldNames: r.field_names,
+      fieldHash: r.field_hash,
+      showFlag: (r.show_flag === 0 ? 0 : 1) as 0 | 1,
+      ktoModifiedTime: r.kto_modified_time,
+    }]));
+  }
+
   async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
     const { rows } = await this.pool.query<FindingRow>(
       `SELECT id, rule_code, severity, reason_code, target_item_id, target_item_id2,
@@ -215,6 +241,14 @@ interface AuditRunRow {
   target_count: number;
   failed_count: number;
   weight_snapshot: Record<Severity, number>;
+}
+
+interface PreviousFingerprintRow {
+  kto_content_id: string;
+  field_names: string[];
+  field_hash: string;
+  show_flag: number;
+  kto_modified_time: string;
 }
 
 interface FindingRow {
