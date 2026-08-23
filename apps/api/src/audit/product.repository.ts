@@ -24,7 +24,7 @@ export class ProductRepository {
   async findItems(productId: number): Promise<readonly ItineraryItemRow[]> {
     const { rows } = await this.pool.query<ItemRow>(
       `SELECT id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
-              kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, match_status
+              kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy, match_status
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -56,6 +56,8 @@ interface ItemRow {
   lcls_systm1: string | null;
   lcls_systm2: string | null;
   lcls_systm3: string | null;
+  mapx: string | null;
+  mapy: string | null;
   match_status: MatchStatus;
 }
 
@@ -74,6 +76,9 @@ function toItem(row: ItemRow): ItineraryItemRow {
     lclsSystm1: row.lcls_systm1,
     lclsSystm2: row.lcls_systm2,
     lclsSystm3: row.lcls_systm3,
+    // NUMERIC 은 pg 가 문자열로 준다. 정밀도 손실을 막으려는 기본 동작이라 여기서 옮긴다
+    mapX: row.mapx === null ? null : Number(row.mapx),
+    mapY: row.mapy === null ? null : Number(row.mapy),
     matchStatus: row.match_status,
   };
 }

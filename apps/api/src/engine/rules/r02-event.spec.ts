@@ -17,7 +17,7 @@ const at = (iso: string): NonNullable<ReturnType<typeof parseIsoDate>> => {
 function festival(date: string, period: { start: string | null; end: string | null } | null, contentTypeId = 15): readonly Finding[] {
   const item: AuditItem = {
     id: 1, dayNo: 1, seq: 1, date, startTime: '09:00', endTime: '10:00',
-    endTimeSource: 'INPUT', lclsSystm1: 'EV', lclsSystm2: 'EV01', lclsSystm3: 'EV010200', itemType: 'SIGHT',
+    endTimeSource: 'INPUT', lclsSystm1: 'EV', lclsSystm2: 'EV01', lclsSystm3: 'EV010200', mapX: null, mapY: null, itemType: 'SIGHT',
     placeLabel: '경포벚꽃축제', matchStatus: 'CONFIRMED',
     content: {
       ktoContentId: '695592', contentTypeId: contentTypeId as 15,

@@ -2,6 +2,7 @@ import type { ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
 import type { Pool } from 'pg';
 import type { FingerprintSnapshot } from '../engine/fingerprint/types';
 import type { Finding } from '../engine/rules/types';
+import type { Patch } from '../audit/patch-types';
 import { calculateReadiness, type ScorableFinding, type ScoreResult } from '../engine/score';
 import { withTransaction, type Queryable } from './db';
 
@@ -55,6 +56,7 @@ export interface StoredFinding extends ScorableFinding {
   readonly externalSource: string | null;
   readonly dismissReason: string | null;
   readonly confirmed: boolean;
+  readonly patches: readonly Patch[];
 }
 
 export interface StoredAuditRun {
@@ -155,7 +157,7 @@ export class AuditResultRepository {
   async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
     const { rows } = await this.pool.query<FindingRow>(
       `SELECT id, rule_code, severity, reason_code, target_item_id, target_item_id2,
-              message, evidence, requires_external, external_source,
+              message, evidence, requires_external, external_source, patches,
               dismissed_at, dismiss_reason, confirmed_at
          FROM finding WHERE audit_run_id = $1 ORDER BY id`,
       [auditRunId],
@@ -192,8 +194,8 @@ async function insertFindings(client: Queryable, runId: number, findings: readon
     await client.query(
       `INSERT INTO finding
          (audit_run_id, rule_code, rule_version, severity, reason_code,
-          target_item_id, target_item_id2, message, evidence, requires_external, external_source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          target_item_id, target_item_id2, message, evidence, requires_external, external_source, patches)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         runId, f.ruleCode, f.ruleVersion, f.severity, f.reasonCode,
         f.targetItemId, f.targetItemId2 ?? null, f.message,
@@ -203,6 +205,8 @@ async function insertFindings(client: Queryable, runId: number, findings: readon
          */
         JSON.stringify({ ...f.evidence, needsConfirmation: f.needsConfirmation }),
         f.requiresExternal, f.externalSource,
+        // 표시 문구(label)를 담지 않는다. 대체 관광지 명칭은 공사 원문이다 (DR-PR-001)
+        JSON.stringify(f.patches ?? []),
       ],
     );
   }
@@ -262,6 +266,7 @@ interface FindingRow {
   evidence: Record<string, unknown>;
   requires_external: boolean;
   external_source: string | null;
+  patches: unknown[];
   dismissed_at: Date | null;
   dismiss_reason: string | null;
   confirmed_at: Date | null;
@@ -279,6 +284,7 @@ function toStoredFinding(row: FindingRow): StoredFinding {
     evidence: row.evidence,
     requiresExternal: row.requires_external,
     externalSource: row.external_source,
+    patches: (row.patches ?? []) as StoredFinding['patches'],
     dismissed: row.dismissed_at !== null,
     dismissReason: row.dismiss_reason,
     confirmed: row.confirmed_at !== null,
