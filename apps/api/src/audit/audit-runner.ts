@@ -296,7 +296,7 @@ export class AuditRunner {
       const departureAt =
         start === null || from.endTime === null
           ? null
-          : `${formatIsoDate(addDays(start, from.dayNo - 1)).replace(/-/g, '')}${from.endTime.replace(':', '')}`;
+          : departureStamp(formatIsoDate(addDays(start, from.dayNo - 1)), from.endTime);
 
       const cacheKey = `${String(from.mapX)},${String(from.mapY)}>${String(to.mapX)},${String(to.mapY)}@${departureAt ?? ''}`;
       const hit = cache.get(cacheKey);
@@ -507,6 +507,18 @@ function toAuditShape(item: ItineraryItemRow): AuditItem {
     mapX: item.mapX, mapY: item.mapY, itemType: item.itemType, placeLabel: item.placeLabel,
     matchStatus: item.matchStatus, content: null,
   };
+}
+
+/**
+ * 카카오가 받는 출발시각 `YYYYMMDDHHMM` 을 만든다 (EI-KM-003).
+ *
+ * 시각이 `HH:MM` 으로 올지 `HH:MM:SS` 로 올지는 위층 사정이라, 숫자만 남기고 12자리로
+ * 자른다. `13:00:00` 에 `replace(':','')` 를 쓰면 `1300:00` 이 나가고 카카오는 그걸
+ * 조용히 무시한다 — 틀린 시간대의 소요시간으로 오류를 내게 된다.
+ */
+export function departureStamp(isoDate: string, time: string): string | null {
+  const digits = `${isoDate}${time}`.replace(/\D/g, '');
+  return digits.length < 12 ? null : digits.slice(0, 12);
 }
 
 /** 상품 단위 총 이동시간·거리 (FR-RU-084). 조회 못 한 구간은 빼고 센다 */

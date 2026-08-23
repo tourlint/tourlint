@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
-import { AuditRunner, uniqueContentIds, type ItineraryItemRow, type ProductRow } from './audit-runner';
+import { AuditRunner, departureStamp, uniqueContentIds, type ItineraryItemRow, type ProductRow } from './audit-runner';
 import { RULESET_VERSION } from './rule-registry';
 
 /**
@@ -207,5 +207,24 @@ describe('AuditRunner — 관통', () => {
     const eight = await runner({ concurrency: 8 }).run(product, TP03_LIKE);
     expect(one.findings).toEqual(eight.findings);
     expect(one.runFingerprint).toBe(eight.runFingerprint);
+  });
+});
+
+describe('출발시각 조립 (EI-KM-003)', () => {
+  it('YYYYMMDDHHMM 12자리를 만든다', () => {
+    expect(departureStamp('2026-10-22', '13:00')).toBe('202610221300');
+  });
+
+  it('초가 붙어 와도 12자리다 — 여기서 틀리면 다른 시간대 소요시간이 온다', () => {
+    // DB 의 time 타입은 HH:MM:SS 로 온다. 위층이 자르는 데 기대면 안 된다
+    expect(departureStamp('2026-10-22', '13:00:00')).toBe('202610221300');
+  });
+
+  it('자정 넘김도 자리수를 지킨다', () => {
+    expect(departureStamp('2026-01-05', '09:05')).toBe('202601050905');
+  });
+
+  it('시각이 깨져 있으면 붙이지 않는다 — 지어낸 시각으로 부르지 않는다', () => {
+    expect(departureStamp('2026-10-22', '13')).toBeNull();
   });
 });
