@@ -1,6 +1,7 @@
 import {
   CONTENT_TYPE_ID, INTRO_FIELDS, SEVERITY_WEIGHT_DEFAULT,
   type ContentTypeId, type EndTimeSource, type ItemType, type MatchStatus, type Severity,
+  type Transport,
 } from '@tourlint/shared';
 import { KOREAN_HOLIDAYS } from '../engine/calendar/holidays';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
@@ -16,6 +17,9 @@ import type { AuditItem, AuditSettings, Finding, ItineraryContext, MatchedConten
 import { calculateReadiness, type ScoreResult } from '../engine/score';
 import { isKtoError, type KtoClient } from '../external/kto';
 import type { FingerprintToSave } from '../persistence/audit-result.repository';
+import { segmentKey, segmentsOf, type TravelSegment } from '../engine/rules/r08-travel';
+import type { KakaoMobilityClient } from '../external/kakao';
+import { isKakaoError } from '../external/kakao';
 import { proposeLocalPatches } from './patch-local';
 import { proposeReplacements } from './patch-remote';
 import { MAX_PATCHES_PER_FINDING, type Patch } from './patch-types';
@@ -27,7 +31,7 @@ import { RULESET_VERSION, evaluateAll } from './rule-registry';
  *   1) 대상 수집          CONFIRMED 항목의 고유 contentid
  *   2) 공사 데이터 조회    ★ 관광지 단위 병렬 · 실행 내 캐시
  *   3) 지문 생성 + 정규화
- *   4) 외부 데이터 조회    — R08 · R09 가 붙는 W2~W3 에 채운다
+ *   4) 외부 데이터 조회    ★ 구간 단위 병렬. 카카오모빌리티(R08). 기상청(R09)은 W3
  *   5) ItineraryContext 조립   ← 여기까지가 I/O
  *   6) 규칙 평가          ★ 메모리 상에서만
  *   7) 등급 · 출시 준비도
@@ -63,6 +67,8 @@ export interface ProductRow {
   /** `YYYY-MM-DD` */
   readonly startDate: string;
   readonly nights: number;
+  /** 이동수단. 대중교통이면 R08 을 판정하지 않는다 (FR-RU-086) */
+  readonly transport: Transport;
 }
 
 export interface AuditRunnerOptions {
@@ -87,6 +93,8 @@ export interface AuditRunnerOptions {
    * (API 설계 6-1 8단계 "약 3콜").
    */
   readonly maxReplacementCalls?: number;
+  /** 길찾기 클라이언트. 없으면 R08 을 판정하지 않는다 */
+  readonly kakao?: KakaoMobilityClient;
 }
 
 export interface AuditRunResult {
@@ -101,6 +109,8 @@ export interface AuditRunResult {
   /** 실행 대표 지문. 화면에는 앞 8자리를 쓴다 (DR-FP-008 · UI-CM-032) */
   readonly runFingerprint: string | null;
   readonly failedRules: readonly string[];
+  /** 상품 단위 총 이동시간·거리 (FR-RU-084). F10 전후 비교의 입력이다 */
+  readonly travelTotals: { readonly durationSeconds: number; readonly distanceMeters: number };
 }
 
 /** 한 콘텐츠의 조회 결과. 실패해도 버리지 않고 사유와 함께 남긴다 */
@@ -123,6 +133,7 @@ export class AuditRunner {
   private readonly settings: AuditSettings;
   private readonly previous: ReadonlyMap<string, FingerprintSnapshot>;
   private readonly maxReplacementCalls: number;
+  private readonly kakao: KakaoMobilityClient | null;
   private readonly clock: () => Date;
   private readonly onProgress: (done: number, total: number) => void | Promise<void>;
 
@@ -133,6 +144,7 @@ export class AuditRunner {
     this.settings = options.settings ?? DEFAULT_AUDIT_SETTINGS;
     this.previous = options.previousFingerprints ?? new Map();
     this.maxReplacementCalls = options.maxReplacementCalls ?? 3;
+    this.kakao = options.kakao ?? null;
     this.clock = options.clock ?? ((): Date => new Date());
     this.onProgress = options.onProgress ?? ((): void => undefined);
   }
@@ -192,8 +204,11 @@ export class AuditRunner {
       });
     }
 
+    // ── 4) 외부 데이터 조회 (구간 단위 병렬) ──
+    const travelTimes = await this.fetchTravelTimes(product, items);
+
     // ── 5) ItineraryContext 조립 (I/O 끝) ──
-    const ctx = this.buildContext(product, items, fetched, verdicts);
+    const ctx = this.buildContext(product, items, fetched, verdicts, travelTimes);
 
     // ── 6) 규칙 평가 (메모리 전용) ──
     const { findings, failedRules } = evaluateAll(ctx);
@@ -224,11 +239,93 @@ export class AuditRunner {
       rulesetVersion: RULESET_VERSION,
       weights: this.weights,
       executedAt,
+      travelTotals: totalTravel(travelTimes),
       runFingerprint: fingerprints.length === 0
         ? null
         : buildRunFingerprint(fingerprints.map((f) => ({ ktoContentId: f.ktoContentId, fieldHash: f.fieldHash }))),
       failedRules,
     };
+  }
+
+  /**
+   * [4단계] 구간별 이동시간을 모은다 (FR-RU-080 · EI-KM-006).
+   *
+   * 호출 단위는 **연속한 두 일정 항목의 구간**이다. 8곳이면 7구간, 12곳이면 11구간.
+   * 같은 구간을 같은 출발 시각으로 두 번 부르지 않도록 실행 안에서 캐시한다.
+   *
+   * **대중교통은 아예 부르지 않는다** (FR-RU-086 · EI-KM-007). 자동차 시간을 대중교통
+   * 시간으로 대체해 제시하면 손님이 그 시간표로 움직이다 못 간다.
+   *
+   * 조회에 실패해도 검수를 세우지 않는다. 그 구간만 확인 불가로 남는다 (EI-KM-009).
+   * 직선거리 추정으로 대체하지 않는다 — 지어낸 값으로 오류를 내는 것이 더 나쁘다.
+   */
+  private async fetchTravelTimes(
+    product: ProductRow,
+    items: readonly ItineraryItemRow[],
+  ): Promise<ReadonlyMap<string, TravelSegment>> {
+    const out = new Map<string, TravelSegment>();
+    const segments = segmentsOf(items.map(toAuditShape));
+    if (segments.length === 0) return out;
+
+    if (product.transport === 'PUBLIC_TRANSIT') {
+      for (const { from, to } of segments) {
+        out.set(segmentKey(from.id, to.id), { ok: false, reasonCode: 'TRANSIT_NOT_SUPPORTED' });
+      }
+      return out;
+    }
+    if (this.kakao === null) {
+      // 키가 없거나 클라이언트를 못 만든 경우다. 조용히 넘기면 "이동시간 문제 없음" 으로
+      // 읽힌다 — 판정하지 못한 것은 정상이 아니라 확인 불가다 (FR-AU-009 · EI-KM-009)
+      for (const { from, to } of segments) {
+        out.set(segmentKey(from.id, to.id), { ok: false, reasonCode: 'ROUTE_PROVIDER_FAILED' });
+      }
+      return out;
+    }
+
+    const start = parseIsoDate(product.startDate);
+    const cache = new Map<string, TravelSegment>();
+
+    await inBatches(segments, this.concurrency, async ({ from, to }) => {
+      const key = segmentKey(from.id, to.id);
+      if (from.mapX === null || from.mapY === null || to.mapX === null || to.mapY === null) {
+        out.set(key, { ok: false, reasonCode: 'COORD_MISSING' });
+        return;
+      }
+
+      // 여행 날짜와 출발 시각 기준으로 부른다. 현재 시각 기준은 미래 상품의 근거가 못 된다
+      const departureAt =
+        start === null || from.endTime === null
+          ? null
+          : `${formatIsoDate(addDays(start, from.dayNo - 1)).replace(/-/g, '')}${from.endTime.replace(':', '')}`;
+
+      const cacheKey = `${String(from.mapX)},${String(from.mapY)}>${String(to.mapX)},${String(to.mapY)}@${departureAt ?? ''}`;
+      const hit = cache.get(cacheKey);
+      if (hit !== undefined) {
+        out.set(key, hit);
+        return;
+      }
+
+      let segment: TravelSegment;
+      try {
+        const route = await (this.kakao as KakaoMobilityClient).route(
+          { x: from.mapX, y: from.mapY },
+          { x: to.mapX, y: to.mapY },
+          departureAt,
+        );
+        segment = {
+          ok: true,
+          durationSeconds: route.durationSeconds,
+          distanceMeters: route.distanceMeters,
+          futureBased: route.futureBased,
+        };
+      } catch (e) {
+        segment = { ok: false, reasonCode: isKakaoError(e) ? e.reasonCode : 'ROUTE_PROVIDER_FAILED' };
+      }
+      cache.set(cacheKey, segment);
+      out.set(key, segment);
+    });
+
+    return out;
   }
 
   /**
@@ -305,6 +402,7 @@ export class AuditRunner {
     items: readonly ItineraryItemRow[],
     fetched: ReadonlyMap<string, FetchedContent>,
     verdicts: ReadonlyMap<string, ChangeVerdict>,
+    travelTimes: ReadonlyMap<string, TravelSegment>,
   ): ItineraryContext {
     const start = parseIsoDate(product.startDate);
 
@@ -332,7 +430,10 @@ export class AuditRunner {
       };
     });
 
-    return { productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS, settings: this.settings };
+    return {
+      productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS,
+      settings: this.settings, travelTimes,
+    };
   }
 }
 
@@ -395,6 +496,31 @@ function isolationFindings(
     });
   }
   return out;
+}
+
+/** 구간 계산에 필요한 만큼만 옮긴 얕은 형태 */
+function toAuditShape(item: ItineraryItemRow): AuditItem {
+  return {
+    id: item.id, dayNo: item.dayNo, seq: item.seq, date: '',
+    startTime: item.startTime, endTime: item.endTime, endTimeSource: item.endTimeSource,
+    lclsSystm1: item.lclsSystm1, lclsSystm2: item.lclsSystm2, lclsSystm3: item.lclsSystm3,
+    mapX: item.mapX, mapY: item.mapY, itemType: item.itemType, placeLabel: item.placeLabel,
+    matchStatus: item.matchStatus, content: null,
+  };
+}
+
+/** 상품 단위 총 이동시간·거리 (FR-RU-084). 조회 못 한 구간은 빼고 센다 */
+function totalTravel(
+  travelTimes: ReadonlyMap<string, TravelSegment>,
+): { durationSeconds: number; distanceMeters: number } {
+  let durationSeconds = 0;
+  let distanceMeters = 0;
+  for (const s of travelTimes.values()) {
+    if (!s.ok) continue;
+    durationSeconds += s.durationSeconds;
+    distanceMeters += s.distanceMeters;
+  }
+  return { durationSeconds, distanceMeters };
 }
 
 interface Target {

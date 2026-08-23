@@ -31,7 +31,7 @@ function makeRunner(opts: { concurrency?: number; onProgress?: (d: number, t: nu
   });
 }
 
-const product: ProductRow = { id: 31, startDate: '2026-10-13', nights: 1 };
+const product: ProductRow = { id: 31, startDate: '2026-10-13', nights: 1, transport: 'CAR' };
 
 const item = (over: Partial<ItineraryItemRow> & Pick<ItineraryItemRow, 'id' | 'dayNo' | 'seq'>): ItineraryItemRow => ({
   startTime: '10:00', endTime: '11:00', endTimeSource: 'INPUT',

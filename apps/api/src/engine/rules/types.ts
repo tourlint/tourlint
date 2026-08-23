@@ -5,6 +5,7 @@ import type {
 } from '@tourlint/shared';
 import type { Patch } from '../../audit/patch-types';
 import type { ChangeVerdict } from '../fingerprint/types';
+import type { TravelSegment } from './r08-travel';
 import type { HolidayCalendar } from '../calendar/holidays';
 import type { IsoDate } from '../calendar/dates';
 import type { NormalizedOperatingInfo, TimeOfDay } from '../normalize/types';
@@ -110,6 +111,11 @@ export interface ItineraryContext {
   /** 규칙이 시계를 보지 않게 달력을 주입한다 (NF-MT-001) */
   readonly holidays: HolidayCalendar;
   readonly settings: AuditSettings;
+  /**
+   * 구간별 이동 산출값. 러너가 파이프라인 4단계에서 채운다 (FR-RU-080).
+   * 키는 `segmentKey(앞 항목 id, 뒤 항목 id)`.
+   */
+  readonly travelTimes?: ReadonlyMap<string, TravelSegment>;
 }
 
 /**

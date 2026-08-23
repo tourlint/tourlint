@@ -4,4 +4,5 @@ export * from './r03-overlap';
 export * from './r04-imbalance';
 export * from './r06-change';
 export * from './r07-meal-rest';
+export * from './r08-travel';
 export * from './types';

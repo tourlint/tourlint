@@ -29,6 +29,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
     // 리플레이 모드. 운영에서는 기동이 거부된다 (FR-OP-009)
     process.env.KTO_MODE = 'fixture';
     process.env.KTO_FIXTURE_DIR = join(__dirname, '../../../../fixtures/kto');
+    process.env.KAKAO_MODE = 'fixture';
+    process.env.KAKAO_FIXTURE_DIR = join(__dirname, '../../../../fixtures/kakao');
     pool = new Pool({ connectionString: URL, max: 4 });
     service = new AuditService(pool);
   });
@@ -67,8 +69,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       await pool.query(
         `INSERT INTO itinerary_item
            (product_id, day_no, seq, start_time, end_time, end_time_source, place_label,
-            item_type, kto_content_id, content_type_id, lcls_systm2, match_status)
-         VALUES ($1,$2,$3,$4::time,$5::time,'INPUT',$6,$7,$8,$9,$10,'CONFIRMED')`,
+            item_type, kto_content_id, content_type_id, lcls_systm2, mapx, mapy, match_status)
+         VALUES ($1,$2,$3,$4::time,$5::time,'INPUT',$6,$7,$8,$9,$10,128.8961,37.7952,'CONFIRMED')`,
         [productId, day, seq, start, end, label, type, contentId, ctid, lcls],
       );
     }
