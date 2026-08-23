@@ -13,6 +13,7 @@ describe('HealthController', () => {
     delete process.env.KTO_SERVICE_KEY;
     delete process.env.KTO_MODE;
     delete process.env.KAKAO_REST_API_KEY;
+    delete process.env.LLM_API_KEY;
   });
 
   afterEach(() => {
@@ -51,6 +52,13 @@ describe('HealthController', () => {
     process.env.KTO_SERVICE_KEY = 'k';
     process.env.KAKAO_REST_API_KEY = 'k';
     expect((await controller.check()).ready).toBe(false);
+  });
+
+  it('LLM 키 유무는 알리되 ready 를 막지 않는다 — 없어도 검수는 돈다', async () => {
+    process.env.LLM_API_KEY = 'SECRET-LLM-KEY';
+    const body = await controller.check();
+    expect(JSON.stringify(body)).not.toContain('SECRET-LLM');
+    expect((body.checks as Record<string, unknown>).llmApiKey).toBe('ok');
   });
 
   it('카카오 키도 값 없이 유무만 말한다 — R08 이 쓴다', async () => {
