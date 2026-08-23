@@ -78,4 +78,6 @@ PR 은 Conventional Commits (`feat(engine): R05 데이터 검증 불가 (FR-RU-0
 **머지** — 작업 브랜치 → `dev` → `main`. `main` 은 Railway 가 자동 배포한다.
 CI 통과가 머지 조건이다.
 
-자세한 규칙은 [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).
+자세한 규칙은 [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md), 근거가 된 규칙집은
+[`.github/ISSUE_PR_PLAYBOOK.md`](.github/ISSUE_PR_PLAYBOOK.md). AI 도구로 작업할 때는
+[`CLAUDE.md`](CLAUDE.md) 를 먼저 읽는다.
