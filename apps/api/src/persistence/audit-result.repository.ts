@@ -164,6 +164,28 @@ export class AuditResultRepository {
     );
     return rows.map(toStoredFinding);
   }
+
+  /**
+   * 선택된 수정안을 finding 에서 꺼낸다.
+   *
+   * **상품 소유를 SQL 에서 확인한다.** 위층에서 확인하고 여기서 안 하면, 다른 상품의
+   * finding id 를 넣어 남의 일정을 미리 볼 수 있게 된다. 조건을 쿼리에 붙여 두면
+   * 호출 경로가 늘어도 새지 않는다.
+   */
+  async patchesOfProduct(
+    productId: number,
+    findingIds: readonly number[],
+  ): Promise<ReadonlyMap<number, readonly Patch[]>> {
+    if (findingIds.length === 0) return new Map();
+    const { rows } = await this.pool.query<{ id: string; patches: unknown }>(
+      `SELECT f.id, f.patches
+         FROM finding f
+         JOIN audit_run r ON r.id = f.audit_run_id
+        WHERE r.product_id = $1 AND f.id = ANY($2::bigint[])`,
+      [productId, findingIds],
+    );
+    return new Map(rows.map((r) => [Number(r.id), (r.patches ?? []) as readonly Patch[]]));
+  }
 }
 
 // ── 쓰기 ──────────────────────────────────────────────────────────────

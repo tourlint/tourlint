@@ -10,7 +10,10 @@ import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
-import { AuditRunner } from './audit-runner';
+import { AuditRunner, type ItineraryItemRow } from './audit-runner';
+import { applyPatches } from './patch-apply';
+import { checkConflicts, type Conflict } from './patch-conflict';
+import type { SelectedPatch } from './patch-types';
 import { ProductRepository } from './product.repository';
 
 /**
@@ -24,6 +27,16 @@ import { ProductRepository } from './product.repository';
 const MAX_RUNNING = 3;
 /** 폴링 간격 안내값 */
 const POLL_INTERVAL_MS = 2000;
+
+/** 미리보기 응답. 아무것도 저장하지 않으므로 `previewToken` 은 항상 null 이다 */
+export interface PatchPreview {
+  readonly previewToken: null;
+  readonly conflict: { readonly hasConflict: boolean; readonly pairs: readonly Conflict[] };
+  readonly before: readonly ItineraryItemRow[];
+  readonly after: readonly ItineraryItemRow[];
+  /** 대상이 이미 없어 반영하지 못한 선택. 조용히 삼키지 않는다 */
+  readonly skipped: readonly { readonly patchId: string; readonly reason: string }[];
+}
 
 @Injectable()
 export class AuditService {
@@ -100,6 +113,57 @@ export class AuditService {
       throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '검수 결과를 찾을 수 없습니다. 목록에서 다시 선택해 주세요.', 'REQUEST');
     }
     return run;
+  }
+
+  /**
+   * 고른 수정안을 반영하면 어떻게 되는지 미리 본다 (F08 · FR-PA-004 ~ 007).
+   *
+   * **아무것도 저장하지 않는다.** 확정은 별도 요청이고, 여기서는 충돌 여부와 반영 후
+   * 일정표만 돌려준다. `FR-PA-008` 이 "전체 자동 선택" 을 금지하므로 선택 목록은 항상
+   * 사용자가 보낸 그대로다 — 우리가 더하거나 빼지 않는다.
+   */
+  async previewPatches(
+    productId: number,
+    selections: readonly { findingId: number; patchId: string }[],
+  ): Promise<PatchPreview> {
+    const product = await this.products.findProduct(productId);
+    if (product === null) {
+      throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '상품을 찾을 수 없습니다. 목록에서 다시 선택해 주세요.', 'PRODUCT');
+    }
+    if (selections.length === 0) {
+      throw new DomainException(HttpStatus.BAD_REQUEST, 'PATCH_STALE', '반영할 수정안을 선택해 주세요.', 'REQUEST');
+    }
+
+    const items = await this.products.findItems(productId);
+    const byFinding = await this.results.patchesOfProduct(productId, [...new Set(selections.map((s) => s.findingId))]);
+
+    const selected: SelectedPatch[] = [];
+    for (const s of selections) {
+      const patch = byFinding.get(s.findingId)?.find((p) => p.patchId === s.patchId);
+      if (patch === undefined) {
+        /*
+         * 재검수가 돌면 finding 이 새로 만들어져 이전 id 는 사라진다. 화면이 오래된
+         * 목록을 들고 있었다는 뜻이라 `PATCH_STALE` 이다 — 없는 걸 조용히 빼고 나머지만
+         * 반영하면 사용자는 고르지 않은 결과를 받는다.
+         */
+        throw new DomainException(
+          HttpStatus.CONFLICT, 'PATCH_STALE',
+          '검수 결과가 갱신되어 선택한 수정안을 찾을 수 없습니다. 새로 고친 뒤 다시 선택해 주세요.', 'REQUEST',
+        );
+      }
+      selected.push({ ...patch, findingId: s.findingId });
+    }
+
+    const conflict = checkConflicts(items, selected);
+    const applied = applyPatches(items, selected);
+    return {
+      // 확정 요청은 선택 목록을 다시 보낸다. 미리보기를 저장하지 않으므로 토큰이 없다
+      previewToken: null,
+      conflict: { hasConflict: conflict.hasConflict, pairs: conflict.conflicts },
+      before: items,
+      after: applied.items,
+      skipped: applied.skipped,
+    };
   }
 
   /**
