@@ -10,6 +10,15 @@ import { Pool, type PoolClient, type QueryResultRow } from 'pg';
  * 들어 있고, 로깅은 그대로 누출 경로가 된다 (DB 명세서 6-4 누출 경로 ①·② · NF-OB-006).
  */
 
+/**
+ * DI 주입 토큰.
+ *
+ * `pg` 의 `Pool` 클래스를 토큰으로 쓰면 안 된다. 클래스를 타입으로만 import 하는 순간
+ * (`import type { Pool }`) 런타임 값이 지워져 Nest 가 `Function` 을 받고 주입에 실패한다.
+ * 빌드 · 린트 · 테스트는 전부 통과하고 **부팅만 죽는다.**
+ */
+export const DB_POOL = Symbol('DB_POOL');
+
 let pool: Pool | null = null;
 
 export function getPool(connectionString = process.env.DATABASE_URL): Pool {

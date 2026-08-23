@@ -5,35 +5,23 @@ body:
   - type: markdown
     attributes:
       value: |
-        생성한 뒤 오른쪽에서 마일스톤(목표 주차)과 담당자를 지정한다.
-        주차는 라벨이 아니라 마일스톤으로 관리한다 — 마감일과 진행률이 함께 보인다.
-
-        본문은 800자 안쪽으로. 배경 설명이 길어지면 docs/ 에 두고 링크한다.
-  - type: markdown
-    attributes:
-      value: |
-        절차는 `docs/notion/README.md` — 편집 → `status` → `check` → `plan` → push → `accept`.
-        정본을 MCP 로 직접 고치지 않는다.
+        절차는 `docs/notion/README.md` 참고. 편집 → `status` → `check` → `plan` → push → `accept`.
+        정본을 MCP로 직접 고치지 않습니다.
   - type: textarea
     id: decision
     attributes:
       label: 확정된 내용
-      description: 무엇을 어떻게 바꾸기로 했는가
     validations: { required: true }
   - type: textarea
     id: why
     attributes:
-      label: 왜 — 어떤 공백·모순이 있었는가
-      description: 개정 이력에 그대로 들어갈 문장으로 쓴다.
-      placeholder: "종전에는 분모가 명시되지 않아 결측 포함 여부에 따라 달성 가능 여부가 갈렸다"
+      label: 배경
+      description: 어떤 공백이나 모순이 있었는지.
     validations: { required: true }
   - type: textarea
     id: targets
     attributes:
       label: 고칠 문서와 항목
-      description: 연쇄 영향 문서까지 전부. 버전 올림과 개정 이력 추가도 포함한다.
       value: |
-        - [ ] 기능 요구사항 (vX.Y → vX.Z) — FR-
-        - [ ] 데이터 요구사항 — DR-
-        - [ ] 리포 `docs/*.md` — 같은 수치를 인용하는 파일
+        - [ ] 
     validations: { required: true }
