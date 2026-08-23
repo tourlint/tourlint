@@ -1,6 +1,6 @@
 import {
   CONTENT_TYPE_ID, INTRO_FIELDS, SEVERITY_WEIGHT_DEFAULT,
-  type ContentTypeId, type EndTimeSource, type ItemType, type MatchStatus, type Severity,
+  type ContentTypeId, type EndTimeSource, type ExceptionReasonCode, type ItemType, type MatchStatus, type Severity,
   type Transport,
 } from '@tourlint/shared';
 import { KOREAN_HOLIDAYS } from '../engine/calendar/holidays';
@@ -122,7 +122,8 @@ interface FetchedContent {
 }
 
 interface FetchFailure {
-  readonly reasonCode: string;
+  /** 어댑터가 준 예외 사유 그대로다. 문자열로 두면 finding 에 실을 때 좁혀야 한다 */
+  readonly reasonCode: ExceptionReasonCode;
   readonly message: string;
 }
 
@@ -483,10 +484,11 @@ function isolationFindings(
     if (failure === undefined) continue;
 
     out.push({
-      ruleCode: 'R01',
+      // 조회 자체가 안 된 것이라 휴무 판정과 무관하다. 사유는 실패한 이유 그대로 단다
+      ruleCode: 'R05',
       ruleVersion: RULESET_VERSION,
       severity: 'UNVERIFIED',
-      reasonCode: 'REST_DAY_UNCERTAIN',
+      reasonCode: failure.reasonCode,
       targetItemId: item.id,
       message: `${item.placeLabel} — ${failure.message}`,
       evidence: { isolated: true, exceptionReasonCode: failure.reasonCode, unit: 'CONTENT' },

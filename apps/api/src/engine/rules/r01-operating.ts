@@ -1,4 +1,4 @@
-import type { ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
+import type { ExceptionReasonCode, ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
 import {
   addDays, dayOfWeek, isWithinMonthDayRange, nthWeekdayOfMonth, parseIsoDate, toMonthDay,
   type CalendarDate,
@@ -243,7 +243,9 @@ export class R01OperatingRule implements AuditRule {
     const n = item.content.normalized;
     const date = parseIsoDate(item.date);
     // 파싱 전면 실패 · 날짜 이상 — 정상으로 판정하지 않는다 (FR-AU-009)
-    if (n === null || date === null) return [unverified(item, '운영정보를 해석하지 못했습니다')];
+    if (n === null || date === null) {
+      return [unverified(item, `${item.placeLabel} — 운영정보를 해석하지 못했습니다`, {}, 'PARSE_SCHEMA_INVALID')];
+    }
 
     const findings: Finding[] = [];
 
@@ -276,16 +278,18 @@ export class R01OperatingRule implements AuditRule {
     if (closed.kind === 'UNKNOWN') {
       findings.push(unverified(item, `${item.placeLabel} — 휴무일 정보를 확인할 수 없습니다`, {
         step: closed.step, date: item.date,
-      }));
+      }, 'REST_DAY_UNCERTAIN'));
       return findings;
     }
 
     // ── 2 · 3단계 ──
     const selected = selectHours(n, date);
     if (selected === null) {
+      // 휴무가 아니라 운영시간을 모르는 것이다. `REST_DAY_UNCERTAIN` 을 달면 화면에
+      // "휴무일 확인 불가" 로 뜬다
       findings.push(unverified(item, `${item.placeLabel} — 운영시간 정보를 확인할 수 없습니다`, {
         step: '2-4', date: item.date,
-      }));
+      }, 'PARSE_MISSING'));
       return findings;
     }
 
@@ -398,12 +402,17 @@ function partialClosedFindings(
   return out;
 }
 
-function unverified(item: AuditItem, message: string, evidence: Record<string, unknown> = {}): Finding {
+function unverified(
+  item: AuditItem,
+  message: string,
+  evidence: Record<string, unknown> = {},
+  reasonCode: ReasonCode | ExceptionReasonCode = 'REST_DAY_UNCERTAIN',
+): Finding {
   return {
     ruleCode: 'R01',
     ruleVersion: R01_VERSION,
     severity: 'UNVERIFIED',
-    reasonCode: 'REST_DAY_UNCERTAIN',
+    reasonCode,
     targetItemId: item.id,
     message,
     evidence: { ...evidence, unverified: true },
