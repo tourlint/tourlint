@@ -1,0 +1,21 @@
+name: 기능
+description: 새로 만들거나 붙이는 것
+title: "[FEAT] "
+labels: ["feat"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        제목에 명세 ID 를 넣는다 — `[FEAT] F09 패치 확정과 되돌리기 (FR-PA-020)`.
+        만든 뒤 오른쪽에서 영역 라벨과 담당자, 마일스톤을 지정한다.
+  - type: textarea
+    id: what
+    attributes:
+      label: 할 일
+      description: 끝났을 때 뭐가 달라져 있는지. 자명하면 짧게.
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: 배경
+      description: 지금 안 하면 뭐가 막히는지. 없으면 비운다.

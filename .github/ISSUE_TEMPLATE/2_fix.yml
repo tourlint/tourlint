@@ -1,0 +1,32 @@
+name: 결함
+description: 동작이 기대와 다르다
+title: "[FIX] "
+labels: ["fix"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        제목은 증상이지 원인이 아니다. 원인은 아래 칸의 몫이고, 제목 쓸 때는 보통 모른다.
+        에러 코드 · 상태 코드 · 실제 값을 제목에 넣으면 나중에 검색된다.
+  - type: textarea
+    id: actual
+    attributes:
+      label: 증상
+      description: 재현되는 픽스처(TP-01~04)가 있으면 같이. 로그는 요약하지 말고 그대로.
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작
+      description: 근거 조항이나 기대값 표 항목.
+    validations: { required: true }
+  - type: textarea
+    id: cause
+    attributes:
+      label: 원인
+      description: 아직 모르면 비운다.
+  - type: textarea
+    id: impact
+    attributes:
+      label: 영향
+      description: 판정이 틀어지는지, 화면만 이상한지, 데이터가 남는지.
