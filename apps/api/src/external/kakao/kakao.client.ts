@@ -1,3 +1,4 @@
+import { createHttpFetch, isTimeoutError } from '../http-client';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { ApiCallLogEntry, ApiCallLogger, CallStatus } from '../api-call-log';
@@ -59,7 +60,8 @@ export class HttpKakaoTransport implements KakaoTransport {
       throw new Error('카카오 REST API 키가 비어 있다. 환경변수 KAKAO_REST_API_KEY 를 확인할 것');
     }
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    // 연결 3초 · 응답 10초를 나눠 건다 (EI-CM-004)
+    this.fetchImpl = options.fetchImpl ?? createHttpFetch();
   }
 
   async request(operation: KakaoOperation, params: Readonly<Record<string, string>>): Promise<KakaoTransportResult> {
@@ -74,7 +76,8 @@ export class HttpKakaoTransport implements KakaoTransport {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (e) {
-      throw new RouteProviderError((e as Error).name);
+      // 이름만 담는다. 메시지·URL 에는 인증키가 섞일 수 있다 (EI-CM-002)
+      throw new RouteProviderError(isTimeoutError(e) ? 'TIMEOUT' : (e as Error).name);
     }
 
     const body = await response.text();
