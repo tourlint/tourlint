@@ -51,7 +51,31 @@ KTO_MODE=fixture pnpm --filter @tourlint/api test
 LIVE_KTO=1 TEST_DATABASE_URL=... pnpm --filter @tourlint/api exec vitest run test/live-kto.smoke.spec.ts
 ```
 
-## 작업 규칙
+## 저장소 읽는 법
 
-브랜치 흐름, 커밋 형식, PR·이슈 양식은 `.github/CONTRIBUTING.md`.
-주차별 목표는 GitHub 마일스톤에서 본다.
+**라벨은 두 축이다.** 유형(`feat` `fix` `chore` `docs` `refactor` `test`) 하나와
+영역 하나를 붙인다. 영역 라벨은 노션 명세 문서에서 그대로 가져왔다.
+
+| 라벨 | 문서 |
+|---|---|
+| `FR 기능` | 13_기능요구사항 (FR-*) |
+| `DR 데이터` | 16_데이터요구사항 (DR-*) |
+| `NF 비기능` | 17_비기능요구사항 (NF-*) |
+| `EI 연동` | 18_외부연동요구사항 (EI-*) |
+| `EX 예외` | 19_예외처리요구사항 (EX-*) |
+| `DB` | 20_DB명세서 |
+| `API` | 21_API백엔드설계 |
+
+라벨과 문서가 1:1이라 라벨로 거르면 그 문서에 관한 작업만 남는다. 특수 라벨은
+`spec-mismatch` 하나이고 근거는 `SC-CM-001`(코드보다 문서가 먼저다)이다.
+
+**제목** — 이슈는 `[FEAT]` · `[FIX]` · `[CHORE]` 로 시작하고 명세 ID 를 괄호에 넣는다.
+PR 은 Conventional Commits (`feat(engine): R05 데이터 검증 불가 (FR-RU-051)`).
+
+**계획의 정본은 GitHub 이슈와 마일스톤이다.** 주차별 목표는 마일스톤(`W1`~`W5`),
+할 일은 이슈에 있다. `docs/` 는 명세 사본이지 계획서가 아니다.
+
+**머지** — 작업 브랜치 → `dev` → `main`. `main` 은 Railway 가 자동 배포한다.
+CI 통과가 머지 조건이다.
+
+자세한 규칙은 [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).

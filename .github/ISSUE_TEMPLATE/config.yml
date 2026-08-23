@@ -1,8 +1,11 @@
 blank_issues_enabled: true
 contact_links:
+  - name: 작업 규칙
+    url: https://github.com/tourlint/tourlint/blob/main/.github/CONTRIBUTING.md
+    about: 브랜치, 라벨, 제목, 머지. 작업 전에 읽는다
   - name: 노션 문서 정본
     url: https://app.notion.com/p/3a3ec0325d5b806e99a4dcdd283eed48
-    about: 기획서 · 통합 요구사항 9종 · DB 명세서 · API 설계서. 로컬 사본은 docs/notion/
+    about: 기획서, 통합 요구사항 9종, DB 명세서, API 설계서. 로컬 사본은 docs/notion/
   - name: 회귀 기준선 (기대값 표)
     url: https://github.com/tourlint/tourlint/blob/main/docs/기대값표.md
     about: 픽스처 4종이 내야 하는 정답 판정과 점수. 코드보다 먼저 존재하는 기준
