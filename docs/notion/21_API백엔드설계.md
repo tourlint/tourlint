@@ -40,7 +40,7 @@
 </tr>
 <tr>
 <td>② AI는 정규화, 규칙엔진이 판정</td>
-<td>LLM 호출 경로는 F01 구조화 · F03 정규화 · 설명문 생성 3곳뿐. **등급·점수·충돌 판정 경로에 LLM이 없다** (EI-LM-001)</td>
+<td>LLM 호출 경로는 F01 구조화 · F03 정규화 **2곳뿐**. **등급·점수·충돌 판정 경로에 LLM이 없다** (EI-LM-001). 설명문 생성은 결정론성 때문에 쓰지 않는다</td>
 </tr>
 <tr>
 <td>③ 모르는 것은 모른다고 말한다</td>
@@ -63,7 +63,7 @@
                   Next.js + TypeScript
                            │  HTTPS / JSON
                    [ 관광상품 관리 API ]
-                    Spring Boot 3 단일 모놀리스
+                 NestJS 10 + TypeScript 단일 모놀리스
                            │
    ┌───────────────┬───────┴────────┬──────────────────┐
    │               │                │                  │
@@ -87,78 +87,53 @@
 </callout>
 ## 2-2. 패키지 구조
 ```plain text
-com.tourlint
-├── common
-│   ├── config          SecurityConfig, WebConfig, ClockConfig(Asia/Seoul)
-│   ├── error            ApiException, ReasonCode, GlobalExceptionHandler
-│   ├── response         ApiError, PageResponse
-│   └── audit            요청 로깅 · traceId
+tourlint/                      pnpm 워크스페이스 · Node 22+
+├── apps/api                   NestJS 10 + TypeScript
+│   └── src
+│       ├── common             domain.exception · all-exceptions.filter (오류 생성 단일 지점)
+│       │
+│       ├── engine             판정 엔진. external · persistence 를 import 하지 않는다
+│       │   ├── rules          r01-operating ~ r08-travel · types · rule 인터페이스
+│       │   ├── normalize      운영정보 해석기 (preprocess · parse · closed · hours · merge)
+│       │   ├── fingerprint    지문 생성 · 비교 (build · compare)
+│       │   ├── itinerary      dwell — 체류시간 보완
+│       │   ├── calendar       dates · holidays (공휴일 표)
+│       │   └── score.ts       등급 · 출시 준비도
+│       │
+│       ├── audit              검수 실행 조율 (F04~F09)
+│       │   ├── audit.controller     검수 요청 · 폴링 · 결과 · finding · 패치
+│       │   ├── audit.service        큐 등록 · 중복 방지 · 예산 게이트 · 확정 · 되돌리기
+│       │   ├── audit-runner         파이프라인 오케스트레이션
+│       │   ├── rule-registry        규칙 목록
+│       │   ├── patch-local · patch-remote      수정안 생성
+│       │   ├── patch-conflict · patch-apply    충돌 검사 · 일괄 반영 (순수 함수)
+│       │   ├── patch-snapshot                  스냅샷 · 미리보기 토큰
+│       │   └── audit-job · product repository
+│       │
+│       ├── persistence        db (pg 풀 · 트랜잭션)
+│       │   ├── audit-result.repository       audit_run · finding · content_fingerprint
+│       │   ├── patch-application.repository  일정 쓰기 · 패치 이력
+│       │   └── api-call-log.repository
+│       │
+│       ├── external           외부 어댑터 (EI-CM-003)
+│       │   ├── kto            transport · envelope · client · errors · factory
+│       │   ├── kakao          KakaoMobilityClient (R08 이동시간)
+│       │   ├── kma            grid — 위경도 → 격자 (R09 우천, 구현 중)
+│       │   ├── llm            anthropic.provider · client · 스키마 검증
+│       │   ├── http-client    연결 3초 · 응답 10초 분리
+│       │   ├── budget-guard   예산 80% / 100% 게이트
+│       │   └── api-call-log   전 호출 계측
+│       │
+│       ├── health             GET /health — 배포 후 확인 목록
+│       └── mock               교체 대기 라우트. 실엔진으로 바뀌면 즉시 삭제 (NF-CO-002)
 │
-├── auth                 인증 · 세션 · 계정
-│   ├── AuthController        signup / login / logout / me
-│   ├── AccountService
-│   └── AccountRepository
-│
-├── product              상품 · 일정 (F01)
-│   ├── ProductController     CRUD · 복제 · 출시 승인
-│   ├── ItineraryController   일정 항목 CRUD · 순서 · 업로드 · 자연어
-│   ├── ProductService
-│   ├── ItineraryService
-│   ├── ImportService         엑셀 · CSV 파싱
-│   ├── NaturalLanguageService  LLM 구조화
-│   └── repository
-│
-├── content              관광지 매칭 (F02) · 공사 코드 프록시
-│   ├── ContentController     장소 검색 · 확정 · 제외 · 법정동 · 분류체계
-│   ├── MatchingService
-│   └── ContentSnapshot       실시간 조회 결과 (영속화하지 않는 값 객체)
-│
-├── audit                검수 (F03~F07)
-│   ├── AuditController       검수 요청 · 폴링 · 결과 · finding · 규칙 목록
-│   ├── AuditJobService       큐 등록 · 중복 방지 · 진행률
-│   ├── AuditRunner           파이프라인 오케스트레이션
-│   ├── OperatingInfoParser   운영정보 해석기 (사전 파서 + LLM)
-│   ├── ScoreCalculator       등급 · 출시 준비도
-│   ├── FingerprintService    지문 생성 · 비교
-│   └── rule
-│       ├── AuditRule (interface)
-│       ├── R01RestDayRule ... R10TargetFitRule
-│       └── RuleRegistry
-│
-├── patch                패치 (F08~F10)
-│   ├── PatchController       미리보기 · 확정 · 되돌리기 · 전후 비교
-│   ├── PatchProposalService  수정안 생성
-│   ├── ConflictDetector      충돌 검사 3항목
-│   └── PatchApplyService     일괄 반영 · 스냅샷 · 재검수 트리거
-│
-├── report               리포트 (F11)
-│   ├── ReportController
-│   └── PdfRenderService      서버 사이드 렌더링
-│
-├── monitor              감시 (F12~F14)
-│   ├── RadarController       레이더 · 알림 · 신호
-│   ├── SyncBatchJob          평일 05:00 경량 배치
-│   ├── ChangeDetector        지문 비교 · 변경 분류
-│   ├── ImpactFinder          영향 상품 탐색 6조건
-│   └── SignalService         T1 · T2
-│
-├── ops                  운영 (F15 · F16)
-│   ├── BudgetController      호출 예산 집계 조회
-│   ├── SettingController     설정 10종
-│   ├── BudgetGuard           예산 80% / 100% 게이트
-│   └── HealthController      /health
-│
-└── external             외부 어댑터 (EI-CM-003)
-    ├── kto               KtoClient · 9개 오퍼레이션 · 응답 파서
-    ├── route             KakaoMobilityClient
-    ├── weather           KmaShortTermClient · KmaMidTermClient · ClimateNormalRepository
-    ├── llm               LlmClient · 스키마 검증기
-    └── ApiCallLogger     전 호출 계측 (공통 인터셉터)
+├── apps/web                   Next.js 16 + React 19
+└── packages/shared            사유코드 39종 · 등급 · 실내외 시드 등 공용 상수
 ```
 <callout icon="⚖️" color="blue_bg">
-	**규칙 클래스는 외부를 직접 호출하지 않습니다.**
-	`rule` 패키지는 `external` 패키지를 의존하지 않으며, 판정에 필요한 데이터는 `AuditRunner`가 미리 모아 `ItineraryContext`로 넘깁니다. 규칙 평가는 **메모리 상에서만** 수행합니다 (NF-PF-014).
-	이 경계가 판정 결정론성(NF-MT-001)을 구조적으로 보장하는 장치입니다.
+	**판정 엔진이 `audit` 밑이 아니라 `engine` 으로 분리돼 있습니다.**
+	`audit` 은 조율(큐 · 외부 조회 · 저장)이고 `engine` 은 판정입니다. `engine/rules` 는 `external` 을 의존하지 않으며, 판정에 필요한 데이터는 `AuditRunner`가 미리 모아 `ItineraryContext`로 넘깁니다. 규칙 평가는 **메모리 상에서만** 수행합니다 (NF-PF-014).
+	경계를 디렉터리로 그은 이유는 **eslint 가 그 선을 강제할 수 있어서**입니다 — `engine/rules` 안에서 `external/**` 과 `*.repository` import, `Date` 전역, `Date.now`, `Math.random` 이 전부 오류로 막힙니다. 이 경계가 판정 결정론성(NF-MT-001)의 구조적 보장이며, 사람 리뷰가 아니라 린터가 지킵니다.
 </callout>
 ---
 # 3. API 공통 규약
@@ -1856,9 +1831,15 @@ public interface AuditRule {
 <td>"단기예보 기준 — 강수확률 N%"</td>
 </tr>
 <tr>
-<td>D+3 – D+10</td>
+<td>D+3</td>
+<td>기상청 단기예보 조회서비스</td>
+<td>실시간 호출. 그 날 야외 일정 시간대를 덮을 때만 판정</td>
+<td>"단기예보 기준 — 강수확률 N%"</td>
+</tr>
+<tr>
+<td>D+4 – D+10</td>
 <td>기상청 중기예보 조회서비스</td>
-<td>실시간 호출. 오전·오후 강수확률 중 **큰 값**</td>
+<td>실시간 호출. 오전·오후 강수확률 중 **큰 값**. 대상 일자를 덮는 발표분 선택</td>
 <td>"중기예보 기준 — 강수확률 N%"</td>
 </tr>
 <tr>
@@ -1878,7 +1859,7 @@ public interface AuditRule {
 ## 7-5. LLM 어댑터
 <table fit-page-width="true" header-row="true">
 <tr>
-<td>허용 용도 3가지</td>
+<td>허용 용도 2가지</td>
 <td>금지</td>
 </tr>
 <tr>
@@ -2565,8 +2546,10 @@ quota_date는 반드시 KST 기준. UTC로 채우면 집계가 9시간 밀린다
 	v1.2 (2026.08.19) — 배치 1 반영. 5-5 주석 보강 — `readinessScore` · `counts`는 조회 시점 재계산 값(FR-AU-046), `evidence.dataFingerprint`는 실행 대표 지문 앞 8자리(DR-FP-008). 9-1 규칙 판정 사유코드를 15종 체계로 갱신(예외처리 4장 · EX-CM-022 참조).
 	v1.3 (2026.08.19) — 배치 2 반영. ① finding 목록 응답에서 공사 원문(`ktoRaw`) 제외 — 근거 펼침 시 `GET /contents/{contentId}` 1콜로 조달(5-6 · 5-12, UI-S3-011 기본 접힘과 정합) ② "확인 필요 N건" = 목록 항목 수 기준으로 예시 정정(93점 · 3건) ③ `POST /api/v1/demo/reset` 신설 — 시드 재실행 복원(PM-TA-003 · DR-TD-007).
 	v1.4 (2026.08.19) — 상품 범위 확대(팀 합의 2026.08.19, 당일\~2박 3일 · 최대 12곳). **API 계약(엔드포인트 · 요청/응답 필드)은 변경 없음** — `nights`는 기존 필드이며 서버 검증 범위만 0\~2로 완화. 수치 갱신: 6-1 · 8-1 호출량(29→43콜 병기), 11장 성능 목표 이원화(8곳 15초 / 12곳 20초 — NF-PF-001 v1.1 정합), 4-3 업로드 상한 30→45건(NF-CP-003 정합).
-	v1.6 (2026.08.23) — F09 패치 확정 · 되돌리기 구현에서 확정. ① `previewToken`을 저장 키가 아니라 **일정 해시**로 정의(5-8 콜아웃) — F08이 아무것도 저장하지 않는다는 전제를 지키면서 EX-PA-002를 답할 수 있고, 충돌이 있어도 토큰은 그대로 내려간다 ② 확정 거부 조건에 ③대상 소실 · ④검수 진행 중 · ⑤예산 소진 추가(4-6 콜아웃) — 특히 ④는 진행 중인 작업을 재검수라며 내주면 패치 전 일정을 보는 작업 번호가 나가고 바뀐 일정의 재검수가 영영 돌지 않아서다 ③ 되돌리기는 **재검수를 돌리지 않고** `before_audit_run_id`를 가리킨다(5-9 콜아웃), `after_audit_run_id`가 빈 이력은 다음 사용자 검수가 채우되 되돌린 이력은 제외한다(EX-PA-004).
 	v1.5 (2026.08.21) — 6-4절 커버리지 목표에 분모 정의를 병기하고 기준선 수치를 재계산(71.4% · 71.1% → 85.8% · 76.7%). 종전 수치는 결측을 포함한 전체 287 기준이라 새 정의와 혼재하면 "착수 71.4% → 목표 90%"라는 틀린 서술이 남는다. API 계약(엔드포인트 · 요청/응답 필드)은 변경 없음. FR-AU-004 · DR-TD-003 · NF-OB-007 · 기획서 8-2와 동시 개정.
+	v1.6 (2026.08.23) — F09 패치 확정 · 되돌리기 구현에서 확정. ① `previewToken`을 저장 키가 아니라 **일정 해시**로 정의(5-8 콜아웃) — F08이 아무것도 저장하지 않는다는 전제를 지키면서 EX-PA-002를 답할 수 있고, 충돌이 있어도 토큰은 그대로 내려간다 ② 확정 거부 조건에 ③대상 소실 · ④검수 진행 중 · ⑤예산 소진 추가(4-6 콜아웃) — 특히 ④는 진행 중인 작업을 재검수라며 내주면 패치 전 일정을 보는 작업 번호가 나가고 바뀐 일정의 재검수가 영영 돌지 않아서다 ③ 되돌리기는 **재검수를 돌리지 않고** `before_audit_run_id`를 가리킨다(5-9 콜아웃), `after_audit_run_id`가 빈 이력은 다음 사용자 검수가 채우되 되돌린 이력은 제외한다(EX-PA-004).
+	v1.7 (2026.08.24) — R09 강수 판정 분기를 실측에 맞춰 정정. 중기육상예보가 **발표일 +5일부터** 시작해 `rnSt3` · `rnSt4` 필드가 없다(실호출 확인). D+3 을 중기로 보내면 빈 값을 받고 그걸 강수확률 0 으로 읽어 비 오는 날을 정상 판정하게 된다. 구간을 D+0–D+2 단기 / **D+3 단기 부분 커버리지** / **D+4–D+10 중기** / D+11 이상 평년 으로 바꾸고, 중기는 최신 발표분이 아니라 **대상 일자를 덮는 발표분**을 고르도록 했다. EI-WX-001 의 「공사 인증키와 별개의 키」 서술도 정정 — data.go.kr 은 계정당 키 하나이고 활용신청만 서비스별이다. 관련 이슈 #54 · #55.
+	v1.8 (2026.08.24) — 구현 실측 대조. ① 백엔드를 Spring Boot 3 → **NestJS 10 + TypeScript** 로 정정. 아키텍처 다이어그램과 기술 스택 표가 실제와 달랐고, 기획서는 기능설명서의 원본이라 그대로 두면 제출 서류와 구동 코드가 어긋난다. 선택 근거(상시 구동 · 공용 상수 단일 출처 · eslint 로 강제하는 결정론성)도 함께 적었다 ② LLM 허용 용도를 셋 → **둘**로 정정 — finding 설명문 생성은 결정론성 때문에 쓰지 않기로 확정했고 구현의 `LlmPurpose` 도 `STRUCTURE` · `NORMALIZE` 둘뿐이다 ③ 배치를 Spring Scheduler → Node 프로세스 내 스케줄러, 배포를 Railway 로 구체화.
 </callout>
 <callout icon="©️" color="gray_bg">
 	출처: ⓒ한국관광공사
