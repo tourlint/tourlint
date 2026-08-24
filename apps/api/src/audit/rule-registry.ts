@@ -14,7 +14,7 @@ import type { AuditRule, Finding, ItineraryContext } from '../engine/rules/types
  * 규칙을 추가할 때 **기존 규칙 코드를 고치지 않는다.** 여기 한 줄만 늘어난다.
  * 규칙끼리 서로 참조하지 않으므로 순서도 결과에 영향을 주지 않는다.
  *
- * 지금은 일곱이다 — R05 는 W2, R09 · R10 은 W3.
+ * 지금은 여덟이다 — R09 우천과 R10 타깃 적합성이 남았다.
  */
 export const RULES: readonly AuditRule[] = [
   new R01OperatingRule(),
