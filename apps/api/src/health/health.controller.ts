@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { Client } from 'pg';
 
 /**
@@ -19,6 +20,7 @@ const EXPECTED_TABLE_COUNT = 18;
 
 type Check = 'ok' | 'missing' | 'unknown';
 
+@ApiTags('실엔진')
 @Controller('health')
 export class HealthController {
   @Get()

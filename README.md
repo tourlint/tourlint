@@ -8,7 +8,16 @@
 | | |
 |---|---|
 | API | https://api-production-1e7c2.up.railway.app |
+| **API 문서** | https://api-production-1e7c2.up.railway.app/docs |
 | 상태 확인 | https://api-production-1e7c2.up.railway.app/health |
+
+`/docs` 에서 라우트 목록을 브라우저로 본다. **`실엔진` 태그가 붙은 것만 실제로 판정 · 저장이
+돈다.** `mock` 태그는 API 명세의 응답 예시를 그대로 돌려주는 임시 라우트이며 실엔진으로
+교체되는 즉시 제거된다 (NF-CO-002 · FR-OP-009). 전체 계약은
+[`docs/notion/21_API백엔드설계.md`](docs/notion/21_API백엔드설계.md).
+
+루트(`/`)는 서비스명과 위 주소들을 돌려준다. 예전에는 404 였는데, API 서버에 루트 라우트가
+없는 건 정상이지만 브라우저로 열어 본 사람 눈에는 오류 화면이라 안내를 넣었다.
 
 `/health` 가 배포 상태를 그대로 보여준다. `ready: true` 면 DB · 스키마 · 인증키가 다 맞은 것이다.
 

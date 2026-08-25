@@ -8,3 +8,5 @@ allowBuilds:
   "@tailwindcss/oxide": true
   "sharp": true
   esbuild: true
+  # @nestjs/swagger 가 끌고 오는 사용 추적 패키지. 설치 스크립트를 돌리지 않는다
+  '@scarf/scarf': false

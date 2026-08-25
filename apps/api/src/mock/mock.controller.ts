@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
 // ── 명세 5장 JSON 예시를 그대로 사용한다 (손으로 지어내지 않음) ──
 import productCreated from '../mocks/product_created.json';
@@ -9,7 +10,6 @@ import auditRun from '../mocks/audit_run.json';
 import unverified from '../mocks/unverified.json';
 import comparison from '../mocks/comparison.json';
 import rules from '../mocks/rules.json';
-import usageBudget from '../mocks/usage_budget.json';
 
 // 지역·분류 코드: D0에서 실호출한 픽스처를 mocks/로 복사해 사용한다 (설치 안내 참조)
 // W1에서 KTO 프록시(EI-KT)로 교체한다 — 하드코딩 금지 원칙(FR-IN-006 · NF-MT-005)
@@ -28,6 +28,7 @@ const codeList = (j: any) => {
  * 실제 로직은 W1~W3에서 도메인 모듈로 하나씩 교체하며, 교체된 엔드포인트는 여기서 제거한다.
  * ⚠️ FR-OP-009 · NF-CO-002: 공사 API 호출을 모의 응답으로 "전면 대체"하지 않는다. 이 목업은 개발 단계 한정.
  */
+@ApiTags('mock')
 @Controller('api/v1')
 export class MockController {
   // ── 인증 (FR-CM-001~004) ──
@@ -90,8 +91,6 @@ export class MockController {
   @Post('notifications/:id/dismiss') dismissNoti(@Param('id') id: string) { return { id: Number(id), dismissedAt: new Date().toISOString() }; }
 
   // ── 운영 (F15·F16) ──
-  @Get('usage/budget') budget() { return usageBudget; }
-  @Get('usage/calls') calls() { return { content: [], page: 0, size: 20, totalElements: 0 }; }
   @Get('settings') settings() {
     return {
       weights: { BLOCKER: 25, ERROR: 10, WARNING: 4, UNVERIFIED: 3 },

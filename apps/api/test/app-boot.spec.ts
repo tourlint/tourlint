@@ -38,6 +38,9 @@ describe('앱 부팅', () => {
   it('실엔진 엔드포인트가 등록돼 있다', () => {
     const routes = registeredRoutes(app);
     for (const r of [
+      'GET /',
+      'GET /api/v1/usage/budget',
+      'GET /api/v1/usage/calls',
       'POST /api/v1/products/:productId/audit-jobs',
       'GET /api/v1/audit-jobs/:jobId',
       'GET /api/v1/audit-runs/:runId',
