@@ -4,10 +4,9 @@
 // 유형은 lcls-codes(관광정보 분류)로 채운다. 종료시간을 비우면 저장 시 중분류별 기본
 // 체류시간이 보완되고 `기본값 적용` 배지가 붙는다 (FR-IN-011) — 보완은 뒷단 몫이라 후속.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Section, SelectInput, TextInput } from "./controls";
-import type { CodeItem, Nights, Schedule, ScheduleItem } from "./types";
-import { dayCount } from "./types";
+import { ITEM_TYPE_OPTIONS, dayCount, type ItemType, type Nights, type Schedule, type ScheduleItem } from "./types";
 
 export function ScheduleEditor({
   nights,
@@ -18,22 +17,8 @@ export function ScheduleEditor({
   schedule: Schedule;
   onChange: (s: Schedule) => void;
 }) {
-  const [kinds, setKinds] = useState<CodeItem[]>([]);
   const [activeDay, setActiveDay] = useState(0);
   const idSeq = useRef(0);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/v1/lcls-codes", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((j: { items?: CodeItem[] }) => {
-        if (alive) setKinds(j.items ?? []);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const days = dayCount(nights);
   // 박수가 줄어 일수가 축소되면 activeDay 가 범위를 벗어날 수 있다. 상태를 effect 로
@@ -42,7 +27,7 @@ export function ScheduleEditor({
 
   function newItem(): ScheduleItem {
     idSeq.current += 1;
-    return { id: `it-${idSeq.current}`, start: "", end: "", place: "", kind: "" };
+    return { id: `it-${idSeq.current}`, start: "", end: "", place: "", itemType: "" };
   }
   function updateDay(day: number, items: ScheduleItem[]) {
     onChange(schedule.map((d, i) => (i === day ? items : d)));
@@ -138,11 +123,14 @@ export function ScheduleEditor({
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
               유형
-              <SelectInput value={it.kind} onChange={(e) => patchItem(activeIdx, it.id, { kind: e.target.value })}>
+              <SelectInput
+                value={it.itemType}
+                onChange={(e) => patchItem(activeIdx, it.id, { itemType: e.target.value as ItemType | "" })}
+              >
                 <option value="">선택</option>
-                {kinds.map((k) => (
-                  <option key={k.code} value={k.code}>
-                    {k.name}
+                {ITEM_TYPE_OPTIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
                   </option>
                 ))}
               </SelectInput>

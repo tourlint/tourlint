@@ -24,12 +24,25 @@ export interface CodeItem {
   name: string;
 }
 
+// 일정 항목 유형 — 엔진의 ITEM_TYPE 과 동일 (R04 집계·R07 판정이 쓴다). 관광지 분류(lcls)와
+// 다른 개념이다: 분류는 관광지 확정 단계에서 붙는다.
+export type ItemType = "SIGHT" | "MEAL" | "LODGING" | "REST" | "MOVE" | "FREE";
+
+export const ITEM_TYPE_OPTIONS: { value: ItemType; label: string }[] = [
+  { value: "SIGHT", label: "관광" },
+  { value: "MEAL", label: "식사" },
+  { value: "LODGING", label: "숙박" },
+  { value: "REST", label: "휴식" },
+  { value: "MOVE", label: "이동" },
+  { value: "FREE", label: "자유" },
+];
+
 export interface ScheduleItem {
   id: string; // 클라이언트 전용 키 (저장 시 제외)
   start: string; // "09:00" · 비우면 기본 체류시간 보완 대상 (FR-IN-011)
   end: string;
   place: string;
-  kind: string; // lcls 분류 코드
+  itemType: ItemType | ""; // "" = 미선택
 }
 
 // 일차별 항목 배열. index 0 = 1일차.

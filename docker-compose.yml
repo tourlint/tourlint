@@ -33,7 +33,9 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: tourlint-api
-    command: pnpm --filter @tourlint/api start:dev
+    # 실행 전 deps 검사를 끈다 — 이미지의 frozen 설치가 정본이다. 켜 두면 lockfile 이 바뀔 때
+    # 컨테이너가 시작 중 재설치를 시도하다 TTY 부재로 죽는다.
+    command: pnpm --config.verify-deps-before-run=false --filter @tourlint/api start:dev
     environment:
       # 컴포즈 네트워크 안에서는 DB 호스트가 `db` 다. sslmode=disable 로 로컬 비-TLS 접속.
       DATABASE_URL: postgres://tourlint:tourlint@db:5432/tourlint?sslmode=disable
@@ -66,7 +68,7 @@ services:
       dockerfile: Dockerfile.dev
     container_name: tourlint-web
     # 컨테이너 밖에서 접속하려면 0.0.0.0 바인드가 필요하다 (next dev 는 기본 localhost).
-    command: pnpm --filter web exec next dev -H 0.0.0.0 -p 3000
+    command: pnpm --config.verify-deps-before-run=false --filter web exec next dev -H 0.0.0.0 -p 3000
     environment:
       # 같은 오리진 `/api/*` 를 Next 가 이 주소로 프록시한다 (next.config.ts 의 rewrite).
       API_URL: http://api:3001

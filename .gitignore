@@ -3,6 +3,7 @@
 # 값이 빈 예시 파일은 추적한다 — 새 팀원이 필요한 변수를 알 방법이 이것뿐이다
 !.env.example
 node_modules/
+.pnpm-store/
 dist/
 .next/
 probe_out/
