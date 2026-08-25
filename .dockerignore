@@ -1,0 +1,20 @@
+# 이미지 빌드 컨텍스트에서 제외한다. node_modules 는 컨테이너 안에서 새로 설치한다
+# (호스트 mac 바이너리를 넣으면 네이티브 모듈이 깨진다).
+node_modules
+**/node_modules
+dist
+**/dist
+.next
+**/.next
+.git
+.idea
+.vscode
+.env
+.env.*
+!.env.example
+probe_out
+probe2_out
+probe3_out
+probe4_out
+*.log
+.DS_Store

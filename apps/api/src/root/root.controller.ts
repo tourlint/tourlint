@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Public } from '../auth/public.decorator';
 
 /**
  * `/` — 여기가 무엇이고 어디를 봐야 하는지 알려준다.
@@ -12,10 +13,14 @@ import { ApiTags } from '@nestjs/swagger';
  * 분명 생긴다.
  *
  * 값은 담지 않는다 — 인증키도 DB 주소도 여기 없다 (NF-SC-009).
+ *
+ * `/health` 와 같이 **인증 없이 연다.** 서버가 살아 있는지 확인하는 경로에 로그인을
+ * 요구하면 확인하려던 것을 확인하지 못한다.
  */
 @ApiTags('실엔진')
 @Controller()
 export class RootController {
+  @Public()
   @Get()
   index(): Record<string, unknown> {
     return {

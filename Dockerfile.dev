@@ -1,0 +1,24 @@
+# TourLint 로컬 개발용 이미지 (API · Web 공용).
+#
+# 운영 배포는 Railway 가 따로 한다 — 이 파일은 로컬 `docker compose` 전용이다.
+# 소스는 compose 가 바인드 마운트하고, node_modules 는 익명 볼륨으로 가려 컨테이너가
+# 리눅스에서 직접 설치한 것(네이티브 바이너리 포함)을 쓴다. 호스트(mac)의 node_modules 를
+# 그대로 넣으면 swc·esbuild·sharp 같은 네이티브 모듈이 플랫폼 불일치로 깨진다.
+FROM node:22-slim
+
+# nest start --watch 는 재시작할 때 `ps` 로 이전 프로세스를 정리한다. slim 이미지엔 ps 가
+# 없어 파일 저장 첫 재시작에서 `spawn ps ENOENT` 로 죽는다 — procps 를 넣어야 핫리로드가 산다.
+RUN apt-get update && apt-get install -y --no-install-recommends procps \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN corepack enable && corepack prepare pnpm@11.22.0 --activate
+
+WORKDIR /app
+
+# 전체 소스를 넣고 워크스페이스 전체를 설치한다. .dockerignore 가 node_modules·dist·.next 를
+# 제외하므로 호스트 산출물이 섞이지 않는다. shared 는 prepare 훅으로 dist 가 만들어진다.
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @tourlint/shared build
+
+# 실제 실행 명령은 compose 의 각 서비스에서 준다 (api: start:dev, web: next dev).

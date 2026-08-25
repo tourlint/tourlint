@@ -1,5 +1,12 @@
-# TourLint D0 — 로컬 PostgreSQL
-# 실행: docker compose up -d   접속: psql postgresql://tourlint:tourlint@localhost:5432/tourlint
+# TourLint 로컬 개발 스택 — DB · API · Web 을 한 번에 띄운다.
+#
+#   docker compose up --build        # 처음 · 의존성 바뀌었을 때
+#   docker compose up                # 그 다음부터
+#   docker compose down              # 정지 (데이터 유지)
+#   docker compose down -v           # 정지 + DB 볼륨 삭제 (스키마 재적용용)
+#
+# 접속:  Web http://localhost:3000   ·   API http://localhost:3001/health
+# 운영 배포는 Railway 가 한다 — 이 파일은 로컬 전용이다.
 services:
   db:
     image: postgres:16
@@ -12,5 +19,70 @@ services:
       - "5432:5432"
     volumes:
       - tourlint_pgdata:/var/lib/postgresql/data
+      # 빈 볼륨으로 처음 뜰 때만 스키마를 적용한다. 이미 데이터가 있으면 실행되지 않는다
+      # — 다시 적용하려면 `docker compose down -v` 로 볼륨을 지운다.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tourlint -d tourlint"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: tourlint-api
+    # 실행 전 deps 검사를 끈다 — 이미지의 frozen 설치가 정본이다. 켜 두면 lockfile 이 바뀔 때
+    # 컨테이너가 시작 중 재설치를 시도하다 TTY 부재로 죽는다.
+    command: pnpm --config.verify-deps-before-run=false --filter @tourlint/api start:dev
+    environment:
+      # 컴포즈 네트워크 안에서는 DB 호스트가 `db` 다. sslmode=disable 로 로컬 비-TLS 접속.
+      DATABASE_URL: postgres://tourlint:tourlint@db:5432/tourlint?sslmode=disable
+      # 로컬은 공사 실호출 대신 fixtures 리플레이 (일일 예산 800건을 시연 몫으로 남긴다)
+      # 기본은 fixture(예산 0). 로컬 .env 에 KTO_MODE=live 와 KTO_SERVICE_KEY 를 주면 실호출한다.
+      # 키는 .env(gitignore)에만 둔다 — compose 파일에 직접 쓰면 커밋돼 유출된다 (PM-SC-001·003).
+      KTO_MODE: ${KTO_MODE:-fixture}
+      KTO_SERVICE_KEY: ${KTO_SERVICE_KEY:-}
+      # 절대경로. API 실행 cwd 는 /app/apps/api 라 상대경로면 fixtures 를 못 찾는다
+      KTO_FIXTURE_DIR: /app/fixtures/kto
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    volumes:
+      # 소스는 바인드로 얹어 핫리로드. node_modules · dist 는 익명 볼륨으로 가려
+      # 컨테이너가 설치한 리눅스 산출물을 쓰게 한다 (호스트 mac 바이너리로 덮이지 않게).
+      - .:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+      - /app/apps/web/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/shared/dist
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: tourlint-web
+    # 컨테이너 밖에서 접속하려면 0.0.0.0 바인드가 필요하다 (next dev 는 기본 localhost).
+    command: pnpm --config.verify-deps-before-run=false --filter web exec next dev -H 0.0.0.0 -p 3000
+    environment:
+      # 같은 오리진 `/api/*` 를 Next 가 이 주소로 프록시한다 (next.config.ts 의 rewrite).
+      API_URL: http://api:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+      - /app/apps/web/node_modules
+      - /app/packages/shared/node_modules
+      - /app/packages/shared/dist
+    depends_on:
+      - api
+
 volumes:
   tourlint_pgdata:

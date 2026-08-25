@@ -121,7 +121,7 @@ export class FixtureKtoTransport implements KtoTransport {
   // 파일 읽기는 동기지만 인터페이스는 실호출과 같아야 한다 — 호출자가 두 모드를 구분하지 않는다
   async request(operation: KtoOperation, params: KtoParams): Promise<KtoTransportResult> {
     const contentId = params.contentId ?? params.contentid;
-    const key = contentId === undefined ? operation : `${operation}:${contentId}`;
+    const key = fixtureKey(operation, params, contentId);
 
     const file = this.index.get(key);
     if (file !== undefined) {
@@ -162,7 +162,17 @@ export class FixtureKtoTransport implements KtoTransport {
         if (contentId !== null) this.index.set(`${operation}:${contentId}`, path);
         continue;
       }
-      // 목록·코드 조회는 먼저 발견한 스냅샷 하나만 쓴다
+      // 지역 코드는 시도(파라미터 없음)와 시군구(lDongRegnCd 별)를 나눠 색인한다.
+      // 시군구 fixture 는 `_<지역코드>.json`(숫자) 규칙으로 캡처하면 자동 인식된다.
+      // `_sido`·`_gangwon` 처럼 숫자가 아닌 접미사는 시도(파라미터 없음)로 취급한다.
+      if (operation === 'ldongCode2') {
+        const m = /_ldongCode2_(\d+)\.json$/.exec(name);
+        if (m !== null) {
+          this.index.set(`ldongCode2:regn:${m[1]}`, path);
+          continue;
+        }
+      }
+      // 그 밖의 목록·코드 조회는 먼저 발견한 스냅샷 하나만 쓴다
       if (!this.index.has(operation)) this.index.set(operation, path);
     }
   }
@@ -185,6 +195,22 @@ function operationFromFileName(name: string): KtoOperation | null {
   }
   if (/^(?:type)?(?:12|14|15|28|32|38|39)_\d+\.json$/.test(name)) return 'detailIntro2';
   return null;
+}
+
+/**
+ * 요청 → 색인 키. 상세는 contentId, 지역 코드는 시군구(lDongRegnCd)를 구분한다.
+ * 시군구 파라미터가 붙은 조회는 시도 스냅샷으로 대체되지 않는다 — 없으면 정직하게 던진다.
+ */
+function fixtureKey(
+  operation: KtoOperation,
+  params: KtoParams,
+  contentId: string | number | undefined,
+): string {
+  if (contentId !== undefined) return `${operation}:${contentId}`;
+  if (operation === 'ldongCode2' && params.lDongRegnCd !== undefined) {
+    return `ldongCode2:regn:${params.lDongRegnCd}`;
+  }
+  return operation;
 }
 
 function readContentId(path: string): string | null {

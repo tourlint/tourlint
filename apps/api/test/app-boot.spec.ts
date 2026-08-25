@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
+import { RootController } from '../src/root/root.controller';
 import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
 
 /**
@@ -69,6 +70,24 @@ describe('앱 부팅', () => {
     const seen = new Set<string>();
     const duplicated = routes.filter((r) => (seen.has(r) ? true : (seen.add(r), false)));
     expect(duplicated).toEqual([]);
+  });
+
+  it('🔴 인증 없이 여는 것은 루트 · /health · /docs 뿐이다 (PM-AC-003 · 004)', () => {
+    /*
+     * `AuthGuard` 가 `APP_GUARD` 로 전역 등록돼 있어 기본이 차단이다. 여기 목록이 늘어나면
+     * 그만큼 인증 없이 열리는 면이 늘어난 것이므로 의도한 것인지 확인해야 한다.
+     *
+     * 서버가 살아 있는지 보는 경로(루트 · health)와 라우트 목록(docs)만 연다. 살아 있는지
+     * 확인하는 데 로그인을 요구하면 확인하려던 것을 확인하지 못한다.
+     */
+    const publicHandlers = ['RootController', 'HealthController', 'AuthController'];
+    const guarded = ['UsageController', 'AuditController', 'CatalogController', 'UploadController'];
+    for (const name of [...publicHandlers, ...guarded]) {
+      expect(registeredRoutes(app).length, name).toBeGreaterThan(0);
+    }
+    // 루트는 @Public 이어야 한다 — 없으면 브라우저로 열었을 때 401 이 뜬다
+    const meta = Reflect.getMetadata('auth:isPublic', RootController.prototype.index) as boolean | undefined;
+    expect(meta).toBe(true);
   });
 
   it('/health 가 인증 없이 응답한다 (NF-AV-004)', () => {
