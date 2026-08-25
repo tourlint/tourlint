@@ -12,6 +12,7 @@ import { createKtoClient } from './external/kto';
 import { DB_POOL, getPool } from './persistence/db';
 import { PgApiCallLogger } from './persistence/api-call-log.repository';
 import { HealthController } from './health/health.controller';
+import { UploadController } from './upload/upload.controller';
 import { MockController } from './mock/mock.controller';
 
 /**
@@ -26,7 +27,7 @@ import { MockController } from './mock/mock.controller';
  * 나머지 API 는 전부 세션을 요구한다 (PM-AC-003 · PM-AC-004).
  */
 @Module({
-  controllers: [HealthController, AuthController, CatalogController, AuditController, MockController],
+  controllers: [HealthController, AuthController, CatalogController, UploadController, AuditController, MockController],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
     { provide: APP_GUARD, useClass: AuthGuard },
