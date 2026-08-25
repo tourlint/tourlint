@@ -1,11 +1,16 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import type { Pool } from 'pg';
 import { AuditController } from './audit/audit.controller';
 import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
+import { CatalogController } from './catalog/catalog.controller';
+import { CatalogService } from './catalog/catalog.service';
+import { createKtoClient } from './external/kto';
 import { DB_POOL, getPool } from './persistence/db';
+import { PgApiCallLogger } from './persistence/api-call-log.repository';
 import { HealthController } from './health/health.controller';
 import { MockController } from './mock/mock.controller';
 
@@ -21,10 +26,16 @@ import { MockController } from './mock/mock.controller';
  * 나머지 API 는 전부 세션을 요구한다 (PM-AC-003 · PM-AC-004).
  */
 @Module({
-  controllers: [HealthController, AuthController, AuditController, MockController],
+  controllers: [HealthController, AuthController, CatalogController, AuditController, MockController],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
     { provide: APP_GUARD, useClass: AuthGuard },
+    {
+      // 지역·분류 코드 프록시. KTO_MODE=fixture 면 fixtures/kto 리플레이 (예산 0)
+      provide: CatalogService,
+      useFactory: (pool: Pool) => new CatalogService(() => createKtoClient(new PgApiCallLogger(pool))),
+      inject: [DB_POOL],
+    },
     AuthService,
     AuditService,
   ],
