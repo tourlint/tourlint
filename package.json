@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "관광상품 출시 검수 · 수요 적합성 · 데이터 신선도 관리 플랫폼",
   "scripts": {
-    "build": "pnpm --filter @tourlint/shared build",
+    "build": "pnpm -r --sequential build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
