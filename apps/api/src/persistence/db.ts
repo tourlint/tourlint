@@ -44,7 +44,9 @@ export async function closePool(): Promise<void> {
 }
 
 function isLocal(url: string): boolean {
-  return url.includes('localhost') || url.includes('127.0.0.1');
+  // sslmode=disable 를 명시하면 TLS 를 끈다 — 도커 컴포즈 네트워크에서는 DB 호스트가
+  // `db` 라 localhost 규칙에 걸리지 않는다. 비-TLS 로컬 Postgres 에 붙이려면 이게 필요하다
+  return url.includes('localhost') || url.includes('127.0.0.1') || url.includes('sslmode=disable');
 }
 
 /** 트랜잭션 하나를 열고 닫는다. 예외가 나면 되돌린다 */

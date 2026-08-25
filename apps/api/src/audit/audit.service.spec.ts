@@ -53,7 +53,14 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
   ];
 
   afterEach(async () => {
-    await pool.query('DELETE FROM api_call_log WHERE called_at >= $1', [since]);
+    /*
+     * 위쪽 경계를 같이 건다. 이 테스트가 만든 행만 지우려는 것인데 아래 경계만 두면
+     * 다른 스펙이 넣은 **미래 날짜** 행까지 쓸어 간다 — 실제로 usage 스펙이 그렇게 깨졌다.
+     */
+    await pool.query(
+      `DELETE FROM api_call_log WHERE called_at >= $1 AND called_at < now() + interval '1 minute'`,
+      [since],
+    );
     /*
      * `patch_application.applied_by` 는 CASCADE 가 아니라(DB 명세서 3-8) 계정 삭제를 막는다.
      * 서비스가 탈퇴를 제공하지 않기로 한 결정과 맞는 제약이므로(권한 4-2) 스키마가 아니라

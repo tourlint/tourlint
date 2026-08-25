@@ -28,6 +28,22 @@ COMMENT ON TABLE  account IS '계정. 수집 개인정보는 이메일 1종으�
 COMMENT ON COLUMN account.is_demo IS '심사용 테스트 계정 여부 (PM-TA)';
 
 -- ---------------------------------------------------------------------
+-- 1-2. session : 로그인 세션
+-- ---------------------------------------------------------------------
+-- 쿠키에는 이 id(추측 불가 난수)만 담고 서버가 계정을 되찾는다. 무상태 서명 쿠키가
+-- 아니라 DB 행으로 두는 이유는, 로그아웃·만료를 서버측에서 확실히 무효화해야 하기
+-- 때문이다 — 쿠키만 지우면 탈취된 쿠키가 만료까지 살아 있다 (PM-AC-005).
+-- 저장 방식(인메모리 vs DB)은 API 설계 13장 미결 항목이었고, 여기서 DB 로 확정한다.
+CREATE TABLE session (
+    id           TEXT        PRIMARY KEY,
+    account_id   BIGINT      NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX idx_session_account ON session(account_id);
+COMMENT ON TABLE session IS '로그인 세션. 쿠키에는 불투명 id 만 담고, 로그아웃·만료 시 행을 지워 서버측에서 무효화한다 (PM-AC-002 · PM-AC-005)';
+
+-- ---------------------------------------------------------------------
 -- 2. product : 관광상품
 -- ---------------------------------------------------------------------
 CREATE TABLE product (

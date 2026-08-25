@@ -17,6 +17,19 @@ describe('FixtureKtoTransport — 픽스처 리플레이 (KTO_MODE=fixture)', ()
     expect(parseKtoResponse('searchKeyword2', body).items.length).toBeGreaterThan(0);
   });
 
+  it('ldongCode2 는 파라미터가 없으면 시도 스냅샷을 돌려준다', async () => {
+    const { body } = await transport.request('ldongCode2', { numOfRows: 1000, pageNo: 1 });
+    const items = parseKtoResponse('ldongCode2', body).items;
+    expect(items).toContainEqual(expect.objectContaining({ code: '11', name: '서울특별시' }));
+  });
+
+  it('ldongCode2 시군구 조회는 시도 스냅샷으로 대체되지 않는다 — 스냅샷이 없으면 던진다', async () => {
+    // 시군구 fixture 는 `_<지역코드>.json` 규칙으로 캡처해야 인식된다. 11 은 없으므로 미스.
+    await expect(transport.request('ldongCode2', { lDongRegnCd: '11' })).rejects.toBeInstanceOf(
+      FixtureMissingError,
+    );
+  });
+
   it('상세 조회는 contentId 로 정확히 그 콘텐츠를 돌려준다', async () => {
     const { body } = await transport.request('detailIntro2', { contentId: '125769' });
     const item = parseKtoResponse('detailIntro2', body).items[0];
