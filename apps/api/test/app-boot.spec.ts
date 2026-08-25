@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -88,6 +90,27 @@ describe('앱 부팅', () => {
     // 루트는 @Public 이어야 한다 — 없으면 브라우저로 열었을 때 401 이 뜬다
     const meta = Reflect.getMetadata('auth:isPublic', RootController.prototype.index) as boolean | undefined;
     expect(meta).toBe(true);
+  });
+
+  it('🔴 모든 컨트롤러가 실엔진 · mock 중 하나로 태그돼 있다', () => {
+    /*
+     * `/docs` 를 여는 이유가 "이거 부르면 진짜 값이 오나" 를 목록만 보고 아는 것이다.
+     * 태그를 빠뜨리면 Nest 가 클래스명으로 자동 생성해서 그 구분이 사라진다 — 실제로
+     * 컨트롤러 셋이 그렇게 빠져 있었다.
+     *
+     * 모의 응답을 실엔진으로 착각한 채 화면을 만들면 교체 시점에 통째로 다시 만들게
+     * 된다 (NF-CO-002 · FR-OP-009).
+     */
+    const dir = join(__dirname, '../src');
+    const files = readdirSync(dir, { recursive: true, encoding: 'utf8' })
+      .filter((f) => f.endsWith('.controller.ts'));
+    expect(files.length).toBeGreaterThan(0);
+
+    const untagged = files.filter((f) => {
+      const src = readFileSync(join(dir, f), 'utf8');
+      return !/@ApiTags\('(실엔진|mock)'\)/.test(src);
+    });
+    expect(untagged).toEqual([]);
   });
 
   it('/health 가 인증 없이 응답한다 (NF-AV-004)', () => {
