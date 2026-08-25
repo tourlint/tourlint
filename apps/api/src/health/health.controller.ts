@@ -98,7 +98,9 @@ export class HealthController {
 }
 
 function isLocal(url: string): boolean {
-  return url.includes('localhost') || url.includes('127.0.0.1');
+  // sslmode=disable 명시 시 TLS 를 끈다 — 도커 컴포즈의 `db` 호스트는 localhost 규칙에
+  // 안 걸린다 (db.ts 의 같은 함수와 맞춘다)
+  return url.includes('localhost') || url.includes('127.0.0.1') || url.includes('sslmode=disable');
 }
 
 function hasValue(v: string | undefined): boolean {
