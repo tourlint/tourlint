@@ -87,6 +87,13 @@ PR 은 Conventional Commits (`feat(engine): R05 데이터 검증 불가 (FR-RU-0
 **머지** — 작업 브랜치 → `dev` → `main`. `main` 은 Railway 가 자동 배포한다.
 CI 통과가 머지 조건이다.
 
-자세한 규칙은 [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md), 근거가 된 규칙집은
-[`.github/ISSUE_PR_PLAYBOOK.md`](.github/ISSUE_PR_PLAYBOOK.md). AI 도구로 작업할 때는
-[`CLAUDE.md`](CLAUDE.md) 를 먼저 읽는다.
+**어느 문서를 언제 보나**
+
+| 문서 | 무엇이 있나 |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | 코드 작업 전에 읽는다. 절대 하지 않는 것과 검증 절차 |
+| [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) | 이 저장소 고유 — 브랜치, 라벨 값, 검증 명령, 배포 |
+| [`.github/ISSUE_PR_PLAYBOOK.md`](.github/ISSUE_PR_PLAYBOOK.md) | 일반 규칙과 그 근거. 프로젝트 무관이라 다른 저장소에 그대로 복사한다 |
+
+규칙이 왜 그런지는 규칙집, 이 저장소에서 어떻게 적용하는지는 CONTRIBUTING 이다.
+한 내용을 두 곳에 적지 않는다.
