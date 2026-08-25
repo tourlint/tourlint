@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { CatalogService, type CodeItem } from './catalog.service';
 
 /**
@@ -7,6 +8,7 @@ import { CatalogService, type CodeItem } from './catalog.service';
  * 인증이 필요하다(@Public 아님) — 등록 화면은 로그인 뒤에서만 연다. 브라우저는 세션 쿠키와
  * 함께 같은 오리진 `/api/*` 로 부른다.
  */
+@ApiTags('실엔진')
 @Controller('api/v1')
 export class CatalogController {
   constructor(private readonly catalog: CatalogService) {}

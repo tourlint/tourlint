@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService, type AuthedSession } from './auth.service';
 import { Public } from './public.decorator';
@@ -12,6 +13,7 @@ import { SESSION_COOKIE, sessionCookieOptions, parseCookies } from './session-co
  * 회원가입 · 로그인 · 로그아웃은 세션 쿠키를 설정·삭제하므로 응답 객체에 직접 손을 댄다
  * (`passthrough: true` — 반환값 직렬화는 그대로 두고 쿠키만 얹는다).
  */
+@ApiTags('실엔진')
 @Controller('api/v1/auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
