@@ -36,6 +36,46 @@ export class PgApiCallLogger implements ApiCallLogger, DailyCallCounter {
     return Number(rows[0]?.n ?? 0);
   }
 
+  /**
+   * 일자별 · 오퍼레이션별 호출 집계 (FR-OP-007 · 활용 증빙).
+   *
+   * 개별 호출 행을 그대로 내보내지 않고 집계만 준다. 증빙에 필요한 것은 "언제 무엇을 몇 번
+   * 불렀나" 지 호출 하나하나가 아니고, 행을 그대로 흘리면 나중에 파라미터 컬럼이 생겼을 때
+   * 조용히 같이 새어 나간다 (PM-SC-005 · NF-OB-002).
+   *
+   * 인증키와 요청 파라미터는 애초에 이 표에 없다 (`api_call_log` 스키마).
+   */
+  async dailyBreakdown(range: {
+    readonly from: string;
+    readonly to: string;
+    readonly provider?: CallProvider;
+  }): Promise<readonly CallUsageRow[]> {
+    const { rows } = await this.pool.query<RawUsageRow>(
+      `SELECT quota_date, provider, operation,
+              count(*)::text                                        AS total,
+              count(*) FILTER (WHERE status = 'OK')::text            AS ok,
+              count(*) FILTER (WHERE status = 'FAIL')::text          AS fail,
+              count(*) FILTER (WHERE status = 'TIMEOUT')::text       AS timeout,
+              round(avg(latency_ms))::text                           AS avg_latency
+         FROM api_call_log
+        WHERE quota_date BETWEEN $1::date AND $2::date
+          AND ($3::text IS NULL OR provider = $3)
+        GROUP BY quota_date, provider, operation
+        ORDER BY quota_date DESC, count(*) DESC, operation ASC`,
+      [range.from, range.to, range.provider ?? null],
+    );
+    return rows.map((r) => ({
+      quotaDate: typeof r.quota_date === 'string' ? r.quota_date.slice(0, 10) : isoDate(r.quota_date),
+      provider: r.provider,
+      operation: r.operation,
+      count: Number(r.total),
+      okCount: Number(r.ok),
+      failCount: Number(r.fail),
+      timeoutCount: Number(r.timeout),
+      avgLatencyMs: Number(r.avg_latency ?? 0),
+    }));
+  }
+
   /** 위젯의 "오퍼레이션별 상위 5개" (FR-OP-005) */
   async topOperations(provider: CallProvider, now: Date, limit = 5): Promise<{ operation: string; count: number }[]> {
     const { rows } = await this.pool.query<{ operation: string; n: string }>(
@@ -46,4 +86,32 @@ export class PgApiCallLogger implements ApiCallLogger, DailyCallCounter {
     );
     return rows.map((r) => ({ operation: r.operation, count: Number(r.n) }));
   }
+}
+
+export interface CallUsageRow {
+  readonly quotaDate: string;
+  readonly provider: CallProvider;
+  readonly operation: string;
+  readonly count: number;
+  readonly okCount: number;
+  readonly failCount: number;
+  readonly timeoutCount: number;
+  readonly avgLatencyMs: number;
+}
+
+interface RawUsageRow {
+  quota_date: Date | string;
+  provider: CallProvider;
+  operation: string;
+  total: string;
+  ok: string;
+  fail: string;
+  timeout: string;
+  avg_latency: string | null;
+}
+
+/** DATE 컬럼이 Date 로 오면 시간대 때문에 하루가 밀린다. 지역 필드로 읽는다 */
+function isoDate(value: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
 }
