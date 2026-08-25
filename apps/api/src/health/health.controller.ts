@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { Client } from 'pg';
+import { Public } from '../auth/public.decorator';
 
 /**
  * `/health` — 애플리케이션 · DB · 설정 상태 확인 (NF-AV-004).
@@ -14,13 +15,14 @@ import { Client } from 'pg';
  * (NF-SC-009 · PM-SC-003).
  */
 
-/** DB 명세서 2-3 의 엔터티 18종. 이보다 적으면 스키마가 덜 적용된 것이다 */
-const EXPECTED_TABLE_COUNT = 18;
+/** DB 명세서 2-3 의 엔터티 18종 + 로그인 세션 1종. 이보다 적으면 스키마가 덜 적용된 것이다 */
+const EXPECTED_TABLE_COUNT = 19;
 
 type Check = 'ok' | 'missing' | 'unknown';
 
 @Controller('health')
 export class HealthController {
+  @Public()
   @Get()
   async check(): Promise<Record<string, unknown>> {
     const started = Date.now();
@@ -96,7 +98,9 @@ export class HealthController {
 }
 
 function isLocal(url: string): boolean {
-  return url.includes('localhost') || url.includes('127.0.0.1');
+  // sslmode=disable 명시 시 TLS 를 끈다 — 도커 컴포즈의 `db` 호스트는 localhost 규칙에
+  // 안 걸린다 (db.ts 의 같은 함수와 맞춘다)
+  return url.includes('localhost') || url.includes('127.0.0.1') || url.includes('sslmode=disable');
 }
 
 function hasValue(v: string | undefined): boolean {
