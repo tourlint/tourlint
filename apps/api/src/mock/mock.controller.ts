@@ -30,11 +30,7 @@ const codeList = (j: any) => {
  */
 @Controller('api/v1')
 export class MockController {
-  // ── 인증 (FR-CM-001~004) ──
-  @Post('auth/signup') @HttpCode(201) signup(@Body() b: any) { return { accountId: 1, email: b?.email ?? 'openapi@tourlint.example' }; }
-  @Post('auth/login') login(@Body() b: any) { return { accountId: 1, email: b?.email ?? 'openapi@tourlint.example', isDemo: true }; }
-  @Post('auth/logout') @HttpCode(204) logout() { return; }
-  @Get('auth/me') me() { return { accountId: 1, email: 'openapi@tourlint.example', isDemo: true }; }
+  // ── 인증 (FR-CM-001~004) ── 실엔진(AuthController)으로 교체됨. mock 제거 (NF-CO-002)
 
   // ── 상품 (F01) ──
   @Get('products') listProducts(@Query('page') page = '0', @Query('size') size = '20') {
