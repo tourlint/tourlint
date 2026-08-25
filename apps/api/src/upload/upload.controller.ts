@@ -8,6 +8,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { createReadStream } from 'node:fs';
 import { resolve } from 'node:path';
@@ -29,6 +30,7 @@ interface UploadFile {
 const MAX_BYTES = 2 * 1024 * 1024;
 const TEMPLATE_PATH = resolve(process.cwd(), '../../fixtures/excel/sample_3days_ok.xlsx');
 
+@ApiTags('실엔진')
 @Controller('api/v1/uploads')
 export class UploadController {
   /** 지정 양식 내려받기 (UI-S2-002) */
