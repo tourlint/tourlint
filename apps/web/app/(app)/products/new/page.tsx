@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { Field, Section, Segmented, SelectInput, TextInput } from "./controls";
 import { RegionSelect } from "./region-select";
 import { ScheduleEditor } from "./schedule-editor";
+import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
 import {
   NIGHTS_OPTIONS,
   TRANSPORT_OPTIONS,
@@ -23,7 +24,7 @@ type Method = "direct" | "upload" | "nl";
 
 const METHODS: { value: Method; label: string; disabled?: boolean }[] = [
   { value: "direct", label: "직접 입력" },
-  { value: "upload", label: "엑셀·CSV 업로드", disabled: true },
+  { value: "upload", label: "엑셀·CSV 업로드" },
   { value: "nl", label: "자연어 붙여넣기", disabled: true },
 ];
 
@@ -56,6 +57,22 @@ export default function ProductNewPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // 업로드 파싱 결과를 폼에 채운다 (UI-S2-010). 박수와 일정만 채우고 나머지는 편집으로 둔다.
+  function applyUpload(nights: number, items: ParsedItemDTO[]) {
+    const n = Math.max(0, Math.min(2, nights)) as Nights;
+    setNights(n);
+    const days = dayCount(n);
+    const sched: Schedule = Array.from({ length: days }, () => []);
+    let seq = 0;
+    for (const it of items) {
+      const d = it.day - 1;
+      if (d < 0 || d >= days) continue;
+      seq += 1;
+      sched[d].push({ id: `up-${seq}`, start: it.start, end: it.end ?? "", place: it.place, itemType: it.itemType });
+    }
+    setSchedule(sched);
+  }
 
   // 박수를 바꾸면 일수에 맞춰 일정 배열 크기를 조정한다 (기존 일차는 보존)
   function changeNights(n: Nights) {
@@ -111,12 +128,12 @@ export default function ProductNewPage() {
         여행 일정을 입력하면 관광정보로 검수할 수 있습니다. (F01)
       </p>
 
-      {/* 등록 방식 선택 (UI-S2-001). 업로드·자연어는 후속 단계. */}
+      {/* 등록 방식 선택 (UI-S2-001). 자연어 붙여넣기는 후속 단계. */}
       <div className="mt-6">
         <Segmented value={method} options={METHODS} onChange={setMethod} ariaLabel="등록 방식" />
         {method === "direct" && (
           <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-            엑셀·CSV 업로드와 자연어 붙여넣기는 다음 단계에서 제공됩니다.
+            엑셀·CSV 업로드로 일정을 한 번에 채울 수도 있습니다. 자연어 붙여넣기는 다음 단계에서 제공됩니다.
           </p>
         )}
       </div>
@@ -179,8 +196,12 @@ export default function ProductNewPage() {
           )}
         </Section>
 
-        {/* C. 일정 */}
-        <ScheduleEditor nights={nights} schedule={schedule} onChange={setSchedule} />
+        {/* C. 일정 — 직접 입력이면 편집기, 업로드면 예시+파일 업로드 */}
+        {method === "direct" ? (
+          <ScheduleEditor nights={nights} schedule={schedule} onChange={setSchedule} />
+        ) : (
+          <UploadPanel onApplied={applyUpload} onEdit={() => setMethod("direct")} />
+        )}
 
         {/* 저장 검증 결과 (UI-S2-012 박수↔일정 불일치 포함) */}
         {submitted && errors.length > 0 && (
@@ -266,7 +287,7 @@ function buildPayload(
         start: it.start || null,
         end: it.end || null,
         place: it.place.trim(),
-        lclsCd: it.kind || null,
+        itemType: it.itemType || null,
       })),
     })),
   };
