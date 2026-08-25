@@ -11,18 +11,6 @@ import comparison from '../mocks/comparison.json';
 import rules from '../mocks/rules.json';
 import usageBudget from '../mocks/usage_budget.json';
 
-// 지역·분류 코드: D0에서 실호출한 픽스처를 mocks/로 복사해 사용한다 (설치 안내 참조)
-// W1에서 KTO 프록시(EI-KT)로 교체한다 — 하드코딩 금지 원칙(FR-IN-006 · NF-MT-005)
-import ldong from '../mocks/ldong_codes.json';
-import lcls from '../mocks/lcls_codes.json';
-
-const codeList = (j: any) => {
-  const b = j?.response?.body?.items;
-  if (!b) return [];
-  const it = b.item;
-  return (Array.isArray(it) ? it : [it]).map((x: any) => ({ code: x.code, name: x.name }));
-};
-
 /**
  * W1 전용 mock 컨트롤러 — API 명세 v1.4 계약의 응답 형태를 그대로 반환한다.
  * 실제 로직은 W1~W3에서 도메인 모듈로 하나씩 교체하며, 교체된 엔드포인트는 여기서 제거한다.
@@ -59,8 +47,7 @@ export class MockController {
   @Post('items/:itemId/match') match(@Param('itemId') id: string) { return { ...itemMatch, itemId: Number(id) }; }
   @Post('items/:itemId/exclude') exclude(@Param('itemId') id: string) { return { itemId: Number(id), matchStatus: 'EXCLUDED' }; }
   @Get('contents/:contentId') content(@Param('contentId') id: string) { return { contentId: id, fetchedAt: new Date().toISOString(), ktoRaw: {} }; }
-  @Get('ldong-codes') ldongCodes() { return { items: codeList(ldong) }; }
-  @Get('lcls-codes') lclsCodes() { return { items: codeList(lcls) }; }
+  // ldong-codes · lcls-codes 는 실엔진(CatalogController)으로 교체됨. mock 제거 (NF-CO-002)
 
   /** mock 진행 시뮬레이션: 호출할 때마다 QUEUED → RUNNING → DONE 으로 넘어간다 */
   private jobPolls = new Map<string, number>();

@@ -157,6 +157,31 @@ export class KtoClient {
     });
   }
 
+  /**
+   * 법정동 지역 코드 (EI-KT-001). 인자가 없으면 시도, `lDongRegnCd` 를 주면 그 시도의
+   * 시군구를 돌려준다. 상품 지역 드롭다운(UI-S2-004)의 출처다.
+   */
+  async ldongCode(lDongRegnCd?: string): Promise<KtoListPage> {
+    return this.list('ldongCode2', {
+      ...optional('lDongRegnCd', lDongRegnCd),
+      numOfRows: KTO_MAX_ROWS,
+      pageNo: 1,
+    });
+  }
+
+  /**
+   * 분류체계 코드 (신 `lclsSystm` · EI-KT-001). 인자가 없으면 대분류(lv1)를 돌려준다.
+   * 일정 항목 유형 선택의 출처다.
+   */
+  async lclsSystmCode(params: { lclsSystm1?: string; lclsSystm2?: string } = {}): Promise<KtoListPage> {
+    return this.list('lclsSystmCode2', {
+      ...optional('lclsSystm1', params.lclsSystm1),
+      ...optional('lclsSystm2', params.lclsSystm2),
+      numOfRows: KTO_MAX_ROWS,
+      pageNo: 1,
+    });
+  }
+
   // ── 내부 ────────────────────────────────────────────────────────
 
   private async list(operation: KtoOperation, params: KtoParams): Promise<KtoListPage> {

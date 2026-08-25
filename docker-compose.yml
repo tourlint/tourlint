@@ -38,8 +38,12 @@ services:
       # 컴포즈 네트워크 안에서는 DB 호스트가 `db` 다. sslmode=disable 로 로컬 비-TLS 접속.
       DATABASE_URL: postgres://tourlint:tourlint@db:5432/tourlint?sslmode=disable
       # 로컬은 공사 실호출 대신 fixtures 리플레이 (일일 예산 800건을 시연 몫으로 남긴다)
-      KTO_MODE: fixture
-      KTO_FIXTURE_DIR: fixtures/kto
+      # 기본은 fixture(예산 0). 로컬 .env 에 KTO_MODE=live 와 KTO_SERVICE_KEY 를 주면 실호출한다.
+      # 키는 .env(gitignore)에만 둔다 — compose 파일에 직접 쓰면 커밋돼 유출된다 (PM-SC-001·003).
+      KTO_MODE: ${KTO_MODE:-fixture}
+      KTO_SERVICE_KEY: ${KTO_SERVICE_KEY:-}
+      # 절대경로. API 실행 cwd 는 /app/apps/api 라 상대경로면 fixtures 를 못 찾는다
+      KTO_FIXTURE_DIR: /app/fixtures/kto
       PORT: "3001"
     ports:
       - "3001:3001"
