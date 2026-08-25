@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        제목에 명세 ID 를 넣는다 — `[FEAT] F09 패치 확정과 되돌리기 (FR-PA-020)`.
+        제목에 명세 ID 를 넣는다. 체계는 `CONTRIBUTING.md` 참고.
         만든 뒤 오른쪽에서 영역 라벨과 담당자, 마일스톤을 지정한다.
   - type: textarea
     id: what

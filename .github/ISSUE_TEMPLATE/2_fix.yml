@@ -12,13 +12,13 @@ body:
     id: actual
     attributes:
       label: 증상
-      description: 재현되는 픽스처(TP-01~04)가 있으면 같이. 로그는 요약하지 말고 그대로.
+      description: 재현 방법이 있으면 같이. 로그는 요약하지 말고 그대로.
     validations: { required: true }
   - type: textarea
     id: expected
     attributes:
       label: 기대한 동작
-      description: 근거 조항이나 기대값 표 항목.
+      description: 근거가 되는 명세 항목이 있으면 함께.
     validations: { required: true }
   - type: textarea
     id: cause
@@ -29,4 +29,4 @@ body:
     id: impact
     attributes:
       label: 영향
-      description: 판정이 틀어지는지, 화면만 이상한지, 데이터가 남는지.
+      description: 무엇이 망가지고 무엇은 멀쩡한지.
