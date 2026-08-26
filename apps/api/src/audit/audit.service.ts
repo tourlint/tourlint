@@ -11,6 +11,7 @@ import { createKtoClient } from '../external/kto';
 import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
+import { ClimateNormalRepository } from '../persistence/climate-normal.repository';
 import {
   PatchApplicationRepository,
   type StoredPatchApplication,
@@ -455,8 +456,9 @@ export class AuditService {
         previousFingerprints: await this.results.previousFingerprints(productId),
         // 이동시간 판정. 키가 없어도 검수는 돈다 — R08 만 확인 불가로 남는다 (EI-KM-009)
         kakao: this.buildKakaoClient(),
-        // 우천 리스크. 평년 테이블(climate)은 이슈 #7 이 채운다 — 그전까지 D+11 이상은 확인 불가
+        // 우천 리스크. 평년 표가 비어 있으면 D+11 이상만 확인 불가로 남는다 (이슈 #7)
         kma: this.buildKmaClient(),
+        climate: new ClimateNormalRepository(this.pool),
       });
       const result = await runner.run(product, items);
 
