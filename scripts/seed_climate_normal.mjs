@@ -59,7 +59,12 @@ for (const r of rows.slice(0, 3)) console.log(`  예: 시도 ${r.sido} ${r.month
 if (DRY) { console.log('--dry 라 DB 에 쓰지 않았다.'); process.exit(0); }
 if (rows.length === 0) { console.error('넣을 행이 없다. 중단한다.'); process.exit(1); }
 
-const { Pool } = await import('pg');
+/*
+ * `pg` 는 루트가 아니라 `apps/api` 에 설치돼 있다 (pnpm 워크스페이스). 그냥 import 하면
+ * 스크립트를 루트에서 돌릴 때 ERR_MODULE_NOT_FOUND 로 떨어진다.
+ */
+const { createRequire } = await import('node:module');
+const { Pool } = createRequire(new URL('../apps/api/package.json', import.meta.url))('pg');
 const url = process.env.DATABASE_URL;
 if (url === undefined || url === '') { console.error('DATABASE_URL 이 없다'); process.exit(1); }
 const pool = new Pool({ connectionString: url, ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false } });

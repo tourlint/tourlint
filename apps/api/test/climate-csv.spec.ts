@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CLIMATE_STATION } from '@tourlint/shared';
+import { CLIMATE_STATION, RULE_CONSTANTS } from '@tourlint/shared';
 // @ts-expect-error — 시드 스크립트는 타입 선언이 없는 순수 ESM 이다
 import { DAYS_IN_MONTH, NORMAL_FROM, NORMAL_TO, decodeCsv, parseClimateCsv, splitCsvLine } from '../../../scripts/climate-csv.mjs';
 
@@ -126,5 +128,32 @@ describe('시드 행', () => {
     expect(blocks.map((b: { stationName: string }) => b.stationName)).toEqual(['강릉', '서울']);
     // 강원 2 + 서울 1 = 3개 시도 × 12개월
     expect(rows).toHaveLength(36);
+  });
+});
+
+describe('실제로 받은 파일 (2026.08.26)', () => {
+  /** 시드 원본 그대로다. 지어낸 형식이 아니라는 것을 여기서 못 박는다 */
+  const FILE = join(__dirname, '../../../fixtures/climate/STCS_강수일수_MNH_강릉_1991-2020.csv');
+
+  it('EUC-KR 로 오고, 강릉 평년값이 그대로 나온다', () => {
+    const { text, encoding } = decodeCsv(readFileSync(FILE));
+    expect(encoding).toBe('euc-kr');
+
+    const { rows, blocks } = parseClimateCsv(text, nameToSido());
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].stationName).toBe('강릉');
+    expect(blocks[0].years).toEqual({ from: 1991, to: 2020, count: 30 });
+    expect(blocks[0].monthly).toEqual([6.2, 5.7, 8.8, 8.9, 9.1, 10.8, 16.0, 16.4, 11.8, 7.8, 7.3, 4.6]);
+    // 강원 두 코드 × 12개월
+    expect(rows).toHaveLength(24);
+  });
+
+  it('여름 넉 달이 R09 평년 임계를 넘는다 — 강릉 장마철', () => {
+    const { rows } = parseClimateCsv(decodeCsv(readFileSync(FILE)).text, nameToSido());
+    const gangwon = rows.filter((r: { sido: string }) => r.sido === '51');
+    const over = gangwon.filter((r: { ratio: number }) => r.ratio >= RULE_CONSTANTS.R09_CLIMATE_RAIN_THRESHOLD);
+    expect(over.map((r: { month: number }) => r.month)).toEqual([6, 7, 8, 9]);
+    // 9월 11.8일 / 30일 = 0.393
+    expect(gangwon.find((r: { month: number }) => r.month === 9)?.ratio).toBeCloseTo(0.393, 3);
   });
 });
