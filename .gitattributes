@@ -5,6 +5,10 @@ fixtures/daily_changes.csv  -text
 
 # KTO 실호출 스냅샷도 같은 이유로 손대지 않는다.
 fixtures/kto/*.json -text
+fixtures/kma/*.json -text
+
+# 평년값 시드 원본. EUC-KR · CRLF 로 내려온 것을 그대로 둔다 (fixtures/climate/README.md)
+fixtures/climate/*.csv -text
 
 # 나머지 소스는 LF 로 통일
 *.ts   text eol=lf

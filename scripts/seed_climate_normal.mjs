@@ -25,17 +25,21 @@ if (csvPath === undefined) {
 /** 평년 30년(1991–2020)의 월 평균 일수. 2월은 윤년 7회를 반영한다 */
 const DAYS_IN_MONTH = [31, 28.25, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-/** 지점번호 → 그 지점을 대표로 쓰는 시도들 */
-const SIDO_BY_STN = new Map();
+/** 지점명 → 그 지점을 대표로 쓰는 시도들 */
+const SIDO_BY_NAME = new Map();
 for (const [sido, station] of Object.entries(CLIMATE_STATION)) {
-  const list = SIDO_BY_STN.get(station.stnId) ?? [];
+  const list = SIDO_BY_NAME.get(station.name) ?? [];
   list.push(sido);
-  SIDO_BY_STN.set(station.stnId, list);
+  SIDO_BY_NAME.set(station.name, list);
 }
 
 const { text, encoding } = decodeCsv(readFileSync(csvPath));
 if (encoding !== 'utf-8') console.log(`UTF-8 이 아니라 ${encoding} 로 읽었다`);
-const { rows, seen, skippedStations } = parseClimateCsv(text, SIDO_BY_STN);
+const { rows, seen, blocks, skippedStations } = parseClimateCsv(text, SIDO_BY_NAME);
+
+for (const b of blocks) {
+  console.log(`${b.stationName}: ${b.years.from}~${b.years.to} ${b.years.count}년 · 평년 강수일수 ${b.monthly.join(' ')}`);
+}
 
 const missing = [];
 for (const sido of Object.keys(CLIMATE_STATION)) {
@@ -48,14 +52,19 @@ if (missing.length > 0) {
   console.log('  빠진 시도는 R09 가 확인 불가로 남는다. 그대로 넣어도 되고 지점을 더 받아도 된다.');
 }
 if (skippedStations.length > 0) {
-  console.log(`대표로 쓰지 않는 지점 ${skippedStations.length}종은 건너뛰었다: ${skippedStations.slice(0, 8).join(', ')}`);
+  console.log(`시도 대표가 아닌 지점은 건너뛰었다: ${skippedStations.join(', ')}`);
 }
 for (const r of rows.slice(0, 3)) console.log(`  예: 시도 ${r.sido} ${r.month}월 → ${r.rainDays}일 (${r.ratio})`);
 
 if (DRY) { console.log('--dry 라 DB 에 쓰지 않았다.'); process.exit(0); }
 if (rows.length === 0) { console.error('넣을 행이 없다. 중단한다.'); process.exit(1); }
 
-const { Pool } = await import('pg');
+/*
+ * `pg` 는 루트가 아니라 `apps/api` 에 설치돼 있다 (pnpm 워크스페이스). 그냥 import 하면
+ * 스크립트를 루트에서 돌릴 때 ERR_MODULE_NOT_FOUND 로 떨어진다.
+ */
+const { createRequire } = await import('node:module');
+const { Pool } = createRequire(new URL('../apps/api/package.json', import.meta.url))('pg');
 const url = process.env.DATABASE_URL;
 if (url === undefined || url === '') { console.error('DATABASE_URL 이 없다'); process.exit(1); }
 const pool = new Pool({ connectionString: url, ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false } });
@@ -68,7 +77,7 @@ try {
        ON CONFLICT (ldong_regn_cd, month)
        DO UPDATE SET rain_days = EXCLUDED.rain_days, rain_ratio = EXCLUDED.rain_ratio,
                      normal_period = EXCLUDED.normal_period, source_note = EXCLUDED.source_note`,
-      [r.sido, r.month, r.rainDays, r.ratio, CLIMATE_NORMAL_PERIOD, `${CLIMATE_SOURCE_NOTE} · 대표지점 ${r.stnId}`],
+      [r.sido, r.month, r.rainDays, r.ratio, CLIMATE_NORMAL_PERIOD, `${CLIMATE_SOURCE_NOTE} · 대표지점 ${r.stationName}`],
     );
   }
   console.log(`넣었다: ${rows.length}행`);
