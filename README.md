@@ -22,9 +22,13 @@
 `/health` 가 배포 상태를 그대로 보여준다. `ready: true` 면 DB · 스키마 · 인증키가 다 맞은 것이다.
 
 ```json
-{ "ready": true, "db": "up", "mode": "live",
-  "checks": { "database": "up", "schema": "ok", "tableCount": 18, "ktoServiceKey": "ok" } }
+{"status":"ok","ready":false,"db":"up","mode":"live",
+ "checks":{"database":"up","schema":"ok","tableCount":19,"expectedTableCount":19,
+           "ktoServiceKey":"ok","kakaoRestApiKey":"ok","kmaServiceKey":"missing","llmApiKey":"ok"}}
 ```
+
+2026.08.26 실제 응답이다. `kmaServiceKey` 가 `missing` 이라 `ready` 가 `false` 인
+상태이고, Railway 에 환경변수를 넣으면 `true` 로 돌아온다 (이슈 #101).
 
 `mode` 가 `fixture` 면 공사 호출을 픽스처로 대체하고 있다는 뜻이다. 운영에서는 `live` 여야 한다.
 
