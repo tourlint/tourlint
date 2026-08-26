@@ -2,10 +2,10 @@ import { RULE_CONSTANTS, type MatchStatus } from '@tourlint/shared';
 import { describe, expect, it } from 'vitest';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
 import {
-  R09RainRiskRule, coveringMax, judgeableItems, outdoorItems, outdoorRatio,
+  R09RainRiskRule, coveringMax, outdoorItems, outdoorRatio,
   type DailyRainOutlook,
 } from './r09-rain';
-import { DEFAULT_AUDIT_SETTINGS } from './types';
+import { DEFAULT_AUDIT_SETTINGS, confirmedItems } from './types';
 import type { AuditItem, Finding } from './types';
 
 const rule = new R09RainRiskRule();
@@ -79,7 +79,7 @@ describe('야외 비중 (FR-RU-090)', () => {
 describe('판정 대상', () => {
   it('🔴 제외 · 미확정 항목은 세지 않는다 — R05 가 이미 지적한다', () => {
     const items = [item({ match: 'CONFIRMED' }), item({ match: 'EXCLUDED' }), item({ match: 'PENDING' })];
-    expect(judgeableItems(items)).toHaveLength(1);
+    expect(confirmedItems(items)).toHaveLength(1);
   });
 
   it('판정 대상이 없는 날은 조용히 넘어간다', () => {

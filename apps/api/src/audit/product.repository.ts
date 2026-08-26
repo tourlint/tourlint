@@ -15,8 +15,10 @@ export class ProductRepository {
     const { rows } = await this.pool.query<{
       id: string; start_date: Date | string; nights: number; transport: Transport;
       ldong_regn_cd: string | null; ldong_signgu_cd: string | null;
+      target_key: string | null; concept_key: string | null; account_id: string;
     }>(
-      `SELECT id, start_date, nights, transport, ldong_regn_cd, ldong_signgu_cd
+      `SELECT id, start_date, nights, transport, ldong_regn_cd, ldong_signgu_cd,
+              target_key, concept_key, account_id
          FROM product WHERE id = $1`,
       [productId],
     );
@@ -27,6 +29,8 @@ export class ProductRepository {
       nights: row.nights, transport: row.transport,
       // R09 중기 예보구역과 평년 테이블이 쓴다 (EI-WX-003 · 004)
       ldongRegnCd: row.ldong_regn_cd, ldongSignguCd: row.ldong_signgu_cd,
+      // R10 기대 프로파일이 쓴다. 프로파일은 계정 설정이라 소유자가 필요하다 (FR-RU-100)
+      targetKey: row.target_key, conceptKey: row.concept_key, accountId: Number(row.account_id),
     };
   }
 
