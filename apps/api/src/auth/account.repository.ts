@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { TARGET_PROFILE_SEED } from '@tourlint/shared';
+import { DWELL_MINUTES_SEED, INDOOR_OUTDOOR_SEED, TARGET_PROFILE_SEED } from '@tourlint/shared';
 import { withTransaction } from '../persistence/db';
 
 /**
@@ -35,7 +35,9 @@ export class AccountRepository {
    * 프로파일이 하나라도 비면 그 조합의 상품이 R10 을 영영 확인 불가로 남긴다. 그래서
    * 타깃 7 × 콘셉트 9 를 빠짐없이 넣는다 (FR-RU-100).
    *
-   * 체류시간 59행 · 실내외 59행은 아직이다. 그 둘은 값이 판정을 바꿔서 따로 정해야 한다.
+   * 실내외 59행과 체류시간 47행도 함께 넣는다 (2026.08.27). 체류시간이 47행인 것은
+   * 숙박 6종과 추천코스 6종을 뺀 수다 — 숙박은 입실 · 퇴실만 해석하고(FR-AU-011),
+   * 추천코스는 일정 항목 유형이 아니다.
    *
    * 이메일 중복이면 UNIQUE 제약(23505)이 잡는다. 서비스 계층이 이걸 "가입할 수 없음"
    * 으로만 바꿔 던져, 이미 가입된 계정인지 노출하지 않는다 (EX-SY-007).
@@ -68,6 +70,16 @@ export class AccountRepository {
           TARGET_PROFILE_SEED.map((p) => p.expectedLcls2.join(',')),
           TARGET_PROFILE_SEED.map((p) => p.expectsNight),
         ],
+      );
+      await client.query(
+        `INSERT INTO indoor_outdoor_map (account_id, lcls_systm2, space_type)
+         SELECT $1, t.code, t.kind FROM unnest($2::text[], $3::text[]) AS t(code, kind)`,
+        [row.id, Object.keys(INDOOR_OUTDOOR_SEED), Object.values(INDOOR_OUTDOOR_SEED)],
+      );
+      await client.query(
+        `INSERT INTO dwell_default (account_id, lcls_systm2, minutes)
+         SELECT $1, t.code, t.minutes FROM unnest($2::text[], $3::int[]) AS t(code, minutes)`,
+        [row.id, Object.keys(DWELL_MINUTES_SEED), Object.values(DWELL_MINUTES_SEED)],
       );
       return { id: Number(row.id), email: row.email, passwordHash, isDemo: row.is_demo };
     });

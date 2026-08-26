@@ -1,4 +1,4 @@
-import { INDOOR_OUTDOOR_SEED, SETTING_DEFAULTS } from '@tourlint/shared';
+import { DWELL_MINUTES_SEED, INDOOR_OUTDOOR_SEED, SETTING_DEFAULTS } from '@tourlint/shared';
 import type {
   ContentTypeId, EndTimeSource, ExceptionReasonCode, IndoorOutdoor, ItemType, MatchStatus,
   ParseConfidence, ReasonCode, Severity,
@@ -105,6 +105,16 @@ export interface AuditSettings {
    * 낮아져 우천 리스크를 놓친다.
    */
   readonly r09IndoorOutdoor: Readonly<Record<string, IndoorOutdoor>>;
+  /**
+   * 중분류별 기본 체류시간(분) (FR-IN-011 · FR-RU-031).
+   *
+   * 종료시간이 입력되지 않은 항목을 이 표로 보완한 뒤 R03 중복을 판정한다. 표에 없는
+   * 중분류는 `SETTING_DEFAULTS.dwellFallbackMinutes`(90분)다.
+   *
+   * **숙박은 표에 없다** (FR-AU-011). 입실 · 퇴실만 해석하므로 보완 대상이 아니고,
+   * 잘못 보완하면 입실 17:30 + 90분 = 19:00 구간이 생겨 없는 중복이 만들어진다.
+   */
+  readonly dwellMinutes: Readonly<Record<string, number>>;
 }
 
 /** 계정 설정을 아직 읽지 않았을 때 쓰는 기본값 (`SETTING_DEFAULTS`) */
@@ -114,6 +124,7 @@ export const DEFAULT_AUDIT_SETTINGS: AuditSettings = {
   r04Threshold: SETTING_DEFAULTS.r04Threshold,
   r04ExcludedKeys: [],
   r09IndoorOutdoor: INDOOR_OUTDOOR_SEED,
+  dwellMinutes: DWELL_MINUTES_SEED,
 };
 
 export interface ItineraryContext {

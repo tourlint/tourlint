@@ -654,7 +654,8 @@ export class AuditRunner {
       const resolved = resolveEndTime({
         startTime: item.startTime, endTime: item.endTime,
         itemType: item.itemType, lclsSystm2: item.lclsSystm2,
-      });
+      // 계정 설정의 체류시간 표를 쓴다. 규칙이 상수를 직접 읽지 않는 것과 같은 이유다
+      }, this.settings.dwellMinutes);
 
       return {
         id: item.id, dayNo: item.dayNo, seq: item.seq, date,

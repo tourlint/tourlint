@@ -11,10 +11,15 @@ import type { AuditItem, Finding } from './types';
 const rule = new R09RainRiskRule();
 const MAPPING = DEFAULT_AUDIT_SETTINGS.r09IndoorOutdoor;
 
-/** 시드 매핑에서 가져온 값 — 바뀌면 이 테스트가 먼저 깨진다 */
-const OUT = 'HS01'; // 역사관광지 — 야외
-const MIX = 'VE07'; // 박물관·기념관 — 혼재
-const IN_ = 'EX06'; // 체험시설 — 실내
+/**
+ * 시드 매핑에서 가져온 값 — 바뀌면 이 테스트가 먼저 깨진다.
+ *
+ * 실제로 깨진 적이 있다. 표를 12행에서 59행으로 넓히면서 `VE07`(전시시설)을 혼재에서
+ * 실내로 고쳤는데, 여기서 그걸 혼재로 쓰고 있어 비중 계산 테스트가 걸렸다.
+ */
+const OUT = 'HS01'; // 역사유적지 — 야외
+const MIX = 'SH06'; // 시장 — 혼재 (노상과 점포가 섞여 있다)
+const IN_ = 'VE07'; // 전시시설 — 실내
 
 let nextId = 1;
 interface Spec {
