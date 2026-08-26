@@ -49,6 +49,12 @@ describe.skipIf(URL === undefined)('ClimateNormalRepository — 실 DB', () => {
   let pool: Pool;
   let repo: ClimateNormalRepository;
 
+  /*
+   * ⚠️ 이 스펙은 시도 `51` · `11` 행을 지운다. 로컬 테스트 DB 에 평년값 시드를 넣어 뒀다면
+   *    테스트를 한 번 돌릴 때마다 강원 행이 사라진다 — `TEST_DATABASE_URL` 은 전용 테스트
+   *    DB 라는 전제이고(db/README.md), 운영 DB 와는 무관하다. 확인이 필요하면
+   *    `node scripts/seed_climate_normal.mjs --check` 로 다시 본다.
+   */
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL });
     await pool.query(`DELETE FROM climate_normal WHERE ldong_regn_cd IN ('51', '11')`);
