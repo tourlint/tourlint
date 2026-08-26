@@ -1,5 +1,6 @@
 import {
   CONTENT_TYPE_ID, INTRO_FIELDS, SEVERITY_WEIGHT_DEFAULT,
+  type ConceptKey, type TargetKey,
   type ContentTypeId, type EndTimeSource, type ExceptionReasonCode, type ItemType, type MatchStatus, type Severity,
   type Transport,
 } from '@tourlint/shared';
@@ -19,6 +20,7 @@ import { isKtoError, type KtoClient } from '../external/kto';
 import type { FingerprintToSave } from '../persistence/audit-result.repository';
 import { segmentKey, segmentsOf, type TravelSegment } from '../engine/rules/r08-travel';
 import type { DailyRainOutlook } from '../engine/rules/r09-rain';
+import type { TargetProfileContext } from '../engine/rules/r10-target';
 import type { KakaoMobilityClient } from '../external/kakao';
 import { isKakaoError } from '../external/kakao';
 import {
@@ -78,6 +80,26 @@ export interface ProductRow {
   readonly ldongRegnCd?: string | null;
   /** 시군구 코드. 강원은 이것으로 영서 · 영동이 갈린다 */
   readonly ldongSignguCd?: string | null;
+  /** 상품 성격. 선택 입력이라 없을 수 있고, 없으면 R10 이 물러난다 (FR-RU-100) */
+  readonly targetKey?: string | null;
+  readonly conceptKey?: string | null;
+  /** 상품 소유자. 기대 프로파일이 계정 설정이라 필요하다 */
+  readonly accountId?: number;
+}
+
+/**
+ * 기대 콘텐츠 프로파일 조회 (`target_profile` · FR-RU-100).
+ *
+ * 계정 설정이라 계정마다 다르다. **없으면 `null`** 이고 R10 은 그 상품을 확인 불가로
+ * 남긴다 — 비슷한 조합으로 대신 판정하지 않는다 (FR-RU-051).
+ */
+export interface TargetProfileLookup {
+  find(accountId: number, targetKey: string, conceptKey: string): Promise<TargetProfileRow | null>;
+}
+
+export interface TargetProfileRow {
+  readonly expectedLcls2: readonly string[];
+  readonly expectsNight: boolean;
 }
 
 /**
@@ -126,6 +148,10 @@ export interface AuditRunnerOptions {
   readonly kma?: KmaClient;
   /** 평년 강수일수. 없으면 D+11 이상이 확인 불가로 남는다 (이슈 #7) */
   readonly climate?: ClimateNormalLookup;
+  /** 기대 콘텐츠 프로파일. 없으면 R10 을 판정하지 않는다 */
+  readonly profiles?: TargetProfileLookup;
+  /** 프로파일을 찾을 계정. 상품 소유자다 */
+  readonly accountId?: number;
 }
 
 export interface AuditRunResult {
@@ -168,6 +194,8 @@ export class AuditRunner {
   private readonly kakao: KakaoMobilityClient | null;
   private readonly kma: KmaClient | null;
   private readonly climate: ClimateNormalLookup | null;
+  private readonly profiles: TargetProfileLookup | null;
+  private readonly accountId: number | null;
   private readonly clock: () => Date;
   private readonly onProgress: (done: number, total: number) => void | Promise<void>;
 
@@ -181,6 +209,8 @@ export class AuditRunner {
     this.kakao = options.kakao ?? null;
     this.kma = options.kma ?? null;
     this.climate = options.climate ?? null;
+    this.profiles = options.profiles ?? null;
+    this.accountId = options.accountId ?? null;
     this.clock = options.clock ?? ((): Date => new Date());
     this.onProgress = options.onProgress ?? ((): void => undefined);
   }
@@ -241,13 +271,14 @@ export class AuditRunner {
     }
 
     // ── 4) 외부 데이터 조회 (구간 단위 병렬) ──
-    const [travelTimes, rainOutlooks] = await Promise.all([
+    const [travelTimes, rainOutlooks, targetProfile] = await Promise.all([
       this.fetchTravelTimes(product, items),
       this.fetchRainOutlooks(product, items, executedAt),
+      this.fetchTargetProfile(product),
     ]);
 
     // ── 5) ItineraryContext 조립 (I/O 끝) ──
-    const ctx = this.buildContext(product, items, fetched, verdicts, travelTimes, rainOutlooks);
+    const ctx = this.buildContext(product, items, fetched, verdicts, travelTimes, rainOutlooks, targetProfile);
 
     // ── 6) 규칙 평가 (메모리 전용) ──
     const { findings, failedRules } = evaluateAll(ctx);
@@ -550,6 +581,36 @@ export class AuditRunner {
   }
 
   /**
+   * [4단계] 기대 콘텐츠 프로파일을 읽는다 (FR-RU-100).
+   *
+   * 타깃 · 콘셉트는 **선택 입력**이라 안 적은 상품이 있다. 그때는 `undefined` 를 주고
+   * R10 이 조용히 물러난다 — 안 적은 것을 결함이라 말할 근거가 없다.
+   *
+   * 적었는데 그 조합의 프로파일이 없으면 확인 불가로 남긴다. 비슷한 조합으로 대신
+   * 판정하지 않는다 (FR-RU-051).
+   */
+  private async fetchTargetProfile(product: ProductRow): Promise<TargetProfileContext | undefined> {
+    const targetKey = product.targetKey ?? null;
+    const conceptKey = product.conceptKey ?? null;
+    if (targetKey === null || conceptKey === null || targetKey === '' || conceptKey === '') return undefined;
+    if (this.profiles === null || this.accountId === null) return { ok: false, targetKey, conceptKey };
+
+    try {
+      const row = await this.profiles.find(this.accountId, targetKey, conceptKey);
+      if (row === null) return { ok: false, targetKey, conceptKey };
+      return {
+        ok: true,
+        targetKey: targetKey as TargetKey,
+        conceptKey: conceptKey as ConceptKey,
+        expectedLcls2: row.expectedLcls2,
+        expectsNight: row.expectsNight,
+      };
+    } catch {
+      return { ok: false, targetKey, conceptKey };
+    }
+  }
+
+  /**
    * 상세 조회 2종. 같은 콘텐츠를 두 번 부르지 않도록 호출자가 중복을 미리 걷어낸다.
    *
    * **`detailIntro2` 가 필수고 `detailCommon2` 는 보조다.** 판정 근거(운영시간 · 휴무일 ·
@@ -583,6 +644,7 @@ export class AuditRunner {
     verdicts: ReadonlyMap<string, ChangeVerdict>,
     travelTimes: ReadonlyMap<string, TravelSegment>,
     rainOutlooks: ReadonlyMap<string, DailyRainOutlook>,
+    targetProfile: TargetProfileContext | undefined,
   ): ItineraryContext {
     const start = parseIsoDate(product.startDate);
 
@@ -612,7 +674,7 @@ export class AuditRunner {
 
     return {
       productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS,
-      settings: this.settings, travelTimes, rainOutlooks,
+      settings: this.settings, travelTimes, rainOutlooks, targetProfile,
     };
   }
 }

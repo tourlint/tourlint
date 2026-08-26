@@ -8,3 +8,4 @@ export * from './r07-meal-rest';
 export * from './r08-travel';
 export * from './r09-rain';
 export * from './types';
+export * from './r10-target';
