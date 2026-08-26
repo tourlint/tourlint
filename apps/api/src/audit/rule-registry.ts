@@ -6,6 +6,7 @@ import { R05UnverifiableRule } from '../engine/rules/r05-unverifiable';
 import { R06ChangeRule } from '../engine/rules/r06-change';
 import { R07MealRestRule } from '../engine/rules/r07-meal-rest';
 import { R08TravelTimeRule } from '../engine/rules/r08-travel';
+import { R09RainRiskRule } from '../engine/rules/r09-rain';
 import type { AuditRule, Finding, ItineraryContext } from '../engine/rules/types';
 
 /**
@@ -14,7 +15,7 @@ import type { AuditRule, Finding, ItineraryContext } from '../engine/rules/types
  * 규칙을 추가할 때 **기존 규칙 코드를 고치지 않는다.** 여기 한 줄만 늘어난다.
  * 규칙끼리 서로 참조하지 않으므로 순서도 결과에 영향을 주지 않는다.
  *
- * 지금은 여덟이다 — R09 우천과 R10 타깃 적합성이 남았다.
+ * 지금은 아홉이다 — R10 타깃 적합성이 남았다.
  */
 export const RULES: readonly AuditRule[] = [
   new R01OperatingRule(),
@@ -25,6 +26,7 @@ export const RULES: readonly AuditRule[] = [
   new R06ChangeRule(),
   new R07MealRestRule(),
   new R08TravelTimeRule(),
+  new R09RainRiskRule(),
 ];
 
 /** 이 목록으로 낸 판정임을 기록에 남긴다. 규칙이 늘거나 버전이 오르면 함께 오른다 */

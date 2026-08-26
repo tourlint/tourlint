@@ -2,7 +2,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
-import { AuditRunner, departureStamp, uniqueContentIds, type ItineraryItemRow, type ProductRow } from './audit-runner';
+import {
+  AuditRunner, departureStamp, uniqueContentIds,
+  type ClimateNormalLookup, type ItineraryItemRow, type ProductRow,
+} from './audit-runner';
+import { FixtureKmaTransport, KmaClient } from '../external/kma';
 import { RULESET_VERSION } from './rule-registry';
 
 /**
@@ -22,14 +26,26 @@ function runner(over: Partial<Parameters<typeof makeRunner>[0]> = {}): AuditRunn
   return makeRunner({ ...over });
 }
 
-function makeRunner(opts: { concurrency?: number; onProgress?: (d: number, t: number) => void }): AuditRunner {
+function makeRunner(opts: {
+  concurrency?: number;
+  onProgress?: (d: number, t: number) => void;
+  kma?: KmaClient;
+  climate?: ClimateNormalLookup;
+  clock?: () => Date;
+}): AuditRunner {
   return new AuditRunner({
     kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
-    clock,
+    clock: opts.clock ?? clock,
     concurrency: opts.concurrency,
     onProgress: opts.onProgress,
+    kma: opts.kma,
+    climate: opts.climate,
   });
 }
+
+const KMA_FIXTURES = join(__dirname, '../../../../fixtures/kma');
+const kmaClient = (): KmaClient =>
+  new KmaClient({ transport: new FixtureKmaTransport(KMA_FIXTURES), logger: new InMemoryApiCallLogger() });
 
 const product: ProductRow = { id: 31, startDate: '2026-10-13', nights: 1, transport: 'CAR' };
 
@@ -270,5 +286,110 @@ describe('출발시각 조립 (EI-KM-003)', () => {
 
   it('시각이 깨져 있으면 붙이지 않는다 — 지어낸 시각으로 부르지 않는다', () => {
     expect(departureStamp('2026-10-22', '13')).toBeNull();
+  });
+});
+
+describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
+  /** 강릉 좌표를 붙인 야외 항목. 격자 변환이 되어야 예보를 조회한다 */
+  const outdoor = (id: number, dayNo: number): ItineraryItemRow =>
+    item({ id, dayNo, seq: 1, placeLabel: '경포대', lclsSystm2: 'HS01', mapX: 128.8961, mapY: 37.7952 });
+
+  it('기상청 클라이언트가 없으면 확인 불가로 남는다 — 정상이 아니다', async () => {
+    const result = await runner().run(product, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('UNVERIFIED');
+    expect(f?.reasonCode).toBe('FORECAST_UNAVAILABLE');
+  });
+
+  it('🔴 좌표가 하나도 없으면 좌표 없음으로 남는다', async () => {
+    const result = await runner({ kma: kmaClient() }).run(product, [
+      item({ id: 1, dayNo: 1, seq: 1, lclsSystm2: 'HS01' }),
+    ]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.reasonCode).toBe('COORD_MISSING');
+  });
+
+  it('평년 테이블이 없으면 D+11 이상은 확인 불가다 (이슈 #7)', async () => {
+    // 검수 시각 2026-10-01, 출발 2026-10-13 → 전 일자가 D+11 이상이라 평년 경로다
+    const result = await runner({ kma: kmaClient() }).run(product, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('UNVERIFIED');
+    expect(f?.reasonCode).toBe('CLIMATE_DATA_MISSING');
+  });
+
+  it('평년 테이블이 있으면 그것으로 판정한다', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ kma: kmaClient(), climate }).run(withRegion, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.message).toContain('평년 기준 — 10월 강릉 강수일수 9.2일 (31%)');
+  });
+
+  /**
+   * 픽스처 스냅샷을 뜬 날. 예보 날짜가 2026-08-26 ~ 08-30 이라 검수 시각을 그 근처로
+   * 옮겨야 단기 · 중기 경로가 실제로 돈다. 기본 시계(2026-10-01)로는 전부 평년으로 빠진다.
+   */
+  const atSnapshot = (kstDate: string) => (): Date => new Date(`${kstDate}T09:00:00+09:00`);
+
+  it('🔴 D+3 은 단기예보로 판정한다 — 중기에는 그 날 필드가 없다 (FR-RU-091)', async () => {
+    // 2026-08-26 기준 D+3 = 08-29. 픽스처 단기예보의 그 날 15시 이후 강수확률이 60% 다
+    const d3: ProductRow = { ...product, startDate: '2026-08-29', nights: 0 };
+    const result = await runner({ kma: kmaClient(), clock: atSnapshot('2026-08-26') })
+      .run(d3, [item({ id: 1, dayNo: 1, seq: 1, startTime: '15:00', endTime: '17:00',
+                       placeLabel: '경포대', lclsSystm2: 'HS01', mapX: 128.8961, mapY: 37.7952 })]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.evidence).toMatchObject({ rainSource: 'SHORT', rainProbability: 0.6 });
+  });
+
+  it('🔴 발표분이 담지 않은 날짜를 0% 로 읽지 않는다', async () => {
+    /*
+     * 픽스처는 08-26 발표분 고정이라 08-25 를 담고 있지 않다. 실호출이라면 어댑터의
+     * 발표분 확인이 먼저 걸리지만, 발표분이 하루의 일부만 담는 경우는 실제로 있다 —
+     * 그때 없는 날짜를 0% 로 읽으면 비 오는 날이 정상 판정된다.
+     */
+    const past: ProductRow = { ...product, startDate: '2026-08-25', nights: 0 };
+    const result = await runner({ kma: kmaClient(), clock: atSnapshot('2026-08-25') })
+      .run(past, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('UNVERIFIED');
+    expect(f?.reasonCode).toBe('FORECAST_UNAVAILABLE');
+    /*
+     * 문장까지 본다. 빈 예보를 넘겨도 규칙이 "덮는 칸이 없다" 로 걸러 주기 때문에
+     * 등급과 사유코드만 보면 러너가 손을 놔도 초록이 나온다. 사용자에게 할 말은 다르다 —
+     * 조회 실패는 다시 시도할 일이고, 시간대 미커버는 일정을 옮길 일이다
+     */
+    expect(f?.message).toContain('강수 정보를 조회하지 못했습니다');
+  });
+
+  it('🔴 평년 테이블에 그 지역 · 월이 없으면 확인 불가다', async () => {
+    // 조회기를 붙였는데 값이 없는 경우다. 조회기 자체가 없는 경우와 다른 갈래를 탄다
+    const empty: ClimateNormalLookup = { find: async () => null };
+    const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ kma: kmaClient(), climate: empty }).run(withRegion, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('UNVERIFIED');
+    expect(f?.reasonCode).toBe('CLIMATE_DATA_MISSING');
+  });
+
+  it('일차마다 날짜가 다르므로 근거도 따로 잡힌다', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ kma: kmaClient(), climate }).run(withRegion, [outdoor(1, 1), outdoor(2, 2)]);
+
+    const dates = result.findings.filter((x) => x.ruleCode === 'R09').map((x) => x.evidence.date);
+    expect(dates).toEqual(['2026-10-13', '2026-10-14']);
   });
 });
