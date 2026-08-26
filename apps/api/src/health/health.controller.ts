@@ -65,6 +65,8 @@ export class HealthController {
     const ktoKey: Check = hasValue(process.env.KTO_SERVICE_KEY) ? 'ok' : 'missing';
   // R08 이 쓴다. 없으면 이동시간이 전부 확인 불가로 나온다
   const kakaoKey: Check = hasValue(process.env.KAKAO_REST_API_KEY) ? 'ok' : 'missing';
+  // R09 가 쓴다. 없으면 우천 리스크가 전부 확인 불가로 나온다 (EI-WX-001)
+  const kmaKey: Check = hasValue(process.env.KMA_SERVICE_KEY) ? 'ok' : 'missing';
   /*
    * F01 자연어 구조화 · F03 정규화 폴백이 쓴다. 없어도 검수는 돌기 때문에 `ready` 에
    * 넣지 않는다 — 사전 파서 커버리지가 이미 목표(90%)를 넘겼고, 폴백은 그 위의 몫이다
@@ -77,7 +79,8 @@ export class HealthController {
      */
     const mode = process.env.KTO_MODE === 'fixture' ? 'fixture' : 'live';
 
-    const ready = db === 'up' && schema === 'ok' && ktoKey === 'ok' && kakaoKey === 'ok' && mode === 'live';
+    const ready = db === 'up' && schema === 'ok' && ktoKey === 'ok'
+      && kakaoKey === 'ok' && kmaKey === 'ok' && mode === 'live';
 
     return {
       status: db === 'up' ? 'ok' : db === 'not-configured' ? 'ok' : 'degraded',
@@ -91,6 +94,7 @@ export class HealthController {
         expectedTableCount: EXPECTED_TABLE_COUNT,
         ktoServiceKey: ktoKey,
         kakaoRestApiKey: kakaoKey,
+        kmaServiceKey: kmaKey,
         llmApiKey: llmKey,
       },
       latencyMs: Date.now() - started,
