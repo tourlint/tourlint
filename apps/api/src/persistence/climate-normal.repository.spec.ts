@@ -22,6 +22,23 @@ describe('시도 대표 지점 (EI-WX-004)', () => {
     expect(climateStationOf(null)).toBeNull();
   });
 
+  /**
+   * 기상청 「전국/지역별 통계 산출 지점 정보」의 지점번호 → 이름.
+   * 기상자료개방포털 기후통계분석 > 기상현상일수 화면에 있는 62개 지점 중 우리가 쓰는 것만.
+   */
+  const KMA_STATION_NAME: Readonly<Record<number, string>> = {
+    108: '서울', 112: '인천', 119: '수원', 105: '강릉', 131: '청주', 133: '대전',
+    232: '천안', 146: '전주', 156: '광주', 165: '목포', 136: '안동', 143: '대구',
+    152: '울산', 155: '창원', 159: '부산', 184: '제주',
+  };
+
+  it('🔴 지점번호와 이름이 기상청 지점 목록과 맞는다', () => {
+    // 232 를 홍성으로 적어 뒀었다. 이름이 틀리면 판정 문장이 엉뚱한 지역을 가리킨다
+    for (const [sido, station] of Object.entries(CLIMATE_STATION)) {
+      expect(KMA_STATION_NAME[station.stnId], `시도 ${sido} · 지점 ${station.stnId}`).toBe(station.name);
+    }
+  });
+
   it('강원 두 코드가 같은 지점을 본다', () => {
     expect(CLIMATE_STATION['42']).toEqual(CLIMATE_STATION['51']);
     expect(CLIMATE_STATION['51']?.name).toBe('강릉');
