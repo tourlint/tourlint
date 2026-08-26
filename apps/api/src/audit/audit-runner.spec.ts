@@ -363,6 +363,12 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
     const f = result.findings.find((x) => x.ruleCode === 'R09');
     expect(f?.severity).toBe('UNVERIFIED');
     expect(f?.reasonCode).toBe('FORECAST_UNAVAILABLE');
+    /*
+     * 문장까지 본다. 빈 예보를 넘겨도 규칙이 "덮는 칸이 없다" 로 걸러 주기 때문에
+     * 등급과 사유코드만 보면 러너가 손을 놔도 초록이 나온다. 사용자에게 할 말은 다르다 —
+     * 조회 실패는 다시 시도할 일이고, 시간대 미커버는 일정을 옮길 일이다
+     */
+    expect(f?.message).toContain('강수 정보를 조회하지 못했습니다');
   });
 
   it('🔴 평년 테이블에 그 지역 · 월이 없으면 확인 불가다', async () => {
