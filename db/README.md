@@ -34,6 +34,24 @@ DATABASE_URL=postgres://postgres:test@localhost:55432/tourlint_test \
 Railway 는 접속 URL 이 둘이다. **바깥에서 붙을 때는 공개 URL** 이어야 한다 —
 `*.railway.internal` 은 Railway 컨테이너 안에서만 풀린다.
 
+### 계정 기본 데이터
+
+회원가입 트랜잭션이 `user_setting` 1행 · 기대 프로파일 63행 · 실내외 59행 · 체류시간 47행을
+함께 만든다 (DR-CF-002). **그 코드가 붙기 전에 만들어진 계정에는 없다** — 데모 계정이 그렇다.
+
+없으면 R10 이 타깃 · 콘셉트를 적은 상품을 전부 확인 불가로 판정하고, R09 와 체류시간
+보완이 계정 설정 대신 상수로 돌아간다(설정 화면에서 고쳐도 안 바뀐다).
+
+```bash
+DATABASE_URL=... node scripts/seed_account_defaults.mjs --check     # 계정별 부족분
+DATABASE_URL=... node scripts/seed_account_defaults.mjs             # 전 계정 채우기
+DATABASE_URL=... node scripts/seed_account_defaults.mjs --account 3 # 하나만
+```
+
+이미 있는 행은 건드리지 않는다 — 설정 화면에서 고친 값을 시드가 덮으면 안 된다.
+
+### 평년값 확인
+
 넣고 나서 확인한다.
 
 ```bash

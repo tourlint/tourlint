@@ -13,12 +13,14 @@ import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
 import { ClimateNormalRepository } from '../persistence/climate-normal.repository';
 import { TargetProfileRepository } from '../persistence/target-profile.repository';
+import { UserSettingRepository } from '../persistence/user-setting.repository';
 import {
   PatchApplicationRepository,
   type StoredPatchApplication,
 } from '../persistence/patch-application.repository';
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
 import { AuditRunner, type ItineraryItemRow } from './audit-runner';
+import type { AuditSettings } from '../engine/rules/types';
 import { applyPatches } from './patch-apply';
 import { checkConflicts, type Conflict, type PatchRef } from './patch-conflict';
 import { snapshotToken, toSnapshot } from './patch-snapshot';
@@ -408,6 +410,22 @@ export class AuditService {
   }
 
   /**
+   * 계정 설정을 읽는다. **실패해도 던지지 않는다.**
+   *
+   * 설정을 못 읽었다고 검수를 세우면 DB 가 잠깐 흔들릴 때 검수 전체가 멈춘다. 기본값으로
+   * 돌아가되 무엇이 있었는지는 로그에 남긴다 — 조용히 다른 기준으로 판정하면 안 된다.
+   */
+  private async loadSettings(accountId: number | undefined): Promise<AuditSettings | undefined> {
+    if (accountId === undefined) return undefined;
+    try {
+      return await new UserSettingRepository(this.pool).find(accountId);
+    } catch (e) {
+      this.logger.warn(`계정 설정을 읽지 못했다. 기본값으로 판정한다: ${(e as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /**
    * 기상청 클라이언트를 만든다. **실패해도 던지지 않는다.**
    *
    * 길찾기와 같은 이유다 — 예보 키가 없다고 검수 전체가 죽으면 안 된다. R09 만 확인
@@ -463,6 +481,8 @@ export class AuditService {
         // 타깃 적합성. 상품에 타깃 · 콘셉트가 없으면 R10 이 조용히 물러난다 (FR-RU-100)
         profiles: new TargetProfileRepository(this.pool),
         accountId: product.accountId,
+        // 계정 설정. 못 읽으면 기본값으로 돌아간다 — 설정 조회 실패가 검수를 멈추면 안 된다
+        settings: await this.loadSettings(product.accountId),
       });
       const result = await runner.run(product, items);
 
