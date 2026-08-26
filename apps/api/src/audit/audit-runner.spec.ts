@@ -5,6 +5,7 @@ import { createKtoClient } from '../external/kto';
 import {
   AuditRunner, departureStamp, uniqueContentIds,
   type ClimateNormalLookup, type ItineraryItemRow, type ProductRow,
+  type TargetProfileLookup, type TargetProfileRow,
 } from './audit-runner';
 import { FixtureKmaTransport, KmaClient } from '../external/kma';
 import { RULESET_VERSION } from './rule-registry';
@@ -32,6 +33,8 @@ function makeRunner(opts: {
   kma?: KmaClient;
   climate?: ClimateNormalLookup;
   clock?: () => Date;
+  profiles?: TargetProfileLookup;
+  accountId?: number;
 }): AuditRunner {
   return new AuditRunner({
     kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
@@ -40,6 +43,8 @@ function makeRunner(opts: {
     onProgress: opts.onProgress,
     kma: opts.kma,
     climate: opts.climate,
+    profiles: opts.profiles,
+    accountId: opts.accountId,
   });
 }
 
@@ -391,5 +396,61 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
 
     const dates = result.findings.filter((x) => x.ruleCode === 'R09').map((x) => x.evidence.date);
     expect(dates).toEqual(['2026-10-13', '2026-10-14']);
+  });
+});
+
+describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
+  const sight = (id: number, lcls2: string): ItineraryItemRow =>
+    item({ id, dayNo: 1, seq: id, placeLabel: '오죽헌·시립박물관', ktoContentId: '129784',
+           contentTypeId: 14, lclsSystm2: lcls2 });
+
+  const found = (expectedLcls2: string[], expectsNight = false): TargetProfileLookup =>
+    ({ find: async (): Promise<TargetProfileRow> => ({ expectedLcls2, expectsNight }) });
+
+  it('🔴 타깃 · 콘셉트를 안 적은 상품은 R10 이 물러난다', async () => {
+    // 선택 입력이다. 조회 자체를 하지 않는다
+    let called = 0;
+    const spy: TargetProfileLookup = { find: async () => { called++; return null; } };
+    const result = await runner({ profiles: spy, accountId: 7 }).run(product, [sight(1, 'VE07')]);
+
+    expect(called).toBe(0);
+    expect(result.findings.filter((f) => f.ruleCode === 'R10')).toEqual([]);
+  });
+
+  it('프로파일을 찾으면 그것으로 판정한다', async () => {
+    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
+    const result = await runner({ profiles: found(['VE07', 'FD05']), accountId: 7 })
+      .run(withTarget, [sight(1, 'VE07')]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R10');
+    expect(f?.severity).toBe('WARNING');
+    // 카페/찻집(FD05)이 0건이다
+    expect(f?.evidence).toMatchObject({ missingLcls2: ['FD05'] });
+  });
+
+  it('🔴 그 조합의 프로파일이 없으면 확인 불가다', async () => {
+    const withTarget: ProductRow = { ...product, targetKey: 'SOLO', conceptKey: 'SHOPPING', accountId: 7 };
+    const empty: TargetProfileLookup = { find: async () => null };
+    const result = await runner({ profiles: empty, accountId: 7 }).run(withTarget, [sight(1, 'VE07')]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R10');
+    expect(f?.severity).toBe('UNVERIFIED');
+    expect(f?.evidence).toMatchObject({ targetKey: 'SOLO', conceptKey: 'SHOPPING' });
+  });
+
+  it('🔴 조회가 깨져도 검수를 세우지 않는다 — 그 규칙만 확인 불가다', async () => {
+    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
+    const broken: TargetProfileLookup = { find: async () => { throw new Error('DB 끊김'); } };
+    const result = await runner({ profiles: broken, accountId: 7 }).run(withTarget, [sight(1, 'VE07')]);
+
+    expect(result.findings.find((x) => x.ruleCode === 'R10')?.severity).toBe('UNVERIFIED');
+    // 나머지 규칙은 그대로 돈다
+    expect(result.score.score).toBeGreaterThan(0);
+  });
+
+  it('조회기를 안 붙이면 확인 불가로 남는다', async () => {
+    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
+    const result = await runner().run(withTarget, [sight(1, 'VE07')]);
+    expect(result.findings.find((x) => x.ruleCode === 'R10')?.severity).toBe('UNVERIFIED');
   });
 });

@@ -7,6 +7,7 @@ import type { Patch } from '../../audit/patch-types';
 import type { ChangeVerdict } from '../fingerprint/types';
 import type { TravelSegment } from './r08-travel';
 import type { DailyRainOutlook } from './r09-rain';
+import type { TargetProfileContext } from './r10-target';
 import type { HolidayCalendar } from '../calendar/holidays';
 import type { IsoDate } from '../calendar/dates';
 import type { NormalizedOperatingInfo, TimeOfDay } from '../normalize/types';
@@ -131,6 +132,13 @@ export interface ItineraryContext {
    * 키는 `YYYY-MM-DD`.
    */
   readonly rainOutlooks?: ReadonlyMap<string, DailyRainOutlook>;
+  /**
+   * 이 상품에 적용할 기대 콘텐츠 프로파일. 러너가 계정 설정에서 읽어 넣는다 (FR-RU-100).
+   *
+   * 상품이 타깃 · 콘셉트를 적지 않았으면 `undefined` 다 — 선택 입력이라 R10 이 조용히
+   * 물러난다. 적었는데 그 조합의 프로파일이 없으면 `ok: false` 로 확인 불가가 된다.
+   */
+  readonly targetProfile?: TargetProfileContext;
 }
 
 /**
@@ -180,6 +188,19 @@ export interface AuditRule {
   /** true 면 "외부 참고" 배지를 자동 부착한다 (EI-CM-008) */
   readonly requiresExternal: boolean;
   evaluate(ctx: ItineraryContext): readonly Finding[];
+}
+
+/**
+ * 판정 대상 항목 — **매칭이 확정된 것뿐이다.**
+ *
+ * 제외한 항목은 사용자가 검수 범위에서 뺀 것이고, 미확정 항목은 붙은 콘텐츠가 없어
+ * 유형을 셀 수 없다. 그 항목들은 R05 가 이미 지적한다 — 여기서 또 지적하면 같은 결함으로
+ * 두 번 감점되고 사용자는 문제가 둘인 줄 안다.
+ *
+ * R09 · R10 이 같은 기준을 쓴다. 규칙끼리 서로 부르지 않도록 공용 계약에 둔다 (NF-MT-002).
+ */
+export function confirmedItems(items: readonly AuditItem[]): readonly AuditItem[] {
+  return items.filter((i) => i.matchStatus === 'CONFIRMED');
 }
 
 /** 규칙이 참조한 경로의 신뢰도만 본다 — `confidence.overall` 은 쓰지 않는다 (DR-NM-034) */

@@ -12,6 +12,7 @@ import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
 import { ClimateNormalRepository } from '../persistence/climate-normal.repository';
+import { TargetProfileRepository } from '../persistence/target-profile.repository';
 import {
   PatchApplicationRepository,
   type StoredPatchApplication,
@@ -459,6 +460,9 @@ export class AuditService {
         // 우천 리스크. 평년 표가 비어 있으면 D+11 이상만 확인 불가로 남는다 (이슈 #7)
         kma: this.buildKmaClient(),
         climate: new ClimateNormalRepository(this.pool),
+        // 타깃 적합성. 상품에 타깃 · 콘셉트가 없으면 R10 이 조용히 물러난다 (FR-RU-100)
+        profiles: new TargetProfileRepository(this.pool),
+        accountId: product.accountId,
       });
       const result = await runner.run(product, items);
 

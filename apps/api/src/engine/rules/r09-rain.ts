@@ -1,6 +1,7 @@
 import { RULE_CONSTANTS, type ExceptionReasonCode, type IndoorOutdoor, type Severity } from '@tourlint/shared';
 import { toMinutes } from '../normalize/primitives';
 import type { IsoDate } from '../calendar/dates';
+import { confirmedItems } from './types';
 import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
 
 /**
@@ -54,17 +55,6 @@ export type DailyRainOutlook =
 
 /** 예보 간격을 잴 수 없을 때 쓰는 값(분). 좁은 쪽으로 잡는다 — 넓게 잡으면 없는 커버리지를 있다고 한다 */
 const FALLBACK_SLOT_SPACING = 60;
-
-/**
- * 판정 대상 항목 — **매칭이 확정된 것뿐이다.**
- *
- * 제외한 항목은 사용자가 검수 범위에서 뺀 것이고, 미확정 항목은 붙은 콘텐츠가 없어
- * 실내인지 야외인지 말할 근거가 없다. 그 항목들은 R05 가 이미 지적한다 — 여기서 또
- * 확인 불가를 내면 같은 결함으로 두 번 감점되고, 사용자는 문제가 둘인 줄 안다.
- */
-export function judgeableItems(items: readonly AuditItem[]): readonly AuditItem[] {
-  return items.filter((i) => i.matchStatus === 'CONFIRMED');
-}
 
 /**
  * 야외 비중 = (야외 + 혼재 × 0.5) ÷ 전체 (FR-RU-090).
@@ -161,7 +151,7 @@ export class R09RainRiskRule implements AuditRule {
     const mapping = ctx.settings.r09IndoorOutdoor;
     const out: Finding[] = [];
 
-    for (const [date, items] of byDate(judgeableItems(ctx.items))) {
+    for (const [date, items] of byDate(confirmedItems(ctx.items))) {
       const outlook = outlooks.get(date);
       if (outlook === undefined) continue;
 
