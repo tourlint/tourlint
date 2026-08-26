@@ -1,11 +1,12 @@
-import { SETTING_DEFAULTS } from '@tourlint/shared';
+import { INDOOR_OUTDOOR_SEED, SETTING_DEFAULTS } from '@tourlint/shared';
 import type {
-  ContentTypeId, EndTimeSource, ExceptionReasonCode, ItemType, MatchStatus,
+  ContentTypeId, EndTimeSource, ExceptionReasonCode, IndoorOutdoor, ItemType, MatchStatus,
   ParseConfidence, ReasonCode, Severity,
 } from '@tourlint/shared';
 import type { Patch } from '../../audit/patch-types';
 import type { ChangeVerdict } from '../fingerprint/types';
 import type { TravelSegment } from './r08-travel';
+import type { DailyRainOutlook } from './r09-rain';
 import type { HolidayCalendar } from '../calendar/holidays';
 import type { IsoDate } from '../calendar/dates';
 import type { NormalizedOperatingInfo, TimeOfDay } from '../normalize/types';
@@ -95,6 +96,14 @@ export interface AuditSettings {
    * 들어오는 W3 에 붙인다. 그때까지는 비어 있고, 기제는 여기 준비돼 있다.
    */
   readonly r04ExcludedKeys: readonly string[];
+  /**
+   * 신분류체계 중분류별 실내 · 야외 구분 (FR-RU-090 · FR-OP-021).
+   *
+   * 설정 화면에서 편집할 수 있어야 해서 규칙이 상수를 직접 읽지 않는다. 매핑이 없는
+   * 중분류는 **실내로도 야외로도 세지 않는다** — 모르는 것을 실내로 두면 야외 비중이
+   * 낮아져 우천 리스크를 놓친다.
+   */
+  readonly r09IndoorOutdoor: Readonly<Record<string, IndoorOutdoor>>;
 }
 
 /** 계정 설정을 아직 읽지 않았을 때 쓰는 기본값 (`SETTING_DEFAULTS`) */
@@ -103,6 +112,7 @@ export const DEFAULT_AUDIT_SETTINGS: AuditSettings = {
   r07MealMinutes: SETTING_DEFAULTS.r07MealMinutes,
   r04Threshold: SETTING_DEFAULTS.r04Threshold,
   r04ExcludedKeys: [],
+  r09IndoorOutdoor: INDOOR_OUTDOOR_SEED,
 };
 
 export interface ItineraryContext {
@@ -116,6 +126,11 @@ export interface ItineraryContext {
    * 키는 `segmentKey(앞 항목 id, 뒤 항목 id)`.
    */
   readonly travelTimes?: ReadonlyMap<string, TravelSegment>;
+  /**
+   * 여행 일자별 강수 판정 근거. 러너가 파이프라인 4단계에서 채운다 (FR-RU-091).
+   * 키는 `YYYY-MM-DD`.
+   */
+  readonly rainOutlooks?: ReadonlyMap<string, DailyRainOutlook>;
 }
 
 /**
