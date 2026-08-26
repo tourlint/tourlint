@@ -13,10 +13,16 @@ describe('중기 예보구역 매핑 (EI-WX-003)', () => {
     expect(midLandRegionOf('51', '110')).toBe(MID_LAND_REGION.GANGWON_YEONGSEO); // 춘천
   });
 
-  it('🔴 태백(190)은 영서 · 영동을 확인하지 못해 고르지 않는다', () => {
-    // 찍어 넣으면 태백 상품의 강수확률이 통째로 다른 구역 값이 된다 (FR-RU-051)
-    expect(midLandRegionOf('51', '190')).toBeNull();
-    expect(midLandRegionOf('42', '51190')).toBeNull();
+  it('태백(190)은 영동이다 — 기상청 전국/지역별 통계 산출 지점 정보', () => {
+    // 강원영동: 속초(90), 강릉(105), 태백(216)
+    expect(midLandRegionOf('51', '190')).toBe(MID_LAND_REGION.GANGWON_YEONGDONG);
+    expect(midLandRegionOf('42', '51190')).toBe(MID_LAND_REGION.GANGWON_YEONGDONG);
+  });
+
+  it('대관령 · 춘천 · 원주가 있는 시군구는 영서다', () => {
+    expect(midLandRegionOf('51', '110')).toBe(MID_LAND_REGION.GANGWON_YEONGSEO); // 춘천
+    expect(midLandRegionOf('51', '130')).toBe(MID_LAND_REGION.GANGWON_YEONGSEO); // 원주
+    expect(midLandRegionOf('51', '760')).toBe(MID_LAND_REGION.GANGWON_YEONGSEO); // 평창(대관령)
   });
 
   it('강원인데 시군구를 모르면 구역을 고르지 않는다', () => {
