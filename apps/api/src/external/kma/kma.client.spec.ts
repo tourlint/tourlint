@@ -148,6 +148,19 @@ describe('기상청 어댑터 (EI-WX-001 ~ 008)', () => {
       expect(f.byDate.has('2026-09-05')).toBe(true);
     });
 
+    it('🔴 광역 구역이 아닌 코드의 전 필드 0 응답을 강수확률 0% 로 읽지 않는다', () => {
+      /*
+       * `11D20301` 은 존재하는 코드지만 중기기온 지점이다. 육상예보에 넣으면 오류가 아니라
+       * `00 NORMAL_SERVICE` 에 rnSt 전부 0 이 온다 (2026.08.26 실측). 그대로 읽으면
+       * 비 오는 날이 전부 정상 판정된다
+       */
+      const raw = fixture('mid_land_unknown_region.json');
+      expect(raw).toContain('"resultCode":"00"');
+      expect(raw).toContain('"rnSt4Am":0');
+
+      expect(() => readMidLand(items('mid_land_unknown_region.json'), MID_0600)).toThrow(ForecastMissingError);
+    });
+
     it('rnSt 가 하나도 없으면 발표분 없음이다', () => {
       const body = '{"response":{"header":{"resultCode":"00","resultMsg":"NORMAL_SERVICE"},"body":{"items":{"item":[{"regId":"11D20000","wf4Am":"흐리고 비"}]}}}}';
       expect(() => readMidLand(readItems(body), MID_0600)).toThrow(ForecastMissingError);
