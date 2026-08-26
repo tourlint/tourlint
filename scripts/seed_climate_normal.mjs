@@ -3,27 +3,73 @@
  * 평년 강수일수 시드 (`climate_normal` · EI-WX-004 · 이슈 #7).
  *
  * 기상자료개방포털에서 받은 CSV 를 읽어 시도 × 12개월 행을 만든다. 포털 내려받기는
- * 로그인이 걸려 있어 자동화하지 않는다 — 파일을 받아 두고 이 스크립트에 넘긴다.
+ * 화면 조작이 필요해 자동화하지 않는다 — 받아 두고 이 스크립트에 넘긴다. 받는 절차는
+ * `fixtures/climate/README.md`.
  *
- *   node scripts/seed_climate_normal.mjs <csv경로> [--dry]
- *   DATABASE_URL=... node scripts/seed_climate_normal.mjs data/평년값.csv
+ *   node scripts/seed_climate_normal.mjs <csv경로> --dry     파일만 확인. DB 를 안 본다
+ *   DATABASE_URL=... node scripts/seed_climate_normal.mjs <csv경로>
+ *   DATABASE_URL=... node scripts/seed_climate_normal.mjs --check   지금 표에 무엇이 있는지
  *
- * 입력 형식은 **지점번호 · 월 · 강수일수** 세 값만 있으면 된다. 열 이름 · 순서 · 인코딩을
- * 가정하지 않는다 (`scripts/climate-csv.mjs`).
+ * 형식은 `scripts/climate-csv.mjs` 가 안다.
  */
 import { readFileSync } from 'node:fs';
 import { CLIMATE_NORMAL_PERIOD, CLIMATE_SOURCE_NOTE, CLIMATE_STATION } from '../packages/shared/dist/index.js';
 import { decodeCsv, parseClimateCsv } from './climate-csv.mjs';
 
-const [csvPath, ...flags] = process.argv.slice(2);
-const DRY = flags.includes('--dry');
-if (csvPath === undefined) {
+const args = process.argv.slice(2);
+const DRY = args.includes('--dry');
+const CHECK = args.includes('--check');
+const csvPath = args.find((a) => !a.startsWith('--'));
+
+if (!CHECK && csvPath === undefined) {
   console.error('사용법: node scripts/seed_climate_normal.mjs <csv경로> [--dry]');
+  console.error('        DATABASE_URL=... node scripts/seed_climate_normal.mjs --check');
   process.exit(1);
 }
 
-/** 평년 30년(1991–2020)의 월 평균 일수. 2월은 윤년 7회를 반영한다 */
-const DAYS_IN_MONTH = [31, 28.25, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+/*
+ * `pg` 는 루트가 아니라 `apps/api` 에 설치돼 있다 (pnpm 워크스페이스). 그냥 import 하면
+ * 스크립트를 루트에서 돌릴 때 ERR_MODULE_NOT_FOUND 로 떨어진다.
+ */
+async function connect() {
+  const { createRequire } = await import('node:module');
+  const { Pool } = createRequire(new URL('../apps/api/package.json', import.meta.url))('pg');
+  const url = process.env.DATABASE_URL;
+  if (url === undefined || url === '') {
+    console.error('DATABASE_URL 이 없다');
+    process.exit(1);
+  }
+  // Railway 같은 원격은 TLS 를 쓴다. 로컬 컨테이너는 안 쓴다
+  return new Pool({ connectionString: url, ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false } });
+}
+
+/** 지금 표에 무엇이 들어 있는지 본다. 쓰지 않는다 — 운영에 넣고 나서 확인하는 용도다 */
+if (CHECK) {
+  const pool = await connect();
+  try {
+    const { rows } = await pool.query(
+      `SELECT ldong_regn_cd, count(*)::int AS months, min(normal_period) AS period,
+              min(source_note) AS source, round(avg(rain_ratio), 3)::text AS avg_ratio
+         FROM climate_normal GROUP BY ldong_regn_cd ORDER BY ldong_regn_cd`,
+    );
+    if (rows.length === 0) {
+      console.log('climate_normal 이 비어 있다. R09 는 D+11 이상을 전부 확인 불가로 판정한다.');
+    } else {
+      console.log(`시도 ${rows.length}개 · 총 ${rows.reduce((n, r) => n + r.months, 0)}행`);
+      for (const r of rows) {
+        const full = r.months === 12 ? '' : `  ⚠ 12개월이 아니라 ${r.months}개월`;
+        console.log(`  시도 ${r.ldong_regn_cd}  ${r.period}  평균비율 ${r.avg_ratio}  ${r.source}${full}`);
+      }
+      const expected = Object.keys(CLIMATE_STATION).length;
+      if (rows.length < expected) {
+        console.log(`빠진 시도 ${expected - rows.length}개는 R09 가 확인 불가로 남긴다.`);
+      }
+    }
+  } finally {
+    await pool.end();
+  }
+  process.exit(0);
+}
 
 /** 지점명 → 그 지점을 대표로 쓰는 시도들 */
 const SIDO_BY_NAME = new Map();
@@ -59,15 +105,7 @@ for (const r of rows.slice(0, 3)) console.log(`  예: 시도 ${r.sido} ${r.month
 if (DRY) { console.log('--dry 라 DB 에 쓰지 않았다.'); process.exit(0); }
 if (rows.length === 0) { console.error('넣을 행이 없다. 중단한다.'); process.exit(1); }
 
-/*
- * `pg` 는 루트가 아니라 `apps/api` 에 설치돼 있다 (pnpm 워크스페이스). 그냥 import 하면
- * 스크립트를 루트에서 돌릴 때 ERR_MODULE_NOT_FOUND 로 떨어진다.
- */
-const { createRequire } = await import('node:module');
-const { Pool } = createRequire(new URL('../apps/api/package.json', import.meta.url))('pg');
-const url = process.env.DATABASE_URL;
-if (url === undefined || url === '') { console.error('DATABASE_URL 이 없다'); process.exit(1); }
-const pool = new Pool({ connectionString: url, ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false } });
+const pool = await connect();
 
 try {
   for (const r of rows) {
@@ -81,6 +119,7 @@ try {
     );
   }
   console.log(`넣었다: ${rows.length}행`);
+  console.log('확인: DATABASE_URL=... node scripts/seed_climate_normal.mjs --check');
 } finally {
   await pool.end();
 }
