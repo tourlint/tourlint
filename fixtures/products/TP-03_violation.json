@@ -9,8 +9,8 @@
     "startDate": "2026-10-13",
     "nights": 1,
     "transport": "CAR",
-    "targetKey": "20대",
-    "conceptKey": "감성",
+    "targetKey": "YOUTH_20S",
+    "conceptKey": "EMOTIONAL",
     "headCount": 12
   },
   "items": [
