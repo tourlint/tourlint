@@ -31,6 +31,22 @@ DATABASE_URL=postgres://postgres:test@localhost:55432/tourlint_test \
 **운영 DB 도 같은 명령으로 넣는다.** `DATABASE_URL` 만 Railway 것으로 바꾼다. 같은
 `(시도, 월)` 을 다시 넣으면 덮어쓰므로 여러 번 돌려도 된다.
 
+Railway 는 접속 URL 이 둘이다. **바깥에서 붙을 때는 공개 URL** 이어야 한다 —
+`*.railway.internal` 은 Railway 컨테이너 안에서만 풀린다.
+
+넣고 나서 확인한다.
+
+```bash
+DATABASE_URL=... node scripts/seed_climate_normal.mjs --check
+```
+
+```
+시도 2개 · 총 24행
+  시도 42  1991-2020  평균비율 0.310  출처: 기상청 기상자료개방포털 · 대표지점 강릉
+  시도 51  1991-2020  평균비율 0.310  출처: 기상청 기상자료개방포털 · 대표지점 강릉
+빠진 시도 18개는 R09 가 확인 불가로 남긴다.
+```
+
 그다음 테스트를 돌릴 때 접속 문자열을 준다.
 
 ```bash
