@@ -68,21 +68,30 @@ const BY_SIDO: Readonly<Record<string, MidLandRegionId>> = {
 
 const GANGWON_SIDO = new Set(['42', '51']);
 
-/**
- * 강원 영동에 속하는 시군구 (법정동 뒤 3자리).
- *
- * ⚠️ **태백(190)은 확인하지 못했다.** 기상청 세부 예보구역 코드가 `11D2`(영동) 접두를
- *    쓴다는 것이 근거인데, 중기육상예보 API 는 광역 구역만 받아서 호출로 확인할 방법이
- *    없었다. 태백을 잘못 넣으면 그 지역 상품의 강수확률이 통째로 다른 구역 값이 된다.
- */
+/** 강원 영동에 속하는 시군구 (법정동 뒤 3자리) */
 const YEONGDONG_SIGNGU = new Set([
   '150', // 강릉시
   '170', // 동해시
-  '190', // 태백시  ← 미확인
   '210', // 속초시
   '230', // 삼척시
   '820', // 고성군
   '830', // 양양군
+]);
+
+/**
+ * 영서 · 영동 어느 쪽인지 확정하지 못한 시군구.
+ *
+ * **태백(190)** — 태백산맥 위에 있어 지리로는 갈리지 않고, 기상청 중기예보 대상 9개
+ * 지점에 태백이 따로 있는데(속초 · 철원 · 대관령 · 춘천 · 강릉 · 원주 · 인제 · 홍천 ·
+ * 태백) 그 지점이 어느 광역 구역에 묶이는지는 공개된 화면에 없다. 정본은 공공데이터포털
+ * 「중기예보 조회서비스」 활용가이드 zip 안의 예보구역 코드표다.
+ *
+ * **찍지 않고 확인 불가로 둔다.** 둘 중 하나를 골라 넣으면 태백 상품의 강수확률이 통째로
+ * 다른 구역 값이 되는데, 그건 틀린 줄도 모르고 틀리는 쪽이다 (FR-RU-051 · 설계 원칙 3).
+ * 코드표를 확인하면 위 집합에 넣거나 빼는 것으로 끝난다.
+ */
+const GANGWON_UNCONFIRMED = new Set([
+  '190', // 태백시
 ]);
 
 /**
@@ -98,8 +107,8 @@ export function midLandRegionOf(ldongRegnCd: string | null, ldongSignguCd: strin
 
   if (GANGWON_SIDO.has(sido)) {
     const signgu = normalizeSigngu(sido, ldongSignguCd);
-    // 시군구를 모르면 영서·영동을 고를 근거가 없다
-    if (signgu === null) return null;
+    // 시군구를 모르거나 어느 쪽인지 확인하지 못한 곳은 고를 근거가 없다
+    if (signgu === null || GANGWON_UNCONFIRMED.has(signgu)) return null;
     return YEONGDONG_SIGNGU.has(signgu) ? MID_LAND_REGION.GANGWON_YEONGDONG : MID_LAND_REGION.GANGWON_YEONGSEO;
   }
 

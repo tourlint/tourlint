@@ -6,6 +6,7 @@ import type { IsoDate } from '../../engine/calendar/dates';
 import { ForecastMissingError, ForecastProviderError } from './kma.errors';
 import type { GridPoint } from './grid';
 import { MID_OFFSET_RANGE, midTargetDate, type MidPublication, type ShortPublication } from './publication';
+import type { MidLandRegionId } from './mid-region';
 
 /**
  * 기상청 예보 어댑터 (EI-WX-001 ~ 008).
@@ -198,8 +199,11 @@ export class KmaClient {
    * **발표 시각이 지난 발표분만 넘겨야 한다** (EI-WX-008). 발표 전 `tmFc` 를 물으면
    * 이전 발표분 값이 오류 없이 오고, 응답에 `tmFc` 가 없어서 구분할 방법이 없다.
    * 그 판단은 `chooseMidPublication` 이 한다.
+   *
+   * `regId` 는 광역 구역 10종만 받는다. 세부 구역 코드를 넣으면 오류가 아니라 **강수확률
+   * 0% 가 조용히** 온다 — 타입으로 막고 응답에서 한 번 더 본다 (`readMidLand`).
    */
-  async midLandRain(regId: string, publication: MidPublication): Promise<MidLandForecast> {
+  async midLandRain(regId: MidLandRegionId, publication: MidPublication): Promise<MidLandForecast> {
     const items = await this.call('getMidLandFcst', {
       pageNo: 1,
       numOfRows: 10,
@@ -381,6 +385,19 @@ export function readMidLand(
   const item = (items[0] ?? {}) as Record<string, unknown>;
   const range = MID_OFFSET_RANGE[publication.hour];
 
+  /*
+   * 광역 구역이 아닌 코드를 넣으면 `NO_DATA` 가 아니라 **`00 NORMAL_SERVICE` 에 전 필드 0**
+   * 이 온다 (2026.08.26 실측 — `regId=11D20301` 은 중기기온 지점 코드다). 그대로 읽으면
+   * 강수확률 0% 라 비 오는 날이 전부 정상 판정된다. 아무 데도 없는 코드(`ZZZZZZZZ`)는
+   * `NO_DATA` 로 제대로 떨어지므로, 위험한 것은 **존재하지만 육상 구역이 아닌** 코드다.
+   *
+   * 실제 예보에는 `wf*` 에 날씨 문자열이 있다. 하나도 없으면 예보구역으로 인식되지 않은 것이다.
+   * 판정에는 쓰지 않고 응답이 진짜인지 보는 데만 쓴다 (EI-WX-003 — 판정은 강수확률만).
+   */
+  if (!hasAnyWeatherText(item)) {
+    throw new ForecastMissingError('예보구역으로 인식되지 않은 응답 (전 항목이 빈 값)');
+  }
+
   const byDate = new Map<IsoDate, number>();
   for (let offset = range.from; offset <= range.to; offset++) {
     const values = offset >= 8
@@ -398,6 +415,11 @@ export function readMidLand(
 
   if (byDate.size === 0) throw new ForecastMissingError('응답에 rnSt 항목이 없다');
   return { tmFc: publication.tmFc, byDate };
+}
+
+/** `wf*` 중 하나라도 날씨 문자열이 있는가 */
+function hasAnyWeatherText(item: Record<string, unknown>): boolean {
+  return Object.entries(item).some(([k, v]) => k.startsWith('wf') && typeof v === 'string' && v.trim() !== '');
 }
 
 /** 기상청은 강수확률을 정수 퍼센트로 준다. 판정 임계치가 비율이라 여기서 맞춘다 */

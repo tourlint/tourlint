@@ -13,6 +13,12 @@ describe('중기 예보구역 매핑 (EI-WX-003)', () => {
     expect(midLandRegionOf('51', '110')).toBe(MID_LAND_REGION.GANGWON_YEONGSEO); // 춘천
   });
 
+  it('🔴 태백(190)은 영서 · 영동을 확인하지 못해 고르지 않는다', () => {
+    // 찍어 넣으면 태백 상품의 강수확률이 통째로 다른 구역 값이 된다 (FR-RU-051)
+    expect(midLandRegionOf('51', '190')).toBeNull();
+    expect(midLandRegionOf('42', '51190')).toBeNull();
+  });
+
   it('강원인데 시군구를 모르면 구역을 고르지 않는다', () => {
     expect(midLandRegionOf('51', null)).toBeNull();
     expect(midLandRegionOf('51', '')).toBeNull();
