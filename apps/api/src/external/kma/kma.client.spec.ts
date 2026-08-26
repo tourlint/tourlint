@@ -84,7 +84,10 @@ describe('기상청 어댑터 (EI-WX-001 ~ 008)', () => {
     it('강수확률을 퍼센트가 아니라 비율로 준다', () => {
       const f = readShortTerm(items('vilage_fcst.json'), SHORT_PUB);
       for (const slots of f.pop.values()) {
-        for (const v of slots.values()) expect(v).toBeGreaterThanOrEqual(0), expect(v).toBeLessThanOrEqual(1);
+        for (const v of slots.values()) {
+          expect(v).toBeGreaterThanOrEqual(0);
+          expect(v).toBeLessThanOrEqual(1);
+        }
       }
     });
 
