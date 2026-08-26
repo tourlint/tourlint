@@ -12,13 +12,22 @@ export class ProductRepository {
   constructor(private readonly pool: Pool) {}
 
   async findProduct(productId: number): Promise<ProductRow | null> {
-    const { rows } = await this.pool.query<{ id: string; start_date: Date | string; nights: number; transport: Transport }>(
-      `SELECT id, start_date, nights, transport FROM product WHERE id = $1`,
+    const { rows } = await this.pool.query<{
+      id: string; start_date: Date | string; nights: number; transport: Transport;
+      ldong_regn_cd: string | null; ldong_signgu_cd: string | null;
+    }>(
+      `SELECT id, start_date, nights, transport, ldong_regn_cd, ldong_signgu_cd
+         FROM product WHERE id = $1`,
       [productId],
     );
     const row = rows[0];
     if (row === undefined) return null;
-    return { id: Number(row.id), startDate: toIsoDate(row.start_date), nights: row.nights, transport: row.transport };
+    return {
+      id: Number(row.id), startDate: toIsoDate(row.start_date),
+      nights: row.nights, transport: row.transport,
+      // R09 중기 예보구역과 평년 테이블이 쓴다 (EI-WX-003 · 004)
+      ldongRegnCd: row.ldong_regn_cd, ldongSignguCd: row.ldong_signgu_cd,
+    };
   }
 
   async findItems(productId: number): Promise<readonly ItineraryItemRow[]> {

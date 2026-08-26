@@ -95,9 +95,10 @@ describe('기상청 어댑터 (EI-WX-001 ~ 008)', () => {
       const f = readShortTerm(items('vilage_fcst.json'), SHORT_PUB);
       const d3 = f.pop.get('2026-08-29');
       expect(d3?.has('2100')).toBe(true);
-      // 22시 이후 야외 일정은 이 발표분으로 판정할 수 없다 (FR-RU-091)
+      // 이 날은 3시간 간격이라 2100 칸이 21~24시를 뜻한다. 시각별 키는 그 사이가 비어 있고,
+      // 그 칸이 몇 시간을 덮는지는 규칙이 간격을 재서 판단한다 (FR-RU-091)
       expect(d3?.has('2200')).toBe(false);
-      expect(d3?.has('2300')).toBe(false);
+      expect(d3?.size).toBe(8);
     });
 
     it('🔴 다른 발표분이 오면 던진다 — 항목의 baseDate · baseTime 으로 확인한다 (EI-WX-008)', () => {

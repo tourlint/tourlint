@@ -2,7 +2,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
-import { AuditRunner, departureStamp, uniqueContentIds, type ItineraryItemRow, type ProductRow } from './audit-runner';
+import {
+  AuditRunner, departureStamp, uniqueContentIds,
+  type ClimateNormalLookup, type ItineraryItemRow, type ProductRow,
+} from './audit-runner';
+import { FixtureKmaTransport, KmaClient } from '../external/kma';
 import { RULESET_VERSION } from './rule-registry';
 
 /**
@@ -22,14 +26,25 @@ function runner(over: Partial<Parameters<typeof makeRunner>[0]> = {}): AuditRunn
   return makeRunner({ ...over });
 }
 
-function makeRunner(opts: { concurrency?: number; onProgress?: (d: number, t: number) => void }): AuditRunner {
+function makeRunner(opts: {
+  concurrency?: number;
+  onProgress?: (d: number, t: number) => void;
+  kma?: KmaClient;
+  climate?: ClimateNormalLookup;
+}): AuditRunner {
   return new AuditRunner({
     kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
     clock,
     concurrency: opts.concurrency,
     onProgress: opts.onProgress,
+    kma: opts.kma,
+    climate: opts.climate,
   });
 }
+
+const KMA_FIXTURES = join(__dirname, '../../../../fixtures/kma');
+const kmaClient = (): KmaClient =>
+  new KmaClient({ transport: new FixtureKmaTransport(KMA_FIXTURES), logger: new InMemoryApiCallLogger() });
 
 const product: ProductRow = { id: 31, startDate: '2026-10-13', nights: 1, transport: 'CAR' };
 
@@ -270,5 +285,60 @@ describe('출발시각 조립 (EI-KM-003)', () => {
 
   it('시각이 깨져 있으면 붙이지 않는다 — 지어낸 시각으로 부르지 않는다', () => {
     expect(departureStamp('2026-10-22', '13')).toBeNull();
+  });
+});
+
+describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
+  /** 강릉 좌표를 붙인 야외 항목. 격자 변환이 되어야 예보를 조회한다 */
+  const outdoor = (id: number, dayNo: number): ItineraryItemRow =>
+    item({ id, dayNo, seq: 1, placeLabel: '경포대', lclsSystm2: 'HS01', mapX: 128.8961, mapY: 37.7952 });
+
+  it('기상청 클라이언트가 없으면 확인 불가로 남는다 — 정상이 아니다', async () => {
+    const result = await runner().run(product, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('UNVERIFIED');
+    expect(f?.reasonCode).toBe('FORECAST_UNAVAILABLE');
+  });
+
+  it('🔴 좌표가 하나도 없으면 좌표 없음으로 남는다', async () => {
+    const result = await runner({ kma: kmaClient() }).run(product, [
+      item({ id: 1, dayNo: 1, seq: 1, lclsSystm2: 'HS01' }),
+    ]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.reasonCode).toBe('COORD_MISSING');
+  });
+
+  it('평년 테이블이 없으면 D+11 이상은 확인 불가다 (이슈 #7)', async () => {
+    // 검수 시각 2026-10-01, 출발 2026-10-13 → 전 일자가 D+11 이상이라 평년 경로다
+    const result = await runner({ kma: kmaClient() }).run(product, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('UNVERIFIED');
+    expect(f?.reasonCode).toBe('CLIMATE_DATA_MISSING');
+  });
+
+  it('평년 테이블이 있으면 그것으로 판정한다', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ kma: kmaClient(), climate }).run(withRegion, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.message).toContain('평년 기준 — 10월 강릉 강수일수 9.2일 (31%)');
+  });
+
+  it('일차마다 날짜가 다르므로 근거도 따로 잡힌다', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ kma: kmaClient(), climate }).run(withRegion, [outdoor(1, 1), outdoor(2, 2)]);
+
+    const dates = result.findings.filter((x) => x.ruleCode === 'R09').map((x) => x.evidence.date);
+    expect(dates).toEqual(['2026-10-13', '2026-10-14']);
   });
 });
