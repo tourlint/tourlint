@@ -18,6 +18,19 @@ docker cp db/schema.sql tourlint-test-pg:/tmp/schema.sql
 docker exec tourlint-test-pg psql -U postgres -d tourlint_test -v ON_ERROR_STOP=1 -f /tmp/schema.sql
 ```
 
+### 기준 데이터 시드
+
+스키마만 넣으면 `climate_normal` 이 비어 있고, R09 우천 리스크가 D+11 이상을 전부 확인
+불가로 판정한다 (EI-WX-004 · 이슈 #7). 원본과 절차는 `fixtures/climate/README.md`.
+
+```bash
+DATABASE_URL=postgres://postgres:test@localhost:55432/tourlint_test \
+  node scripts/seed_climate_normal.mjs "fixtures/climate/STCS_강수일수_MNH_강릉_1991-2020.csv"
+```
+
+**운영 DB 도 같은 명령으로 넣는다.** `DATABASE_URL` 만 Railway 것으로 바꾼다. 같은
+`(시도, 월)` 을 다시 넣으면 덮어쓰므로 여러 번 돌려도 된다.
+
 그다음 테스트를 돌릴 때 접속 문자열을 준다.
 
 ```bash
