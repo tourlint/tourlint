@@ -88,10 +88,13 @@ DB 테스트는 `TEST_DATABASE_URL=postgres://postgres:test@localhost:55432/tour
 
 ```bash
 LIVE_KTO=1 TEST_DATABASE_URL=... pnpm --filter @tourlint/api exec vitest run test/live-kto.smoke.spec.ts
+LIVE_KMA=1 pnpm --filter @tourlint/api exec vitest run test/live-kma.smoke.spec.ts
 ```
 
 리플레이가 드러내지 못하는 것만 본다 — 인증키가 실제로 통하는가, 실 응답 봉투가 아는
 모양인가, 픽스처를 뜬 이후 공사 데이터가 바뀌었는가.
+
+기상청은 공사와 예산이 별개지만 평소 검증은 마찬가지로 `KMA_MODE=fixture` 리플레이다.
 
 ## 리뷰
 
