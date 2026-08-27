@@ -2,8 +2,6 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query
 import { ApiTags } from '@nestjs/swagger';
 
 // ── 명세 5장 JSON 예시를 그대로 사용한다 (손으로 지어내지 않음) ──
-import productCreated from '../mocks/product_created.json';
-import productList from '../mocks/product_list.json';
 import contentsSearch from '../mocks/contents_search.json';
 import itemMatch from '../mocks/item_match.json';
 
@@ -17,22 +15,10 @@ import itemMatch from '../mocks/item_match.json';
 export class MockController {
   // ── 인증 (FR-CM-001~004) ── 실엔진(AuthController)으로 교체됨. mock 제거 (NF-CO-002)
 
-  // ── 상품 (F01) ──
-  @Get('products') listProducts(@Query('page') page = '0', @Query('size') size = '20') {
-    return { ...productList, page: Number(page), size: Number(size) };
-  }
-  @Post('products') @HttpCode(201) createProduct(@Body() b: any) {
-    const nights = Number(b?.nights ?? 0);
-    return { ...productCreated, name: b?.name ?? productCreated.name, nights, dayCount: nights + 1 };
-  }
-  @Get('products/:productId') getProduct(@Param('productId') id: string) {
-    return { ...(productList as any).content[0], productId: Number(id) };
-  }
-  @Patch('products/:productId') patchProduct(@Param('productId') id: string, @Body() b: any) { return { productId: Number(id), ...b }; }
-  @Delete('products/:productId') @HttpCode(204) delProduct() { return; }
+  // ── 상품 (F01) ── 목록·생성·조회·수정·삭제는 실엔진(ProductController)으로 교체됨. mock 제거 (NF-CO-002)
   @Post('products/:productId/release') release() { return { releasedAt: new Date().toISOString() }; }
 
-  // ── 일정 항목 (F01) ──
+  // ── 일정 항목 (F01) ── 개별 항목 CRUD·순서변경은 후속(등록은 상품 생성에 포함) ──
   @Get('products/:productId/items') items() { return { items: [] }; }
   @Post('products/:productId/items') @HttpCode(201) addItem(@Body() b: any) { return { itemId: 101, ...b }; }
   @Patch('items/:itemId') patchItem(@Param('itemId') id: string, @Body() b: any) { return { itemId: Number(id), ...b }; }
