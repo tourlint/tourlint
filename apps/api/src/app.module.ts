@@ -8,6 +8,7 @@ import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
 import { CatalogController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
+import { DemoController } from './demo/demo.controller';
 import { createKtoClient } from './external/kto';
 import { DB_POOL, getPool } from './persistence/db';
 import { PgApiCallLogger } from './persistence/api-call-log.repository';
@@ -33,7 +34,7 @@ import { UsageService } from './usage/usage.service';
   controllers: [
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
-    AuditController, UsageController,
+    AuditController, UsageController, DemoController,
     MockController,
   ],
   providers: [

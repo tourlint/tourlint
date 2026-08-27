@@ -520,12 +520,10 @@ VALUES ('sync_list', NULL);
 -- 전역 운영 설정 1행 (배치 시각 · 활성화 · 일일 호출 예산 — 전 계정 공통)
 INSERT INTO system_setting (key) VALUES ('global');
 
--- 심사용 테스트 계정 (PM-TA · NF-CO-005)
--- ⚠️ psql 직접 실행 시에는 아래를 주석 유지한다. :bcrypt_hash 는 psql 변수로 해석되어 오류가 난다.
---    비밀번호 2026openapi! 의 bcrypt 해시는 애플리케이션(회원가입 로직)에서 생성해 주입하며,
---    D0 단계에서는 계정 시드가 필요 없다. 이메일 도메인은 실서비스 도메인 확정 시 교체한다.
--- INSERT INTO account (email, password_hash, is_demo)
--- VALUES ('openapi@tourlint.example', '<bcrypt_hash>', TRUE);
+-- 심사용 테스트 계정 (PM-TA-001 · PM-TA-008 · NF-CO-005)
+-- 여기서 INSERT 하지 않는다. 계정은 애플리케이션 시드가 만든다 — `pnpm --filter api seed`.
+-- 자격증명은 소스·스키마에 넣지 않고 환경변수(DEMO_ACCOUNT_EMAIL · DEMO_ACCOUNT_PASSWORD)로
+-- 주입하며, 비밀번호는 회원가입과 같은 scrypt 해시로 저장한다 (apps/api/src/seed).
 
 -- 계정 생성 시 기본값 복제 (DR-CF-002)
 --   user_setting        1행
