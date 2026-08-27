@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Pool } from 'pg';
-import { SEVERITY, type Severity } from '@tourlint/shared';
+import { LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, type Severity } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { shortFingerprint } from '../engine/fingerprint';
 import { BudgetGuard } from '../external/budget-guard';
@@ -20,6 +20,7 @@ import {
 } from '../persistence/patch-application.repository';
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
 import { AuditRunner, type ItineraryItemRow } from './audit-runner';
+import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
 import { RULES, RULESET_VERSION } from './rule-registry';
 import type { AuditSettings } from '../engine/rules/types';
 import { applyPatches } from './patch-apply';
@@ -299,6 +300,40 @@ export class AuditService {
     }
   }
 
+  /**
+   * 전후 비교의 재료 (F10 · API 설계 5-9).
+   *
+   * 대상은 **되돌리지 않은 가장 최근 이력**이다. 되돌린 이력을 빼는 이유는 그 「적용 후
+   * 일정」이 더는 존재하지 않기 때문이다 — 지금 일정은 되돌아간 쪽이라, 오른쪽에 놓으면
+   * 있지도 않은 상태를 견주게 된다.
+   *
+   * 오른쪽(`after_audit_run_id`)이 비어 있으면 재검수가 아직 안 끝났거나 실패한 것이라
+   * 비교할 것이 없다 (EX-PA-004).
+   */
+  async getComparison(productId: number): Promise<{
+    application: StoredPatchApplication;
+    before: StoredAuditRun;
+    after: StoredAuditRun;
+  }> {
+    const application = await this.patchApplications.latestOf(productId);
+    if (application === null || application.revertedAt !== null) {
+      throw new DomainException(
+        HttpStatus.NOT_FOUND, 'NOT_FOUND',
+        '비교할 수정 이력이 없습니다. 수정안을 반영하면 전후를 견줄 수 있습니다.', 'REQUEST',
+      );
+    }
+
+    const before = await this.findRun(application.beforeAuditRunId);
+    const after = await this.findRun(application.afterAuditRunId);
+    if (before === null || after === null) {
+      throw new DomainException(
+        HttpStatus.NOT_FOUND, 'NOT_FOUND',
+        '반영 후 재검수가 아직 끝나지 않았습니다. 검수가 끝나면 전후를 견줄 수 있습니다.', 'REQUEST',
+      );
+    }
+    return { application, before, after };
+  }
+
   /** 그 상품의 검수 이력 (F13) */
   async listRuns(productId: number): Promise<readonly StoredAuditRun[]> {
     return this.results.runsOfProduct(productId);
@@ -532,6 +567,8 @@ export class AuditService {
         rulesetVersion: result.rulesetVersion,
         targetCount: result.targetCount,
         failedCount: result.failedCount,
+        // 실행 시점에 남기지 않으면 F10 이 영영 이 지표를 못 보여준다 (FR-RU-084)
+        travelTotals: result.travelTotals,
         findings: result.findings,
         fingerprints: result.fingerprints,
         weights: result.weights,
@@ -790,4 +827,129 @@ export function toRulesResponse(): Record<string, unknown> {
       basis: r.basis,
     })),
   };
+}
+
+/**
+ * 수정 전후 비교 (F10 · FR-PA-040 ~ 044 · API 설계 5-9).
+ *
+ * 지표는 명세가 정한 아홉이다 — 등급 4종 건수, 총 감점(계산식 포함), 출시 준비도,
+ * 총 이동시간 · 거리, 수요 적합성.
+ *
+ * **건수와 점수는 조회 시점 재계산값을 쓴다** (FR-AU-046). 무시 처리가 반영된 값이라
+ * 화면이 보는 것과 같다. `audit_run` 저장값은 실행 기록이라 건드리지 않는다.
+ *
+ * ⚠️ **준비도가 떨어졌어도 자동으로 되돌리지 않는다** (FR-PA-027 · EX-PA-005).
+ *    경고를 띄우고 되돌리기 수단을 준다 — 사용자가 고른 수정을 시스템이 무르지 않는다.
+ */
+export function toComparisonResponse(
+  application: StoredPatchApplication,
+  before: StoredAuditRun,
+  after: StoredAuditRun,
+): Record<string, unknown> {
+  const metrics: Record<string, unknown>[] = [
+    countMetric('blocker', '차단', before, after, 'BLOCKER'),
+    countMetric('error', '오류', before, after, 'ERROR'),
+    countMetric('warning', '주의', before, after, 'WARNING'),
+    countMetric('unverified', '확인 불가', before, after, 'UNVERIFIED'),
+    {
+      key: 'deduction', label: '총 감점',
+      before: deductionOf(before), after: deductionOf(after),
+      // 점수를 화면에서 검산할 수 있어야 한다 (FR-PA-041 · FR-AU-043)
+      formulaBefore: before.current.breakdown,
+      formulaAfter: after.current.breakdown,
+    },
+    {
+      key: 'readinessScore', label: '출시 준비도',
+      before: before.current.score, after: after.current.score,
+    },
+    ...travelMetrics(before, after),
+    targetFitMetric(before, after),
+  ];
+
+  return {
+    patchApplicationId: application.id,
+    before: { auditRunId: before.id, executedAt: before.executedAt.toISOString() },
+    after: { auditRunId: after.id, executedAt: after.executedAt.toISOString() },
+    metrics,
+    warningBanner: warningBannerOf(before, after),
+    // 되돌리기는 직전 1건까지다 (FR-PA-026). 이미 되돌린 이력은 여기 오지 않는다
+    revertible: application.revertedAt === null,
+  };
+}
+
+function countMetric(
+  key: string, label: string,
+  before: StoredAuditRun, after: StoredAuditRun, severity: Severity,
+): Record<string, unknown> {
+  return { key, label, before: before.current.counts[severity], after: after.current.counts[severity] };
+}
+
+/** 총 감점 = 100 − 준비도. 부분 검수는 점수가 없어 감점도 없다 (FR-AU-029) */
+function deductionOf(run: StoredAuditRun): number | null {
+  return run.current.score === null ? null : READINESS_SCORE_BASE - run.current.score;
+}
+
+/**
+ * 총 이동시간 · 거리 (FR-RU-084).
+ *
+ * **산출하지 않은 실행은 지표 자체를 내지 않는다.** 0 으로 채우면 「이동이 없었다」로
+ * 읽히고, 전후 한쪽만 0 이면 개선된 것처럼 보인다. 이 컬럼이 생기기 전 실행이 그렇다.
+ */
+function travelMetrics(before: StoredAuditRun, after: StoredAuditRun): Record<string, unknown>[] {
+  if (before.travelTotals === null || after.travelTotals === null) return [];
+  const badge = { sourceBadge: 'EXTERNAL_REF', externalSource: KAKAO_SOURCE };
+  return [
+    {
+      key: 'travelMinutes', label: '총 이동시간',
+      before: Math.round(before.travelTotals.durationSeconds / 60),
+      after: Math.round(after.travelTotals.durationSeconds / 60),
+      ...badge,
+    },
+    {
+      key: 'travelMeters', label: '총 이동거리',
+      before: before.travelTotals.distanceMeters, after: after.travelTotals.distanceMeters,
+      ...badge,
+    },
+  ];
+}
+
+/**
+ * 수요 적합성 — R10 결손 유형 (FR-PA-040).
+ *
+ * ⚠️ 판매량 · 시장 반응 · 흥행을 말하지 않는다 (FR-RU-104). R10 이 낸 문장을 그대로 옮긴다.
+ */
+function targetFitMetric(before: StoredAuditRun, after: StoredAuditRun): Record<string, unknown> {
+  return {
+    key: 'targetFit', label: '수요 적합성',
+    beforeText: targetFitText(before), afterText: targetFitText(after),
+  };
+}
+
+function targetFitText(run: StoredAuditRun): string {
+  const r10 = run.findings.find((f) => f.ruleCode === 'R10' && !f.dismissed);
+  if (r10 === undefined) return '결손 유형 없음';
+  const missing = r10.evidence.missingLcls2;
+  if (!Array.isArray(missing) || missing.length === 0) return r10.message;
+  return missing.map((code) => LCLS_SYSTM2[String(code)]?.name ?? String(code)).join(' · ') + ' 없음';
+}
+
+/**
+ * 나빠졌으면 경고한다 (FR-PA-027 · EX-PA-005).
+ *
+ * **자동 롤백하지 않는다.** 사용자가 고른 수정을 시스템이 무르면, 왜 되돌아갔는지
+ * 설명할 방법이 없고 사용자는 자기가 한 일이 반영됐는지조차 모른다.
+ */
+function warningBannerOf(before: StoredAuditRun, after: StoredAuditRun): string | null {
+  const blockerUp = after.current.counts.BLOCKER > before.current.counts.BLOCKER;
+  const scoreDown =
+    before.current.score !== null && after.current.score !== null &&
+    after.current.score < before.current.score;
+
+  if (blockerUp) {
+    return '수정 후 차단 항목이 늘었습니다. 되돌리거나 일정을 다시 확인해 주세요.';
+  }
+  if (scoreDown) {
+    return '수정 후 출시 준비도가 낮아졌습니다. 되돌리거나 일정을 다시 확인해 주세요.';
+  }
+  return null;
 }

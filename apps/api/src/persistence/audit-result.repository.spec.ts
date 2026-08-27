@@ -99,6 +99,7 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
       productId, executedAt: new Date('2026-10-01T09:00:00Z'), rulesetVersion: '1.0.0',
       targetCount, failedCount, findings, fingerprints: over.fingerprints ?? [fingerprint()],
       weights: SEVERITY_WEIGHT_DEFAULT,
+      travelTotals: over.travelTotals ?? { durationSeconds: 5_400, distanceMeters: 42_000 },
       score: calculateReadiness({
         findings: findings.map((f) => ({ ...f, dismissed: false })),
         targetCount, failedCount,

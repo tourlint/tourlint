@@ -42,6 +42,13 @@ export interface AuditResultToSave {
   /** 산출 시점 가중치. 설정 변경의 소급 적용을 막는다 (DR-CF-006) */
   readonly weights: Readonly<Record<Severity, number>>;
   readonly score: ScoreResult;
+  /**
+   * 상품 단위 총 이동시간 · 거리 (FR-RU-084 · F10 의 입력).
+   *
+   * **실행 시점에 남기지 않으면 영영 못 얻는다.** 외부 호출로만 나오는 값이고,
+   * `finding` 에는 부족한 구간만 남으며, 재계산하면 그때의 교통 상황으로 다른 값이 온다.
+   */
+  readonly travelTotals: { readonly durationSeconds: number; readonly distanceMeters: number };
 }
 
 export interface StoredFinding extends ScorableFinding {
@@ -70,6 +77,8 @@ export interface StoredAuditRun {
   readonly targetCount: number;
   readonly failedCount: number;
   readonly weights: Readonly<Record<Severity, number>>;
+  /** 산출하지 않은 실행은 `null` 이다. 0 과 다르다 — 0 은 「합이 0」이다 */
+  readonly travelTotals: { readonly durationSeconds: number; readonly distanceMeters: number } | null;
   readonly findings: readonly StoredFinding[];
   /** **조회 시점** 재계산 결과. 화면·리포트는 이 값을 쓴다 (FR-AU-046) */
   readonly current: ScoreResult;
@@ -98,7 +107,7 @@ export class AuditResultRepository {
   async findById(auditRunId: number): Promise<StoredAuditRun | null> {
     const run = await this.pool.query<AuditRunRow>(
       `SELECT id, product_id, executed_at, ruleset_version, readiness_score, is_partial,
-              target_count, failed_count, weight_snapshot
+              target_count, failed_count, weight_snapshot, travel_seconds, travel_meters
          FROM audit_run WHERE id = $1`,
       [auditRunId],
     );
@@ -118,6 +127,10 @@ export class AuditResultRepository {
       targetCount: row.target_count,
       failedCount: row.failed_count,
       weights,
+      // 컬럼이 생기기 전 실행은 NULL 이다. 0 으로 뭉개면 「이동이 없었다」로 읽힌다
+      travelTotals: row.travel_seconds === null || row.travel_meters === null
+        ? null
+        : { durationSeconds: Number(row.travel_seconds), distanceMeters: Number(row.travel_meters) },
       findings,
       // 저장값을 그대로 쓰지 않는다. 무시 상태가 바뀌었을 수 있다
       current: calculateReadiness({
@@ -273,8 +286,9 @@ async function insertAuditRun(client: Queryable, r: AuditResultToSave): Promise<
   const { rows } = await client.query<{ id: string }>(
     `INSERT INTO audit_run
        (product_id, executed_at, ruleset_version, readiness_score, is_partial,
-        target_count, failed_count, blocker_cnt, error_cnt, warn_cnt, unverified_cnt, weight_snapshot)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        target_count, failed_count, blocker_cnt, error_cnt, warn_cnt, unverified_cnt, weight_snapshot,
+        travel_seconds, travel_meters)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      RETURNING id`,
     [
       r.productId, r.executedAt, r.rulesetVersion,
@@ -283,6 +297,7 @@ async function insertAuditRun(client: Queryable, r: AuditResultToSave): Promise<
       // 저장하는 건수는 **전체**다. 무시는 저장 이후에 일어나고 조회 시점에 반영된다
       r.score.counts.BLOCKER, r.score.counts.ERROR, r.score.counts.WARNING, r.score.counts.UNVERIFIED,
       JSON.stringify(r.weights),
+      r.travelTotals.durationSeconds, r.travelTotals.distanceMeters,
     ],
   );
   const id = rows[0]?.id;
@@ -346,6 +361,8 @@ interface AuditRunRow {
   target_count: number;
   failed_count: number;
   weight_snapshot: Record<Severity, number>;
+  travel_seconds: number | null;
+  travel_meters: number | null;
 }
 
 interface PreviousFingerprintRow {

@@ -6,7 +6,6 @@ import productCreated from '../mocks/product_created.json';
 import productList from '../mocks/product_list.json';
 import contentsSearch from '../mocks/contents_search.json';
 import itemMatch from '../mocks/item_match.json';
-import comparison from '../mocks/comparison.json';
 
 /**
  * W1 전용 mock 컨트롤러 — API 명세 v1.4 계약의 응답 형태를 그대로 반환한다.
@@ -48,7 +47,6 @@ export class MockController {
   // ldong-codes · lcls-codes 는 실엔진(CatalogController)으로 교체됨. mock 제거 (NF-CO-002)
 
   // ── 패치 (F10 전후 비교만 남았다. F08 미리보기 · F09 확정 · 되돌리기는 실엔진이 가져갔다) ──
-  @Get('products/:productId/comparison') compare() { return comparison; }
 
   // ── 리포트 (F11) ──
   @Post('audit-runs/:runId/reports') @HttpCode(202) report() { return { reportId: 9001, status: 'QUEUED' }; }
