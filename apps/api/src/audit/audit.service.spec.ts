@@ -739,6 +739,15 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       }
     });
 
+    it('🔴 재검수가 아직 안 끝났으면 404 다 (EX-PA-004)', async () => {
+      await applyOnce();
+      const { application } = await service.getComparison(productId);
+      // 확정이 부른 재검수가 실패했거나 아직 안 끝난 상태를 만든다
+      await pool.query('UPDATE patch_application SET after_audit_run_id = NULL WHERE id = $1', [application.id]);
+
+      await expect(service.getComparison(productId)).rejects.toMatchObject({ reasonCode: 'NOT_FOUND' });
+    });
+
     it('되돌린 이력은 비교 대상이 아니다 — 그 일정이 더는 없다', async () => {
       await applyOnce();
       const { application } = await service.getComparison(productId);
