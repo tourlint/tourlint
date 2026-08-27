@@ -52,21 +52,35 @@ export class NotificationRepository {
   /**
    * 조건 1 후보 — 그 콘텐츠를 일정에 넣은 상품 (FR-MO-030 ①).
    *
+   * **콘텐츠 여러 개를 한 번에 묻는다.** 하루 변경이 177건이라 하나씩 물으면 그만큼
+   * 왕복한다. `kto_content_id` 로 묶어 돌려준다.
+   *
    * **출발일이 지난 상품은 뺀다** (FR-MO-018). 이미 다녀온 일정에 알림을 보내도 할 수
    * 있는 게 없다. 수동 재검수는 계속 되므로 감시에서만 빠진다.
    */
-  async productsWithContent(contentId: string, today: IsoDate): Promise<readonly ImpactCandidate[]> {
-    const { rows } = await this.pool.query<CandidateRow>(
-      `SELECT DISTINCT p.id, p.start_date, p.nights, p.ldong_signgu_cd
+  async productsWithContents(
+    contentIds: readonly string[],
+    today: IsoDate,
+  ): Promise<ReadonlyMap<string, readonly ImpactCandidate[]>> {
+    const out = new Map<string, ImpactCandidate[]>();
+    if (contentIds.length === 0) return out;
+
+    const { rows } = await this.pool.query<CandidateRow & { kto_content_id: string }>(
+      `SELECT DISTINCT i.kto_content_id, p.id, p.start_date, p.nights, p.ldong_signgu_cd
          FROM product p
          JOIN itinerary_item i ON i.product_id = p.id
-        WHERE i.kto_content_id = $1
+        WHERE i.kto_content_id = ANY($1::text[])
           AND i.match_status = 'CONFIRMED'
           AND p.start_date + p.nights >= $2::date
-        ORDER BY p.id`,
-      [contentId, today],
+        ORDER BY i.kto_content_id, p.id`,
+      [[...new Set(contentIds)], today],
     );
-    return rows.map(toCandidate);
+    for (const row of rows) {
+      const list = out.get(row.kto_content_id) ?? [];
+      list.push(toCandidate(row));
+      out.set(row.kto_content_id, list);
+    }
+    return out;
   }
 
   /** 조건 2 · 3 후보 — 감시 대상인 상품 전부. 날짜 · 지역 판정은 `ImpactFinder` 가 한다 */

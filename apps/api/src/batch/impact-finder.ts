@@ -42,12 +42,21 @@ export interface ImpactCandidate {
   readonly ldongSignguCd: string | null;
 }
 
-/** 변경된 콘텐츠 하나에 붙는 부가 정보. 러너가 상세 조회로 채운다 */
+/** 행사 개최 기간. 한쪽이라도 모르면 조건 3 은 판정하지 않는다 */
+export interface EventPeriod {
+  readonly start: IsoDate | null;
+  readonly end: IsoDate | null;
+}
+
+/**
+ * 변경된 콘텐츠 하나에 붙는 부가 정보.
+ *
+ * 시군구는 `SyncedContent` 에 있다 — 동기화 목록이 이미 준다. 여기 남는 것은 상세
+ * 재호출이 있어야 아는 것뿐이다.
+ */
 export interface ChangedContent extends SyncedContent {
   /** 행사(15) 개최 기간. 그 밖의 유형은 null */
-  readonly eventPeriod: { readonly start: IsoDate | null; readonly end: IsoDate | null } | null;
-  /** 그 콘텐츠의 시군구. 조건 2 가 쓴다 */
-  readonly ldongSignguCd: string | null;
+  readonly eventPeriod: EventPeriod | null;
   /** 직전 지문 → 지금 지문. 같은 변경을 두 번 알리지 않는 근거다 (FR-MO-036) */
   readonly hashFrom: string | null;
   readonly hashTo: string | null;

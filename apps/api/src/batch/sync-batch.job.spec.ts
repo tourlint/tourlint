@@ -3,8 +3,8 @@ import type { KtoClient } from '../external/kto';
 import { KtoFetchError } from '../external/kto/kto.errors';
 import type { BatchState, BatchStateRepository, BatchStatus, SystemSetting } from '../persistence/batch-state.repository';
 import type { NotificationRepository, NotificationToSave } from '../persistence/notification.repository';
-import type { ChangedContent, ImpactCandidate } from './impact-finder';
-import { SyncBatchJob, toSyncedContent } from './sync-batch.job';
+import type { EventPeriod, ImpactCandidate } from './impact-finder';
+import { SyncBatchJob, toEventPeriod, toSyncedContent } from './sync-batch.job';
 
 /** 한국 시간 문자열을 Date 로 */
 const kst = (iso: string): Date => new Date(`${iso}+09:00`);
@@ -13,6 +13,7 @@ const kst = (iso: string): Date => new Date(`${iso}+09:00`);
 const item = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   contentid: '2541883', contenttypeid: '15', modifiedtime: '20260819131329',
   showflag: '1', createdtime: '20220913132227',
+  lDongRegnCd: '51', lDongSignguCd: '150',
   // 공사 원문. 우리가 담지 않아야 하는 것들이다
   title: '강릉 국가유산야행', addr1: '강원특별자치도 강릉시', firstimage: 'http://x/y.jpg',
   ...over,
@@ -61,7 +62,7 @@ const job = (
     now?: string;
     hasBudget?: () => boolean;
     notifications?: NotificationRepository;
-    enrich?: (c: readonly { contentId: string }[]) => Promise<readonly ChangedContent[]>;
+    eventPeriod?: (contentId: string) => Promise<EventPeriod | null>;
     requestAudit?: (productId: number) => Promise<void>;
   } = {},
 ): SyncBatchJob =>
@@ -70,7 +71,7 @@ const job = (
     clock: () => kst(over.now ?? '2026-08-27T05:00:00'),
     hasBudget: over.hasBudget,
     notifications: over.notifications,
-    enrich: over.enrich as never,
+    eventPeriod: over.eventPeriod,
     requestAudit: over.requestAudit,
   });
 
@@ -86,9 +87,16 @@ function stubNotifications(spec: {
   const saved: NotificationToSave[] = [];
   const lookups: string[] = [];
   const repo = {
-    productsWithContent: async (contentId: string): Promise<readonly ImpactCandidate[]> => {
-      lookups.push(contentId);
-      return spec.withContent?.[contentId] ?? [];
+    productsWithContents: async (
+      contentIds: readonly string[],
+    ): Promise<ReadonlyMap<string, readonly ImpactCandidate[]>> => {
+      lookups.push(...contentIds);
+      const out = new Map<string, readonly ImpactCandidate[]>();
+      for (const id of contentIds) {
+        const found = spec.withContent?.[id];
+        if (found !== undefined && found.length > 0) out.set(id, found);
+      }
+      return out;
     },
     watchedProducts: async (): Promise<readonly ImpactCandidate[]> => spec.watched ?? [],
     insertMany: async (items: readonly NotificationToSave[]): Promise<number> => {
@@ -223,13 +231,28 @@ describe('예산 (FR-OP-002)', () => {
 
 describe('응답 해석 (FR-MO-002 · 012)', () => {
   it('🔴 공사 원문을 담지 않는다', () => {
-    // 담으면 그대로 로그와 알림으로 새어 나간다 (DB 명세서 6-4)
+    /*
+     * 담으면 그대로 로그와 알림으로 새어 나간다 (DB 명세서 6-4).
+     *
+     * **허용 목록으로 본다.** 응답에 필드가 늘거나 우리가 하나를 더 담으면 여기가 걸린다 —
+     * 늘릴 때마다 그게 코드인지 원문인지 판단하게 하려는 검사다. 법정동 코드는 코드라
+     * 담아도 되고, `title` · `addr1` · `firstimage` 는 원문이라 안 된다.
+     */
     const parsed = toSyncedContent(item());
     expect(Object.keys(parsed).sort()).toEqual(
-      ['contentId', 'contentTypeId', 'createdTime', 'modifiedTime', 'showFlag'],
+      ['contentId', 'contentTypeId', 'createdTime', 'ldongRegnCd', 'ldongSignguCd', 'modifiedTime', 'showFlag'],
     );
-    expect(JSON.stringify(parsed)).not.toContain('강릉 국가유산야행');
-    expect(JSON.stringify(parsed)).not.toContain('firstimage');
+    for (const leak of ['강릉 국가유산야행', '강원특별자치도', 'firstimage', 'tel', 'zipcode']) {
+      expect(JSON.stringify(parsed), leak).not.toContain(leak);
+    }
+  });
+
+  it('🔴 법정동 코드가 비면 없는 것으로 읽는다', () => {
+    // 실측에서 `areacode` · `sigungucode` 가 빈 문자열로 온다. `'' === ''` 로 묶이면
+    // 지역을 모르는 것들이 서로 같은 지역인 셈이 돼 조건 2 가 엉뚱하게 걸린다
+    const parsed = toSyncedContent(item({ lDongRegnCd: '', lDongSignguCd: '  ' }));
+    expect(parsed.ldongRegnCd).toBeNull();
+    expect(parsed.ldongSignguCd).toBeNull();
   });
 
   it('🔴 비표출을 같은 응답에서 읽는다 — 별도 조회를 하지 않는다', async () => {
@@ -252,65 +275,125 @@ describe('응답 해석 (FR-MO-002 · 012)', () => {
 describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
   const oneChange = { '20260826': [item({ contentid: '125790' })] };
 
-  it('🔴 등록 상품에 든 것만 본다 — 전부 부르면 예산이 그것으로 끝난다', async () => {
+  it('🔴 상세 재호출은 행사에만 건다 — 시군구는 목록에 이미 있다', async () => {
+    /*
+     * 조건 2 의 시군구는 `areaBasedSyncList2` 응답에 `lDongSignguCd` 로 들어 있다 (실측).
+     * 이걸 모르고 상세를 부르면 하루 177콜, 예산 800건의 22% 가 여기서 나간다.
+     * 기간이 있어야 아는 것은 행사(15)뿐이다.
+     */
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
     const { kto } = stubKto({
-      '20260826': [item({ contentid: '1' }), item({ contentid: '2' }), item({ contentid: '3' })],
+      '20260826': [
+        item({ contentid: '1', contenttypeid: '12' }),
+        item({ contentid: '2', contenttypeid: '15' }),
+        item({ contentid: '3', contenttypeid: '39' }),
+      ],
     });
-    const notif = stubNotifications({ withContent: { '2': [candidate({ productId: 7 })] } });
+    const notif = stubNotifications({ watched: [candidate({ productId: 7 })] });
 
-    const enriched: string[] = [];
-    const result = await job(kto, state, {
+    const fetched: string[] = [];
+    await job(kto, state, {
       notifications: notif.repo,
-      enrich: async (cs) => {
-        enriched.push(...cs.map((c) => c.contentId));
-        return cs.map((c) => ({ ...(c as ChangedContent), eventPeriod: null, ldongSignguCd: null, hashFrom: null, hashTo: null }));
-      },
+      eventPeriod: async (id) => { fetched.push(id); return null; },
     }).run();
 
-    // 셋 다 조회는 하되 상세 재호출은 등록된 하나만
-    expect(notif.lookups).toEqual(['1', '2', '3']);
-    expect(enriched).toEqual(['2']);
-    expect(result.impacts).toEqual([{ productId: 7, condition: 1, kind: 'RISK' }]);
+    expect(fetched).toEqual(['2']);
   });
 
-  it('등록 상품에 하나도 없으면 상세를 부르지 않는다', async () => {
+  it('🔴 조건 2 는 상세 재호출 없이 걸린다', async () => {
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
-    const { kto } = stubKto(oneChange);
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'x', contenttypeid: '12', lDongSignguCd: '150' })] });
+    const notif = stubNotifications({ watched: [candidate({ productId: 9, ldongSignguCd: '150' })] });
+
+    // eventPeriod 를 안 넘긴다 — 그래도 조건 2 는 걸려야 한다
+    const result = await job(kto, state, { notifications: notif.repo }).run();
+    expect(result.impacts).toEqual([{ productId: 9, condition: 2, kind: 'RISK' }]);
+  });
+
+  it('🔴 조건 3 은 가져온 행사기간으로 걸린다', async () => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    // 시군구를 어긋나게 둬서 조건 2 가 아니라 조건 3 으로 걸리는 것을 본다
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'f', contenttypeid: '15', lDongSignguCd: '110' })] });
+    const notif = stubNotifications({
+      watched: [candidate({ productId: 9, ldongSignguCd: '150', startDate: '2026-09-10', nights: 1 })],
+    });
+
+    const result = await job(kto, state, {
+      notifications: notif.repo,
+      eventPeriod: async () => ({ start: '2026-09-05', end: '2026-09-15' }),
+    }).run();
+
+    expect(result.impacts).toEqual([{ productId: 9, condition: 3, kind: 'RISK' }]);
+  });
+
+  it('🔴 감시 중인 상품이 없으면 행사기간을 안 부른다', async () => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': [item({ contenttypeid: '15' })] });
     const notif = stubNotifications();
     let called = false;
 
     const result = await job(kto, state, {
       notifications: notif.repo,
-      enrich: async (cs) => { called = true; return cs as never; },
+      eventPeriod: async () => { called = true; return null; },
     }).run();
 
     expect(called).toBe(false);
     expect(result.impacts).toEqual([]);
-    expect(result.notified).toBe(0);
+  });
+
+  it('🔴 예산이 떨어지면 남은 행사를 안 부른다', async () => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({
+      '20260826': [item({ contentid: 'f1', contenttypeid: '15' }), item({ contentid: 'f2', contenttypeid: '15' })],
+    });
+    const notif = stubNotifications({ watched: [candidate({ productId: 9 })] });
+
+    // 1단계 한 콜 + 행사 한 건까지만 허용한다
+    let left = 2;
+    const fetched: string[] = [];
+    await job(kto, state, {
+      notifications: notif.repo,
+      hasBudget: () => left-- > 0,
+      eventPeriod: async (id) => { fetched.push(id); return null; },
+    }).run();
+
+    expect(fetched).toEqual(['f1']);
+  });
+
+  it('행사 한 건이 실패해도 나머지를 본다', async () => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({
+      '20260826': [item({ contentid: 'f1', contenttypeid: '15' }), item({ contentid: 'f2', contenttypeid: '15' })],
+    });
+    const notif = stubNotifications({ watched: [candidate({ productId: 9 })] });
+
+    const fetched: string[] = [];
+    await job(kto, state, {
+      notifications: notif.repo,
+      eventPeriod: async (id) => {
+        fetched.push(id);
+        if (id === 'f1') throw new Error('상세 조회 실패');
+        return null;
+      },
+    }).run();
+
+    expect(fetched).toEqual(['f1', 'f2']);
   });
 
   it('🔴 알림 본문에 공사 원문이 없다 (FR-MO-002)', async () => {
     /*
-     * 상세 조회(`enrich`)가 원문을 달고 와도 본문에 담지 않는다. 필요한 필드만 골라
-     * 담아야 한다 — 통째로 펼치면 알림 테이블에 원문이 남는다 (DB 명세서 6-4).
+     * 동기화 목록 항목에 `title` · `addr1` · `firstimage` 가 실려 온다. 필요한 필드만
+     * 골라 담아야 한다 — 통째로 펼치면 알림 테이블에 원문이 남는다 (DB 명세서 6-4).
      */
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
     const { kto } = stubKto(oneChange);
     const notif = stubNotifications({ withContent: { '125790': [candidate({ productId: 7 })] } });
 
-    await job(kto, state, {
-      notifications: notif.repo,
-      enrich: async (cs) => cs.map((c) => ({
-        ...(c as ChangedContent), eventPeriod: null, ldongSignguCd: null, hashFrom: null, hashTo: null,
-        // 상세 조회가 달고 오는 원문들
-        title: '강릉 국가유산야행', addr1: '강원특별자치도 강릉시', overview: '야간 개장 행사입니다',
-      } as never)),
-    }).run();
+    await job(kto, state, { notifications: notif.repo }).run();
 
     expect(notif.saved).toHaveLength(1);
     const serialized = JSON.stringify(notif.saved[0]);
-    for (const leak of ['강릉 국가유산야행', '강원특별자치도', '야간 개장', 'addr1', 'overview', 'title']) {
+    for (const leak of ['강릉 국가유산야행', '강원특별자치도', 'addr1', 'firstimage', 'title']) {
       expect(serialized, leak).not.toContain(leak);
     }
   });
@@ -337,9 +420,6 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     const result = await job(kto, state, {
       notifications: notif.repo,
       requestAudit: async (id) => { audited.push(id); },
-      enrich: async (cs) => cs.map((c) => ({
-        ...(c as ChangedContent), eventPeriod: null, ldongSignguCd: '150', hashFrom: null, hashTo: null,
-      })),
     }).run();
 
     expect(result.impacts.map((i) => [i.productId, i.condition])).toEqual([[7, 1], [9, 2]]);
@@ -351,7 +431,7 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     const { repo: state, recorded } = stubState({ lastCovered: '2026-08-25' });
     const { kto } = stubKto(oneChange);
     const broken = {
-      productsWithContent: async (): Promise<never> => { throw new Error('DB 끊김'); },
+      productsWithContents: async (): Promise<never> => { throw new Error('DB 끊김'); },
       watchedProducts: async () => [],
       insertMany: async () => 0,
     } as unknown as NotificationRepository;
@@ -391,5 +471,30 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
 
     expect(result.contents).toHaveLength(1);
     expect(result.impacts).toEqual([]);
+  });
+});
+
+describe('행사 개최 기간 해석 (조건 3)', () => {
+  it('YYYYMMDD 를 ISO 로 읽는다', () => {
+    // 실제 픽스처 값 (type15_695592)
+    expect(toEventPeriod({ eventstartdate: '20260404', eventenddate: '20260411' }))
+      .toEqual({ start: '2026-04-04', end: '2026-04-11' });
+  });
+
+  it('🔴 한쪽이라도 없으면 판정하지 않는다', () => {
+    /*
+     * 기간 결측을 「안 겹친다」로 읽지 않는다. 모르는 것을 근거로 알리지 않을 뿐,
+     * 겹치지 않는다고 말하지도 않는다 (FR-RU-051 과 같은 취지).
+     */
+    expect(toEventPeriod({ eventstartdate: '20260404', eventenddate: '' })).toBeNull();
+    expect(toEventPeriod({ eventenddate: '20260411' })).toBeNull();
+    expect(toEventPeriod({})).toBeNull();
+  });
+
+  it('🔴 날짜가 아닌 8자리를 날짜로 받아들이지 않는다', () => {
+    // 자릿수만 보면 20261352 가 통과해 「2026-13-52 부터」라는 기간이 생긴다
+    expect(toEventPeriod({ eventstartdate: '20261352', eventenddate: '20261353' })).toBeNull();
+    expect(toEventPeriod({ eventstartdate: '20260230', eventenddate: '20260301' })).toBeNull();
+    expect(toEventPeriod({ eventstartdate: '2026-04-04', eventenddate: '2026-04-11' })).toBeNull();
   });
 });
