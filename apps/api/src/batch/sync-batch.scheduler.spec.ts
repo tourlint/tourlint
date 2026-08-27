@@ -181,10 +181,44 @@ describe('주말과 활성화 여부는 여기서 안 본다', () => {
      * 두 곳에서 판단하면 한쪽만 고칠 때 조용히 어긋난다. `run()` 이 이미 주말 · 비활성을
      * 보고 이유를 남긴다.
      */
-    const skipped: SyncBatchResult = { ...RESULT, dates: [], covered: null, calls: 0, skippedReason: '주말이다' };
+    const skipped: SyncBatchResult = { ...RESULT, dates: [], covered: null, calls: 0, skippedReason: 'WEEKEND' };
     const s = stub({ run: async () => skipped });
     await s.at('2026-08-29T05:00:00'); // 토요일
     expect(s.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 주말은 하루를 쓴 것으로 친다 — 1분마다 다시 부르지 않는다', async () => {
+    const skipped: SyncBatchResult = { ...RESULT, dates: [], covered: null, calls: 0, skippedReason: 'WEEKEND' };
+    const s = stub({ run: async () => skipped });
+    await s.at('2026-08-29T05:00:00');
+    await s.at('2026-08-29T05:01:00');
+    await s.at('2026-08-29T14:00:00');
+    expect(s.run).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('꺼져 있는 동안은 하루를 쓰지 않는다', () => {
+  const disabled: SyncBatchResult = { ...RESULT, dates: [], covered: null, calls: 0, skippedReason: 'DISABLED' };
+
+  it('🔴 낮에 켜면 그날 안에 돈다', async () => {
+    /*
+     * 꺼짐은 설정 한 번으로 바뀐다. 이걸 하루 쓴 것으로 치면 켠 뒤 다음 날 새벽까지
+     * 아무 일도 안 일어나고, 그 사이에는 고장인지 아닌지 알 방법이 없다.
+     */
+    let enabled = false;
+    const s = stub({ run: async () => (enabled ? RESULT : disabled) });
+
+    await s.at('2026-08-27T05:00:00');
+    await s.at('2026-08-27T09:00:00');
+    expect(s.run).toHaveBeenCalledTimes(2); // 계속 다시 본다
+
+    enabled = true;
+    await s.at('2026-08-27T14:00:00');
+    expect(s.run).toHaveBeenCalledTimes(3);
+
+    // 돈 뒤로는 그날 다시 안 돈다
+    await s.at('2026-08-27T14:01:00');
+    expect(s.run).toHaveBeenCalledTimes(3);
   });
 });
 

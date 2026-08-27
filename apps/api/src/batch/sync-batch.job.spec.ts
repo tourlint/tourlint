@@ -105,7 +105,7 @@ describe('실행 조건 (FR-MO-010)', () => {
     const { kto, calls } = stubKto({});
     const result = await job(kto, repo).run();
 
-    expect(result.skippedReason).toBe('배치가 꺼져 있다');
+    expect(result.skippedReason).toBe('DISABLED');
     expect(calls).toHaveLength(0);
     // 건너뛴 것은 실행이 아니다. 상태를 건드리지 않는다
     expect(recorded).toHaveLength(0);
@@ -117,14 +117,14 @@ describe('실행 조건 (FR-MO-010)', () => {
     // 2026-08-29 는 토요일
     const result = await job(kto, repo, { now: '2026-08-29T05:00:00' }).run();
 
-    expect(result.skippedReason).toBe('주말이다');
+    expect(result.skippedReason).toBe('WEEKEND');
     expect(calls).toHaveLength(0);
   });
 
   it('처리할 날짜가 없으면 부르지 않는다', async () => {
     const { repo } = stubState({ lastCovered: '2026-08-26' });
     const { kto, calls } = stubKto({});
-    expect((await job(kto, repo).run()).skippedReason).toBe('처리할 날짜가 없다');
+    expect((await job(kto, repo).run()).skippedReason).toBe('NO_DATES');
     expect(calls).toHaveLength(0);
   });
 });
