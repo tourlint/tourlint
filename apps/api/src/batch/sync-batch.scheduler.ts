@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { IsoDate } from '../engine/calendar/dates';
 import type { BatchStateRepository } from '../persistence/batch-state.repository';
-import type { SyncBatchJob } from './sync-batch.job';
+import type { SkipReason, SyncBatchJob } from './sync-batch.job';
 import { kstMinutesOfDay, kstToday, minutesOfDay } from './sync-window';
 
 /**
@@ -22,7 +22,9 @@ import { kstMinutesOfDay, kstToday, minutesOfDay } from './sync-window';
  * ## 주말 · 활성화 여부는 여기서 안 본다
  *
  * `SyncBatchJob.run()` 이 이미 판단하고 이유를 남긴다. 두 곳에서 보면 한쪽만 고칠 때
- * 조용히 어긋난다.
+ * 조용히 어긋난다. 다만 **꺼져 있어서 안 돈 날은 하루를 쓴 것으로 치지 않는다** — 설정
+ * 한 번으로 바뀌는 조건이라, 낮에 켠 것이 다음 날 새벽까지 아무 일도 안 하면 고장으로
+ * 보인다.
  *
  * ⚠️ **인스턴스가 둘이면 둘 다 돈다.** 같은 분에 깨어나 같은 `last_covered` 를 보고 같은
  *    날짜를 두 번 조회한다. 지금 Railway 는 1개로 띄운다 — 늘릴 때 잠금이 필요하다.
@@ -44,6 +46,8 @@ export class SyncBatchScheduler {
   private lastFired: IsoDate | null = null;
   /** 앞 실행이 아직 도는 중. 14일치 순회 + 상세 재호출은 1분을 넘길 수 있다 */
   private running = false;
+  /** 같은 이유로 계속 건너뛰는 중. 1분마다 같은 줄을 남기지 않으려고 들고 있는다 */
+  private muted: SkipReason | null = null;
 
   constructor(options: SyncBatchSchedulerOptions) {
     this.job = options.job;
@@ -66,9 +70,21 @@ export class SyncBatchScheduler {
     this.running = true;
     try {
       const result = await this.job.run();
+
+      if (result.skippedReason === 'DISABLED') {
+        // 켜면 다음 분에 돈다. 재배포를 기다리게 하지 않는다
+        if (this.muted !== 'DISABLED') {
+          this.logger.log('배치가 꺼져 있다. 켜면 1분 안에 돈다');
+          this.muted = 'DISABLED';
+        }
+        return;
+      }
+      this.muted = null;
+
       /*
-       * **결과와 무관하게 오늘은 걸었다.** 실패한 날짜는 `last_covered` 가 안 올라가
-       * 내일 배치가 다시 본다 — 여기서 재시도하면 같은 실패를 1분마다 반복한다.
+       * **여기서부터는 결과와 무관하게 오늘을 썼다.** 주말과 「볼 날짜 없음」은 그날 안에
+       * 안 바뀌고, 실패한 날짜는 `last_covered` 가 안 올라가 내일 배치가 다시 본다 —
+       * 여기서 재시도하면 같은 실패를 1분마다 반복한다.
        */
       this.lastFired = today;
       this.logger.log(

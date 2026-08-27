@@ -37,6 +37,21 @@ export interface SyncedContent {
   readonly createdTime: string;
 }
 
+/**
+ * 안 돈 이유.
+ *
+ * 문자열이 아니라 코드다 — 스케줄러가 `DISABLED` 만 다르게 다룬다. 주말과 「볼 날짜 없음」은
+ * 그날 안에 안 바뀌지만 **꺼짐은 설정 한 번으로 바뀐다.**
+ */
+export const SKIP_REASON = ['DISABLED', 'WEEKEND', 'NO_DATES'] as const;
+export type SkipReason = (typeof SKIP_REASON)[number];
+
+const SKIP_MESSAGE: Readonly<Record<SkipReason, string>> = {
+  DISABLED: '배치가 꺼져 있다',
+  WEEKEND: '주말이다',
+  NO_DATES: '처리할 날짜가 없다',
+};
+
 export interface SyncBatchResult {
   readonly status: BatchStatus;
   /** 실제로 조회한 날짜들 */
@@ -45,7 +60,7 @@ export interface SyncBatchResult {
   /** 성공해서 `last_covered` 를 여기까지 올렸다. 안 올렸으면 null */
   readonly covered: string | null;
   readonly calls: number;
-  readonly skippedReason: string | null;
+  readonly skippedReason: SkipReason | null;
   /** 2단계에서 영향받는 것으로 판정한 상품들 */
   readonly impacts: readonly Impact[];
   /** 실제로 넣은 알림 수. 같은 변경을 다시 넣지 않으므로 `impacts` 보다 적을 수 있다 */
@@ -107,13 +122,13 @@ export class SyncBatchJob {
     const now = this.clock();
     const setting = await this.state.setting();
 
-    if (!setting.batchEnabled) return this.skip('배치가 꺼져 있다');
+    if (!setting.batchEnabled) return this.skip('DISABLED');
     // 주말 분은 월요일 배치가 날짜를 순회하며 함께 가져간다 (FR-MO-010)
-    if (isWeekend(now)) return this.skip('주말이다');
+    if (isWeekend(now)) return this.skip('WEEKEND');
 
     const previous = await this.state.find();
     const dates = pendingDates(previous.lastCovered, now);
-    if (dates.length === 0) return this.skip('처리할 날짜가 없다');
+    if (dates.length === 0) return this.skip('NO_DATES');
 
     return this.walk(dates, previous, now);
   }
@@ -249,8 +264,8 @@ export class SyncBatchJob {
     }
   }
 
-  private skip(reason: string): SyncBatchResult {
-    this.logger.log(`배치를 건너뛴다 — ${reason}`);
+  private skip(reason: SkipReason): SyncBatchResult {
+    this.logger.log(`배치를 건너뛴다 — ${SKIP_MESSAGE[reason]}`);
     // 건너뛴 것은 실행이 아니다. 상태를 건드리지 않는다
     return { status: 'OK', dates: [], contents: [], covered: null, calls: 0, skippedReason: reason, impacts: [], notified: 0 };
   }
