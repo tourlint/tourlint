@@ -112,9 +112,28 @@ describe('대상 제외', () => {
 
   it('규칙 메타는 계약이다', () => {
     expect(rule.code).toBe('R06');
-    expect(rule.defaultSeverity).toBe('BLOCKER');
+    /*
+     * **기본 등급이 없다.** 이 규칙만 등급이 하나로 정해지지 않는다 — 비표출 전환은
+     * 차단이고 정규화 없이 변경만 감지한 것은 확인 불가다 (API 설계 5-10).
+     * `BLOCKER` 로 적어 뒀던 것을 규칙 목록 응답을 만들며 바로잡았다.
+     */
+    expect(rule.defaultSeverity).toBeNull();
     // 지문 비교는 러너가 끝내고 넘긴다. 규칙은 외부를 부르지 않는다
     expect(rule.requiresExternal).toBe(false);
+    expect(rule.basis).toBe('KTO_ONLY');
+  });
+
+  it('🔴 실제로 두 등급을 낸다 — 기본 등급이 null 인 근거다', () => {
+    // 비표출 전환은 차단
+    const hidden = evaluate(compareFingerprint(snap(), snap({ showFlag: 0 })));
+    expect(hidden[0]?.severity).toBe('BLOCKER');
+    // 정규화 없이 변경만 감지한 것은 확인 불가
+    const unparsed = evaluate(
+      compareFingerprint(snap(), snap({ fieldHash: 'b'.repeat(64) })), { normalized: null },
+    );
+    expect(unparsed[0]?.severity).toBe('UNVERIFIED');
+    // 둘이 다르다는 것이 기본 등급을 하나로 못 적는 이유다
+    expect(hidden[0]?.severity).not.toBe(unparsed[0]?.severity);
   });
 
   it('결정론성 (NF-MT-001)', () => {
