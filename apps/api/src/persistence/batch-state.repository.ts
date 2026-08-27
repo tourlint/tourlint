@@ -8,7 +8,13 @@ import { SYSTEM_SETTING_DEFAULTS } from '@tourlint/shared';
  * PM-DA-006). 예산도 단일 인증키를 함께 쓰므로 계정별로 나눌 수가 없다.
  */
 
-export const BATCH_KEY = 'sync' as const;
+/**
+ * 배치 식별자. `db/schema.sql` 이 이 키로 1행을 심어 둔다 (DB 명세서 `batch_state`).
+ *
+ * 어긋나면 조용히 망가진다 — `find()` 가 심어 둔 행을 못 찾아 매번 「한 번도 안 돈」
+ * 상태로 시작하고, `record()` 는 옆에 다른 키로 한 행을 더 만든다.
+ */
+export const BATCH_KEY = 'sync_list' as const;
 
 export interface BatchState {
   /** 마지막으로 처리한 기준일 (`YYYY-MM-DD`). 없으면 아직 한 번도 안 돌았다 */

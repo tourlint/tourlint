@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_DAYS_PER_RUN, isWeekend, kstDayOfWeek, kstToday, pendingDates, toKtoDate } from './sync-window';
+import {
+  MAX_DAYS_PER_RUN, isWeekend, kstDayOfWeek, kstMinutesOfDay, kstToday, minutesOfDay, pendingDates, toKtoDate,
+} from './sync-window';
 
 /** 한국 시간 문자열을 Date 로. 서버 시간대에 흔들리지 않게 한다 */
 const kst = (iso: string): Date => new Date(`${iso}+09:00`);
@@ -82,5 +84,36 @@ describe('주말 · 시간대', () => {
 describe('공사 날짜 형식', () => {
   it('YYYYMMDD 로 바꾼다', () => {
     expect(toKtoDate('2026-08-26')).toBe('20260826');
+  });
+});
+
+describe('실행 시각 (FR-MO-010)', () => {
+  it('HH:MM 을 자정으로부터의 분으로 읽는다', () => {
+    expect(minutesOfDay('05:00')).toBe(300);
+    expect(minutesOfDay('00:00')).toBe(0);
+    expect(minutesOfDay('23:59')).toBe(1439);
+  });
+
+  it('🔴 형식이 아니면 null 이다 — 기본값으로 되돌리지 않는다', () => {
+    /*
+     * 조용히 05:00 으로 돌리면 설정 화면이 잘못 쓴 것을 아무도 모른 채 배치가 엉뚱한
+     * 시각에 돈다. 안 도는 편이 눈에 띈다.
+     */
+    for (const bad of ['5:00', '05:00:00', '25:00', '05:60', '', 'aa:bb', '0500']) {
+      expect(minutesOfDay(bad), bad).toBeNull();
+    }
+  });
+
+  it('🔴 한국 시간으로 센다 — UTC 배포에서 9시간 어긋나지 않게', () => {
+    // 한국 05:00 = UTC 전날 20:00. 서버 시계를 그대로 쓰면 1200 이 나온다
+    const dawn = kst('2026-08-27T05:00:00');
+    expect(dawn.getUTCHours()).toBe(20);
+    expect(kstMinutesOfDay(dawn)).toBe(300);
+  });
+
+  it('🔴 한국 자정 직후가 하루의 끝으로 읽히지 않는다', () => {
+    // 한국 00:30 = UTC 전날 15:30
+    expect(kstMinutesOfDay(kst('2026-08-27T00:30:00'))).toBe(30);
+    expect(kstMinutesOfDay(kst('2026-08-27T23:59:00'))).toBe(1439);
   });
 });
