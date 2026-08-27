@@ -9,14 +9,14 @@ export const NIGHTS_OPTIONS: { value: Nights; label: string }[] = [
   { value: 2, label: "2박 3일" },
 ];
 
-export type Transport = "car" | "charter" | "public" | "walk" | "etc";
+// 이동수단은 API·DB 정본 enum 을 그대로 쓴다 (TRANSPORT — 공용 상수). R08 이동시간 판정이
+// 이 값을 읽는다: CAR·CHARTER_BUS 는 지도 API, PUBLIC_TRANSIT 는 확인 불가.
+export type Transport = "CAR" | "CHARTER_BUS" | "PUBLIC_TRANSIT";
 
 export const TRANSPORT_OPTIONS: { value: Transport; label: string }[] = [
-  { value: "car", label: "자가용" },
-  { value: "charter", label: "전세버스" },
-  { value: "public", label: "대중교통" },
-  { value: "walk", label: "도보" },
-  { value: "etc", label: "기타" },
+  { value: "CAR", label: "자가용" },
+  { value: "CHARTER_BUS", label: "전세버스" },
+  { value: "PUBLIC_TRANSIT", label: "대중교통" },
 ];
 
 export interface CodeItem {
