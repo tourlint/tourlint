@@ -125,8 +125,14 @@ CREATE TABLE audit_run (
     warn_cnt         SMALLINT    NOT NULL DEFAULT 0,
     unverified_cnt   SMALLINT    NOT NULL DEFAULT 0,
     weight_snapshot  JSONB       NOT NULL,
+    -- 상품 단위 총 이동시간·거리 (FR-RU-084 · F10 전후 비교의 입력).
+    -- 외부 호출로만 얻는 값이라 나중에 다시 계산할 수 없어 실행 시점에 남긴다.
+    -- NULL = 산출하지 않음 / 0 = 산출했으나 합이 0 (대중교통·조회 실패)
+    travel_seconds   INT,
+    travel_meters    INT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
 
+    CONSTRAINT ck_run_travel  CHECK ((travel_seconds IS NULL) = (travel_meters IS NULL)),
     CONSTRAINT ck_run_score   CHECK (readiness_score IS NULL
                                      OR readiness_score BETWEEN 0 AND 100),
     -- DR-IN-005 : 부분 검수에는 점수를 부여하지 않는다
