@@ -139,6 +139,8 @@ export function coveringMax(
 
 export class R09RainRiskRule implements AuditRule {
   readonly code = 'R09';
+  readonly name = '우천 리스크';
+  readonly basis = 'KTO_PLUS_EXTERNAL' as const;
   readonly version = R09_VERSION;
   readonly defaultSeverity: Severity = 'WARNING';
   /** 외부 산출값을 쓰므로 "외부 참고" 배지가 붙는다 (EI-CM-008) */

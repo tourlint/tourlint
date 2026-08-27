@@ -81,6 +81,8 @@ export function findGap(item: AuditItem): Gap | null {
 
 export class R05UnverifiableRule implements AuditRule {
   readonly code = 'R05';
+  readonly name = '데이터 검증 불가';
+  readonly basis = 'KTO_ONLY' as const;
   readonly version = R05_VERSION;
   readonly defaultSeverity: Severity = 'UNVERIFIED';
   readonly requiresExternal = false;

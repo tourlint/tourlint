@@ -63,6 +63,8 @@ export function allowedMinutes(from: AuditItem, to: AuditItem): number | null {
 
 export class R08TravelTimeRule implements AuditRule {
   readonly code = 'R08';
+  readonly name = '이동시간 부족';
+  readonly basis = 'KTO_PLUS_EXTERNAL' as const;
   readonly version = R08_VERSION;
   readonly defaultSeverity: Severity = 'ERROR';
   /** 외부 산출값을 쓰므로 "외부 참고" 배지가 붙는다 (FR-RU-082 · EI-KM-008) */
