@@ -46,8 +46,21 @@ async function show(label) {
   const setting = await pool.query(
     `SELECT batch_time, batch_enabled, daily_quota FROM system_setting WHERE key = 'global'`,
   );
+  /*
+   * 날짜 형식을 SQL 에서 만든다. `DATE` · `TIMESTAMPTZ` 를 드라이버가 주는 `Date` 로 받아
+   * 여기서 찍으면 실행하는 사람 시간대에 따라 하루가 밀린다.
+   */
   const state = await pool.query(
-    `SELECT key, last_covered, last_run_at, last_status, last_item_count FROM batch_state`,
+    `SELECT key,
+            to_char(last_covered, 'YYYY-MM-DD')                             AS last_covered,
+            to_char(last_run_at AT TIME ZONE 'Asia/Seoul', 'MM-DD HH24:MI') AS last_run_at,
+            last_status, last_item_count
+       FROM batch_state`,
+  );
+  const notif = await pool.query(
+    `SELECT count(*)::int AS total,
+            count(*) FILTER (WHERE created_at > now() - interval '24 hours')::int AS recent
+       FROM notification`,
   );
   console.log(`\n[${label}]`);
   if (setting.rows.length === 0) {
@@ -59,11 +72,15 @@ async function show(label) {
   }
   for (const r of state.rows) {
     console.log(
-      `  batch_state[${r.key}]: 기준일 ${r.last_covered ?? '없음'}`
-      + ` · 마지막 실행 ${r.last_run_at ?? '없음'} · ${r.last_status ?? '-'} · ${r.last_item_count ?? '-'}건`,
+      `  기준일 ${r.last_covered ?? '없음'} · 마지막 실행 ${r.last_run_at ?? '없음'} KST`
+      + ` · ${r.last_status ?? '-'} · 변경 ${r.last_item_count ?? '-'}건   [${r.key}]`,
     );
   }
   if (state.rows.length === 0) console.log('  batch_state: 행 없음');
+
+  // 2단계가 실제로 뭔가 찾았는지. 변경 건수만 보면 알 수 없다
+  const n = notif.rows[0];
+  console.log(`  알림 누적 ${n.total}건 (최근 24시간 ${n.recent}건)`);
 }
 
 try {
