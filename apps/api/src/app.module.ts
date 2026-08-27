@@ -12,7 +12,7 @@ import { SyncBatchScheduler } from './batch/sync-batch.scheduler';
 import { CatalogController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
 import { evaluateBudget } from './external/budget-guard';
-import { createKtoClient } from './external/kto';
+import { createKtoClient, type KtoClient } from './external/kto';
 import { DB_POOL, getPool } from './persistence/db';
 import { PgApiCallLogger } from './persistence/api-call-log.repository';
 import { BatchStateRepository } from './persistence/batch-state.repository';
@@ -66,8 +66,10 @@ import { UsageService } from './usage/usage.service';
       useFactory: (pool: Pool, audit: AuditService) => {
         const logs = new PgApiCallLogger(pool);
         const state = new BatchStateRepository(pool);
+        // 인증키가 비면 생성자가 던진다. 부팅이 아니라 첫 조회에서 나야 한다
+        let kto: KtoClient | null = null;
         return new SyncBatchJob({
-          kto: createKtoClient(logs),
+          kto: () => (kto ??= createKtoClient(logs)),
           state,
           notifications: new NotificationRepository(pool),
           // 배치는 80% 에서 먼저 멈춘다. 사용자 "지금 재검수" 는 100% 까지 간다 (FR-OP-003)

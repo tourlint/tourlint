@@ -58,15 +58,26 @@ describe('설정 시각에 건다 (FR-MO-010)', () => {
   });
 
   it('🔴 설정을 매번 읽어 바뀐 시각을 따라간다', async () => {
-    // 재배포 없이 설정 화면에서 바꾼 시각이 그대로 먹어야 한다
+    /*
+     * 재배포 없이 설정 화면에서 바꾼 시각이 그대로 먹어야 한다. **깨어난 뒤에 바꾼다** —
+     * 처음 읽은 값을 캐시해도 걸리게 하려면 tick 사이에 값이 움직여야 한다.
+     */
     const s = stub();
     s.settings.batchTime = '07:30';
-
     await s.at('2026-08-27T05:00:00');
     expect(s.run).not.toHaveBeenCalled();
 
-    await s.at('2026-08-27T07:30:00');
+    // 07:30 을 기다리는 동안 06:00 으로 당겼다
+    s.settings.batchTime = '06:00';
+    await s.at('2026-08-27T06:00:00');
     expect(s.run).toHaveBeenCalledTimes(1);
+
+    // 다음 날은 다시 뒤로 미뤘다
+    s.settings.batchTime = '09:00';
+    await s.at('2026-08-28T06:00:00');
+    expect(s.run).toHaveBeenCalledTimes(1);
+    await s.at('2026-08-28T09:00:00');
+    expect(s.run).toHaveBeenCalledTimes(2);
   });
 
   it('🔴 한국 시간으로 본다 — 배포 환경이 UTC 다', async () => {
