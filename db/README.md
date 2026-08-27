@@ -34,6 +34,19 @@ DATABASE_URL=postgres://postgres:test@localhost:55432/tourlint_test \
 Railway 는 접속 URL 이 둘이다. **바깥에서 붙을 때는 공개 URL** 이어야 한다 —
 `*.railway.internal` 은 Railway 컨테이너 안에서만 풀린다.
 
+### 배치 켜고 끄기
+
+`system_setting.batch_enabled` 는 기본이 `FALSE` 다. 배포해도 스케줄러가 깨어나서
+"배치가 꺼져 있다" 만 남긴다. 시연 전에 끄는 데도 같은 스크립트를 쓴다 — 일일 800건 중
+배치 몫을 0 으로 만든다.
+
+```bash
+DATABASE_URL=... node scripts/batch_switch.mjs          # 현재 상태
+DATABASE_URL=... node scripts/batch_switch.mjs --on
+DATABASE_URL=... node scripts/batch_switch.mjs --off
+DATABASE_URL=... node scripts/batch_switch.mjs --time 07:30
+```
+
 ### 마이그레이션
 
 `schema.sql` 은 통째로 적용하는 정본이라 **이미 만들어진 DB 에는 쓸 수 없다.** 그 사이를
