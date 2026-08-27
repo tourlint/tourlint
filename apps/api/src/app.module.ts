@@ -11,6 +11,7 @@ import { FESTIVAL_TYPE_ID, SyncBatchJob, toEventPeriod } from './batch/sync-batc
 import { SyncBatchScheduler } from './batch/sync-batch.scheduler';
 import { CatalogController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
+import { DemoController } from './demo/demo.controller';
 import { evaluateBudget } from './external/budget-guard';
 import { createKtoClient, type KtoClient } from './external/kto';
 import { DB_POOL, getPool } from './persistence/db';
@@ -43,7 +44,7 @@ import { UsageService } from './usage/usage.service';
   controllers: [
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
-    AuditController, UsageController,
+    AuditController, UsageController, DemoController,
     MockController,
   ],
   providers: [

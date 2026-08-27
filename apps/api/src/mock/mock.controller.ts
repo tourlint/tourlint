@@ -70,6 +70,5 @@ export class MockController {
   }
   @Put('settings') putSettings(@Body() b: any) { return { ...this.settings(), ...b }; }
 
-  // ── 데모 복원 (PM-TA-003 · DR-TD-007) ──
-  @Post('demo/reset') resetDemo() { return { reset: true, seededAt: new Date().toISOString() }; }
+  // ── 데모 복원 (PM-TA-003) ── 실엔진(DemoController)으로 교체됨. mock 제거 (NF-CO-002)
 }
