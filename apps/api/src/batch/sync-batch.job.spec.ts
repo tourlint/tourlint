@@ -327,9 +327,13 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
   });
 
   it('🔴 감시 중인 상품이 없으면 행사기간을 안 부른다', async () => {
+    /*
+     * 조건 2 · 3 후보가 없으면 기간을 알아도 걸릴 곳이 없다. 조건 1 로 걸린 상품이 있어도
+     * 마찬가지다 — 그건 기간과 무관하게 이미 걸렸다.
+     */
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
-    const { kto } = stubKto({ '20260826': [item({ contenttypeid: '15' })] });
-    const notif = stubNotifications();
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'f', contenttypeid: '15' })] });
+    const notif = stubNotifications({ withContent: { f: [candidate({ productId: 7 })] }, watched: [] });
     let called = false;
 
     const result = await job(kto, state, {
@@ -338,7 +342,18 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     }).run();
 
     expect(called).toBe(false);
+    // 조건 1 은 그대로 걸린다. 안 부른 것은 조건 3 몫뿐이다
+    expect(result.impacts).toEqual([{ productId: 7, condition: 1, kind: 'RISK' }]);
+  });
+
+  it('아무 상품도 감시 중이 아니면 아무것도 안 한다', async () => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto(oneChange);
+    const notif = stubNotifications();
+
+    const result = await job(kto, state, { notifications: notif.repo }).run();
     expect(result.impacts).toEqual([]);
+    expect(result.notified).toBe(0);
   });
 
   it('🔴 예산이 떨어지면 남은 행사를 안 부른다', async () => {
@@ -392,6 +407,10 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     await job(kto, state, { notifications: notif.repo }).run();
 
     expect(notif.saved).toHaveLength(1);
+    // 허용 목록으로 본다. 목록 항목을 통째로 펼치면 여기가 걸린다
+    expect(Object.keys(notif.saved[0]?.body ?? {}).sort())
+      .toEqual(['condition', 'contentTypeId', 'hidden', 'modifiedTime']);
+
     const serialized = JSON.stringify(notif.saved[0]);
     for (const leak of ['강릉 국가유산야행', '강원특별자치도', 'addr1', 'firstimage', 'title']) {
       expect(serialized, leak).not.toContain(leak);

@@ -101,13 +101,27 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
     it('🔴 콘텐츠 여러 개를 한 번에 묻고 콘텐츠별로 묶어 준다', async () => {
       /*
        * 하루 변경이 177건이라 하나씩 물으면 그만큼 왕복한다. 묶는 키가 어긋나면 A 의
-       * 변경이 B 를 넣은 상품에 붙는다 — 조용히 엉뚱한 알림이 간다.
+       * 변경이 B 를 넣은 상품에 붙는다 — 오류 없이 엉뚱한 상품에 알림이 간다.
+       *
+       * **콘텐츠 둘이 서로 다른 상품에 붙어 있어야** 잘못 묶은 것이 드러난다. 하나만
+       * 두면 전부 한 덩어리로 넣어도 결과가 같다.
        */
-      const other = '999999999';
-      const found = await repo.productsWithContents([CONTENT, other, CONTENT], '2026-08-27');
-      expect([...found.keys()]).toEqual([CONTENT]);
-      expect(found.get(CONTENT)?.map((f) => f.productId)).toContain(productId);
-      expect(found.get(other)).toBeUndefined();
+      const second = '888888888';
+      const other = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+         VALUES ($1, '둘째 상품', '51', '2099-09-10', 2, 'CAR') RETURNING id`, [accountId]);
+      const otherId = Number(other.rows[0]?.id);
+      await pool.query(
+        `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, kto_content_id, match_status)
+         VALUES ($1, 1, 1, '10:00', 'INPUT', '오죽헌', 'SIGHT', $2, 'CONFIRMED')`, [otherId, second]);
+
+      const missing = '999999999';
+      const found = await repo.productsWithContents([CONTENT, second, missing, CONTENT], '2026-08-27');
+
+      expect([...found.keys()].sort()).toEqual([second, CONTENT].sort());
+      expect(found.get(CONTENT)?.map((f) => f.productId)).toEqual([productId]);
+      expect(found.get(second)?.map((f) => f.productId)).toEqual([otherId]);
+      expect(found.get(missing)).toBeUndefined();
     });
 
     it('미확정 항목은 세지 않는다', async () => {
