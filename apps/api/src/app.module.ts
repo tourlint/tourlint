@@ -7,7 +7,7 @@ import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
-import { SyncBatchJob } from './batch/sync-batch.job';
+import { FESTIVAL_TYPE_ID, SyncBatchJob, toEventPeriod } from './batch/sync-batch.job';
 import { SyncBatchScheduler } from './batch/sync-batch.scheduler';
 import { CatalogController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
@@ -59,17 +59,18 @@ import { UsageService } from './usage/usage.service';
       /*
        * 경량 동기화 배치 (F12 · FR-MO-010 ~ 016 · 030 ~ 036).
        *
-       * `enrich` 를 아직 안 넘긴다 — 조건 1(일정에 포함)만 판정되고 2 · 3 은 물러난다.
-       * 시군구와 행사기간은 상세 재호출로만 오는데, 그 호출의 예산 설계가 따로 필요하다.
+       * `eventPeriod` 만 상세 재호출을 쓴다. 조건 2 의 시군구는 동기화 목록에 이미 있고,
+       * 조건 1 은 우리 DB 만 본다 — 행사(15) 건수만큼만 콜이 나간다.
        */
       provide: SyncBatchJob,
       useFactory: (pool: Pool, audit: AuditService) => {
         const logs = new PgApiCallLogger(pool);
         const state = new BatchStateRepository(pool);
         // 인증키가 비면 생성자가 던진다. 부팅이 아니라 첫 조회에서 나야 한다
-        let kto: KtoClient | null = null;
+        let client: KtoClient | null = null;
+        const kto = (): KtoClient => (client ??= createKtoClient(logs));
         return new SyncBatchJob({
-          kto: () => (kto ??= createKtoClient(logs)),
+          kto,
           state,
           notifications: new NotificationRepository(pool),
           // 배치는 80% 에서 먼저 멈춘다. 사용자 "지금 재검수" 는 100% 까지 간다 (FR-OP-003)
@@ -78,6 +79,9 @@ import { UsageService } from './usage/usage.service';
             const usedToday = await logs.countToday('KTO', new Date());
             return evaluateBudget({ dailyBudget: dailyQuota, usedToday }, 'BATCH').allowed;
           },
+          // 행사(15)만 부른다. 유형을 함께 넘겨야 유형별 필드가 채워져 온다 (EI-KT)
+          eventPeriod: async (contentId: string) =>
+            toEventPeriod(await kto().detailIntro(contentId, FESTIVAL_TYPE_ID)),
           requestAudit: async (productId: number) => {
             await audit.requestAudit(productId, 'BATCH');
           },
