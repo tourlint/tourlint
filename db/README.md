@@ -34,6 +34,22 @@ DATABASE_URL=postgres://postgres:test@localhost:55432/tourlint_test \
 Railway 는 접속 URL 이 둘이다. **바깥에서 붙을 때는 공개 URL** 이어야 한다 —
 `*.railway.internal` 은 Railway 컨테이너 안에서만 풀린다.
 
+### 마이그레이션
+
+`schema.sql` 은 통째로 적용하는 정본이라 **이미 만들어진 DB 에는 쓸 수 없다.** 그 사이를
+`db/migrations/*.sql` 이 메운다. 전부 여러 번 돌려도 안전하게 쓴다.
+
+```bash
+DATABASE_URL=... node scripts/apply_migration.mjs db/migrations/<파일>.sql --check   # 지금 컬럼만 본다
+DATABASE_URL=... node scripts/apply_migration.mjs db/migrations/<파일>.sql
+```
+
+`psql` 을 쓰지 않는다 — DB 를 만지는 다른 스크립트와 같은 방식이다. 한 트랜잭션으로 돌아
+도중에 실패하면 통째로 롤백된다. 절반만 적용된 스키마가 제일 고치기 어렵다.
+
+**적용 순서** — 스키마를 바꾸는 배포는 **ALTER 가 먼저다.** 코드가 먼저 나가면 없는
+컬럼에 INSERT 를 시도해 그 기능이 통째로 실패한다.
+
 ### 계정 기본 데이터
 
 회원가입 트랜잭션이 `user_setting` 1행 · 기대 프로파일 63행 · 실내외 59행 · 체류시간 47행을
