@@ -6,23 +6,30 @@
  * 화면 조작이 필요해 자동화하지 않는다 — 받아 두고 이 스크립트에 넘긴다. 받는 절차는
  * `fixtures/climate/README.md`.
  *
- *   node scripts/seed_climate_normal.mjs <csv경로> --dry     파일만 확인. DB 를 안 본다
- *   DATABASE_URL=... node scripts/seed_climate_normal.mjs <csv경로>
+ *   node scripts/seed_climate_normal.mjs <csv...> --dry     파일만 확인. DB 를 안 본다
+ *   DATABASE_URL=... node scripts/seed_climate_normal.mjs <csv...>
  *   DATABASE_URL=... node scripts/seed_climate_normal.mjs --check   지금 표에 무엇이 있는지
+ *
+ * **파일을 여럿 줄 수 있다.** 포털이 지점을 하나씩만 조회해 줘서 지점 수만큼 파일이
+ * 생긴다. 디렉터리를 주면 그 안의 `.csv` 를 전부 읽는다.
+ *
+ *   node scripts/seed_climate_normal.mjs ~/Downloads/STCS_*.csv
+ *   node scripts/seed_climate_normal.mjs ~/Downloads --dry
  *
  * 형식은 `scripts/climate-csv.mjs` 가 안다.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { CLIMATE_NORMAL_PERIOD, CLIMATE_SOURCE_NOTE, CLIMATE_STATION } from '../packages/shared/dist/index.js';
 import { decodeCsv, parseClimateCsv } from './climate-csv.mjs';
 
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
 const CHECK = args.includes('--check');
-const csvPath = args.find((a) => !a.startsWith('--'));
+const inputs = args.filter((a) => !a.startsWith('--'));
 
-if (!CHECK && csvPath === undefined) {
-  console.error('사용법: node scripts/seed_climate_normal.mjs <csv경로> [--dry]');
+if (!CHECK && inputs.length === 0) {
+  console.error('사용법: node scripts/seed_climate_normal.mjs <csv경로...|디렉터리> [--dry]');
   console.error('        DATABASE_URL=... node scripts/seed_climate_normal.mjs --check');
   process.exit(1);
 }
@@ -79,13 +86,56 @@ for (const [sido, station] of Object.entries(CLIMATE_STATION)) {
   SIDO_BY_NAME.set(station.name, list);
 }
 
-const { text, encoding } = decodeCsv(readFileSync(csvPath));
-if (encoding !== 'utf-8') console.log(`UTF-8 이 아니라 ${encoding} 로 읽었다`);
-const { rows, seen, blocks, skippedStations } = parseClimateCsv(text, SIDO_BY_NAME);
-
-for (const b of blocks) {
-  console.log(`${b.stationName}: ${b.years.from}~${b.years.to} ${b.years.count}년 · 평년 강수일수 ${b.monthly.join(' ')}`);
+/** 디렉터리를 주면 그 안의 `.csv` 를 전부 읽는다 */
+function expand(paths) {
+  const out = [];
+  for (const p of paths) {
+    if (statSync(p).isDirectory()) {
+      for (const f of readdirSync(p).sort()) {
+        if (f.toLowerCase().endsWith('.csv')) out.push(join(p, f));
+      }
+    } else out.push(p);
+  }
+  return out;
 }
+
+const files = expand(inputs);
+if (files.length === 0) {
+  console.error('읽을 CSV 가 없다');
+  process.exit(1);
+}
+
+/*
+ * 파일마다 따로 읽고 결과를 합친다. 지점이 겹치면 **먼저 읽은 파일이 이긴다** —
+ * 같은 지점을 두 번 받았을 때 어느 쪽이 쓰였는지 출력으로 알 수 있어야 한다.
+ */
+const rows = [];
+const seen = new Set();
+const skippedStations = [];
+let failed = 0;
+
+for (const file of files) {
+  try {
+    const { text, encoding } = decodeCsv(readFileSync(file));
+    const parsed = parseClimateCsv(text, SIDO_BY_NAME);
+    for (const b of parsed.blocks) {
+      console.log(`${b.stationName}: ${b.years.from}~${b.years.to} ${b.years.count}년 · 평년 강수일수 ${b.monthly.join(' ')}`
+        + (encoding !== 'utf-8' ? ` [${encoding}]` : ''));
+    }
+    for (const r of parsed.rows) {
+      const key = `${r.sido}-${r.month}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(r);
+    }
+    skippedStations.push(...parsed.skippedStations);
+  } catch (e) {
+    // 한 파일이 이상해도 나머지는 넣는다. 무엇이 왜 빠졌는지는 말한다
+    failed++;
+    console.error(`  ✗ ${basename(file)} — ${e.message.split('\n')[0]}`);
+  }
+}
+if (failed > 0) console.log(`읽지 못한 파일 ${failed}건은 건너뛰었다.`);
 
 const missing = [];
 for (const sido of Object.keys(CLIMATE_STATION)) {

@@ -20,18 +20,40 @@
 
 ## 넣는 법
 
+**포털이 지점을 하나씩만 조회해 준다.** 지점 수만큼 파일이 생기고, 여러 파일을 한 번에
+넘길 수 있다. 디렉터리를 주면 그 안의 `.csv` 를 전부 읽는다.
+
 ```
-node scripts/seed_climate_normal.mjs fixtures/climate/<파일>.csv --dry
-DATABASE_URL=... node scripts/seed_climate_normal.mjs fixtures/climate/<파일>.csv
+node scripts/seed_climate_normal.mjs ~/Downloads/STCS_*.csv --dry
+DATABASE_URL=... node scripts/seed_climate_normal.mjs ~/Downloads/STCS_*.csv
 ```
+
+한 파일이 이상해도 나머지는 넣는다. 무엇이 왜 빠졌는지는 말한다. 같은 지점이 두 번
+들어오면 먼저 읽은 파일이 이긴다.
 
 ## 인코딩
 
 EUC-KR 로 온다. 로더가 알아서 읽는다 (`scripts/climate-csv.mjs`).
 
-## 지금 있는 지점
+## 필요한 지점 16곳
+
+`packages/shared/src/climate-station.ts` 가 정본이다. 한 지점이 시도 둘을 맡기도 한다.
+
+| 지점 | 시도 | | 지점 | 시도 |
+|---|---|---|---|---|
+| **105 강릉** | 강원 (`42` · `51`) | | 143 대구 | 대구 |
+| 108 서울 | 서울 | | 146 전주 | 전북 (`45` · `52`) |
+| 112 인천 | 인천 | | 152 울산 | 울산 |
+| 119 수원 | 경기 | | 155 창원 | 경남 |
+| 131 청주 | 충북 | | 156 광주 | 광주 · 전남광주통합 |
+| 133 대전 | 대전 · **세종** | | 159 부산 | 부산 |
+| 136 안동 | 경북 | | 165 목포 | 전남 |
+| 232 천안 | 충남 | | 184 제주 | 제주 |
+
+세종은 종관 지점이 늦게 생겨 평년값 30년이 없다. 인접한 대전을 대표로 쓴다.
+
+## 지금 있는 것
 
 - 강릉(105) — 강원 `42` · `51`
 
-나머지 시도는 `packages/shared/src/climate-station.ts` 참조. 없는 시도는 R09 가 D+11 이상을
-확인 불가로 남긴다 — 인접 지역 값으로 대신 채우지 않는다.
+없는 시도는 R09 가 D+11 이상을 확인 불가로 남긴다 — 인접 지역 값으로 대신 채우지 않는다.
