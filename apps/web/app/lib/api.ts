@@ -54,6 +54,126 @@ export const authApi = {
   me: () => request<AccountView>("/auth/me"),
 };
 
+// ── 상품 · 검수 결과 (S3 · F04~F07) ───────────────────────────────────────────
+
+export type Severity = "BLOCKER" | "ERROR" | "WARNING" | "UNVERIFIED";
+
+export interface ProductItem {
+  itemId: number;
+  seq: number;
+  start: string;
+  end: string | null;
+  place: string;
+  itemType: string;
+  ktoContentId: string | null;
+  matchStatus: string;
+}
+
+export interface ProductDetail {
+  productId: number;
+  name: string;
+  region: { regnName: string; signguName: string | null };
+  startDate: string;
+  nights: number;
+  dayCount: number;
+  days: { day: number; items: ProductItem[] }[];
+}
+
+export interface RunSummary {
+  auditRunId: number;
+  productId: number;
+  executedAt: string;
+  rulesetVersion: string;
+  isPartial: boolean;
+  readinessScore: number | null;
+  scoreBreakdown: { formula: string | null; deduction: number | null; weights: Record<string, number> };
+  counts: { blocker: number; error: number; warning: number; unverified: number; dismissed: number };
+  needsConfirmationCount: number;
+  targetCount: number;
+  failedCount: number;
+  releasable: boolean;
+  releaseBlockedReason: string | null;
+  evidence: {
+    fetchedAt: string;
+    dataFingerprint: string | null;
+    rulesetVersion: string;
+    delayNotice: string;
+    source: string;
+  };
+}
+
+export interface Finding {
+  findingId: number;
+  ruleCode: string;
+  severity: Severity;
+  reasonCode: string;
+  message: string;
+  target: { itemId: number | null };
+  targetSecondary: { itemId: number } | null;
+  requiresExternal: boolean;
+  externalSource: string | null;
+  sourceBadge: "TOURLINT_VERDICT" | "EXTERNAL_REFERENCE";
+  needsConfirmation: boolean;
+  dismissed: boolean;
+  dismissReason: string | null;
+  confirmed: boolean;
+}
+
+export interface UnverifiedItem {
+  findingId: number;
+  reason: string;
+  reasonCode: string;
+  confirmedAt: true | null;
+  excludedFromScore: boolean;
+  targetItemId: number | null;
+}
+
+export interface RunListItem {
+  auditRunId: number;
+  executedAt: string;
+  isPartial: boolean;
+  readinessScore: number | null;
+}
+
+export interface AuditJob {
+  jobId: number;
+  status: string;
+  productId: number;
+  progress: { done: number; total: number; label: string };
+  auditRunId: number | null;
+  errorCode?: string;
+  pollIntervalMs?: number;
+}
+
+export const productApi = {
+  detail: (productId: number) => request<ProductDetail>(`/products/${productId}`),
+};
+
+export const auditApi = {
+  listRuns: (productId: number) =>
+    request<{ totalCount: number; runs: RunListItem[] }>(`/products/${productId}/audit-runs`),
+  getRun: (runId: number) => request<RunSummary>(`/audit-runs/${runId}`),
+  getFindings: (runId: number) =>
+    request<{ content: Finding[]; totalElements: number }>(`/audit-runs/${runId}/findings`),
+  getUnverified: (runId: number) =>
+    request<{ totalCount: number; items: UnverifiedItem[] }>(`/audit-runs/${runId}/unverified`),
+  runAudit: (productId: number, triggerType = "MANUAL") =>
+    request<AuditJob>(`/products/${productId}/audit-jobs`, {
+      method: "POST",
+      body: JSON.stringify({ triggerType }),
+    }),
+  getJob: (jobId: number) => request<AuditJob>(`/audit-jobs/${jobId}`),
+  dismissFinding: (findingId: number, reason?: string) =>
+    request<void>(`/findings/${findingId}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
+    }),
+  undismissFinding: (findingId: number) =>
+    request<void>(`/findings/${findingId}/dismiss`, { method: "DELETE" }),
+  confirmFinding: (findingId: number) =>
+    request<void>(`/findings/${findingId}/confirm`, { method: "POST" }),
+};
+
 export function isApiError(e: unknown): e is ApiError {
   return typeof e === "object" && e !== null && "status" in e && "message" in e;
 }
