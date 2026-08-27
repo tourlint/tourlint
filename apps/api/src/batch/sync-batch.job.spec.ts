@@ -290,16 +290,27 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     expect(result.notified).toBe(0);
   });
 
-  it('🔴 알림에 공사 원문이 없다 (FR-MO-002)', async () => {
+  it('🔴 알림 본문에 공사 원문이 없다 (FR-MO-002)', async () => {
+    /*
+     * 상세 조회(`enrich`)가 원문을 달고 와도 본문에 담지 않는다. 필요한 필드만 골라
+     * 담아야 한다 — 통째로 펼치면 알림 테이블에 원문이 남는다 (DB 명세서 6-4).
+     */
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
     const { kto } = stubKto(oneChange);
     const notif = stubNotifications({ withContent: { '125790': [candidate({ productId: 7 })] } });
 
-    await job(kto, state, { notifications: notif.repo }).run();
+    await job(kto, state, {
+      notifications: notif.repo,
+      enrich: async (cs) => cs.map((c) => ({
+        ...(c as ChangedContent), eventPeriod: null, ldongSignguCd: null, hashFrom: null, hashTo: null,
+        // 상세 조회가 달고 오는 원문들
+        title: '강릉 국가유산야행', addr1: '강원특별자치도 강릉시', overview: '야간 개장 행사입니다',
+      } as never)),
+    }).run();
 
     expect(notif.saved).toHaveLength(1);
     const serialized = JSON.stringify(notif.saved[0]);
-    for (const leak of ['강릉 국가유산야행', 'addr1', 'firstimage', 'title']) {
+    for (const leak of ['강릉 국가유산야행', '강원특별자치도', '야간 개장', 'addr1', 'overview', 'title']) {
       expect(serialized, leak).not.toContain(leak);
     }
   });

@@ -34,8 +34,16 @@ describe('조건 2 — 같은 지역 (FR-MO-032)', () => {
   const detected = '2026-09-01';
 
   it('🔴 시군구가 다르면 안 걸린다', () => {
-    // 시도만 같아도 알리면 그 지역 상품 전부에 알림이 간다
-    expect(matchByRegion(changed({ ldongSignguCd: '150' }), [candidate({ ldongSignguCd: '110' })], detected))
+    /*
+     * 시도만 같아도 알리면 그 지역 상품 전부에 알림이 간다.
+     *
+     * 날짜는 **창 안에 두고** 지역만 다르게 한다 — 날짜가 밖이면 그쪽 필터에 먼저 걸려
+     * 지역 필터가 없어도 통과해 버린다.
+     */
+    const nearby = { startDate: '2026-09-02', nights: 0 };
+    expect(matchByRegion(changed({ ldongSignguCd: '150' }), [candidate({ ...nearby, ldongSignguCd: '150' })], detected))
+      .toHaveLength(1);
+    expect(matchByRegion(changed({ ldongSignguCd: '150' }), [candidate({ ...nearby, ldongSignguCd: '110' })], detected))
       .toEqual([]);
   });
 
