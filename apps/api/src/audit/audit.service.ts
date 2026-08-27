@@ -20,6 +20,7 @@ import {
 } from '../persistence/patch-application.repository';
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
 import { AuditRunner, type ItineraryItemRow } from './audit-runner';
+import { RULES, RULESET_VERSION } from './rule-registry';
 import type { AuditSettings } from '../engine/rules/types';
 import { applyPatches } from './patch-apply';
 import { checkConflicts, type Conflict, type PatchRef } from './patch-conflict';
@@ -262,6 +263,45 @@ export class AuditService {
       reauditJobId: job.id,
       pollIntervalMs: POLL_INTERVAL_MS,
     };
+  }
+
+  /**
+   * 무시 처리 (FR-AU-045 · PM-NG-001).
+   *
+   * **차단 등급은 무시할 수 없다.** 화면이 버튼을 감추더라도 API 가 독립적으로 막는다 —
+   * 그 판정을 없앤 채로 출시하면 손님이 문 닫은 곳 앞에 선다 (PM-NG-001 · 탈락 사유).
+   */
+  async dismissFinding(findingId: number, reason: string | null): Promise<void> {
+    const result = await this.results.dismiss(findingId, reason);
+    if (result === 'NOT_FOUND') {
+      throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '판정을 찾을 수 없습니다.', 'REQUEST');
+    }
+    if (result === 'BLOCKER') {
+      throw new DomainException(
+        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
+        '차단 등급은 무시할 수 없습니다. 일정을 고치거나 해당 항목을 검수에서 제외해 주세요.',
+        'REQUEST',
+      );
+    }
+  }
+
+  /** 무시 해제 (FR-AU-047) */
+  async undismissFinding(findingId: number): Promise<void> {
+    if (!(await this.results.undismiss(findingId))) {
+      throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '판정을 찾을 수 없습니다.', 'REQUEST');
+    }
+  }
+
+  /** 확인 필요 목록 체크 (FR-AU-008). 점수에서 빠지지 않는다 — 무시와 다르다 */
+  async confirmFinding(findingId: number): Promise<void> {
+    if (!(await this.results.confirm(findingId))) {
+      throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '판정을 찾을 수 없습니다.', 'REQUEST');
+    }
+  }
+
+  /** 그 상품의 검수 이력 (F13) */
+  async listRuns(productId: number): Promise<readonly StoredAuditRun[]> {
+    return this.results.runsOfProduct(productId);
   }
 
   /**
@@ -688,5 +728,66 @@ export function toRevertResponse(application: StoredPatchApplication, revertedAt
      * 않고 그 결과를 현재 결과로 가리킨다 — 같은 답을 받으려고 공사 호출을 쓰지 않는다.
      */
     restoredAuditRunId: application.beforeAuditRunId,
+  };
+}
+
+/**
+ * 확인 필요 목록 (API 설계 5-7 · FR-AU-008).
+ *
+ * 확인 불가 등급과 **확인 필요 표시가 붙은 판정**을 모은다. 둘은 다르다 — 확인 불가는
+ * 등급이고, 확인 필요는 「사용자가 직접 알아봐 달라」는 표시다. R08 의 대중교통 구간처럼
+ * 등급이 확인 불가면서 확인 필요인 것이 대부분이지만 겹치지 않는 경우가 있다.
+ *
+ * ⚠️ **관광지명은 `place_label`(사용자 입력)만 쓴다.** 공사 원문은 담지 않는다
+ * (DR-PR-001 · API 설계 5-7). 원문이 필요하면 화면이 펼칠 때 1콜로 조달한다.
+ */
+export function toUnverifiedResponse(run: StoredAuditRun): Record<string, unknown> {
+  const items = run.findings
+    .filter((f) => f.severity === 'UNVERIFIED' || f.needsConfirmation)
+    .map((f) => ({
+      findingId: f.id,
+      reason: f.message,
+      reasonCode: f.reasonCode,
+      confirmedAt: f.confirmed ? true : null,
+      /*
+       * 출발 전 확인 항목은 공사 데이터의 D+1 구조적 시차로 자동 생성된 것이라
+       * 감점 대상이 아니다 (FR-AU-016). 화면이 그 사실을 표기해야 한다.
+       */
+      excludedFromScore: f.reasonCode === 'PRE_DEPARTURE_CHECK',
+      targetItemId: f.targetItemId,
+    }));
+  return { totalCount: items.length, items };
+}
+
+/** 검수 이력 (F13 · API 설계 5-9) */
+export function toRunListResponse(runs: readonly StoredAuditRun[]): Record<string, unknown> {
+  return {
+    totalCount: runs.length,
+    runs: runs.map((r) => ({
+      auditRunId: r.id,
+      executedAt: r.executedAt.toISOString(),
+      rulesetVersion: r.rulesetVersion,
+      // 조회 시점 재계산값이다. 무시 처리가 반영돼 있다 (FR-AU-046)
+      readinessScore: r.current.score,
+      counts: r.current.counts,
+      isPartial: r.isPartial,
+      targetCount: r.targetCount,
+      failedCount: r.failedCount,
+    })),
+  };
+}
+
+/** 규칙 목록 (API 설계 5-10). 레지스트리가 정본이라 여기서 지어내지 않는다 */
+export function toRulesResponse(): Record<string, unknown> {
+  return {
+    rulesetVersion: RULESET_VERSION,
+    rules: RULES.map((r) => ({
+      code: r.code,
+      name: r.name,
+      version: r.version,
+      defaultSeverity: r.defaultSeverity,
+      requiresExternal: r.requiresExternal,
+      basis: r.basis,
+    })),
   };
 }

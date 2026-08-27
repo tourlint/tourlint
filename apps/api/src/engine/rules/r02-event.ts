@@ -41,6 +41,8 @@ function key(d: CalendarDate): number {
 
 export class R02EventPeriodRule implements AuditRule {
   readonly code = 'R02';
+  readonly name = '행사기간 불일치';
+  readonly basis = 'KTO_ONLY' as const;
   readonly version = R02_VERSION;
   readonly defaultSeverity: Severity = 'BLOCKER';
   readonly requiresExternal = false;

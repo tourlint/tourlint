@@ -82,6 +82,8 @@ export function missingTypes(
 
 export class R10TargetFitRule implements AuditRule {
   readonly code = 'R10';
+  readonly name = '상품 타깃-콘텐츠 적합성';
+  readonly basis = 'KTO_ONLY' as const;
   readonly version = R10_VERSION;
   readonly defaultSeverity: Severity = 'WARNING';
   /** 외부 산출값을 쓰지 않는다. 상품 정보와 계정 설정만으로 판정한다 */

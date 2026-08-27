@@ -191,9 +191,22 @@ export interface Finding {
   readonly patches?: readonly Patch[];
 }
 
+/**
+ * 그 규칙이 무엇에 근거하는가 (API 설계 5-10).
+ *
+ * 화면이 「외부 참고」 배지와 별개로 「이 판정은 무엇을 봤는가」를 설명하는 데 쓴다.
+ * `requiresExternal` 은 배지 부착 여부고, 이건 근거의 종류다 — R07 은 외부를 안 쓰지만
+ * 공사 데이터도 안 본다(일정만 본다).
+ */
+export const RULE_BASIS = ['KTO_ONLY', 'ITINERARY_ONLY', 'KTO_PLUS_EXTERNAL'] as const;
+export type RuleBasis = (typeof RULE_BASIS)[number];
+
 export interface AuditRule {
   readonly code: string;
+  /** 화면에 나가는 이름 */
+  readonly name: string;
   readonly version: string;
+  readonly basis: RuleBasis;
   /** 이 규칙이 기본으로 내는 등급. 신뢰도 게이트로 강등될 수 있다 */
   readonly defaultSeverity: Severity | null;
   /** true 면 "외부 참고" 배지를 자동 부착한다 (EI-CM-008) */
