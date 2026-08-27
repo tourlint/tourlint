@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { KtoClient } from '../external/kto';
+import { parseIsoDate } from '../engine/calendar/dates';
 import { isKtoError } from '../external/kto';
 import type { BatchState, BatchStateRepository, BatchStatus } from '../persistence/batch-state.repository';
 import type { NotificationRepository, NotificationToSave } from '../persistence/notification.repository';
 import {
   matchByContent, matchByEventPeriod, matchByRegion, mergeImpacts,
-  type ChangedContent, type Impact, type ImpactCandidate,
+  type ChangedContent, type EventPeriod, type Impact,
 } from './impact-finder';
 import { isWeekend, kstToday, pendingDates, toKtoDate } from './sync-window';
 
@@ -27,6 +28,9 @@ import { isWeekend, kstToday, pendingDates, toKtoDate } from './sync-window';
  * `showflag` 로 읽는다 — `showflag` 를 지정하지 않으면 표출 · 비표출이 함께 온다.
  */
 
+/** 행사 유형. 이 유형만 개최 기간이 있다 (조건 3) */
+export const FESTIVAL_TYPE_ID = 15 as const;
+
 /** 그날 바뀐 콘텐츠 하나 */
 export interface SyncedContent {
   readonly contentId: string;
@@ -35,6 +39,13 @@ export interface SyncedContent {
   /** `1` = 표출 · `0` = 비표출. 별도 조회 없이 여기서 읽는다 (FR-MO-012) */
   readonly showFlag: '0' | '1';
   readonly createdTime: string;
+  /**
+   * 법정동 코드. **동기화 목록 응답에 이미 들어 있다** — 조건 2 는 상세 재호출이 필요 없다.
+   *
+   * 코드지 원문이 아니다. `title` · `addr1` 과 달리 담아도 된다 (DB 명세서 6-4).
+   */
+  readonly ldongRegnCd: string | null;
+  readonly ldongSignguCd: string | null;
 }
 
 /**
@@ -82,11 +93,14 @@ export interface SyncBatchOptions {
   /** 2단계 저장소. 없으면 1단계만 돌고 알림을 만들지 않는다 */
   readonly notifications?: NotificationRepository;
   /**
-   * 변경분에 상세 정보를 채운다 (2단계 상세 재호출 · FR-MO-013).
+   * 행사 개최 기간을 가져온다 (조건 3 · FR-MO-030 ③).
    *
-   * **등록 상품에 든 것만** 부르도록 호출자가 좁혀 넘긴다. 전부 부르면 하루 수백 콜이다.
+   * **이것만 상세 재호출이 필요하다.** 시군구는 동기화 목록에 이미 있어 조건 2 는 공짜고,
+   * 조건 1 은 우리 DB 만 본다. 행사(15)가 아닌 유형에는 부르지 않는다.
+   *
+   * 없으면 조건 3 만 물러난다.
    */
-  readonly enrich?: (contents: readonly SyncedContent[]) => Promise<readonly ChangedContent[]>;
+  readonly eventPeriod?: (contentId: string) => Promise<EventPeriod | null>;
   /** 영향받은 상품의 재검수를 건다 (FR-MO-013). 없으면 알림만 만든다 */
   readonly requestAudit?: (productId: number) => Promise<void>;
 }
@@ -99,7 +113,7 @@ export class SyncBatchJob {
   private readonly clock: () => Date;
   private readonly hasBudget: () => boolean | Promise<boolean>;
   private readonly notifications: NotificationRepository | null;
-  private readonly enrich: SyncBatchOptions['enrich'];
+  private readonly eventPeriod: SyncBatchOptions['eventPeriod'];
   private readonly requestAudit: SyncBatchOptions['requestAudit'];
 
   constructor(options: SyncBatchOptions) {
@@ -108,7 +122,7 @@ export class SyncBatchJob {
     this.clock = options.clock ?? ((): Date => new Date());
     this.hasBudget = options.hasBudget ?? ((): boolean => true);
     this.notifications = options.notifications ?? null;
-    this.enrich = options.enrich;
+    this.eventPeriod = options.eventPeriod;
     this.requestAudit = options.requestAudit;
   }
 
@@ -194,8 +208,15 @@ export class SyncBatchJob {
   /**
    * [2단계] 변경분이 어느 상품에 닿는지 찾고 알림을 만든다 (FR-MO-013 · 030 ~ 032).
    *
-   * **상세 재호출은 등록 상품에 든 콘텐츠에만 한다.** 1단계가 하루 177건을 주는데
-   * 전부 부르면 그날 예산이 그것으로 끝난다.
+   * ## 세 조건의 값이 어디서 오는가
+   *
+   * ```
+   * 1  일정에 포함   우리 DB 만 본다             공사 콜 0
+   * 2  같은 시군구   동기화 목록에 이미 있다      공사 콜 0
+   * 3  행사기간      상세 재호출이 있어야 안다    행사(15) 건수만큼
+   * ```
+   *
+   * 그래서 상세 재호출은 **행사에만** 건다. 실측 하루 177건 중 34건이 행사였다.
    *
    * 실패해도 배치 결과를 뒤집지 않는다 — 1단계는 이미 성공했고 `last_covered` 도 올라갔다.
    * 여기서 던지면 다음 배치가 같은 날짜를 다시 봐 1단계를 두 번 돌게 된다.
@@ -208,34 +229,35 @@ export class SyncBatchJob {
 
     const today = kstToday(now);
     try {
-      // 조건 1 — 등록 상품에 든 것만 남긴다. 상세 재호출 대상을 여기서 좁힌다
-      const inUse: { content: SyncedContent; candidates: readonly ImpactCandidate[] }[] = [];
-      for (const content of contents) {
-        const candidates = await this.notifications.productsWithContent(content.contentId, today);
-        if (candidates.length > 0) inUse.push({ content, candidates });
-      }
-      if (inUse.length === 0) {
-        this.logger.log(`변경 ${contents.length}건 중 등록 상품에 든 것이 없다`);
+      // 조건 1 — 한 번에 묻는다. 콘텐츠마다 물으면 하루 177번 왕복한다
+      const direct = await this.notifications.productsWithContents(contents.map((c) => c.contentId), today);
+      // 조건 2 · 3 — 출발일이 안 지난 상품 전부가 후보다 (FR-MO-018)
+      const watched = await this.notifications.watchedProducts(today);
+
+      if (direct.size === 0 && watched.length === 0) {
+        this.logger.log(`변경 ${contents.length}건 · 감시 중인 상품이 없다`);
         return { impacts: [], notified: 0 };
       }
 
-      const enriched = this.enrich === undefined
-        ? inUse.map(({ content }) => toChangedContent(content))
-        : await this.enrich(inUse.map((x) => x.content));
-
-      const watched = await this.notifications.watchedProducts(today);
+      const periods = await this.eventPeriodsOf(contents, watched.length > 0);
       const pending: NotificationToSave[] = [];
       const allImpacts: Impact[] = [];
 
-      for (const content of enriched) {
-        const direct = inUse.find((x) => x.content.contentId === content.contentId)?.candidates ?? [];
+      for (const content of contents) {
+        const changed: ChangedContent = {
+          ...content,
+          eventPeriod: periods.get(content.contentId) ?? null,
+          // 지문은 아직 안 만든다. 이 값들이 비면 FR-MO-036 재노출 차단이 안 걸린다
+          hashFrom: null,
+          hashTo: null,
+        };
         const impacts = mergeImpacts(
-          matchByContent(direct),
-          matchByRegion(content, watched, today),
-          matchByEventPeriod(content, watched),
+          matchByContent(direct.get(content.contentId) ?? []),
+          matchByRegion(changed, watched, today),
+          matchByEventPeriod(changed, watched),
         );
         allImpacts.push(...impacts);
-        pending.push(...impacts.map((i) => toNotification(i, content)));
+        pending.push(...impacts.map((i) => toNotification(i, changed)));
       }
 
       const notified = await this.notifications.insertMany(pending);
@@ -248,6 +270,41 @@ export class SyncBatchJob {
       this.logger.error(`영향 탐색에 실패했다. 1단계 결과는 그대로다: ${(e as Error).message}`);
       return { impacts: [], notified: 0 };
     }
+  }
+
+  /**
+   * 행사 개최 기간을 모은다 (조건 3).
+   *
+   * **예산이 떨어지면 거기서 멈추고 몇 건을 못 봤는지 남긴다.** 조용히 자르면 조건 3 이
+   * 안 걸린 것인지 안 본 것인지 구분이 안 된다.
+   */
+  private async eventPeriodsOf(
+    contents: readonly SyncedContent[],
+    hasWatched: boolean,
+  ): Promise<ReadonlyMap<string, EventPeriod>> {
+    const out = new Map<string, EventPeriod>();
+    // 감시 중인 상품이 없으면 기간을 알아도 걸릴 곳이 없다
+    if (this.eventPeriod === undefined || !hasWatched) return out;
+
+    // 응답은 문자열로 온다. 빈 값은 0 이 돼 걸리지 않는다
+    const festivals = contents.filter((c) => Number(c.contentTypeId) === FESTIVAL_TYPE_ID);
+    let seen = 0;
+    for (const festival of festivals) {
+      if (!(await this.hasBudget())) break;
+      seen++;
+      try {
+        const period = await this.eventPeriod(festival.contentId);
+        if (period !== null) out.set(festival.contentId, period);
+      } catch (e) {
+        // 한 건이 실패해도 나머지는 본다. 조건 3 만 물러난다
+        this.logger.warn(`행사 ${festival.contentId} 기간을 못 읽었다: ${(e as Error).message}`);
+      }
+    }
+
+    if (seen < festivals.length) {
+      this.logger.warn(`예산이 남지 않아 행사 ${festivals.length - seen}건의 기간을 못 봤다 (조건 3 미판정)`);
+    }
+    return out;
   }
 
   /** 조건 1 상품만 재검수를 건다 (FR-MO-013). 한 상품이 여러 번 걸려도 한 번만 */
@@ -300,12 +357,35 @@ export function toSyncedContent(item: Record<string, unknown>): SyncedContent {
     modifiedTime: String(item.modifiedtime ?? ''),
     showFlag: String(item.showflag ?? '1') === '0' ? '0' : '1',
     createdTime: String(item.createdtime ?? ''),
+    ldongRegnCd: code(item.lDongRegnCd),
+    ldongSignguCd: code(item.lDongSignguCd),
   };
 }
 
-/** 상세 조회를 안 했을 때의 기본값. 조건 1 만 판정되고 2 · 3 은 물러난다 */
-function toChangedContent(content: SyncedContent): ChangedContent {
-  return { ...content, eventPeriod: null, ldongSignguCd: null, hashFrom: null, hashTo: null };
+/**
+ * 행사 상세 → 개최 기간 (조건 3 · FR-MO-030 ③).
+ *
+ * `YYYYMMDD` 로 온다. **한쪽이라도 없거나 날짜가 아니면 `null` 이다** — 기간을 모르는 것을
+ * 「안 겹친다」로 읽지 않는다. 모르면 조건 3 만 판정하지 않고 넘어간다.
+ */
+export function toEventPeriod(detail: Record<string, unknown>): EventPeriod | null {
+  const start = toIsoDay(detail.eventstartdate);
+  const end = toIsoDay(detail.eventenddate);
+  return start === null || end === null ? null : { start, end };
+}
+
+function toIsoDay(value: unknown): string | null {
+  const raw = String(value ?? '').trim();
+  if (!/^\d{8}$/.test(raw)) return null;
+  const iso = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+  // 20261352 같은 값을 날짜로 받아들이지 않는다
+  return parseIsoDate(iso) === null ? null : iso;
+}
+
+/** 빈 문자열은 없는 것이다. `''` 끼리 같다고 봐서 엉뚱한 지역이 묶이면 안 된다 */
+function code(value: unknown): string | null {
+  const s = value === undefined || value === null ? '' : String(value).trim();
+  return s === '' ? null : s;
 }
 
 /**

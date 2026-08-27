@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { ImpactCandidate } from '../batch/impact-finder';
 import { NotificationRepository } from './notification.repository';
 
 const URL = process.env.TEST_DATABASE_URL;
@@ -87,16 +88,46 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
   });
 
   describe('후보 탐색 (FR-MO-018 · 030)', () => {
+    /** 한 콘텐츠 몫만 꺼낸다. 저장소는 여러 개를 한 번에 받는다 */
+    const forContent = async (contentId: string, today: string): Promise<readonly ImpactCandidate[]> =>
+      (await repo.productsWithContents([contentId], today)).get(contentId) ?? [];
+
     it('조건 1 — 그 콘텐츠를 넣은 상품을 찾는다', async () => {
-      const found = await repo.productsWithContent(CONTENT, '2026-08-27');
+      const found = await forContent(CONTENT, '2026-08-27');
       expect(found.map((f) => f.productId)).toContain(productId);
       expect(found[0]).toMatchObject({ nights: 2, ldongSignguCd: '150' });
+    });
+
+    it('🔴 콘텐츠 여러 개를 한 번에 묻고 콘텐츠별로 묶어 준다', async () => {
+      /*
+       * 하루 변경이 177건이라 하나씩 물으면 그만큼 왕복한다. 묶는 키가 어긋나면 A 의
+       * 변경이 B 를 넣은 상품에 붙는다 — 오류 없이 엉뚱한 상품에 알림이 간다.
+       *
+       * **콘텐츠 둘이 서로 다른 상품에 붙어 있어야** 잘못 묶은 것이 드러난다. 하나만
+       * 두면 전부 한 덩어리로 넣어도 결과가 같다.
+       */
+      const second = '888888888';
+      const other = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+         VALUES ($1, '둘째 상품', '51', '2099-09-10', 2, 'CAR') RETURNING id`, [accountId]);
+      const otherId = Number(other.rows[0]?.id);
+      await pool.query(
+        `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, kto_content_id, match_status)
+         VALUES ($1, 1, 1, '10:00', 'INPUT', '오죽헌', 'SIGHT', $2, 'CONFIRMED')`, [otherId, second]);
+
+      const missing = '999999999';
+      const found = await repo.productsWithContents([CONTENT, second, missing, CONTENT], '2026-08-27');
+
+      expect([...found.keys()].sort()).toEqual([second, CONTENT].sort());
+      expect(found.get(CONTENT)?.map((f) => f.productId)).toEqual([productId]);
+      expect(found.get(second)?.map((f) => f.productId)).toEqual([otherId]);
+      expect(found.get(missing)).toBeUndefined();
     });
 
     it('미확정 항목은 세지 않는다', async () => {
       await pool.query(`UPDATE itinerary_item SET match_status = 'PENDING' WHERE id = $1`, [itemId]);
       try {
-        expect(await repo.productsWithContent(CONTENT, '2026-08-27')).toEqual([]);
+        expect(await forContent(CONTENT, '2026-08-27')).toEqual([]);
       } finally {
         await pool.query(`UPDATE itinerary_item SET match_status = 'CONFIRMED' WHERE id = $1`, [itemId]);
       }
@@ -112,7 +143,7 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
         `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, kto_content_id, match_status)
          VALUES ($1, 1, 1, '10:00', 'INPUT', '경포대', 'SIGHT', $2, 'CONFIRMED')`, [pastId, CONTENT]);
 
-      const found = await repo.productsWithContent(CONTENT, '2026-08-27');
+      const found = await forContent(CONTENT, '2026-08-27');
       expect(found.map((f) => f.productId)).not.toContain(pastId);
       expect(await repo.watchedProducts('2026-08-27')).not.toContainEqual(
         expect.objectContaining({ productId: pastId }),
@@ -121,9 +152,9 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
 
     it('출발일 당일과 마지막 날은 아직 감시 대상이다', async () => {
       // 2박 3일이면 출발 + 2일까지다. 그날 아침에도 변경은 의미가 있다
-      const found = await repo.productsWithContent(CONTENT, '2099-09-12');
+      const found = await forContent(CONTENT, '2099-09-12');
       expect(found.map((f) => f.productId)).toContain(productId);
-      expect((await repo.productsWithContent(CONTENT, '2099-09-13')).map((f) => f.productId))
+      expect((await forContent(CONTENT, '2099-09-13')).map((f) => f.productId))
         .not.toContain(productId);
     });
   });
