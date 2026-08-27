@@ -111,6 +111,8 @@ function groupByDay(items: readonly AuditItem[]): Map<number, AuditItem[]> {
 
 export class R04ImbalanceRule implements AuditRule {
   readonly code = 'R04';
+  readonly name = '콘텐츠 편중';
+  readonly basis = 'KTO_ONLY' as const;
   readonly version = R04_VERSION;
   readonly defaultSeverity: Severity = 'WARNING';
   readonly requiresExternal = false;

@@ -91,6 +91,8 @@ function durationMinutes(item: AuditItem): number {
 
 export class R07MealRestRule implements AuditRule {
   readonly code = 'R07';
+  readonly name = '식사 · 휴식 누락';
+  readonly basis = 'ITINERARY_ONLY' as const;
   readonly version = R07_VERSION;
   readonly defaultSeverity: Severity = 'WARNING';
   readonly requiresExternal = false;

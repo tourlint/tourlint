@@ -6,10 +6,7 @@ import productCreated from '../mocks/product_created.json';
 import productList from '../mocks/product_list.json';
 import contentsSearch from '../mocks/contents_search.json';
 import itemMatch from '../mocks/item_match.json';
-import auditRun from '../mocks/audit_run.json';
-import unverified from '../mocks/unverified.json';
 import comparison from '../mocks/comparison.json';
-import rules from '../mocks/rules.json';
 
 /**
  * W1 전용 mock 컨트롤러 — API 명세 v1.4 계약의 응답 형태를 그대로 반환한다.
@@ -49,15 +46,6 @@ export class MockController {
   @Post('items/:itemId/exclude') exclude(@Param('itemId') id: string) { return { itemId: Number(id), matchStatus: 'EXCLUDED' }; }
   @Get('contents/:contentId') content(@Param('contentId') id: string) { return { contentId: id, fetchedAt: new Date().toISOString(), ktoRaw: {} }; }
   // ldong-codes · lcls-codes 는 실엔진(CatalogController)으로 교체됨. mock 제거 (NF-CO-002)
-
-  /** mock 진행 시뮬레이션: 호출할 때마다 QUEUED → RUNNING → DONE 으로 넘어간다 */
-  private jobPolls = new Map<string, number>();
-  @Get('audit-runs/:runId/unverified') runUnverified() { return unverified; }
-  @Post('findings/:id/dismiss') dismiss(@Param('id') id: string) { return { findingId: Number(id), dismissedAt: new Date().toISOString() }; }
-  @Delete('findings/:id/dismiss') undismiss(@Param('id') id: string) { return { findingId: Number(id), dismissedAt: null }; }
-  @Post('findings/:id/confirm') confirm(@Param('id') id: string) { return { findingId: Number(id), confirmedAt: new Date().toISOString() }; }
-  @Get('rules') rulesList() { return rules; }
-  @Get('products/:productId/audit-runs') runHistory() { return { content: [auditRun], page: 0, size: 20, totalElements: 1 }; }
 
   // ── 패치 (F10 전후 비교만 남았다. F08 미리보기 · F09 확정 · 되돌리기는 실엔진이 가져갔다) ──
   @Get('products/:productId/comparison') compare() { return comparison; }

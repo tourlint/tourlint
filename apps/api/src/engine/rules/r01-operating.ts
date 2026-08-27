@@ -221,6 +221,8 @@ const KOREAN_DAY: Readonly<Record<DayOfWeek, string>> = {
 
 export class R01OperatingRule implements AuditRule {
   readonly code = 'R01';
+  readonly name = '휴무일 · 운영시간 충돌';
+  readonly basis = 'KTO_ONLY' as const;
   readonly version = R01_VERSION;
   readonly defaultSeverity: Severity = 'BLOCKER';
   readonly requiresExternal = false;
