@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CLIMATE_STATION, RULE_CONSTANTS } from '@tourlint/shared';
@@ -128,6 +128,43 @@ describe('시드 행', () => {
     expect(blocks.map((b: { stationName: string }) => b.stationName)).toEqual(['강릉', '서울']);
     // 강원 2 + 서울 1 = 3개 시도 × 12개월
     expect(rows).toHaveLength(36);
+  });
+});
+
+describe('시드 원본 전부 (2026.08.27)', () => {
+  const DIR = join(__dirname, '../../../fixtures/climate');
+
+  it('🔴 시도 20개 × 12개월이 빠짐없이 찬다', () => {
+    /*
+     * 한 시도라도 비면 그 지역 상품이 D+11 이상에서 확인 불가로 남는다. 지점 하나가
+     * 시도 둘을 맡기도 해서(강릉이 42·51, 대전이 대전·세종) 파일 수와 시도 수가 다르다.
+     */
+    const map = nameToSido();
+    const rows: { sido: string; month: number }[] = [];
+    for (const f of readdirSync(DIR).filter((x) => x.endsWith('.csv'))) {
+      rows.push(...parseClimateCsv(decodeCsv(readFileSync(join(DIR, f))).text, map).rows);
+    }
+
+    const sidos = new Set(rows.map((r) => r.sido));
+    expect(sidos.size).toBe(Object.keys(CLIMATE_STATION).length);
+    for (const sido of Object.keys(CLIMATE_STATION)) {
+      const months = rows.filter((r) => r.sido === sido).map((r) => r.month).sort((a, b) => a - b);
+      expect(months, `시도 ${sido}`).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    }
+  });
+
+  it('평년 강수일수가 그럴듯한 범위 안이다', () => {
+    // 국내 어느 지점·달도 0일이거나 31일이 될 수 없다
+    const map = nameToSido();
+    for (const f of readdirSync(DIR).filter((x) => x.endsWith('.csv'))) {
+      const { blocks } = parseClimateCsv(decodeCsv(readFileSync(join(DIR, f))).text, map);
+      for (const b of blocks) {
+        for (const [i, d] of b.monthly.entries()) {
+          expect(d, `${b.stationName} ${i + 1}월`).toBeGreaterThan(0);
+          expect(d, `${b.stationName} ${i + 1}월`).toBeLessThan(25);
+        }
+      }
+    }
   });
 });
 
