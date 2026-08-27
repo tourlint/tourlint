@@ -7,6 +7,7 @@ import {
   toFindingsResponse,
   toJobResponse,
   toPatchApplicationResponse,
+  toComparisonResponse,
   toRevertResponse,
   toRulesResponse,
   toRunListResponse,
@@ -153,6 +154,18 @@ export class AuditController {
   @Get('products/:productId/audit-runs')
   async runs(@Param('productId', ParseIntPipe) productId: number): Promise<Record<string, unknown>> {
     return toRunListResponse(await this.service.listRuns(productId));
+  }
+
+  /**
+   * 수정 전후 비교 (F10 · API 설계 5-9).
+   *
+   * 대상은 되돌리지 않은 가장 최근 이력이다. 없거나 재검수가 안 끝났으면 404 다 —
+   * 빈 비교를 그럴듯하게 만들어 주지 않는다.
+   */
+  @Get('products/:productId/comparison')
+  async comparison(@Param('productId', ParseIntPipe) productId: number): Promise<Record<string, unknown>> {
+    const { application, before, after } = await this.service.getComparison(productId);
+    return toComparisonResponse(application, before, after);
   }
 
   /** 규칙 목록 (API 설계 5-10). 레지스트리가 정본이다 */
