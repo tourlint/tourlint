@@ -99,6 +99,7 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
       productId, executedAt: new Date('2026-10-01T09:00:00Z'), rulesetVersion: '1.0.0',
       targetCount, failedCount, findings, fingerprints: over.fingerprints ?? [fingerprint()],
       weights: SEVERITY_WEIGHT_DEFAULT,
+      travelTotals: over.travelTotals ?? { durationSeconds: 5_400, distanceMeters: 42_000 },
       score: calculateReadiness({
         findings: findings.map((f) => ({ ...f, dismissed: false })),
         targetCount, failedCount,
@@ -313,4 +314,59 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
       expect(json).not.toContain('restdatefood');
     });
   });
+  describe('총 이동시간 · 거리 (FR-RU-084 · DB 명세서 v1.6)', () => {
+    it('실행 시점 값을 그대로 저장하고 되읽는다', async () => {
+      const id = await repo.save(build({ travelTotals: { durationSeconds: 11_400, distanceMeters: 86_000 } }));
+      const run = await repo.findById(id);
+      expect(run?.travelTotals).toEqual({ durationSeconds: 11_400, distanceMeters: 86_000 });
+    });
+
+    it('합이 0 인 것도 산출한 값이다 — 대중교통 상품이 그렇다', async () => {
+      const id = await repo.save(build({ travelTotals: { durationSeconds: 0, distanceMeters: 0 } }));
+      expect((await repo.findById(id))?.travelTotals).toEqual({ durationSeconds: 0, distanceMeters: 0 });
+    });
+
+    /**
+     * 이 컬럼이 생기기 전 실행을 흉내 낸다.
+     *
+     * `audit_run` 은 불변이라 UPDATE 로는 못 만든다 — 트리거가 `FORBIDDEN_ACTION` 으로
+     * 막는다 (PM-NG-004). 두 열을 빼고 INSERT 한다.
+     */
+    async function insertLegacyRun(travel: { seconds: number | null; meters: number | null } | null): Promise<number> {
+      const cols = travel === null
+        ? ''
+        : ', travel_seconds, travel_meters';
+      const vals = travel === null ? '' : ', $8, $9';
+      const params: unknown[] = [
+        productId, new Date('2026-10-01T09:00:00Z'), '1.0.0', 100, false, 8, 0,
+        JSON.stringify(SEVERITY_WEIGHT_DEFAULT),
+      ];
+      if (travel !== null) params.splice(7, 0, travel.seconds, travel.meters);
+
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO audit_run
+           (product_id, executed_at, ruleset_version, readiness_score, is_partial,
+            target_count, failed_count${cols}, weight_snapshot)
+         VALUES ($1,$2,$3,$4,$5,$6,$7${vals},$${travel === null ? 8 : 10})
+         RETURNING id`,
+        travel === null ? params : [...params.slice(0, 7), travel.seconds, travel.meters, params[7]],
+      );
+      return Number(rows[0]?.id);
+    }
+
+    it('🔴 컬럼이 비어 있는 옛 실행은 null 이다 — 0 으로 뭉개지 않는다', async () => {
+      /*
+       * 0 으로 읽으면 「이동이 없었다」가 되고, 전후 비교에서 한쪽만 0 이면 개선된 것처럼
+       * 보인다.
+       */
+      const id = await insertLegacyRun(null);
+      expect((await repo.findById(id))?.travelTotals).toBeNull();
+    });
+
+    it('🔴 둘 중 하나만 NULL 일 수 없다 (ck_run_travel)', async () => {
+      // 제약이 없으면 한쪽만 있는 행이 생겨 findById 가 어느 쪽으로도 못 읽는다
+      await expect(insertLegacyRun({ seconds: 100, meters: null })).rejects.toThrow(/ck_run_travel/);
+    });
+  });
+
 });

@@ -25,6 +25,8 @@ export function overlapMinutes(
 
 export class R03TimeOverlapRule implements AuditRule {
   readonly code = 'R03';
+  readonly name = '일정 시간 중복';
+  readonly basis = 'ITINERARY_ONLY' as const;
   readonly version = R03_VERSION;
   readonly defaultSeverity: Severity = 'ERROR';
   readonly requiresExternal = false;

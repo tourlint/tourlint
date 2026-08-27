@@ -1,5 +1,6 @@
 import {
   CONTENT_TYPE_ID, INTRO_FIELDS, SEVERITY_WEIGHT_DEFAULT,
+  type ConceptKey, type TargetKey,
   type ContentTypeId, type EndTimeSource, type ExceptionReasonCode, type ItemType, type MatchStatus, type Severity,
   type Transport,
 } from '@tourlint/shared';
@@ -18,8 +19,14 @@ import { calculateReadiness, type ScoreResult } from '../engine/score';
 import { isKtoError, type KtoClient } from '../external/kto';
 import type { FingerprintToSave } from '../persistence/audit-result.repository';
 import { segmentKey, segmentsOf, type TravelSegment } from '../engine/rules/r08-travel';
+import type { DailyRainOutlook } from '../engine/rules/r09-rain';
+import type { TargetProfileContext } from '../engine/rules/r10-target';
 import type { KakaoMobilityClient } from '../external/kakao';
 import { isKakaoError } from '../external/kakao';
+import {
+  chooseMidPublication, chooseShortPublication, isKmaError, kstToday, midLandRegionOf,
+  representativePoint, toGrid, type KmaClient,
+} from '../external/kma';
 import { proposeLocalPatches } from './patch-local';
 import { proposeReplacements } from './patch-remote';
 import { MAX_PATCHES_PER_FINDING, type Patch } from './patch-types';
@@ -31,7 +38,7 @@ import { RULESET_VERSION, evaluateAll } from './rule-registry';
  *   1) 대상 수집          CONFIRMED 항목의 고유 contentid
  *   2) 공사 데이터 조회    ★ 관광지 단위 병렬 · 실행 내 캐시
  *   3) 지문 생성 + 정규화
- *   4) 외부 데이터 조회    ★ 구간 단위 병렬. 카카오모빌리티(R08). 기상청(R09)은 W3
+ *   4) 외부 데이터 조회    ★ 구간 단위 병렬. 카카오모빌리티(R08) · 기상청(R09)
  *   5) ItineraryContext 조립   ← 여기까지가 I/O
  *   6) 규칙 평가          ★ 메모리 상에서만
  *   7) 등급 · 출시 준비도
@@ -69,6 +76,48 @@ export interface ProductRow {
   readonly nights: number;
   /** 이동수단. 대중교통이면 R08 을 판정하지 않는다 (FR-RU-086) */
   readonly transport: Transport;
+  /** 법정동 시도 코드. 중기 예보구역과 평년 테이블이 쓴다. 길이를 가정하지 않는다 (DR-IN-010) */
+  readonly ldongRegnCd?: string | null;
+  /** 시군구 코드. 강원은 이것으로 영서 · 영동이 갈린다 */
+  readonly ldongSignguCd?: string | null;
+  /** 상품 성격. 선택 입력이라 없을 수 있고, 없으면 R10 이 물러난다 (FR-RU-100) */
+  readonly targetKey?: string | null;
+  readonly conceptKey?: string | null;
+  /** 상품 소유자. 기대 프로파일이 계정 설정이라 필요하다 */
+  readonly accountId?: number;
+}
+
+/**
+ * 기대 콘텐츠 프로파일 조회 (`target_profile` · FR-RU-100).
+ *
+ * 계정 설정이라 계정마다 다르다. **없으면 `null`** 이고 R10 은 그 상품을 확인 불가로
+ * 남긴다 — 비슷한 조합으로 대신 판정하지 않는다 (FR-RU-051).
+ */
+export interface TargetProfileLookup {
+  find(accountId: number, targetKey: string, conceptKey: string): Promise<TargetProfileRow | null>;
+}
+
+export interface TargetProfileRow {
+  readonly expectedLcls2: readonly string[];
+  readonly expectsNight: boolean;
+}
+
+/**
+ * 평년 강수일수 조회 (EI-WX-004 · FR-RU-091 D+11 이상).
+ *
+ * 파일로 배포되는 통계라 고정 테이블이 정상 구현이다. **테이블이 비어 있으면 `null` 이고
+ * 그 날짜는 확인 불가가 된다** — 정보가 없다는 이유로 정상 판정을 하지 않는다 (FR-RU-051).
+ */
+export interface ClimateNormalLookup {
+  find(ldongRegnCd: string, month: number): Promise<ClimateNormal | null>;
+}
+
+export interface ClimateNormal {
+  readonly rainDays: number;
+  /** 그 달의 강수일수 비율 */
+  readonly rainRatio: number;
+  /** 화면 문장에 들어가는 지역명 (FR-RU-092) */
+  readonly regionName: string;
 }
 
 export interface AuditRunnerOptions {
@@ -95,6 +144,14 @@ export interface AuditRunnerOptions {
   readonly maxReplacementCalls?: number;
   /** 길찾기 클라이언트. 없으면 R08 을 판정하지 않는다 */
   readonly kakao?: KakaoMobilityClient;
+  /** 기상청 클라이언트. 없으면 R09 를 확인 불가로 남긴다 */
+  readonly kma?: KmaClient;
+  /** 평년 강수일수. 없으면 D+11 이상이 확인 불가로 남는다 (이슈 #7) */
+  readonly climate?: ClimateNormalLookup;
+  /** 기대 콘텐츠 프로파일. 없으면 R10 을 판정하지 않는다 */
+  readonly profiles?: TargetProfileLookup;
+  /** 프로파일을 찾을 계정. 상품 소유자다 */
+  readonly accountId?: number;
 }
 
 export interface AuditRunResult {
@@ -135,6 +192,10 @@ export class AuditRunner {
   private readonly previous: ReadonlyMap<string, FingerprintSnapshot>;
   private readonly maxReplacementCalls: number;
   private readonly kakao: KakaoMobilityClient | null;
+  private readonly kma: KmaClient | null;
+  private readonly climate: ClimateNormalLookup | null;
+  private readonly profiles: TargetProfileLookup | null;
+  private readonly accountId: number | null;
   private readonly clock: () => Date;
   private readonly onProgress: (done: number, total: number) => void | Promise<void>;
 
@@ -146,6 +207,10 @@ export class AuditRunner {
     this.previous = options.previousFingerprints ?? new Map();
     this.maxReplacementCalls = options.maxReplacementCalls ?? 3;
     this.kakao = options.kakao ?? null;
+    this.kma = options.kma ?? null;
+    this.climate = options.climate ?? null;
+    this.profiles = options.profiles ?? null;
+    this.accountId = options.accountId ?? null;
     this.clock = options.clock ?? ((): Date => new Date());
     this.onProgress = options.onProgress ?? ((): void => undefined);
   }
@@ -206,10 +271,14 @@ export class AuditRunner {
     }
 
     // ── 4) 외부 데이터 조회 (구간 단위 병렬) ──
-    const travelTimes = await this.fetchTravelTimes(product, items);
+    const [travelTimes, rainOutlooks, targetProfile] = await Promise.all([
+      this.fetchTravelTimes(product, items),
+      this.fetchRainOutlooks(product, items, executedAt),
+      this.fetchTargetProfile(product),
+    ]);
 
     // ── 5) ItineraryContext 조립 (I/O 끝) ──
-    const ctx = this.buildContext(product, items, fetched, verdicts, travelTimes);
+    const ctx = this.buildContext(product, items, fetched, verdicts, travelTimes, rainOutlooks, targetProfile);
 
     // ── 6) 규칙 평가 (메모리 전용) ──
     const { findings, failedRules } = evaluateAll(ctx);
@@ -372,6 +441,176 @@ export class AuditRunner {
   }
 
   /**
+   * [4단계] 여행 일자별 강수 판정 근거를 모은다 (FR-RU-091 · EI-WX-002 · 003).
+   *
+   * 호출은 최대 둘이다 — 단기 1회 · 중기 1회. 격자도 예보구역도 **상품당 하나**라서
+   * 일정 항목마다 부르지 않는다 (EI-WX-002). 대상 일자가 여럿이어도 한 발표분이 다 덮는다.
+   *
+   * 구간은 각 일정의 날짜 기준이다. 출발일이 아니다 — 출발 D+2 인 2박 3일 상품의 3일차는
+   * D+4 라 중기로 간다.
+   *
+   * 조회에 실패해도 검수를 세우지 않는다. **그 날짜만** 확인 불가로 남는다 (EI-WX-006).
+   */
+  private async fetchRainOutlooks(
+    product: ProductRow,
+    items: readonly ItineraryItemRow[],
+    now: Date,
+  ): Promise<ReadonlyMap<string, DailyRainOutlook>> {
+    const out = new Map<string, DailyRainOutlook>();
+    const dates = travelDates(product, items);
+    if (dates.length === 0) return out;
+
+    const fail = (reasonCode: ExceptionReasonCode): ReadonlyMap<string, DailyRainOutlook> => {
+      for (const d of dates) out.set(d, { ok: false, reasonCode });
+      return out;
+    };
+
+    // 키가 없거나 클라이언트를 못 만든 경우다. 조용히 넘기면 "우천 위험 없음" 으로 읽힌다
+    if (this.kma === null) return fail('FORECAST_UNAVAILABLE');
+
+    const point = representativePoint(items);
+    const grid = point === null ? null : toGrid(point.lon, point.lat);
+    if (grid === null) return fail('COORD_MISSING');
+
+    const today = kstToday(now);
+    const buckets = { short: [] as string[], mid: [] as string[], climate: [] as string[] };
+    for (const date of dates) {
+      const offset = daysUntil(today, date);
+      if (offset === null || offset < 0) out.set(date, { ok: false, reasonCode: 'FORECAST_UNAVAILABLE' });
+      else if (offset <= SHORT_TERM_MAX_OFFSET) buckets.short.push(date);
+      else if (offset <= MID_TERM_MAX_OFFSET) buckets.mid.push(date);
+      else buckets.climate.push(date);
+    }
+
+    await Promise.all([
+      this.fillShortTerm(buckets.short, grid, now, out),
+      this.fillMidTerm(buckets.mid, product, now, out),
+      this.fillClimate(buckets.climate, product, out),
+    ]);
+    return out;
+  }
+
+  /** D+0 ~ D+3. 시간대별 값을 그대로 넘긴다 — 야외 시간대를 덮는지는 규칙이 본다 */
+  private async fillShortTerm(
+    dates: readonly string[],
+    grid: { nx: number; ny: number },
+    now: Date,
+    out: Map<string, DailyRainOutlook>,
+  ): Promise<void> {
+    if (dates.length === 0 || this.kma === null) return;
+    try {
+      const forecast = await this.kma.shortTermPop(grid, chooseShortPublication(now));
+      for (const date of dates) {
+        const slots = forecast.pop.get(date);
+        // 예보에 없는 날짜를 0% 로 읽지 않는다
+        if (slots === undefined) out.set(date, { ok: false, reasonCode: 'FORECAST_UNAVAILABLE' });
+        else out.set(date, { ok: true, source: 'SHORT', slots });
+      }
+    } catch (e) {
+      for (const date of dates) {
+        out.set(date, { ok: false, reasonCode: isKmaError(e) ? e.reasonCode : 'FORECAST_UNAVAILABLE' });
+      }
+    }
+  }
+
+  /**
+   * D+4 ~ D+10. 발표분은 **가장 이른 대상 일자**로 고른다.
+   *
+   * 오프셋 범위의 끝이 항상 +10 이라 이른 쪽을 덮는 발표분이 늦은 쪽도 덮는다.
+   * 저녁에 최신 18시 발표분을 쓰면 그날의 D+4 가 창 밖으로 밀린다 (EI-WX-003).
+   */
+  private async fillMidTerm(
+    dates: readonly string[],
+    product: ProductRow,
+    now: Date,
+    out: Map<string, DailyRainOutlook>,
+  ): Promise<void> {
+    if (dates.length === 0 || this.kma === null) return;
+
+    const regId = midLandRegionOf(product.ldongRegnCd ?? null, product.ldongSignguCd ?? null);
+    const earliest = [...dates].sort()[0] as string;
+    const publication = regId === null ? null : chooseMidPublication(now, earliest);
+    if (regId === null || publication === null) {
+      for (const date of dates) out.set(date, { ok: false, reasonCode: 'FORECAST_UNAVAILABLE' });
+      return;
+    }
+
+    try {
+      const forecast = await this.kma.midLandRain(regId, publication);
+      for (const date of dates) {
+        const probability = forecast.byDate.get(date);
+        if (probability === undefined) out.set(date, { ok: false, reasonCode: 'FORECAST_UNAVAILABLE' });
+        else out.set(date, { ok: true, source: 'MID', probability });
+      }
+    } catch (e) {
+      for (const date of dates) {
+        out.set(date, { ok: false, reasonCode: isKmaError(e) ? e.reasonCode : 'FORECAST_UNAVAILABLE' });
+      }
+    }
+  }
+
+  /** D+11 이상. 사전 구축 고정 테이블이며 실시간 호출 의무와 무관하다 (EI-WX-004 · SC-DT-014) */
+  private async fillClimate(
+    dates: readonly string[],
+    product: ProductRow,
+    out: Map<string, DailyRainOutlook>,
+  ): Promise<void> {
+    if (dates.length === 0) return;
+    const regnCd = product.ldongRegnCd ?? null;
+
+    for (const date of dates) {
+      const month = Number(date.slice(5, 7));
+      if (this.climate === null || regnCd === null || !Number.isFinite(month)) {
+        out.set(date, { ok: false, reasonCode: 'CLIMATE_DATA_MISSING' });
+        continue;
+      }
+      try {
+        const normal = await this.climate.find(regnCd, month);
+        if (normal === null) out.set(date, { ok: false, reasonCode: 'CLIMATE_DATA_MISSING' });
+        else {
+          out.set(date, {
+            ok: true, source: 'CLIMATE',
+            probability: normal.rainRatio, rainDays: normal.rainDays,
+            regionName: normal.regionName, month,
+          });
+        }
+      } catch {
+        out.set(date, { ok: false, reasonCode: 'CLIMATE_DATA_MISSING' });
+      }
+    }
+  }
+
+  /**
+   * [4단계] 기대 콘텐츠 프로파일을 읽는다 (FR-RU-100).
+   *
+   * 타깃 · 콘셉트는 **선택 입력**이라 안 적은 상품이 있다. 그때는 `undefined` 를 주고
+   * R10 이 조용히 물러난다 — 안 적은 것을 결함이라 말할 근거가 없다.
+   *
+   * 적었는데 그 조합의 프로파일이 없으면 확인 불가로 남긴다. 비슷한 조합으로 대신
+   * 판정하지 않는다 (FR-RU-051).
+   */
+  private async fetchTargetProfile(product: ProductRow): Promise<TargetProfileContext | undefined> {
+    const targetKey = product.targetKey ?? null;
+    const conceptKey = product.conceptKey ?? null;
+    if (targetKey === null || conceptKey === null || targetKey === '' || conceptKey === '') return undefined;
+    if (this.profiles === null || this.accountId === null) return { ok: false, targetKey, conceptKey };
+
+    try {
+      const row = await this.profiles.find(this.accountId, targetKey, conceptKey);
+      if (row === null) return { ok: false, targetKey, conceptKey };
+      return {
+        ok: true,
+        targetKey: targetKey as TargetKey,
+        conceptKey: conceptKey as ConceptKey,
+        expectedLcls2: row.expectedLcls2,
+        expectsNight: row.expectsNight,
+      };
+    } catch {
+      return { ok: false, targetKey, conceptKey };
+    }
+  }
+
+  /**
    * 상세 조회 2종. 같은 콘텐츠를 두 번 부르지 않도록 호출자가 중복을 미리 걷어낸다.
    *
    * **`detailIntro2` 가 필수고 `detailCommon2` 는 보조다.** 판정 근거(운영시간 · 휴무일 ·
@@ -404,6 +643,8 @@ export class AuditRunner {
     fetched: ReadonlyMap<string, FetchedContent>,
     verdicts: ReadonlyMap<string, ChangeVerdict>,
     travelTimes: ReadonlyMap<string, TravelSegment>,
+    rainOutlooks: ReadonlyMap<string, DailyRainOutlook>,
+    targetProfile: TargetProfileContext | undefined,
   ): ItineraryContext {
     const start = parseIsoDate(product.startDate);
 
@@ -413,7 +654,8 @@ export class AuditRunner {
       const resolved = resolveEndTime({
         startTime: item.startTime, endTime: item.endTime,
         itemType: item.itemType, lclsSystm2: item.lclsSystm2,
-      });
+      // 계정 설정의 체류시간 표를 쓴다. 규칙이 상수를 직접 읽지 않는 것과 같은 이유다
+      }, this.settings.dwellMinutes);
 
       return {
         id: item.id, dayNo: item.dayNo, seq: item.seq, date,
@@ -433,7 +675,7 @@ export class AuditRunner {
 
     return {
       productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS,
-      settings: this.settings, travelTimes,
+      settings: this.settings, travelTimes, rainOutlooks, targetProfile,
     };
   }
 }
@@ -455,6 +697,32 @@ function toMatchedContent(
     eventPeriod: content.contentTypeId === 15 ? readEventPeriod(content.intro) : null,
     changeVerdict: verdicts.get(item.ktoContentId) ?? null,
   };
+}
+
+/**
+ * 강수 판정 근거가 갈리는 경계 (FR-RU-091).
+ *
+ * D+3 을 단기에 두는 것은 중기육상예보에 `rnSt3` 이 없어서다. 중기로 보내면 빈 값을 받고
+ * 그걸 0% 로 읽으면 비 오는 날이 정상 판정된다 (EI-WX-003).
+ */
+const SHORT_TERM_MAX_OFFSET = 3;
+const MID_TERM_MAX_OFFSET = 10;
+
+/** 상품이 덮는 여행 일자. 항목이 없는 일차도 출발일 + 박수로 채운다 */
+function travelDates(product: ProductRow, items: readonly ItineraryItemRow[]): readonly string[] {
+  const start = parseIsoDate(product.startDate);
+  if (start === null) return [];
+  const dates = new Set<string>();
+  for (const item of items) dates.add(formatIsoDate(addDays(start, item.dayNo - 1)));
+  return [...dates].sort();
+}
+
+/** `target − today` (일). 못 읽으면 null */
+function daysUntil(today: string, target: string): number | null {
+  const a = parseIsoDate(today);
+  const b = parseIsoDate(target);
+  if (a === null || b === null) return null;
+  return Math.round((Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day)) / 86_400_000);
 }
 
 /** 공사는 `YYYYMMDD` 로 준다. 스키마 표기 `YYYY-MM-DD` 로 옮긴다 */

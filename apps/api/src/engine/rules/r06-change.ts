@@ -20,8 +20,17 @@ export const R06_VERSION = '1.0.0';
 
 export class R06ChangeRule implements AuditRule {
   readonly code = 'R06';
+  readonly name = '데이터 변경 감지';
+  readonly basis = 'KTO_ONLY' as const;
   readonly version = R06_VERSION;
-  readonly defaultSeverity: Severity = 'BLOCKER';
+  /**
+   * **null 이다.** 이 규칙은 등급이 하나로 정해지지 않는다 — 비표출 전환은 차단이고,
+   * 정규화 없이 변경만 감지한 것은 확인 불가다 (API 설계 5-10).
+   *
+   * `BLOCKER` 로 적어 뒀었는데 그건 두 갈래 중 하나일 뿐이라, 규칙 목록 화면이 「이 규칙은
+   * 항상 차단」이라고 잘못 설명하게 된다.
+   */
+  readonly defaultSeverity: Severity | null = null;
   readonly requiresExternal = false;
 
   evaluate(ctx: ItineraryContext): readonly Finding[] {

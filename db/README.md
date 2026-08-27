@@ -18,6 +18,82 @@ docker cp db/schema.sql tourlint-test-pg:/tmp/schema.sql
 docker exec tourlint-test-pg psql -U postgres -d tourlint_test -v ON_ERROR_STOP=1 -f /tmp/schema.sql
 ```
 
+### 기준 데이터 시드
+
+스키마만 넣으면 `climate_normal` 이 비어 있고, R09 우천 리스크가 D+11 이상을 전부 확인
+불가로 판정한다 (EI-WX-004 · 이슈 #7). 원본과 절차는 `fixtures/climate/README.md`.
+
+```bash
+DATABASE_URL=postgres://postgres:test@localhost:55432/tourlint_test \
+  node scripts/seed_climate_normal.mjs "fixtures/climate/STCS_강수일수_MNH_강릉_1991-2020.csv"
+```
+
+**운영 DB 도 같은 명령으로 넣는다.** `DATABASE_URL` 만 Railway 것으로 바꾼다. 같은
+`(시도, 월)` 을 다시 넣으면 덮어쓰므로 여러 번 돌려도 된다.
+
+Railway 는 접속 URL 이 둘이다. **바깥에서 붙을 때는 공개 URL** 이어야 한다 —
+`*.railway.internal` 은 Railway 컨테이너 안에서만 풀린다.
+
+### 배치 켜고 끄기
+
+`system_setting.batch_enabled` 는 기본이 `FALSE` 다. 배포해도 스케줄러가 깨어나서
+"배치가 꺼져 있다" 만 남긴다. 시연 전에 끄는 데도 같은 스크립트를 쓴다 — 일일 800건 중
+배치 몫을 0 으로 만든다.
+
+```bash
+DATABASE_URL=... node scripts/batch_switch.mjs          # 현재 상태
+DATABASE_URL=... node scripts/batch_switch.mjs --on
+DATABASE_URL=... node scripts/batch_switch.mjs --off
+DATABASE_URL=... node scripts/batch_switch.mjs --time 07:30
+```
+
+### 마이그레이션
+
+`schema.sql` 은 통째로 적용하는 정본이라 **이미 만들어진 DB 에는 쓸 수 없다.** 그 사이를
+`db/migrations/*.sql` 이 메운다. 전부 여러 번 돌려도 안전하게 쓴다.
+
+```bash
+DATABASE_URL=... node scripts/apply_migration.mjs db/migrations/<파일>.sql --check   # 지금 컬럼만 본다
+DATABASE_URL=... node scripts/apply_migration.mjs db/migrations/<파일>.sql
+```
+
+`psql` 을 쓰지 않는다 — DB 를 만지는 다른 스크립트와 같은 방식이다. 한 트랜잭션으로 돌아
+도중에 실패하면 통째로 롤백된다. 절반만 적용된 스키마가 제일 고치기 어렵다.
+
+**적용 순서** — 스키마를 바꾸는 배포는 **ALTER 가 먼저다.** 코드가 먼저 나가면 없는
+컬럼에 INSERT 를 시도해 그 기능이 통째로 실패한다.
+
+### 계정 기본 데이터
+
+회원가입 트랜잭션이 `user_setting` 1행 · 기대 프로파일 63행 · 실내외 59행 · 체류시간 47행을
+함께 만든다 (DR-CF-002). **그 코드가 붙기 전에 만들어진 계정에는 없다** — 데모 계정이 그렇다.
+
+없으면 R10 이 타깃 · 콘셉트를 적은 상품을 전부 확인 불가로 판정하고, R09 와 체류시간
+보완이 계정 설정 대신 상수로 돌아간다(설정 화면에서 고쳐도 안 바뀐다).
+
+```bash
+DATABASE_URL=... node scripts/seed_account_defaults.mjs --check     # 계정별 부족분
+DATABASE_URL=... node scripts/seed_account_defaults.mjs             # 전 계정 채우기
+DATABASE_URL=... node scripts/seed_account_defaults.mjs --account 3 # 하나만
+```
+
+이미 있는 행은 건드리지 않는다 — 설정 화면에서 고친 값을 시드가 덮으면 안 된다.
+
+### 평년값 확인
+
+넣고 나서 확인한다.
+
+```bash
+DATABASE_URL=... node scripts/seed_climate_normal.mjs --check
+```
+
+```
+시도 2개 · 총 24행
+  시도 42  1991-2020  평균비율 0.310  출처: 기상청 기상자료개방포털 · 대표지점 강릉
+  시도 51  1991-2020  평균비율 0.310  출처: 기상청 기상자료개방포털 · 대표지점 강릉
+빠진 시도 18개는 R09 가 확인 불가로 남긴다.
+```
+
 그다음 테스트를 돌릴 때 접속 문자열을 준다.
 
 ```bash

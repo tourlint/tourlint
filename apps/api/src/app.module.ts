@@ -1,17 +1,23 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import type { Pool } from 'pg';
 import { AuditController } from './audit/audit.controller';
 import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
+import { FESTIVAL_TYPE_ID, SyncBatchJob, toEventPeriod } from './batch/sync-batch.job';
+import { SyncBatchScheduler } from './batch/sync-batch.scheduler';
 import { CatalogController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
 import { DemoController } from './demo/demo.controller';
-import { createKtoClient } from './external/kto';
+import { evaluateBudget } from './external/budget-guard';
+import { createKtoClient, type KtoClient } from './external/kto';
 import { DB_POOL, getPool } from './persistence/db';
 import { PgApiCallLogger } from './persistence/api-call-log.repository';
+import { BatchStateRepository } from './persistence/batch-state.repository';
+import { NotificationRepository } from './persistence/notification.repository';
 import { HealthController } from './health/health.controller';
 import { UploadController } from './upload/upload.controller';
 import { MockController } from './mock/mock.controller';
@@ -29,8 +35,12 @@ import { UsageService } from './usage/usage.service';
  *
  * `AuthGuard` 는 `APP_GUARD` 로 전역 등록한다. `@Public()` 라우트(인증 · health)만 열고
  * 나머지 API 는 전부 세션을 요구한다 (PM-AC-003 · PM-AC-004).
+ *
+ * `ScheduleModule` 은 경량 배치 하나를 위해 켠다 (FR-MO-010). `SyncBatchScheduler` 가
+ * 매분 깨어나 `system_setting.batch_time` 을 지났는지 본다.
  */
 @Module({
+  imports: [ScheduleModule.forRoot()],
   controllers: [
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
@@ -45,6 +55,46 @@ import { UsageService } from './usage/usage.service';
       provide: CatalogService,
       useFactory: (pool: Pool) => new CatalogService(() => createKtoClient(new PgApiCallLogger(pool))),
       inject: [DB_POOL],
+    },
+    {
+      /*
+       * 경량 동기화 배치 (F12 · FR-MO-010 ~ 016 · 030 ~ 036).
+       *
+       * `eventPeriod` 만 상세 재호출을 쓴다. 조건 2 의 시군구는 동기화 목록에 이미 있고,
+       * 조건 1 은 우리 DB 만 본다 — 행사(15) 건수만큼만 콜이 나간다.
+       */
+      provide: SyncBatchJob,
+      useFactory: (pool: Pool, audit: AuditService) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        // 인증키가 비면 생성자가 던진다. 부팅이 아니라 첫 조회에서 나야 한다
+        let client: KtoClient | null = null;
+        const kto = (): KtoClient => (client ??= createKtoClient(logs));
+        return new SyncBatchJob({
+          kto,
+          state,
+          notifications: new NotificationRepository(pool),
+          // 배치는 80% 에서 먼저 멈춘다. 사용자 "지금 재검수" 는 100% 까지 간다 (FR-OP-003)
+          hasBudget: async () => {
+            const { dailyQuota } = await state.setting();
+            const usedToday = await logs.countToday('KTO', new Date());
+            return evaluateBudget({ dailyBudget: dailyQuota, usedToday }, 'BATCH').allowed;
+          },
+          // 행사(15)만 부른다. 유형을 함께 넘겨야 유형별 필드가 채워져 온다 (EI-KT)
+          eventPeriod: async (contentId: string) =>
+            toEventPeriod(await kto().detailIntro(contentId, FESTIVAL_TYPE_ID)),
+          requestAudit: async (productId: number) => {
+            await audit.requestAudit(productId, 'BATCH');
+          },
+        });
+      },
+      inject: [DB_POOL, AuditService],
+    },
+    {
+      provide: SyncBatchScheduler,
+      useFactory: (job: SyncBatchJob, pool: Pool) =>
+        new SyncBatchScheduler({ job, state: new BatchStateRepository(pool) }),
+      inject: [SyncBatchJob, DB_POOL],
     },
     AuthService,
     AuditService,

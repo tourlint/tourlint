@@ -13,6 +13,7 @@ describe('HealthController', () => {
     delete process.env.KTO_SERVICE_KEY;
     delete process.env.KTO_MODE;
     delete process.env.KAKAO_REST_API_KEY;
+    delete process.env.KMA_SERVICE_KEY;
     delete process.env.LLM_API_KEY;
   });
 
@@ -66,6 +67,22 @@ describe('HealthController', () => {
     const body = await controller.check();
     expect(JSON.stringify(body)).not.toContain('SECRET-KAKAO');
     expect((body.checks as Record<string, unknown>).kakaoRestApiKey).toBe('ok');
+  });
+
+  it('기상청 키도 값 없이 유무만 말한다 — R09 가 쓴다 (EI-WX-001)', async () => {
+    process.env.KMA_SERVICE_KEY = 'SECRET-KMA-KEY';
+    const body = await controller.check();
+    expect(JSON.stringify(body)).not.toContain('SECRET-KMA');
+    expect((body.checks as Record<string, unknown>).kmaServiceKey).toBe('ok');
+  });
+
+  it('🔴 기상청 키가 없으면 ready 가 아니다 — 우천 리스크가 전부 확인 불가로 나온다', async () => {
+    process.env.KTO_SERVICE_KEY = 'k';
+    process.env.KAKAO_REST_API_KEY = 'k';
+    process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? '';
+    const withoutKma = await controller.check();
+    expect((withoutKma.checks as Record<string, unknown>).kmaServiceKey).toBe('missing');
+    expect(withoutKma.ready).toBe(false);
   });
 
   it('연결 문자열을 응답에 담지 않는다', async () => {

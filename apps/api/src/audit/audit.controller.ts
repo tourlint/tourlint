@@ -1,12 +1,18 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   AuditService,
   toFindingsResponse,
   toJobResponse,
   toPatchApplicationResponse,
+  toComparisonResponse,
   toRevertResponse,
+  toRulesResponse,
+  toRunListResponse,
   toRunResponse,
+  toUnverifiedResponse,
 } from './audit.service';
 import { TRIGGER_TYPE, type TriggerType } from './audit-job.repository';
 
@@ -108,6 +114,77 @@ export class AuditController {
   ): Promise<Record<string, unknown>> {
     return toFindingsResponse(await this.service.getRun(runId), severity);
   }
+
+  /** 확인 필요 목록 (FR-AU-008 · API 설계 5-7) */
+  @Get('audit-runs/:runId/unverified')
+  async unverified(@Param('runId', ParseIntPipe) runId: number): Promise<Record<string, unknown>> {
+    return toUnverifiedResponse(await this.service.getRun(runId));
+  }
+
+  /**
+   * 무시 (FR-AU-045).
+   *
+   * **차단 등급은 403 이다.** 화면 버튼과 DB 제약과 여기, 세 곳이 각각 막는다 —
+   * 어느 하나를 우회해도 통과하지 않는다 (PM-NG-001).
+   */
+  @Post('findings/:id/dismiss')
+  @HttpCode(204)
+  async dismiss(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: unknown,
+  ): Promise<void> {
+    await this.service.dismissFinding(id, readReason(body));
+  }
+
+  /** 무시 해제 (FR-AU-047) */
+  @Delete('findings/:id/dismiss')
+  @HttpCode(204)
+  async undismiss(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    await this.service.undismissFinding(id);
+  }
+
+  /** 확인 필요 목록 체크 (FR-AU-008). 본문을 받지 않는다 (API 설계) */
+  @Post('findings/:id/confirm')
+  @HttpCode(204)
+  async confirm(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    await this.service.confirmFinding(id);
+  }
+
+  /** 검수 이력 (F13) */
+  @Get('products/:productId/audit-runs')
+  async runs(@Param('productId', ParseIntPipe) productId: number): Promise<Record<string, unknown>> {
+    return toRunListResponse(await this.service.listRuns(productId));
+  }
+
+  /**
+   * 수정 전후 비교 (F10 · API 설계 5-9).
+   *
+   * 대상은 되돌리지 않은 가장 최근 이력이다. 없거나 재검수가 안 끝났으면 404 다 —
+   * 빈 비교를 그럴듯하게 만들어 주지 않는다.
+   */
+  @Get('products/:productId/comparison')
+  async comparison(@Param('productId', ParseIntPipe) productId: number): Promise<Record<string, unknown>> {
+    const { application, before, after } = await this.service.getComparison(productId);
+    return toComparisonResponse(application, before, after);
+  }
+
+  /** 규칙 목록 (API 설계 5-10). 레지스트리가 정본이다 */
+  @Get('rules')
+  rules(): Record<string, unknown> {
+    return toRulesResponse();
+  }
+}
+
+/**
+ * 무시 사유. 없어도 된다 (FR-AU-045 는 사유를 강제하지 않는다).
+ *
+ * 문자열이 아닌 것은 버린다 — 사유는 기록일 뿐이라 모양이 틀렸다고 무시 자체를 막을 일이
+ * 아니다. 수정안 선택(`readSelections`)이 튕기는 것과 다른 이유다.
+ */
+function readReason(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const reason = (body as { reason?: unknown }).reason;
+  return typeof reason === 'string' && reason.trim() !== '' ? reason.trim() : null;
 }
 
 /**

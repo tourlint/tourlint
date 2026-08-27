@@ -5,10 +5,15 @@ import {
   AuditService,
   toFindingsResponse,
   toJobResponse,
+  toComparisonResponse,
   toPatchApplicationResponse,
+  toRulesResponse,
+  toRunListResponse,
   toRunResponse,
+  toUnverifiedResponse,
 } from './audit.service';
 import { DomainException } from '../common/domain.exception';
+import { RULES, RULESET_VERSION } from './rule-registry';
 
 /**
  * 검수 관통 — **실 DB + 픽스처 리플레이**.
@@ -637,5 +642,251 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
     }
     expect(signatures[1]).toBe(signatures[0]);
     expect(signatures[2]).toBe(signatures[0]);
+  });
+
+  describe('전후 비교 (F10 · FR-PA-040 ~ 044)', () => {
+    /** 검수 → 수정안 확정 → 재검수까지 한 바퀴 돌린다 */
+    async function applyOnce(): Promise<void> {
+      const { job } = await service.requestAudit(productId, 'INITIAL');
+      await service.waitForIdle();
+      const runId = (await service.getJob(job.id)).auditRunId as number;
+
+      const run = await service.getRun(runId);
+      const withPatch = run.findings.find((f) => f.patches.length > 0);
+      expect(withPatch, '픽스처에 수정안이 붙은 판정이 있어야 이 검사가 뜻이 있다').toBeDefined();
+
+      const selection = [{ findingId: withPatch!.id, patchId: withPatch!.patches[0]!.patchId }];
+      const preview = await service.previewPatches(productId, selection);
+      await service.confirmPatches(productId, selection, preview.previewToken);
+      await service.waitForIdle();
+    }
+
+    it('비교할 이력이 없으면 404 다 — 빈 비교를 만들어 주지 않는다', async () => {
+      await expect(service.getComparison(productId)).rejects.toMatchObject({ reasonCode: 'NOT_FOUND' });
+    });
+
+    it('명세 5-9 형식으로 전후를 준다', async () => {
+      await applyOnce();
+      const { application, before, after } = await service.getComparison(productId);
+      const body = toComparisonResponse(application, before, after);
+
+      expect(body).toMatchObject({ patchApplicationId: application.id, revertible: true });
+      expect((body.before as Record<string, unknown>).auditRunId).toBe(before.id);
+      expect((body.after as Record<string, unknown>).auditRunId).toBe(after.id);
+      expect(after.id).toBeGreaterThan(before.id);
+    });
+
+    it('🔴 지표 아홉 종이 다 있다 (FR-PA-040)', async () => {
+      await applyOnce();
+      const { application, before, after } = await service.getComparison(productId);
+      const keys = (toComparisonResponse(application, before, after).metrics as { key: string }[])
+        .map((m) => m.key);
+
+      expect(keys).toEqual([
+        'blocker', 'error', 'warning', 'unverified',
+        'deduction', 'readinessScore', 'travelMinutes', 'travelMeters', 'targetFit',
+      ]);
+    });
+
+    it('🔴 총 감점에 계산식이 붙는다 — 화면에서 검산할 수 있어야 한다 (FR-PA-041)', async () => {
+      await applyOnce();
+      const { application, before, after } = await service.getComparison(productId);
+      const metrics = toComparisonResponse(application, before, after).metrics as Record<string, unknown>[];
+      const deduction = metrics.find((m) => m.key === 'deduction')!;
+
+      expect(String(deduction.formulaBefore)).toMatch(/^100 − /);
+      expect(String(deduction.formulaAfter)).toMatch(/^100 − /);
+      // 감점 = 100 − 준비도
+      const score = metrics.find((m) => m.key === 'readinessScore')!;
+      expect(Number(deduction.before) + Number(score.before)).toBe(100);
+      expect(Number(deduction.after) + Number(score.after)).toBe(100);
+    });
+
+    it('이동 지표에 외부 참고 배지가 붙는다 (FR-RU-082)', async () => {
+      await applyOnce();
+      const { application, before, after } = await service.getComparison(productId);
+      const metrics = toComparisonResponse(application, before, after).metrics as Record<string, unknown>[];
+
+      for (const key of ['travelMinutes', 'travelMeters']) {
+        const m = metrics.find((x) => x.key === key)!;
+        expect(m.sourceBadge).toBe('EXTERNAL_REF');
+        expect(m.externalSource).toBe('카카오모빌리티');
+      }
+    });
+
+    it('🔴 준비도가 떨어져도 자동으로 되돌리지 않는다 (FR-PA-027 · EX-PA-005)', async () => {
+      await applyOnce();
+      const { application, before, after } = await service.getComparison(productId);
+      const body = toComparisonResponse(application, before, after);
+
+      // 이력이 살아 있고 되돌리기 수단이 열려 있다
+      expect(body.revertible).toBe(true);
+      expect(application.revertedAt).toBeNull();
+      // 나빠졌으면 경고 문구가 있고, 아니면 null 이다
+      const worse = (after.current.score ?? 0) < (before.current.score ?? 0);
+      expect(body.warningBanner === null).toBe(!worse);
+    });
+
+    it('🔴 수요 적합성에 판매·흥행 표현이 없다 (FR-RU-104)', async () => {
+      await applyOnce();
+      const { application, before, after } = await service.getComparison(productId);
+      const metrics = toComparisonResponse(application, before, after).metrics as Record<string, unknown>[];
+      const fit = metrics.find((m) => m.key === 'targetFit')!;
+
+      for (const word of ['판매', '흥행', '인기', '수요 증가', '매출']) {
+        expect(String(fit.beforeText), word).not.toContain(word);
+        expect(String(fit.afterText), word).not.toContain(word);
+      }
+    });
+
+    it('🔴 재검수가 아직 안 끝났으면 404 다 (EX-PA-004)', async () => {
+      await applyOnce();
+      const { application } = await service.getComparison(productId);
+      // 확정이 부른 재검수가 실패했거나 아직 안 끝난 상태를 만든다
+      await pool.query('UPDATE patch_application SET after_audit_run_id = NULL WHERE id = $1', [application.id]);
+
+      await expect(service.getComparison(productId)).rejects.toMatchObject({ reasonCode: 'NOT_FOUND' });
+    });
+
+    it('되돌린 이력은 비교 대상이 아니다 — 그 일정이 더는 없다', async () => {
+      await applyOnce();
+      const { application } = await service.getComparison(productId);
+      await service.revertPatch(application.id);
+
+      await expect(service.getComparison(productId)).rejects.toMatchObject({ reasonCode: 'NOT_FOUND' });
+    });
+  });
+
+  describe('무시 · 확인 · 이력 (FR-AU-008 · 045 · 047)', () => {
+    /** 검수를 한 번 돌리고 그 실행의 판정 목록을 준다 */
+    async function runOnce(): Promise<{ runId: number; findings: readonly { id: number; severity: string }[] }> {
+      const { job } = await service.requestAudit(productId, 'INITIAL');
+      await service.waitForIdle();
+      const runId = (await service.getJob(job.id)).auditRunId as number;
+      const run = await service.getRun(runId);
+      return { runId, findings: run.findings.map((f) => ({ id: f.id, severity: f.severity })) };
+    }
+
+    it('🔴 차단 등급은 무시할 수 없다 (PM-NG-001 · 탈락 사유)', async () => {
+      const { findings } = await runOnce();
+      const blocker = findings.find((f) => f.severity === 'BLOCKER');
+      expect(blocker, '픽스처에 차단이 있어야 이 검사가 뜻이 있다').toBeDefined();
+
+      await expect(service.dismissFinding(blocker!.id, '괜찮음')).rejects.toMatchObject({
+        reasonCode: 'FORBIDDEN_ACTION',
+      });
+      // DB 에도 안 들어갔다
+      const { rows } = await pool.query('SELECT dismissed_at FROM finding WHERE id = $1', [blocker!.id]);
+      expect(rows[0].dismissed_at).toBeNull();
+    });
+
+    it('차단이 아니면 무시되고 점수가 다시 계산된다 (FR-AU-046)', async () => {
+      const { runId, findings } = await runOnce();
+      const target = findings.find((f) => f.severity !== 'BLOCKER');
+      expect(target).toBeDefined();
+
+      const before = (await service.getRun(runId)).current.score as number;
+      await service.dismissFinding(target!.id, '현장 확인함');
+      const after = await service.getRun(runId);
+
+      expect(after.current.score).toBeGreaterThan(before);
+      // 저장 시점 점수는 그대로다 — 실행 기록은 불변이다
+      expect(after.storedScore).toBe(before);
+      expect(after.findings.find((f) => f.id === target!.id)?.dismissReason).toBe('현장 확인함');
+    });
+
+    it('무시를 해제하면 사유도 지워진다', async () => {
+      const { runId, findings } = await runOnce();
+      const target = findings.find((f) => f.severity !== 'BLOCKER')!;
+      await service.dismissFinding(target.id, '사유');
+      await service.undismissFinding(target.id);
+
+      const f = (await service.getRun(runId)).findings.find((x) => x.id === target.id);
+      expect(f?.dismissed).toBe(false);
+      expect(f?.dismissReason).toBeNull();
+    });
+
+    it('🔴 확인은 무시와 다르다 — 점수에서 빠지지 않는다', async () => {
+      const { runId, findings } = await runOnce();
+      const target = findings.find((f) => f.severity === 'UNVERIFIED');
+      expect(target).toBeDefined();
+
+      const before = (await service.getRun(runId)).current.score;
+      await service.confirmFinding(target!.id);
+      const after = await service.getRun(runId);
+
+      expect(after.current.score).toBe(before);
+      expect(after.findings.find((f) => f.id === target!.id)?.confirmed).toBe(true);
+    });
+
+    it('두 번 확인해도 오류가 아니다', async () => {
+      const { findings } = await runOnce();
+      const target = findings.find((f) => f.severity === 'UNVERIFIED')!;
+      await service.confirmFinding(target.id);
+      await expect(service.confirmFinding(target.id)).resolves.toBeUndefined();
+    });
+
+    it('없는 판정은 404 다', async () => {
+      await expect(service.dismissFinding(999_999_999, null)).rejects.toMatchObject({ reasonCode: 'NOT_FOUND' });
+      await expect(service.confirmFinding(999_999_999)).rejects.toMatchObject({ reasonCode: 'NOT_FOUND' });
+      await expect(service.undismissFinding(999_999_999)).rejects.toMatchObject({ reasonCode: 'NOT_FOUND' });
+    });
+
+    it('확인 필요 목록에 관광지 원문이 없다 (DR-PR-001)', async () => {
+      const { runId } = await runOnce();
+      const body = toUnverifiedResponse(await service.getRun(runId));
+
+      expect(Number(body.totalCount)).toBeGreaterThan(0);
+      // 공사 원문 필드가 응답에 섞이면 무저장 원칙이 깨진다
+      const serialized = JSON.stringify(body);
+      for (const leak of ['ktoRaw', 'overview', 'usetime', 'restdate', 'homepage']) {
+        expect(serialized, leak).not.toContain(leak);
+      }
+    });
+
+    it('검수 이력이 최신순이고 조회 시점 점수를 준다', async () => {
+      await runOnce();
+      await runOnce();
+
+      const body = toRunListResponse(await service.listRuns(productId));
+      const runs = body.runs as { auditRunId: number; executedAt: string; readinessScore: number }[];
+      expect(runs.length).toBeGreaterThanOrEqual(2);
+      expect(runs[0]?.auditRunId).toBeGreaterThan(runs[1]?.auditRunId ?? 0);
+      expect(runs[0]?.readinessScore).toBeGreaterThanOrEqual(0);
+    });
+  });
+});
+
+describe('규칙 목록 (API 설계 5-10)', () => {
+  it('레지스트리를 그대로 낸다 — 목록을 따로 적어 두지 않는다', () => {
+    const body = toRulesResponse();
+    expect(body.rulesetVersion).toBe(RULESET_VERSION);
+    expect(body.rules).toHaveLength(RULES.length);
+    expect(body.rules).toHaveLength(10);
+  });
+
+  it('🔴 규칙 코드가 R01 ~ R10 이고 중복이 없다', () => {
+    // DB 제약(ck_finding_rule)이 이 열 개만 받는다. 어긋나면 저장이 통째로 막힌다
+    const codes = (toRulesResponse().rules as { code: string }[]).map((r) => r.code);
+    expect(codes).toEqual(['R01', 'R02', 'R03', 'R04', 'R05', 'R06', 'R07', 'R08', 'R09', 'R10']);
+  });
+
+  it('R06 만 기본 등급이 null 이다 — 변경 내용에 따라 정해진다', () => {
+    const rules = toRulesResponse().rules as { code: string; defaultSeverity: string | null }[];
+    expect(rules.filter((r) => r.defaultSeverity === null).map((r) => r.code)).toEqual(['R06']);
+  });
+
+  it('🔴 외부를 쓰는 규칙만 KTO_PLUS_EXTERNAL 이다', () => {
+    // 배지(`requiresExternal`)와 근거(`basis`)가 어긋나면 화면 설명이 서로 다른 말을 한다
+    const rules = toRulesResponse().rules as { requiresExternal: boolean; basis: string }[];
+    for (const r of rules) {
+      expect(r.basis === 'KTO_PLUS_EXTERNAL').toBe(r.requiresExternal);
+    }
+  });
+
+  it('이름이 비어 있지 않다', () => {
+    for (const r of toRulesResponse().rules as { name: string }[]) {
+      expect(r.name.trim().length).toBeGreaterThan(0);
+    }
   });
 });
