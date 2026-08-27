@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SYSTEM_SETTING_DEFAULTS } from '@tourlint/shared';
-import { BatchStateRepository } from './batch-state.repository';
+import { BATCH_KEY, BatchStateRepository } from './batch-state.repository';
 
 const URL = process.env.TEST_DATABASE_URL;
 
@@ -26,6 +26,18 @@ describe.skipIf(URL === undefined)('BatchStateRepository — 실 DB', () => {
 
   beforeEach(async () => {
     await pool.query(`DELETE FROM batch_state WHERE key = $1`, [KEY]);
+  });
+
+  it('🔴 기본 키가 스키마가 심어 둔 행과 같다', async () => {
+    /*
+     * `db/schema.sql` 이 `batch_state` 에 1행을 심는다. 상수가 그 키와 어긋나면 배치는
+     * 매번 「한 번도 안 돈」 상태로 시작해 어제 하루만 보고, 심어 둔 행은 영영 NULL 로
+     * 남는다. 오류가 안 나서 눈에 안 띈다 — 실제로 `sync` 로 어긋나 있었다.
+     */
+    const { rows } = await pool.query<{ key: string }>(
+      `SELECT key FROM batch_state WHERE key NOT LIKE 'sync-test-%'`,
+    );
+    expect(rows.map((r) => r.key)).toEqual([BATCH_KEY]);
   });
 
   it('한 번도 안 돈 상태는 전부 null 이다', async () => {

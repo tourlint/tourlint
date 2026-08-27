@@ -53,7 +53,13 @@ export interface SyncBatchResult {
 }
 
 export interface SyncBatchOptions {
-  readonly kto: KtoClient;
+  /**
+   * 공사 클라이언트. **함수로 넘기면 처음 쓸 때 만든다.**
+   *
+   * `HttpKtoTransport` 는 인증키가 비면 생성자에서 던진다. 부팅 시점에 만들면 키를 안
+   * 넣은 배포에서 API 전체가 못 뜬다 — 없는 키는 `/health` 가 알려 줄 일이다.
+   */
+  readonly kto: KtoClient | (() => KtoClient);
   readonly state: BatchStateRepository;
   readonly clock?: () => Date;
   /** 하루치 조회 전에 예산이 남았는지 묻는다. false 면 그 자리에서 멈춘다 */
@@ -73,7 +79,7 @@ export interface SyncBatchOptions {
 @Injectable()
 export class SyncBatchJob {
   private readonly logger = new Logger(SyncBatchJob.name);
-  private readonly kto: KtoClient;
+  private readonly kto: () => KtoClient;
   private readonly state: BatchStateRepository;
   private readonly clock: () => Date;
   private readonly hasBudget: () => boolean | Promise<boolean>;
@@ -82,7 +88,7 @@ export class SyncBatchJob {
   private readonly requestAudit: SyncBatchOptions['requestAudit'];
 
   constructor(options: SyncBatchOptions) {
-    this.kto = options.kto;
+    this.kto = typeof options.kto === 'function' ? options.kto : (): KtoClient => options.kto as KtoClient;
     this.state = options.state;
     this.clock = options.clock ?? ((): Date => new Date());
     this.hasBudget = options.hasBudget ?? ((): boolean => true);
@@ -136,7 +142,7 @@ export class SyncBatchJob {
 
       let page;
       try {
-        page = await this.kto.areaBasedSyncList({ modifiedDate: toKtoDate(date) });
+        page = await this.kto().areaBasedSyncList({ modifiedDate: toKtoDate(date) });
         calls++;
       } catch (e) {
         this.logger.error(`동기화 목록 조회 실패 (${date}): ${isKtoError(e) ? e.reasonCode : '알 수 없음'}`);

@@ -113,6 +113,24 @@ describe('앱 부팅', () => {
     expect(untagged).toEqual([]);
   });
 
+  it('🔴 공사 인증키 없이도 뜬다', async () => {
+    /*
+     * `HttpKtoTransport` 는 키가 비면 생성자에서 던진다. 프로바이더가 부팅 시점에
+     * 클라이언트를 만들면 키를 안 넣은 배포에서 **API 전체가 못 뜬다** — 목록 조회 하나가
+     * 아니라 로그인도 검수도 같이 죽는다. 없는 키는 `/health` 가 알려 줄 일이다.
+     *
+     * 배치를 붙이며 실제로 그렇게 만들었다가 여기서 걸렸다.
+     */
+    const saved = process.env.KTO_SERVICE_KEY;
+    delete process.env.KTO_SERVICE_KEY;
+    try {
+      const ref = await Test.createTestingModule({ imports: [AppModule] }).compile();
+      await ref.close();
+    } finally {
+      if (saved !== undefined) process.env.KTO_SERVICE_KEY = saved;
+    }
+  }, 30_000);
+
   it('/health 가 인증 없이 응답한다 (NF-AV-004)', () => {
     expect(registeredRoutes(app)).toContain('GET /health');
   });

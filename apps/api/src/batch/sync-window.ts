@@ -1,7 +1,7 @@
 import { addDays, formatIsoDate, parseIsoDate, type IsoDate } from '../engine/calendar/dates';
 
 /**
- * 배치가 조회할 날짜 창 (FR-MO-010 · 011 · 015).
+ * 배치가 도는 시각과 조회할 날짜 창 (FR-MO-010 · 011 · 015).
  *
  * **순수 함수다.** 시계는 인자로 받는다 — 배치가 언제 도는지에 따라 결과가 달라지면
  * 재현할 수가 없다.
@@ -24,6 +24,28 @@ export const MAX_DAYS_PER_RUN = 14;
 /** 한국 시간 기준 오늘 */
 export function kstToday(now: Date): IsoDate {
   return new Date(now.getTime() + KST_OFFSET_MINUTES * 60_000).toISOString().slice(0, 10);
+}
+
+/** 한국 시간 기준 자정으로부터의 분. 실행 시각 판단은 여기를 지나야 한다 */
+export function kstMinutesOfDay(now: Date): number {
+  const kst = new Date(now.getTime() + KST_OFFSET_MINUTES * 60_000);
+  return kst.getUTCHours() * 60 + kst.getUTCMinutes();
+}
+
+/**
+ * `HH:MM` → 자정으로부터의 분. 형식이 아니면 `null`.
+ *
+ * `system_setting.batch_time` 이 `TIME` 이라 여기까지 깨진 값이 올 일은 없지만, 조용히
+ * 기본값으로 되돌리지 않는다 — 설정 화면이 잘못 쓰면 배치가 엉뚱한 시각에 도는 것보다
+ * 안 도는 편이 눈에 띈다.
+ */
+export function minutesOfDay(hhmm: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
+  if (m === null) return null;
+  const hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
 }
 
 /** 한국 시간 기준 요일. 0 = 일요일 */
