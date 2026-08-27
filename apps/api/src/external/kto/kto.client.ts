@@ -182,6 +182,28 @@ export class KtoClient {
     });
   }
 
+  /**
+   * 동기화 목록 (`areaBasedSyncList2` · EI-KT-011 · 012 · F12 배치 1단계).
+   *
+   * ⚠️ **`modifiedtime` 은 해당일 분만 준다. 누적되지 않는다.** 그래서 배치가 직전 성공일
+   *    다음 날부터 어제까지 **하루씩 순회**한다 (FR-MO-011). 한 번 부르고 끝내면 그 사이
+   *    날짜의 변경을 통째로 놓친다.
+   *
+   * ⚠️ **건수를 상수로 가정하지 않는다.** 같은 일자인데 새벽 02시 11건, 오후 3시 177건이
+   *    돌아왔다 (2026.08.20 실측). 공사가 하루 종일 갱신하기 때문이다. 동기화 지연 판단은
+   *    0건 조건으로만 한다 (FR-MO-015).
+   *
+   * `showflag` 를 지정하지 않는다 — 그래야 표출 · 비표출이 **함께** 온다. 비표출 감지를
+   * 위한 별도 호출을 하지 않는 이유다 (EI-KT-012 · FR-MO-012).
+   */
+  async areaBasedSyncList(params: { modifiedDate: string; pageNo?: number }): Promise<KtoListPage> {
+    return this.list('areaBasedSyncList2', {
+      modifiedtime: params.modifiedDate,
+      numOfRows: KTO_MAX_ROWS,
+      pageNo: params.pageNo ?? 1,
+    });
+  }
+
   // ── 내부 ────────────────────────────────────────────────────────
 
   private async list(operation: KtoOperation, params: KtoParams): Promise<KtoListPage> {
