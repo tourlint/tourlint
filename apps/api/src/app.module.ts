@@ -7,15 +7,17 @@ import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
-import { FESTIVAL_TYPE_ID, SyncBatchJob, toEventPeriod } from './batch/sync-batch.job';
+import { SyncBatchJob } from './batch/sync-batch.job';
 import { SyncBatchScheduler } from './batch/sync-batch.scheduler';
 import { CatalogController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
 import { DemoController } from './demo/demo.controller';
 import { evaluateBudget } from './external/budget-guard';
 import { createKtoClient, type KtoClient } from './external/kto';
+import type { ContentTypeId } from '@tourlint/shared';
 import { DB_POOL, getPool } from './persistence/db';
 import { PgApiCallLogger } from './persistence/api-call-log.repository';
+import { AuditResultRepository } from './persistence/audit-result.repository';
 import { BatchStateRepository } from './persistence/batch-state.repository';
 import { NotificationRepository } from './persistence/notification.repository';
 import { HealthController } from './health/health.controller';
@@ -76,6 +78,7 @@ import { UsageService } from './usage/usage.service';
       useFactory: (pool: Pool, audit: AuditService) => {
         const logs = new PgApiCallLogger(pool);
         const state = new BatchStateRepository(pool);
+        const results = new AuditResultRepository(pool);
         // 인증키가 비면 생성자가 던진다. 부팅이 아니라 첫 조회에서 나야 한다
         let client: KtoClient | null = null;
         const kto = (): KtoClient => (client ??= createKtoClient(logs));
@@ -89,9 +92,14 @@ import { UsageService } from './usage/usage.service';
             const usedToday = await logs.countToday('KTO', new Date());
             return evaluateBudget({ dailyBudget: dailyQuota, usedToday }, 'BATCH').allowed;
           },
-          // 행사(15)만 부른다. 유형을 함께 넘겨야 유형별 필드가 채워져 온다 (EI-KT)
-          eventPeriod: async (contentId: string) =>
-            toEventPeriod(await kto().detailIntro(contentId, FESTIVAL_TYPE_ID)),
+          /*
+           * 상세 한 번으로 행사기간(조건 3)과 지문(FR-MO-036)을 둘 다 얻는다. 유형을 함께
+           * 넘겨야 유형별 필드가 채워져 온다 (EI-KT).
+           */
+          fetchDetail: async (contentId: string, contentTypeId: number) =>
+            kto().detailIntro(contentId, contentTypeId as ContentTypeId),
+          // 직전 지문은 상품 단위다 — 콘텐츠 전역 최신을 쓰면 남이 본 변경을 이미 알린 것으로 넘긴다
+          previousFingerprints: (productId: number) => results.previousFingerprints(productId),
           requestAudit: async (productId: number) => {
             await audit.requestAudit(productId, 'BATCH');
           },
