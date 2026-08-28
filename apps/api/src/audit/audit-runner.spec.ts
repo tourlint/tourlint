@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
 import {
-  AuditRunner, departureStamp, uniqueContentIds,
+  AuditRunner, DEFAULT_AUDIT_CONCURRENCY, concurrencyFromEnv, departureStamp,
+  uniqueContentIds, withConcurrency,
   type ClimateNormalLookup, type ItineraryItemRow, type ProductRow,
   type TargetProfileLookup, type TargetProfileRow,
 } from './audit-runner';
@@ -452,5 +453,57 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
     const result = await runner().run(withTarget, [sight(1, 'VE07')]);
     expect(result.findings.find((x) => x.ruleCode === 'R10')?.severity).toBe('UNVERIFIED');
+  });
+});
+
+describe('동시 실행 제한 (NF-PF-010)', () => {
+  it('AUDIT_CONCURRENCY 로 조정된다 — 명세가 환경변수 조정을 요구한다', () => {
+    expect(concurrencyFromEnv({ AUDIT_CONCURRENCY: '4' })).toBe(4);
+    expect(concurrencyFromEnv({})).toBe(DEFAULT_AUDIT_CONCURRENCY);
+  });
+
+  it('🔴 0 이나 말이 안 되는 값은 기본값으로 간다', () => {
+    // 0 을 그대로 받으면 조회가 한 건도 안 나가고 검수가 멈춘 것처럼 보인다
+    for (const bad of ['0', '-2', '', 'eight', '3.5']) {
+      expect(concurrencyFromEnv({ AUDIT_CONCURRENCY: bad }), bad).toBe(DEFAULT_AUDIT_CONCURRENCY);
+    }
+  });
+
+  it('🔴 느린 하나가 나머지를 붙잡지 않는다 — 묶음이 아니라 미끄러지는 창이다', async () => {
+    /*
+     * `size` 개씩 잘라 `Promise.all` 로 기다리면 묶음의 가장 느린 호출이 끝날 때까지
+     * 나머지 일꾼이 논다. 여기서는 느린 것 하나가 도는 동안 뒤의 것들이 먼저 끝나야 한다.
+     */
+    const started: number[] = [];
+    const finished: number[] = [];
+    let release = (): void => {};
+    const blocked = new Promise<void>((r) => { release = r; });
+
+    const work = withConcurrency([0, 1, 2, 3, 4], 2, async (i) => {
+      started.push(i);
+      if (i === 0) await blocked;
+      finished.push(i);
+    });
+
+    // 0 이 막혀 있는 동안 1 이 끝나고 2 · 3 · 4 까지 들어간다
+    await new Promise((r) => setImmediate(r));
+    expect(finished).toContain(4);
+    expect(finished).not.toContain(0);
+
+    release();
+    await work;
+    expect(finished.sort()).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('동시 실행 수를 넘겨 돌리지 않는다', async () => {
+    let running = 0;
+    let peak = 0;
+    await withConcurrency(Array.from({ length: 20 }, (_, i) => i), 3, async () => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise((r) => setImmediate(r));
+      running--;
+    });
+    expect(peak).toBe(3);
   });
 });
