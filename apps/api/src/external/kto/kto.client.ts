@@ -49,6 +49,15 @@ const DEFAULT_BASE_DELAY_MS = 300;
 /** `numOfRows` 상한 — 2000까지 동작하지만 안전 마진으로 1000 (EI-KT-013) */
 export const KTO_MAX_ROWS = 1000;
 
+/**
+ * `areaBasedList2` 정렬 코드 (EI-KT-021 실측).
+ *
+ * `D` 생성일 내림차순 · `C` 수정일 내림차순. 안 주면 정렬되지 않는다.
+ * 이미지 유무까지 거르는 `O` · `Q` · `R` 은 쓰지 않는다 — 사진이 없다고 신규가 아닌 것이 아니다.
+ */
+export const AREA_LIST_ARRANGE = { CREATED_DESC: 'D', MODIFIED_DESC: 'C' } as const;
+export type AreaListArrange = (typeof AREA_LIST_ARRANGE)[keyof typeof AREA_LIST_ARRANGE];
+
 export class KtoClient {
   private readonly transport: KtoTransport;
   private readonly logger: ApiCallLogger;
@@ -200,6 +209,31 @@ export class KtoClient {
     return this.list('areaBasedSyncList2', {
       modifiedtime: params.modifiedDate,
       numOfRows: KTO_MAX_ROWS,
+      pageNo: params.pageNo ?? 1,
+    });
+  }
+
+  /**
+   * 지역기반 목록 — T1 신규 등록 신호와 수정안 후보 보강에 쓴다.
+   *
+   * `arrange` 는 **`D` = 생성일 내림차순 · `C` = 수정일 내림차순**이고 지정하지 않으면
+   * 정렬되지 않는다 (EI-KT-021 실측). T1 은 `D` 로 첫 페이지부터 읽다가 `createdtime` 이
+   * 기준일보다 이르면 멈춘다 — 정렬 없이 훑으면 한 지역 1,005건이라 상품당 열 콜이 넘는다.
+   */
+  async areaBasedList(params: {
+    lDongRegnCd?: string;
+    lDongSignguCd?: string;
+    contentTypeId?: ContentTypeId;
+    arrange?: AreaListArrange;
+    numOfRows?: number;
+    pageNo?: number;
+  }): Promise<KtoListPage> {
+    return this.list('areaBasedList2', {
+      ...optional('lDongRegnCd', params.lDongRegnCd),
+      ...optional('lDongSignguCd', params.lDongSignguCd),
+      ...optional('contentTypeId', params.contentTypeId),
+      ...optional('arrange', params.arrange),
+      numOfRows: clampRows(params.numOfRows),
       pageNo: params.pageNo ?? 1,
     });
   }
