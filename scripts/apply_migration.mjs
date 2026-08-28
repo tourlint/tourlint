@@ -51,14 +51,35 @@ async function columnsOf(table) {
   return rows.map((r) => r.column_name);
 }
 
+/**
+ * 그 표의 제약 목록.
+ *
+ * 컬럼만 보면 제약 교체가 안 보인다 — 유니크 키를 바꾸는 마이그레이션이 「적용했다」만
+ * 남기고 무엇이 어떻게 바뀌었는지는 안 남았다 (2026-08-28 `uq_notif_change`).
+ */
+async function constraintsOf(table) {
+  const { rows } = await pool.query(
+    `SELECT conname, pg_get_constraintdef(oid) AS def
+       FROM pg_constraint
+      WHERE conrelid = to_regclass($1) AND contype IN ('u','p','c','f')
+      ORDER BY conname`,
+    [table],
+  );
+  return rows.map((r) => `${r.conname} ${r.def}`);
+}
+
+async function describe(table) {
+  const cols = await columnsOf(table);
+  console.log(`  ${table} 컬럼 ${cols.length}개: ${cols.join(', ')}`);
+  for (const c of await constraintsOf(table)) console.log(`    · ${c}`);
+}
+
 // 파일이 건드리는 표 이름을 뽑아 적용 전후를 보여준다
-const tables = [...new Set([...sql.matchAll(/ALTER TABLE\s+(\w+)/gi)].map((m) => m[1].toLowerCase()))];
+const tables = [...new Set([...sql.matchAll(/ALTER TABLE\s+(?:IF EXISTS\s+)?(\w+)/gi)]
+  .map((m) => m[1].toLowerCase()))];
 
 try {
-  for (const t of tables) {
-    const cols = await columnsOf(t);
-    console.log(`  ${t} 컬럼 ${cols.length}개: ${cols.join(', ')}`);
-  }
+  for (const t of tables) await describe(t);
 
   if (CHECK) {
     console.log('--check 라 적용하지 않았다.');
@@ -77,10 +98,7 @@ try {
   }
 
   console.log('적용했다.');
-  for (const t of tables) {
-    const cols = await columnsOf(t);
-    console.log(`  ${t} 컬럼 ${cols.length}개: ${cols.join(', ')}`);
-  }
+  for (const t of tables) await describe(t);
 } finally {
   await pool.end();
 }
