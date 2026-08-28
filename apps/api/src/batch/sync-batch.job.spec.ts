@@ -16,6 +16,7 @@ const item = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   contentid: '2541883', contenttypeid: '15', modifiedtime: '20260819131329',
   showflag: '1', createdtime: '20220913132227',
   lDongRegnCd: '51', lDongSignguCd: '150',
+  lclsSystm2: 'EV01', mapx: '128.8920940489', mapy: '37.7532215016',
   // 공사 원문. 우리가 담지 않아야 하는 것들이다
   title: '강릉 국가유산야행', addr1: '강원특별자치도 강릉시', firstimage: 'http://x/y.jpg',
   ...over,
@@ -259,11 +260,27 @@ describe('응답 해석 (FR-MO-002 · 012)', () => {
      */
     const parsed = toSyncedContent(item());
     expect(Object.keys(parsed).sort()).toEqual(
-      ['contentId', 'contentTypeId', 'createdTime', 'ldongRegnCd', 'ldongSignguCd', 'modifiedTime', 'showFlag'],
+      ['contentId', 'contentTypeId', 'createdTime', 'lclsSystm2', 'ldongRegnCd', 'ldongSignguCd',
+        'mapX', 'mapY', 'modifiedTime', 'showFlag'],
     );
     for (const leak of ['강릉 국가유산야행', '강원특별자치도', 'firstimage', 'tel', 'zipcode']) {
       expect(JSON.stringify(parsed), leak).not.toContain(leak);
     }
+  });
+
+  it('🔴 좌표가 비면 0 이 아니라 없는 것으로 읽는다', () => {
+    /*
+     * `Number('')` 은 0 이다. 그대로 두면 좌표를 모르는 콘텐츠가 위도 0 · 경도 0 —
+     * 기니만 앞바다 — 에 있는 것이 되어, 기회 알림 조건 6 의 우회거리가 지구 반 바퀴로
+     * 나오거나 반대로 「0 이라 가깝다」가 된다.
+     */
+    for (const bad of ['', '  ', '0', 'x']) {
+      const parsed = toSyncedContent(item({ mapx: bad, mapy: bad }));
+      expect(parsed.mapX, bad).toBeNull();
+      expect(parsed.mapY, bad).toBeNull();
+    }
+    expect(toSyncedContent(item({ mapx: '128.892', mapy: '37.753' })))
+      .toMatchObject({ mapX: 128.892, mapY: 37.753 });
   });
 
   it('🔴 법정동 코드가 비면 없는 것으로 읽는다', () => {
