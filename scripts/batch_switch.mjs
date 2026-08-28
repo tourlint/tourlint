@@ -62,6 +62,22 @@ async function show(label) {
             count(*) FILTER (WHERE created_at > now() - interval '24 hours')::int AS recent
        FROM notification`,
   );
+  /*
+   * 감시 대상 상품 수. 이게 0 이면 알림 0건은 정상이다 — 변경이 몇 건이든 닿을 곳이 없다.
+   * 출발일이 지난 상품은 감시에서 빠진다 (FR-MO-018).
+   */
+  const products = await pool.query(
+    `SELECT count(*)::int AS total,
+            count(*) FILTER (
+              WHERE p.start_date + p.nights >= (now() AT TIME ZONE 'Asia/Seoul')::date
+            )::int AS watched,
+            count(*) FILTER (
+              WHERE p.start_date + p.nights >= (now() AT TIME ZONE 'Asia/Seoul')::date
+                AND EXISTS (SELECT 1 FROM itinerary_item i
+                             WHERE i.product_id = p.id AND i.match_status = 'CONFIRMED')
+            )::int AS with_items
+       FROM product p`,
+  );
   console.log(`\n[${label}]`);
   if (setting.rows.length === 0) {
     // 행이 없으면 앱이 기본값으로 돈다 — batch_enabled 가 false 라 배치는 안 돈다
@@ -80,7 +96,12 @@ async function show(label) {
 
   // 2단계가 실제로 뭔가 찾았는지. 변경 건수만 보면 알 수 없다
   const n = notif.rows[0];
+  const p = products.rows[0];
   console.log(`  알림 누적 ${n.total}건 (최근 24시간 ${n.recent}건)`);
+  console.log(
+    `  감시 상품 ${p.watched}개 / 전체 ${p.total}개 · 그중 확정 일정이 있는 것 ${p.with_items}개`
+    + (p.watched === 0 ? '   <- 0 이면 알림이 안 생기는 게 정상이다' : ''),
+  );
 }
 
 try {
