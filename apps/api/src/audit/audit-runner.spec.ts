@@ -462,6 +462,20 @@ describe('동시 실행 제한 (NF-PF-010)', () => {
     expect(concurrencyFromEnv({})).toBe(DEFAULT_AUDIT_CONCURRENCY);
   });
 
+  it('🔴 러너가 실제로 환경변수를 읽는다', () => {
+    // 함수만 맞고 배선이 안 돼 있으면, 값을 넣어도 조용히 기본값으로 돈다
+    const saved = process.env.AUDIT_CONCURRENCY;
+    process.env.AUDIT_CONCURRENCY = '3';
+    try {
+      expect(makeRunner({}).concurrency).toBe(3);
+      // 넘겨준 값이 있으면 그게 이긴다
+      expect(makeRunner({ concurrency: 5 }).concurrency).toBe(5);
+    } finally {
+      if (saved === undefined) delete process.env.AUDIT_CONCURRENCY;
+      else process.env.AUDIT_CONCURRENCY = saved;
+    }
+  });
+
   it('🔴 0 이나 말이 안 되는 값은 기본값으로 간다', () => {
     // 0 을 그대로 받으면 조회가 한 건도 안 나가고 검수가 멈춘 것처럼 보인다
     for (const bad of ['0', '-2', '', 'eight', '3.5']) {

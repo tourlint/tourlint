@@ -191,7 +191,13 @@ interface FetchFailure {
 
 export class AuditRunner {
   private readonly kto: KtoClient;
-  private readonly concurrency: number;
+  /**
+   * 실제로 쓰는 동시 실행 수 (NF-PF-010).
+   *
+   * 공개해 둔다 — 환경변수가 먹었는지를 밖에서 볼 수 있어야 한다. 안 그러면 값을 잘못 넣어도
+   * 조용히 기본값으로 돌고 아무도 모른다.
+   */
+  readonly concurrency: number;
   private readonly weights: Readonly<Record<Severity, number>>;
   private readonly settings: AuditSettings;
   private readonly previous: ReadonlyMap<string, FingerprintSnapshot>;
