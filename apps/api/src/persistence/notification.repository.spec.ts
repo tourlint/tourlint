@@ -57,11 +57,35 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
 
   const save = (over: Record<string, unknown> = {}): Parameters<typeof repo.insertMany>[0][number] => ({
     productId, kind: 'RISK', condition: 1, ktoContentId: CONTENT,
-    hashFrom: 'a'.repeat(64), hashTo: 'b'.repeat(64), body: { condition: 1 },
+    hashFrom: 'a'.repeat(64), hashTo: 'b'.repeat(64),
+    changeKey: `FP:${'a'.repeat(64)}:${'b'.repeat(64)}`, body: { condition: 1 },
     ...over,
   } as never);
 
   describe('중복 방지 (FR-MO-036)', () => {
+    it('🔴 지문이 없는 알림도 막힌다 — 조건 2 · 3 (DB 명세서 v1.7)', async () => {
+      /*
+       * 조건 2 · 3 은 그 콘텐츠가 어느 일정에도 없어 지문 이력이 없다. 지문 두 컬럼을
+       * 유니크 키로 쓰던 때는 이 행들이 아무것도 안 막혔다 — 평범한 `UNIQUE` 가 NULL 이
+       * 든 행을 서로 다르게 보기 때문이다. 제약은 걸려 있는데 놀고 있었다.
+       */
+      const near = (over: Record<string, unknown> = {}): Parameters<typeof repo.insertMany>[0][number] =>
+        save({ condition: 2, hashFrom: null, hashTo: null, changeKey: 'MT:20260827120000', ...over });
+
+      expect(await repo.insertMany([near()])).toBe(1);
+      expect(await repo.insertMany([near()])).toBe(0);
+      // 그 콘텐츠가 다시 갱신되면 키가 달라져 새로 뜬다 (FR-MO-036 뒷 문장)
+      expect(await repo.insertMany([near({ changeKey: 'MT:20260828090000' })])).toBe(1);
+    });
+
+    it('🔴 같은 콘텐츠라도 조건이 다르면 각각 남는다', async () => {
+      // 조건 1 은 FP:, 조건 2 는 MT: 라 서로 뭉개지지 않는다
+      expect(await repo.insertMany([save()])).toBe(1);
+      expect(await repo.insertMany([
+        save({ condition: 2, hashFrom: null, hashTo: null, changeKey: 'MT:20260827120000' }),
+      ])).toBe(1);
+    });
+
     it('🔴 같은 콘텐츠의 같은 변경은 다시 넣지 않는다', async () => {
       // 배치가 같은 날짜를 다시 볼 수 있다 (0건 재조회 · 실패 재시도). 중복 시도는 정상이다
       expect(await repo.insertMany([save()])).toBe(1);
@@ -74,8 +98,25 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
 
     it('🔴 새로운 변경이면 다시 노출된다', async () => {
       // 무시한 알림이 영영 안 뜨는 것이 아니라, 그 변경에 대해서만 안 뜬다
+      const B = 'b'.repeat(64);
+      const C = 'c'.repeat(64);
       await repo.insertMany([save()]);
-      expect(await repo.insertMany([save({ hashFrom: 'b'.repeat(64), hashTo: 'c'.repeat(64) })])).toBe(1);
+      expect(await repo.insertMany([
+        save({ hashFrom: B, hashTo: C, changeKey: `FP:${B}:${C}` }),
+      ])).toBe(1);
+    });
+
+    it('🔴 판정하는 것은 키다 — 지문 컬럼이 아니다 (DB 명세서 v1.7)', async () => {
+      /*
+       * 지문 두 컬럼은 근거 표시용으로 남았다. 키가 같으면 지문이 달라도 같은 변경이고,
+       * 키가 다르면 지문이 같아도 다른 변경이다. 둘을 같이 두면 어느 쪽이 판정하는지가
+       * 흐려져서, 조건 2 · 3 처럼 지문이 없는 알림이 조용히 안 막힌다.
+       */
+      await repo.insertMany([save()]);
+      // 지문만 바꾸고 키는 그대로 — 같은 변경이다
+      expect(await repo.insertMany([save({ hashFrom: null, hashTo: null })])).toBe(0);
+      // 키만 바꾸고 지문은 그대로 — 다른 변경이다
+      expect(await repo.insertMany([save({ changeKey: 'MT:20260828090000' })])).toBe(1);
     });
 
     it('다른 상품은 각각 들어간다', async () => {
