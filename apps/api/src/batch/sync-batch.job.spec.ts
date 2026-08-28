@@ -16,6 +16,7 @@ const item = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   contentid: '2541883', contenttypeid: '15', modifiedtime: '20260819131329',
   showflag: '1', createdtime: '20220913132227',
   lDongRegnCd: '51', lDongSignguCd: '150',
+  lclsSystm2: 'EV01', mapx: '128.8920940489', mapy: '37.7532215016',
   // 공사 원문. 우리가 담지 않아야 하는 것들이다
   title: '강릉 국가유산야행', addr1: '강원특별자치도 강릉시', firstimage: 'http://x/y.jpg',
   ...over,
@@ -259,7 +260,8 @@ describe('응답 해석 (FR-MO-002 · 012)', () => {
      */
     const parsed = toSyncedContent(item());
     expect(Object.keys(parsed).sort()).toEqual(
-      ['contentId', 'contentTypeId', 'createdTime', 'ldongRegnCd', 'ldongSignguCd', 'modifiedTime', 'showFlag'],
+      ['contentId', 'contentTypeId', 'createdTime', 'lclsSystm2', 'ldongRegnCd', 'ldongSignguCd',
+        'mapX', 'mapY', 'modifiedTime', 'showFlag'],
     );
     for (const leak of ['강릉 국가유산야행', '강원특별자치도', 'firstimage', 'tel', 'zipcode']) {
       expect(JSON.stringify(parsed), leak).not.toContain(leak);

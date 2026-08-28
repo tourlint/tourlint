@@ -47,6 +47,15 @@ export interface SyncedContent {
    */
   readonly ldongRegnCd: string | null;
   readonly ldongSignguCd: string | null;
+  /**
+   * 신분류체계 중분류. 기회 알림 조건 4 가 쓴다 (FR-MO-030 ④).
+   *
+   * 목록 응답에 이미 있다 — 조건 2 의 시군구와 같이 상세 재호출이 필요 없다.
+   */
+  readonly lclsSystm2: string | null;
+  /** 좌표. 기회 알림 조건 6 이 쓴다. 원문이 아니라 수치다 */
+  readonly mapX: number | null;
+  readonly mapY: number | null;
 }
 
 /**
@@ -444,7 +453,18 @@ export function toSyncedContent(item: Record<string, unknown>): SyncedContent {
     createdTime: String(item.createdtime ?? ''),
     ldongRegnCd: code(item.lDongRegnCd),
     ldongSignguCd: code(item.lDongSignguCd),
+    lclsSystm2: code(item.lclsSystm2),
+    mapX: coordinate(item.mapx),
+    mapY: coordinate(item.mapy),
   };
+}
+
+/** 좌표. 빈 문자열이 0 으로 읽히면 적도 앞바다가 된다 */
+function coordinate(value: unknown): number | null {
+  const raw = String(value ?? '').trim();
+  if (raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n !== 0 ? n : null;
 }
 
 /**
