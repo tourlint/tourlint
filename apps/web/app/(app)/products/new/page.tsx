@@ -49,7 +49,7 @@ export default function ProductNewPage() {
   const [target, setTarget] = useState("");
   const [concept, setConcept] = useState("");
   const [headcount, setHeadcount] = useState("");
-  const [transport, setTransport] = useState<Transport>("car");
+  const [transport, setTransport] = useState<Transport>("CAR");
 
   // C. 일정 (일수 = 박수 + 1)
   const [schedule, setSchedule] = useState<Schedule>([[]]);
@@ -189,7 +189,7 @@ export default function ProductNewPage() {
           </Field>
 
           {/* 대중교통 선택 시 R08 확인 불가 안내 (UI-S2-005) */}
-          {transport === "public" && (
+          {transport === "PUBLIC_TRANSIT" && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
               대중교통을 선택하면 R08 이동시간 판정이 수행되지 않고 <strong>확인 불가</strong>로 처리됩니다.
             </p>
@@ -271,23 +271,24 @@ function buildPayload(
     transport: Transport;
   },
 ) {
+  // 필드명·enum 은 API 정본(설계 5-1)을 따른다. 이동수단은 공용 TRANSPORT 값을 그대로 보낸다.
   return {
     name: f.name.trim(),
-    regnCd: f.region.regnCode,
-    signguCd: f.region.signguCode || null,
+    ldongRegnCd: f.region.regnCode,
+    ldongSignguCd: f.region.signguCode || null,
     startDate: f.startDate,
     nights: f.nights,
-    targetCustomer: f.target.trim() || null,
-    concept: f.concept.trim() || null,
-    headcount: f.headcount ? Number(f.headcount) : null,
+    targetKey: f.target.trim() || null,
+    conceptKey: f.concept.trim() || null,
+    headCount: f.headcount ? Number(f.headcount) : null,
     transport: f.transport,
     days: f.schedule.map((items, i) => ({
       day: i + 1,
       items: items.map((it) => ({
-        start: it.start || null,
+        start: it.start,
         end: it.end || null,
         place: it.place.trim(),
-        itemType: it.itemType || null,
+        itemType: it.itemType,
       })),
     })),
   };

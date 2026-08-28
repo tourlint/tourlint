@@ -11,6 +11,7 @@ import { FESTIVAL_TYPE_ID, SyncBatchJob, toEventPeriod } from './batch/sync-batc
 import { SyncBatchScheduler } from './batch/sync-batch.scheduler';
 import { CatalogController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
+import { DemoController } from './demo/demo.controller';
 import { evaluateBudget } from './external/budget-guard';
 import { createKtoClient, type KtoClient } from './external/kto';
 import { DB_POOL, getPool } from './persistence/db';
@@ -18,6 +19,9 @@ import { PgApiCallLogger } from './persistence/api-call-log.repository';
 import { BatchStateRepository } from './persistence/batch-state.repository';
 import { NotificationRepository } from './persistence/notification.repository';
 import { HealthController } from './health/health.controller';
+import { ProductController } from './product/product.controller';
+import { ProductRepository } from './product/product.repository';
+import { ProductService } from './product/product.service';
 import { UploadController } from './upload/upload.controller';
 import { MockController } from './mock/mock.controller';
 import { RootController } from './root/root.controller';
@@ -43,7 +47,7 @@ import { UsageService } from './usage/usage.service';
   controllers: [
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
-    AuditController, UsageController,
+    AuditController, UsageController, DemoController, ProductController,
     MockController,
   ],
   providers: [
@@ -54,6 +58,12 @@ import { UsageService } from './usage/usage.service';
       provide: CatalogService,
       useFactory: (pool: Pool) => new CatalogService(() => createKtoClient(new PgApiCallLogger(pool))),
       inject: [DB_POOL],
+    },
+    {
+      // 상품 CRUD. 목록의 지역명 조회에 CatalogService 를 재사용한다 (fixture 리플레이라 예산 0)
+      provide: ProductService,
+      useFactory: (pool: Pool, catalog: CatalogService) => new ProductService(new ProductRepository(pool), catalog),
+      inject: [DB_POOL, CatalogService],
     },
     {
       /*
