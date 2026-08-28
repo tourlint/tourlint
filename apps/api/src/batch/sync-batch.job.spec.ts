@@ -3,7 +3,9 @@ import type { KtoClient } from '../external/kto';
 import { KtoFetchError } from '../external/kto/kto.errors';
 import type { BatchState, BatchStateRepository, BatchStatus, SystemSetting } from '../persistence/batch-state.repository';
 import type { NotificationRepository, NotificationToSave } from '../persistence/notification.repository';
-import type { EventPeriod, ImpactCandidate } from './impact-finder';
+import { FINGERPRINT_FIELDS } from '@tourlint/shared';
+import { buildContentFingerprint, type FingerprintSnapshot } from '../engine/fingerprint';
+import type { ImpactCandidate } from './impact-finder';
 import { SyncBatchJob, toEventPeriod, toSyncedContent } from './sync-batch.job';
 
 /** 한국 시간 문자열을 Date 로 */
@@ -62,7 +64,8 @@ const job = (
     now?: string;
     hasBudget?: () => boolean;
     notifications?: NotificationRepository;
-    eventPeriod?: (contentId: string) => Promise<EventPeriod | null>;
+    fetchDetail?: (contentId: string, contentTypeId: number) => Promise<Record<string, unknown>>;
+    previousFingerprints?: (productId: number) => Promise<ReadonlyMap<string, FingerprintSnapshot>>;
     requestAudit?: (productId: number) => Promise<void>;
   } = {},
 ): SyncBatchJob =>
@@ -71,9 +74,25 @@ const job = (
     clock: () => kst(over.now ?? '2026-08-27T05:00:00'),
     hasBudget: over.hasBudget,
     notifications: over.notifications,
-    eventPeriod: over.eventPeriod,
+    fetchDetail: over.fetchDetail,
+    previousFingerprints: over.previousFingerprints,
     requestAudit: over.requestAudit,
   });
+
+/** `detailIntro2` 응답. 유형 12 의 지문 입력은 restdate · usetime 이다 */
+const intro = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  restdate: '매주 월요일', usetime: '09:00~18:00', infocenter: '033-000-0000', ...over,
+});
+
+/** 그 응답으로 만들어지는 지문. 러너와 같은 함수를 쓴다 */
+const hashOf = (raw: Record<string, unknown>, contentTypeId = 12): string =>
+  buildContentFingerprint({ contentTypeId, raw }).fieldHash;
+
+/** 상품이 직전 검수에서 남긴 지문 */
+const snapshot = (raw: Record<string, unknown>, over: Partial<FingerprintSnapshot> = {}): FingerprintSnapshot => ({
+  fieldNames: FINGERPRINT_FIELDS[12], fieldHash: hashOf(raw),
+  showFlag: 1, ktoModifiedTime: '20260101000000', ...over,
+});
 
 const candidate = (over: Partial<ImpactCandidate> = {}): ImpactCandidate => ({
   productId: 1, startDate: '2026-08-27', nights: 1, ldongSignguCd: '150', ...over,
@@ -275,11 +294,12 @@ describe('응답 해석 (FR-MO-002 · 012)', () => {
 describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
   const oneChange = { '20260826': [item({ contentid: '125790' })] };
 
-  it('🔴 상세 재호출은 행사에만 건다 — 시군구는 목록에 이미 있다', async () => {
+  it('🔴 상세는 행사와 조건 1 에만 부른다 — 시군구는 목록에 이미 있다', async () => {
     /*
      * 조건 2 의 시군구는 `areaBasedSyncList2` 응답에 `lDongSignguCd` 로 들어 있다 (실측).
-     * 이걸 모르고 상세를 부르면 하루 177콜, 예산 800건의 22% 가 여기서 나간다.
-     * 기간이 있어야 아는 것은 행사(15)뿐이다.
+     * 이걸 모르고 전부 상세를 부르면 하루 177콜, 예산 800건의 22% 가 여기서 나간다.
+     *
+     * 상세가 필요한 것은 둘뿐이다 — 행사(15)의 개최 기간과, 조건 1 에 걸린 것의 지문.
      */
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
     const { kto } = stubKto({
@@ -287,17 +307,40 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
         item({ contentid: '1', contenttypeid: '12' }),
         item({ contentid: '2', contenttypeid: '15' }),
         item({ contentid: '3', contenttypeid: '39' }),
+        item({ contentid: '4', contenttypeid: '39' }),
       ],
     });
-    const notif = stubNotifications({ watched: [candidate({ productId: 7 })] });
+    const notif = stubNotifications({
+      withContent: { '4': [candidate({ productId: 7 })] },
+      watched: [candidate({ productId: 7 })],
+    });
 
     const fetched: string[] = [];
     await job(kto, state, {
       notifications: notif.repo,
-      eventPeriod: async (id) => { fetched.push(id); return null; },
+      fetchDetail: async (id) => { fetched.push(id); return intro(); },
     }).run();
 
-    expect(fetched).toEqual(['2']);
+    // 2 는 행사라서, 4 는 조건 1 에 걸려서. 1 · 3 은 안 부른다
+    expect(fetched.sort()).toEqual(['2', '4']);
+  });
+
+  it('🔴 한 콘텐츠에 상세를 두 번 부르지 않는다', async () => {
+    // 행사이면서 조건 1 에도 걸리면 한 응답으로 기간과 지문을 둘 다 쓴다
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'f', contenttypeid: '15' })] });
+    const notif = stubNotifications({
+      withContent: { f: [candidate({ productId: 7 })] },
+      watched: [candidate({ productId: 7 })],
+    });
+
+    const fetched: string[] = [];
+    await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async (id) => { fetched.push(id); return intro(); },
+    }).run();
+
+    expect(fetched).toEqual(['f']);
   });
 
   it('🔴 조건 2 는 상세 재호출 없이 걸린다', async () => {
@@ -305,7 +348,7 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     const { kto } = stubKto({ '20260826': [item({ contentid: 'x', contenttypeid: '12', lDongSignguCd: '150' })] });
     const notif = stubNotifications({ watched: [candidate({ productId: 9, ldongSignguCd: '150' })] });
 
-    // eventPeriod 를 안 넘긴다 — 그래도 조건 2 는 걸려야 한다
+    // fetchDetail 을 안 넘긴다 — 그래도 조건 2 는 걸려야 한다
     const result = await job(kto, state, { notifications: notif.repo }).run();
     expect(result.impacts).toEqual([{ productId: 9, condition: 2, kind: 'RISK' }]);
   });
@@ -320,30 +363,25 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
 
     const result = await job(kto, state, {
       notifications: notif.repo,
-      eventPeriod: async () => ({ start: '2026-09-05', end: '2026-09-15' }),
+      fetchDetail: async () => ({ eventstartdate: '20260905', eventenddate: '20260915' }),
     }).run();
 
     expect(result.impacts).toEqual([{ productId: 9, condition: 3, kind: 'RISK' }]);
   });
 
-  it('🔴 감시 중인 상품이 없으면 행사기간을 안 부른다', async () => {
-    /*
-     * 조건 2 · 3 후보가 없으면 기간을 알아도 걸릴 곳이 없다. 조건 1 로 걸린 상품이 있어도
-     * 마찬가지다 — 그건 기간과 무관하게 이미 걸렸다.
-     */
+  it('🔴 감시 상품이 없으면 행사 상세를 안 부른다', async () => {
+    // 조건 2 · 3 후보가 없으면 기간을 알아도 걸릴 곳이 없다
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
     const { kto } = stubKto({ '20260826': [item({ contentid: 'f', contenttypeid: '15' })] });
-    const notif = stubNotifications({ withContent: { f: [candidate({ productId: 7 })] }, watched: [] });
+    const notif = stubNotifications({ withContent: { other: [candidate({ productId: 7 })] }, watched: [] });
     let called = false;
 
-    const result = await job(kto, state, {
+    await job(kto, state, {
       notifications: notif.repo,
-      eventPeriod: async () => { called = true; return null; },
+      fetchDetail: async () => { called = true; return intro(); },
     }).run();
 
     expect(called).toBe(false);
-    // 조건 1 은 그대로 걸린다. 안 부른 것은 조건 3 몫뿐이다
-    expect(result.impacts).toEqual([{ productId: 7, condition: 1, kind: 'RISK' }]);
   });
 
   it('아무 상품도 감시 중이 아니면 아무것도 안 한다', async () => {
@@ -356,26 +394,26 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     expect(result.notified).toBe(0);
   });
 
-  it('🔴 예산이 떨어지면 남은 행사를 안 부른다', async () => {
+  it('🔴 예산이 떨어지면 남은 상세를 안 부른다', async () => {
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
     const { kto } = stubKto({
       '20260826': [item({ contentid: 'f1', contenttypeid: '15' }), item({ contentid: 'f2', contenttypeid: '15' })],
     });
     const notif = stubNotifications({ watched: [candidate({ productId: 9 })] });
 
-    // 1단계 한 콜 + 행사 한 건까지만 허용한다
+    // 1단계 한 콜 + 상세 한 건까지만 허용한다
     let left = 2;
     const fetched: string[] = [];
     await job(kto, state, {
       notifications: notif.repo,
       hasBudget: () => left-- > 0,
-      eventPeriod: async (id) => { fetched.push(id); return null; },
+      fetchDetail: async (id) => { fetched.push(id); return intro(); },
     }).run();
 
     expect(fetched).toEqual(['f1']);
   });
 
-  it('행사 한 건이 실패해도 나머지를 본다', async () => {
+  it('상세 한 건이 실패해도 나머지를 본다', async () => {
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
     const { kto } = stubKto({
       '20260826': [item({ contentid: 'f1', contenttypeid: '15' }), item({ contentid: 'f2', contenttypeid: '15' })],
@@ -385,10 +423,10 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     const fetched: string[] = [];
     await job(kto, state, {
       notifications: notif.repo,
-      eventPeriod: async (id) => {
+      fetchDetail: async (id) => {
         fetched.push(id);
         if (id === 'f1') throw new Error('상세 조회 실패');
-        return null;
+        return intro();
       },
     }).run();
 
@@ -490,6 +528,157 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
 
     expect(result.contents).toHaveLength(1);
     expect(result.impacts).toEqual([]);
+  });
+});
+
+describe('지문 비교 — 판정 무관 변경은 안 알린다 (FR-MO-036 · DR-FP-011)', () => {
+  const change = { '20260826': [item({ contentid: 'c1', contenttypeid: '12' })] };
+  const detail = intro();
+
+  /** 상품 7 이 조건 1 로 걸리는 기본 배치 */
+  const setup = (previous: (productId: number) => Promise<ReadonlyMap<string, FingerprintSnapshot>>) => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto(change);
+    const notif = stubNotifications({ withContent: { c1: [candidate({ productId: 7 })] } });
+    const audited: number[] = [];
+    return {
+      notif, audited,
+      run: () => job(kto, state, {
+        notifications: notif.repo,
+        fetchDetail: async () => detail,
+        previousFingerprints: previous,
+        requestAudit: async (id) => { audited.push(id); },
+      }).run(),
+    };
+  };
+
+  it('🔴 판정 필드가 그대로면 알리지도 재검수하지도 않는다', async () => {
+    /*
+     * 공사가 사진이나 설명만 고쳐도 `modifiedtime` 은 올라간다. 그때마다 알리면 헛알림이고,
+     * 재검수까지 걸면 상품 하나에 상세 조회 여러 건이 그냥 나간다.
+     */
+    const s = setup(async () => new Map([['c1', snapshot(detail)]]));
+    const result = await s.run();
+
+    expect(result.impacts).toEqual([]);
+    expect(s.notif.saved).toEqual([]);
+    expect(s.audited).toEqual([]);
+  });
+
+  it('🔴 판정 필드가 바뀌면 알리고 지문 두 개를 함께 남긴다', async () => {
+    const before = intro({ usetime: '10:00~17:00' });
+    const s = setup(async () => new Map([['c1', snapshot(before)]]));
+    const result = await s.run();
+
+    expect(result.impacts).toEqual([{ productId: 7, condition: 1, kind: 'RISK' }]);
+    expect(s.audited).toEqual([7]);
+    expect(s.notif.saved[0]).toMatchObject({ hashFrom: hashOf(before), hashTo: hashOf(detail) });
+  });
+
+  it('🔴 직전 지문이 상품마다 다르다', async () => {
+    /*
+     * 콘텐츠 전역 최신 지문을 쓰면, 다른 상품이 먼저 검수해 지문을 갱신한 변경을 이 상품
+     * 사용자는 못 본 채로 「이미 알렸다」고 넘긴다 (FR-RU-060).
+     */
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto(change);
+    const notif = stubNotifications({
+      withContent: { c1: [candidate({ productId: 7 }), candidate({ productId: 8 })] },
+    });
+
+    const result = await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async () => detail,
+      // 7 은 이미 이 지문을 봤고 8 은 옛 지문에 머물러 있다
+      previousFingerprints: async (productId) => new Map([
+        ['c1', snapshot(productId === 7 ? detail : intro({ usetime: '10:00~17:00' }))],
+      ]),
+    }).run();
+
+    expect(result.impacts).toEqual([{ productId: 8, condition: 1, kind: 'RISK' }]);
+  });
+
+  it('🔴 두 상품이 같이 걸리면 각자의 직전 지문이 실린다', async () => {
+    /*
+     * 알림 행마다 `hashFrom` 이 다르다. 하나로 뭉쳐 쓰면 남의 지문이 실려 재노출 판정이
+     * 어긋난다 — 무시한 알림이 다시 뜨거나, 새 변경이 막힌다.
+     */
+    const older = intro({ usetime: '09:00~17:00' });
+    const newer = intro({ usetime: '09:00~17:30' });
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto(change);
+    const notif = stubNotifications({
+      withContent: { c1: [candidate({ productId: 7 }), candidate({ productId: 8 })] },
+    });
+
+    await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async () => detail,
+      previousFingerprints: async (productId) =>
+        new Map([['c1', snapshot(productId === 7 ? older : newer)]]),
+    }).run();
+
+    expect(notif.saved).toHaveLength(2);
+    expect(notif.saved.map((n) => [n.productId, n.hashFrom])).toEqual([
+      [7, hashOf(older)],
+      [8, hashOf(newer)],
+    ]);
+  });
+
+  it('🔴 직전 지문이 없으면 알린다 — 안 바뀌었다고 말할 수 없다 (FR-RU-051)', async () => {
+    // 검수 러너는 FIRST 에 알리지 않는다. 그 자리에서 검수 중이기 때문이고, 배치는 다르다
+    const s = setup(async () => new Map());
+    const result = await s.run();
+
+    expect(result.impacts).toEqual([{ productId: 7, condition: 1, kind: 'RISK' }]);
+    expect(s.notif.saved[0]).toMatchObject({ hashFrom: null, hashTo: hashOf(detail) });
+    expect(s.audited).toEqual([7]);
+  });
+
+  it('🔴 비표출 전환은 지문이 같아도 알린다 (R06-b)', async () => {
+    // 운영시간·휴무일은 그대로인 채 내려가는 경우다. 지문만 보면 안 바뀐 것으로 읽힌다
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'c1', contenttypeid: '12', showflag: '0' })] });
+    const notif = stubNotifications({ withContent: { c1: [candidate({ productId: 7 })] } });
+
+    const result = await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async () => detail,
+      previousFingerprints: async () => new Map([['c1', snapshot(detail)]]),
+    }).run();
+
+    expect(result.impacts).toEqual([{ productId: 7, condition: 1, kind: 'RISK' }]);
+    expect((notif.saved[0]?.body as { hidden: boolean }).hidden).toBe(true);
+  });
+
+  it('🔴 지문을 못 만들면 알린다', async () => {
+    // 지원하지 않는 유형(25 등)은 지문 입력 필드가 없다. 비교 불가지 「안 바뀜」이 아니다
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'c1', contenttypeid: '25' })] });
+    const notif = stubNotifications({ withContent: { c1: [candidate({ productId: 7 })] } });
+
+    const result = await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async () => detail,
+      previousFingerprints: async () => new Map(),
+    }).run();
+
+    expect(result.impacts).toEqual([{ productId: 7, condition: 1, kind: 'RISK' }]);
+    expect(notif.saved[0]).toMatchObject({ hashFrom: null, hashTo: null });
+  });
+
+  it('🔴 조건 2 · 3 알림에는 지문이 없다', async () => {
+    /*
+     * 그 콘텐츠는 어느 일정에도 없어 지문 이력이 없다. 없는 것을 지어내지 않는다 —
+     * 대신 그 행들은 `uq_notif_change` 로 중복이 안 막힌다 (NULL 은 서로 다르게 취급된다).
+     */
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'x', contenttypeid: '12', lDongSignguCd: '150' })] });
+    const notif = stubNotifications({ watched: [candidate({ productId: 9, ldongSignguCd: '150' })] });
+
+    await job(kto, state, { notifications: notif.repo }).run();
+
+    expect(notif.saved[0]).toMatchObject({ condition: 2, hashFrom: null, hashTo: null });
   });
 });
 

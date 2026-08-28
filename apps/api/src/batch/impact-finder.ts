@@ -53,13 +53,14 @@ export interface EventPeriod {
  *
  * 시군구는 `SyncedContent` 에 있다 — 동기화 목록이 이미 준다. 여기 남는 것은 상세
  * 재호출이 있어야 아는 것뿐이다.
+ *
+ * **지문은 여기 없다.** 직전 지문이 상품마다 다르기 때문이다 — 다른 상품이 먼저 검수해
+ * 만든 지문을 직전으로 삼으면 이 상품 사용자는 못 본 변경을 「이미 알렸다」고 넘긴다
+ * (FR-RU-060 · `previousFingerprints` 주석).
  */
 export interface ChangedContent extends SyncedContent {
   /** 행사(15) 개최 기간. 그 밖의 유형은 null */
   readonly eventPeriod: EventPeriod | null;
-  /** 직전 지문 → 지금 지문. 같은 변경을 두 번 알리지 않는 근거다 (FR-MO-036) */
-  readonly hashFrom: string | null;
-  readonly hashTo: string | null;
 }
 
 export interface Impact {
