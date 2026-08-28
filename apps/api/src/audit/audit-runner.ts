@@ -364,7 +364,13 @@ export class AuditRunner {
     }
 
     const start = parseIsoDate(product.startDate);
-    const cache = new Map<string, TravelSegment>();
+    /*
+     * 동일 구간 · 동일 출발 시각 캐시 (NF-PF-012 · EI-KM-006).
+     *
+     * **결과가 아니라 진행 중인 약속을 담는다.** 결과만 담으면 같은 구간 둘이 동시에
+     * 출발했을 때 둘 다 캐시를 못 보고 각자 호출한다 — 병렬로 도는 이상 그게 정상 경로다.
+     */
+    const inflight = new Map<string, Promise<TravelSegment>>();
 
     await withConcurrency(segments, this.concurrency, async ({ from, to }) => {
       const key = segmentKey(from.id, to.id);
@@ -380,33 +386,36 @@ export class AuditRunner {
           : departureStamp(formatIsoDate(addDays(start, from.dayNo - 1)), from.endTime);
 
       const cacheKey = `${String(from.mapX)},${String(from.mapY)}>${String(to.mapX)},${String(to.mapY)}@${departureAt ?? ''}`;
-      const hit = cache.get(cacheKey);
-      if (hit !== undefined) {
-        out.set(key, hit);
-        return;
-      }
-
-      let segment: TravelSegment;
-      try {
-        const route = await (this.kakao as KakaoMobilityClient).route(
-          { x: from.mapX, y: from.mapY },
-          { x: to.mapX, y: to.mapY },
-          departureAt,
+      let pending = inflight.get(cacheKey);
+      if (pending === undefined) {
+        pending = this.routeSegment(
+          { x: from.mapX, y: from.mapY }, { x: to.mapX, y: to.mapY }, departureAt,
         );
-        segment = {
-          ok: true,
-          durationSeconds: route.durationSeconds,
-          distanceMeters: route.distanceMeters,
-          futureBased: route.futureBased,
-        };
-      } catch (e) {
-        segment = { ok: false, reasonCode: isKakaoError(e) ? e.reasonCode : 'ROUTE_PROVIDER_FAILED' };
+        inflight.set(cacheKey, pending);
       }
-      cache.set(cacheKey, segment);
-      out.set(key, segment);
+      out.set(key, await pending);
     });
 
     return out;
+  }
+
+  /** 구간 하나. **던지지 않는다** — 실패도 판정 근거라 확인 불가로 담아 돌려준다 (EI-KM-009) */
+  private async routeSegment(
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    departureAt: string | null,
+  ): Promise<TravelSegment> {
+    try {
+      const route = await (this.kakao as KakaoMobilityClient).route(from, to, departureAt);
+      return {
+        ok: true,
+        durationSeconds: route.durationSeconds,
+        distanceMeters: route.distanceMeters,
+        futureBased: route.futureBased,
+      };
+    } catch (e) {
+      return { ok: false, reasonCode: isKakaoError(e) ? e.reasonCode : 'ROUTE_PROVIDER_FAILED' };
+    }
   }
 
   /**
