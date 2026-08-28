@@ -16,6 +16,8 @@ export interface NotificationToSave {
   readonly ktoContentId: string;
   readonly hashFrom: string | null;
   readonly hashTo: string | null;
+  /** 재노출 판정 키 (FR-MO-036). 무엇이 「같은 변경」인지는 조건마다 다르다 */
+  readonly changeKey: string;
   readonly body: Readonly<Record<string, unknown>>;
 }
 
@@ -25,12 +27,16 @@ export class NotificationRepository {
   /**
    * 알림을 넣는다. **같은 콘텐츠의 같은 변경은 다시 넣지 않는다** (FR-MO-036).
    *
-   * `uq_notif_change (product_id, kto_content_id, change_hash_from, change_hash_to)` 가
-   * DB 에서 막고, 여기서는 그걸 조용히 넘긴다 — 배치가 같은 날짜를 다시 볼 수 있어서
-   * (0건 재조회 · 실패 재시도) 중복 시도는 정상이다.
+   * `uq_notif_change (product_id, kto_content_id, change_key)` 가 DB 에서 막고, 여기서는
+   * 그걸 조용히 넘긴다 — 배치가 같은 날짜를 다시 볼 수 있어서 (0건 재조회 · 실패 재시도)
+   * 중복 시도는 정상이다.
    *
-   * **새로운 변경이면 다시 노출된다.** 지문이 달라지면 유니크 키도 달라지기 때문이다 —
-   * 무시한 알림이 영영 안 뜨는 것이 아니라, 그 변경에 대해서만 안 뜬다.
+   * **새로운 변경이면 다시 노출된다.** `change_key` 가 달라지기 때문이다 — 무시한 알림이
+   * 영영 안 뜨는 것이 아니라, 그 변경에 대해서만 안 뜬다.
+   *
+   * ⚠️ **지문 두 컬럼은 키가 아니다.** 조건 2·3 은 지문 이력이 없어 둘 다 NULL 이고,
+   *    평범한 `UNIQUE` 는 NULL 이 든 행을 서로 다르게 봐서 아무것도 안 막는다
+   *    (DB 명세서 v1.7).
    *
    * 넣은 건수를 돌려준다.
    */
@@ -39,10 +45,12 @@ export class NotificationRepository {
     for (const n of items) {
       const { rowCount } = await this.pool.query(
         `INSERT INTO notification
-           (product_id, kind, match_condition, kto_content_id, change_hash_from, change_hash_to, body)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (product_id, kto_content_id, change_hash_from, change_hash_to) DO NOTHING`,
-        [n.productId, n.kind, n.condition, n.ktoContentId, n.hashFrom, n.hashTo, JSON.stringify(n.body)],
+           (product_id, kind, match_condition, kto_content_id,
+            change_hash_from, change_hash_to, change_key, body)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (product_id, kto_content_id, change_key) DO NOTHING`,
+        [n.productId, n.kind, n.condition, n.ktoContentId,
+          n.hashFrom, n.hashTo, n.changeKey, JSON.stringify(n.body)],
       );
       inserted += rowCount ?? 0;
     }

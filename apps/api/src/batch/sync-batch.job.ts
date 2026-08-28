@@ -474,10 +474,10 @@ function code(value: unknown): string | null {
 }
 
 /**
- * 재노출 판정 키 (FR-MO-036). 상품마다 다르므로 콘텐츠가 아니라 여기에 붙인다.
+ * 변경의 근거 지문. 상품마다 다르므로 콘텐츠가 아니라 알림 행에 붙인다.
  *
- * `null` 이면 그 알림은 DB 의 `uq_notif_change` 로 중복이 안 막힌다 — 평범한 `UNIQUE` 가
- * NULL 을 서로 다른 값으로 보기 때문이다. 조건 2 · 3 알림이 그렇다.
+ * 재노출 판정에는 쓰지 않는다 — 그건 `changeKeyOf` 가 만드는 `change_key` 다
+ * (DB 명세서 v1.7).
  */
 export interface ChangeHashes {
   readonly from: string | null;
@@ -488,6 +488,24 @@ const NO_HASHES: ChangeHashes = { from: null, to: null };
 
 /** 비교할 수 없을 때. 모르는 것을 「안 바뀌었다」로 읽지 않는다 (FR-RU-051) */
 const UNKNOWN_CHANGE = { notify: true, reaudit: true, hashes: NO_HASHES } as const;
+
+/**
+ * 재노출 판정 키 (FR-MO-036 · DB 명세서 v1.7).
+ *
+ * **조건마다 「같은 변경」의 뜻이 다르다.**
+ *
+ * ```
+ * 조건 1     판정 필드가 이 상태로 바뀐 것    FP:{직전지문|-}:{현재지문}
+ * 조건 2·3   그 콘텐츠가 이때 갱신된 것       MT:{modifiedtime}
+ * ```
+ *
+ * 조건 2 · 3 은 그 콘텐츠가 어느 일정에도 없어 지문 이력이 없다. 없는 것을 지어내는 대신
+ * 갱신 시각을 식별자로 쓴다 — 다시 바뀌면 시각이 달라져 새 알림이 뜬다.
+ */
+export function changeKeyOf(content: SyncedContent, hashes: ChangeHashes): string {
+  if (hashes.to !== null) return `FP:${hashes.from ?? '-'}:${hashes.to}`;
+  return `MT:${content.modifiedTime}`;
+}
 
 /**
  * 알림 본문 (FR-MO-033).
@@ -503,6 +521,7 @@ function toNotification(impact: Impact, content: ChangedContent, hashes: ChangeH
     ktoContentId: content.contentId,
     hashFrom: hashes.from,
     hashTo: hashes.to,
+    changeKey: changeKeyOf(content, hashes),
     body: {
       condition: impact.condition,
       contentTypeId: content.contentTypeId,

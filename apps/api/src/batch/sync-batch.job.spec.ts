@@ -6,7 +6,7 @@ import type { NotificationRepository, NotificationToSave } from '../persistence/
 import { FINGERPRINT_FIELDS } from '@tourlint/shared';
 import { buildContentFingerprint, type FingerprintSnapshot } from '../engine/fingerprint';
 import type { ImpactCandidate } from './impact-finder';
-import { SyncBatchJob, toEventPeriod, toSyncedContent } from './sync-batch.job';
+import { SyncBatchJob, changeKeyOf, toEventPeriod, toSyncedContent } from './sync-batch.job';
 
 /** 한국 시간 문자열을 Date 로 */
 const kst = (iso: string): Date => new Date(`${iso}+09:00`);
@@ -704,5 +704,40 @@ describe('행사 개최 기간 해석 (조건 3)', () => {
     expect(toEventPeriod({ eventstartdate: '20261352', eventenddate: '20261353' })).toBeNull();
     expect(toEventPeriod({ eventstartdate: '20260230', eventenddate: '20260301' })).toBeNull();
     expect(toEventPeriod({ eventstartdate: '2026-04-04', eventenddate: '2026-04-11' })).toBeNull();
+  });
+});
+
+describe('재노출 판정 키 (FR-MO-036 · DB 명세서 v1.7)', () => {
+  const content = toSyncedContent(item({ contentid: 'c1', modifiedtime: '20260827120000' }));
+  const A = 'a'.repeat(64);
+  const B = 'b'.repeat(64);
+
+  it('지문이 있으면 전이를 키로 쓴다', () => {
+    expect(changeKeyOf(content, { from: A, to: B })).toBe(`FP:${A}:${B}`);
+    // 직전 지문이 없어도 키는 만들어진다 — NULL 을 남기면 제약이 안 걸린다
+    expect(changeKeyOf(content, { from: null, to: B })).toBe(`FP:-:${B}`);
+  });
+
+  it('🔴 지문이 없으면 갱신 시각을 쓴다 — 키를 비우지 않는다', () => {
+    /*
+     * 조건 2 · 3 은 지문 이력이 없다. 여기서 NULL 을 돌려주면 `uq_notif_change` 가
+     * NULL 이 든 행을 서로 다르게 봐서 중복이 통째로 안 막힌다.
+     */
+    expect(changeKeyOf(content, { from: null, to: null })).toBe('MT:20260827120000');
+  });
+
+  it('🔴 같은 콘텐츠라도 다른 변경이면 키가 다르다', () => {
+    const later = toSyncedContent(item({ contentid: 'c1', modifiedtime: '20260828090000' }));
+    // 새로운 변경이면 다시 노출돼야 한다 (FR-MO-036 뒷 문장)
+    expect(changeKeyOf(later, { from: null, to: null }))
+      .not.toBe(changeKeyOf(content, { from: null, to: null }));
+    expect(changeKeyOf(content, { from: A, to: B }))
+      .not.toBe(changeKeyOf(content, { from: B, to: A }));
+  });
+
+  it('🔴 조건 1 과 조건 2 의 키가 겹치지 않는다', () => {
+    // 접두어가 없으면 지문 문자열과 시각 문자열이 우연히 같아질 여지를 남긴다
+    expect(changeKeyOf(content, { from: A, to: B }).startsWith('FP:')).toBe(true);
+    expect(changeKeyOf(content, { from: null, to: null }).startsWith('MT:')).toBe(true);
   });
 });
