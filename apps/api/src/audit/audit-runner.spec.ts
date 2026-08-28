@@ -521,3 +521,54 @@ describe('동시 실행 제한 (NF-PF-010)', () => {
     expect(peak).toBe(3);
   });
 });
+
+describe('구간 캐시 (NF-PF-012 · EI-KM-006)', () => {
+  /** 같은 좌표 · 같은 출발 시각으로 두 구간이 동시에 들어오는 상황 */
+  const twoSamePlaces: readonly ItineraryItemRow[] = [
+    item({ id: 1, dayNo: 1, seq: 1, startTime: '10:00', endTime: '11:00',
+           placeLabel: 'A', mapX: 128.8, mapY: 37.7 }),
+    item({ id: 2, dayNo: 1, seq: 2, startTime: '11:00', endTime: '12:00',
+           placeLabel: 'B', mapX: 128.9, mapY: 37.8 }),
+    // 같은 좌표 쌍이 같은 출발 시각으로 한 번 더 — 구간 2개가 같은 캐시 키를 문다
+    item({ id: 3, dayNo: 1, seq: 3, startTime: '12:00', endTime: '11:00',
+           placeLabel: 'A2', mapX: 128.8, mapY: 37.7 }),
+    item({ id: 4, dayNo: 1, seq: 4, startTime: '13:00', endTime: '14:00',
+           placeLabel: 'B2', mapX: 128.9, mapY: 37.8 }),
+  ];
+
+  /** 응답을 붙잡아 두는 카카오 스텁. 병렬로 들어온 것을 셀 수 있게 한다 */
+  function slowKakao() {
+    const calls: string[] = [];
+    let release = (): void => {};
+    const held = new Promise<void>((r) => { release = r; });
+    const client = {
+      route: async (o: { x: number; y: number }, d: { x: number; y: number }, at: string | null) => {
+        calls.push(`${o.x},${o.y}>${d.x},${d.y}@${at ?? ''}`);
+        await held;
+        return { durationSeconds: 600, distanceMeters: 12000, futureBased: true };
+      },
+    };
+    return { client, calls, release };
+  }
+
+  it('🔴 같은 구간이 동시에 들어와도 한 번만 부른다', async () => {
+    /*
+     * 결과만 캐시하면 둘 다 캐시를 못 보고 각자 호출한다 — 결과가 들어오기 전에 둘 다
+     * 출발하기 때문이다. 병렬로 도는 이상 그게 정상 경로다 (NF-PF-010 과 함께 본다).
+     */
+    const { client, calls, release } = slowKakao();
+    const runner = new AuditRunner({
+      kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
+      clock,
+      kakao: client as never,
+    });
+
+    const running = runner.run(product, twoSamePlaces);
+    await new Promise((r) => setImmediate(r));
+    release();
+    await running;
+
+    const same = calls.filter((c) => c === calls[0]);
+    expect(same).toHaveLength(1);
+  });
+});
