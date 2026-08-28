@@ -545,6 +545,7 @@ export class AuditService {
 
       const runner = new AuditRunner({
         kto: createKtoClient(this.callLogger),
+        // 동시 실행 수는 AUDIT_CONCURRENCY 로 조정한다 (NF-PF-010). 안 넘기면 러너가 환경을 본다
         onProgress: (done, total) => this.jobs.updateProgress(jobId, done, total),
         // 직전 검수의 지문. 비표출 전환과 판정 필드 변경이 여기서 잡힌다 (FR-MO-004)
         previousFingerprints: await this.results.previousFingerprints(productId),

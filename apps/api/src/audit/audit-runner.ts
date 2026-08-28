@@ -123,6 +123,11 @@ export interface ClimateNormal {
 export interface AuditRunnerOptions {
   readonly kto: KtoClient;
   /** 관광지 단위 동시 조회 수. 기본 8 (NF-PF-010) */
+  /**
+   * 공사 상세 조회 동시 실행 수 (NF-PF-010). 기본 8.
+   *
+   * 안 넘기면 `AUDIT_CONCURRENCY` 를 본다 — 명세가 환경변수로 조정 가능할 것을 요구한다.
+   */
   readonly concurrency?: number;
   readonly weights?: Readonly<Record<Severity, number>>;
   /** 계정 설정. 주지 않으면 기본값을 쓴다 (FR-RU-072 · FR-OP-026) */
@@ -186,7 +191,13 @@ interface FetchFailure {
 
 export class AuditRunner {
   private readonly kto: KtoClient;
-  private readonly concurrency: number;
+  /**
+   * 실제로 쓰는 동시 실행 수 (NF-PF-010).
+   *
+   * 공개해 둔다 — 환경변수가 먹었는지를 밖에서 볼 수 있어야 한다. 안 그러면 값을 잘못 넣어도
+   * 조용히 기본값으로 돌고 아무도 모른다.
+   */
+  readonly concurrency: number;
   private readonly weights: Readonly<Record<Severity, number>>;
   private readonly settings: AuditSettings;
   private readonly previous: ReadonlyMap<string, FingerprintSnapshot>;
@@ -201,7 +212,7 @@ export class AuditRunner {
 
   constructor(options: AuditRunnerOptions) {
     this.kto = options.kto;
-    this.concurrency = options.concurrency ?? 8;
+    this.concurrency = options.concurrency ?? concurrencyFromEnv();
     this.weights = options.weights ?? SEVERITY_WEIGHT_DEFAULT;
     this.settings = options.settings ?? DEFAULT_AUDIT_SETTINGS;
     this.previous = options.previousFingerprints ?? new Map();
@@ -227,7 +238,7 @@ export class AuditRunner {
     const failures = new Map<string, FetchFailure>();
     let done = 0;
 
-    await inBatches(targets, this.concurrency, async (target) => {
+    await withConcurrency(targets, this.concurrency, async (target) => {
       try {
         fetched.set(target.contentId, await this.fetchOne(target.contentId, target.contentTypeId));
       } catch (e) {
@@ -355,7 +366,7 @@ export class AuditRunner {
     const start = parseIsoDate(product.startDate);
     const cache = new Map<string, TravelSegment>();
 
-    await inBatches(segments, this.concurrency, async ({ from, to }) => {
+    await withConcurrency(segments, this.concurrency, async ({ from, to }) => {
       const key = segmentKey(from.id, to.id);
       if (from.mapX === null || from.mapY === null || to.mapX === null || to.mapY === null) {
         out.set(key, { ok: false, reasonCode: 'COORD_MISSING' });
@@ -823,15 +834,41 @@ export function uniqueContentIds(items: readonly ItineraryItemRow[]): readonly T
   return [...seen.values()].sort((a, b) => (a.contentId < b.contentId ? -1 : 1));
 }
 
-/** 동시 실행 수를 묶어 돌린다. 순서는 보장하지 않고 완료만 기다린다 */
-async function inBatches<T>(
+/** 기본 동시 실행 수 (NF-PF-010) */
+export const DEFAULT_AUDIT_CONCURRENCY = 8;
+
+/**
+ * `AUDIT_CONCURRENCY` 를 읽는다. 값이 없거나 말이 안 되면 기본값으로 간다.
+ *
+ * 0 이나 음수를 그대로 받으면 조회가 한 건도 안 나가고 검수가 멈춘 것처럼 보인다.
+ */
+export function concurrencyFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.AUDIT_CONCURRENCY);
+  if (!Number.isInteger(raw) || raw < 1) return DEFAULT_AUDIT_CONCURRENCY;
+  return raw;
+}
+
+/**
+ * 동시 실행 수를 `limit` 로 제한해 돌린다 (NF-PF-010). 순서는 보장하지 않고 완료만 기다린다.
+ *
+ * **묶음이 아니라 미끄러지는 창이다.** `limit` 개씩 잘라 `Promise.all` 로 기다리면 한 묶음의
+ * 가장 느린 호출이 끝날 때까지 나머지 일꾼이 논다 — 12곳이면 두 묶음이라 느린 꼬리를 두 번
+ * 문다. p95 목표에서 꼬리 지연은 그대로 비용이다 (NF-PF-001).
+ */
+export async function withConcurrency<T>(
   items: readonly T[],
-  size: number,
+  limit: number,
   fn: (item: T) => Promise<void>,
 ): Promise<void> {
-  for (let i = 0; i < items.length; i += size) {
-    await Promise.all(items.slice(i, i + size).map(fn));
-  }
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    // 인덱스를 하나씩 집어 간다. 끝나는 즉시 다음 것을 잡으므로 노는 일꾼이 없다
+    while (next < items.length) {
+      const item = items[next++];
+      if (item !== undefined) await fn(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker));
 }
 
 export { CONTENT_TYPE_ID, INTRO_FIELDS };
