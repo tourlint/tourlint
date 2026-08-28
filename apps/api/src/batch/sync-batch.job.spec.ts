@@ -598,6 +598,33 @@ describe('지문 비교 — 판정 무관 변경은 안 알린다 (FR-MO-036 · 
     expect(result.impacts).toEqual([{ productId: 8, condition: 1, kind: 'RISK' }]);
   });
 
+  it('🔴 두 상품이 같이 걸리면 각자의 직전 지문이 실린다', async () => {
+    /*
+     * 알림 행마다 `hashFrom` 이 다르다. 하나로 뭉쳐 쓰면 남의 지문이 실려 재노출 판정이
+     * 어긋난다 — 무시한 알림이 다시 뜨거나, 새 변경이 막힌다.
+     */
+    const older = intro({ usetime: '09:00~17:00' });
+    const newer = intro({ usetime: '09:00~17:30' });
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto(change);
+    const notif = stubNotifications({
+      withContent: { c1: [candidate({ productId: 7 }), candidate({ productId: 8 })] },
+    });
+
+    await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async () => detail,
+      previousFingerprints: async (productId) =>
+        new Map([['c1', snapshot(productId === 7 ? older : newer)]]),
+    }).run();
+
+    expect(notif.saved).toHaveLength(2);
+    expect(notif.saved.map((n) => [n.productId, n.hashFrom])).toEqual([
+      [7, hashOf(older)],
+      [8, hashOf(newer)],
+    ]);
+  });
+
   it('🔴 직전 지문이 없으면 알린다 — 안 바뀌었다고 말할 수 없다 (FR-RU-051)', async () => {
     // 검수 러너는 FIRST 에 알리지 않는다. 그 자리에서 검수 중이기 때문이고, 배치는 다르다
     const s = setup(async () => new Map());
