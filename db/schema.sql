@@ -266,6 +266,7 @@ CREATE TABLE notification (
     kto_content_id   TEXT,
     change_hash_from TEXT,
     change_hash_to   TEXT,
+    change_key       TEXT        NOT NULL,
     body             JSONB       NOT NULL,
     dismissed_at     TIMESTAMPTZ,
     read_at          TIMESTAMPTZ,
@@ -274,9 +275,16 @@ CREATE TABLE notification (
     CONSTRAINT ck_notif_kind      CHECK (kind IN ('RISK','OPPORTUNITY')),
     CONSTRAINT ck_notif_condition CHECK (match_condition BETWEEN 1 AND 6),
     -- FR-MO-036 : 동일 콘텐츠 · 동일 변경은 재노출하지 않는다
-    CONSTRAINT uq_notif_change UNIQUE (product_id, kto_content_id,
-                                       change_hash_from, change_hash_to)
+    --   지문 두 컬럼을 키로 쓰지 않는다. 조건 2·3 알림은 그 콘텐츠가 어느 일정에도 없어
+    --   지문 이력이 없고, NULL 이 섞이면 평범한 UNIQUE 가 행마다 다른 것으로 보아 제약이
+    --   통째로 논다. NULLS NOT DISTINCT 로 바꾸면 반대로 (상품, 콘텐츠) 만으로 막혀 진짜
+    --   새 변경까지 차단된다. 조건별로 「같은 변경」의 정의가 달라 앱이 키를 만든다.
+    CONSTRAINT uq_notif_change UNIQUE (product_id, kto_content_id, change_key)
 );
+COMMENT ON COLUMN notification.change_key IS
+    '재노출 판정 키 - FP:{직전지문|-}:{현재지문} (조건 1) · MT:{modifiedtime} (조건 2·3)';
+COMMENT ON COLUMN notification.change_hash_from IS
+    '변경 전 지문. 근거 표시용이며 재노출 판정에는 쓰지 않는다 - DB 명세서 v1.7';
 
 -- ---------------------------------------------------------------------
 -- 10. user_setting : 계정 설정
