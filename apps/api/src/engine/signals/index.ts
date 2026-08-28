@@ -2,6 +2,7 @@ import { addDays, formatIsoDate, parseIsoDate, type IsoDate } from '../calendar/
 import type { Signal, SignalContent, SignalWindow, TypeBreakdown } from './types';
 
 export * from './types';
+export * from './fetch';
 
 /** T1 산출 기간 기본값 (FR-RU-110 · 111 로 조정 가능) */
 export const T1_DEFAULT_DAYS = 30;
