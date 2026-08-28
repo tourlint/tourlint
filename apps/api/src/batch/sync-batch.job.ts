@@ -1,12 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { KtoClient } from '../external/kto';
 import { parseIsoDate } from '../engine/calendar/dates';
+import { buildContentFingerprint, compareFingerprint, type FingerprintSnapshot } from '../engine/fingerprint';
 import { isKtoError } from '../external/kto';
 import type { BatchState, BatchStateRepository, BatchStatus } from '../persistence/batch-state.repository';
 import type { NotificationRepository, NotificationToSave } from '../persistence/notification.repository';
 import {
   matchByContent, matchByEventPeriod, matchByRegion, mergeImpacts,
-  type ChangedContent, type EventPeriod, type Impact,
+  type ChangedContent, type EventPeriod, type Impact, type ImpactCandidate,
 } from './impact-finder';
 import { isWeekend, kstToday, pendingDates, toKtoDate } from './sync-window';
 
@@ -93,14 +94,24 @@ export interface SyncBatchOptions {
   /** 2단계 저장소. 없으면 1단계만 돌고 알림을 만들지 않는다 */
   readonly notifications?: NotificationRepository;
   /**
-   * 행사 개최 기간을 가져온다 (조건 3 · FR-MO-030 ③).
+   * 콘텐츠 상세(`detailIntro2`)를 가져온다.
    *
-   * **이것만 상세 재호출이 필요하다.** 시군구는 동기화 목록에 이미 있어 조건 2 는 공짜고,
-   * 조건 1 은 우리 DB 만 본다. 행사(15)가 아닌 유형에는 부르지 않는다.
+   * 한 번 부르면 **행사기간(조건 3)과 지문(FR-MO-036)이 둘 다** 나온다 — 검수 러너도 같은
+   * 응답 하나로 지문을 만든다 (`audit-runner` 3단계). 그래서 콘텐츠당 한 번만 부른다.
    *
-   * 없으면 조건 3 만 물러난다.
+   * 부르는 대상은 **행사(15)** 와 **조건 1 에 걸린 것**뿐이다. 시군구는 동기화 목록에
+   * 이미 있어 조건 2 는 공짜다.
+   *
+   * 없으면 조건 3 과 지문 비교가 물러난다 — 알림은 그대로 만든다.
    */
-  readonly eventPeriod?: (contentId: string) => Promise<EventPeriod | null>;
+  readonly fetchDetail?: (contentId: string, contentTypeId: number) => Promise<Record<string, unknown>>;
+  /**
+   * 그 상품이 직전 검수에서 만든 지문 (FR-RU-060).
+   *
+   * **상품 단위다.** 콘텐츠 전역 최신 지문을 쓰면, 다른 상품이 먼저 검수해 지문을 갱신한
+   * 변경을 이 상품 사용자는 못 본 채로 「안 바뀌었다」고 넘긴다.
+   */
+  readonly previousFingerprints?: (productId: number) => Promise<ReadonlyMap<string, FingerprintSnapshot>>;
   /** 영향받은 상품의 재검수를 건다 (FR-MO-013). 없으면 알림만 만든다 */
   readonly requestAudit?: (productId: number) => Promise<void>;
 }
@@ -113,7 +124,8 @@ export class SyncBatchJob {
   private readonly clock: () => Date;
   private readonly hasBudget: () => boolean | Promise<boolean>;
   private readonly notifications: NotificationRepository | null;
-  private readonly eventPeriod: SyncBatchOptions['eventPeriod'];
+  private readonly fetchDetail: SyncBatchOptions['fetchDetail'];
+  private readonly previousFingerprints: SyncBatchOptions['previousFingerprints'];
   private readonly requestAudit: SyncBatchOptions['requestAudit'];
 
   constructor(options: SyncBatchOptions) {
@@ -122,7 +134,8 @@ export class SyncBatchJob {
     this.clock = options.clock ?? ((): Date => new Date());
     this.hasBudget = options.hasBudget ?? ((): boolean => true);
     this.notifications = options.notifications ?? null;
-    this.eventPeriod = options.eventPeriod;
+    this.fetchDetail = options.fetchDetail;
+    this.previousFingerprints = options.previousFingerprints;
     this.requestAudit = options.requestAudit;
   }
 
@@ -239,32 +252,53 @@ export class SyncBatchJob {
         return { impacts: [], notified: 0 };
       }
 
-      const periods = await this.eventPeriodsOf(contents, watched.length > 0);
+      const details = await this.fetchDetails(contents, direct, watched.length > 0);
+      const previous = new Map<number, ReadonlyMap<string, FingerprintSnapshot>>();
       const pending: NotificationToSave[] = [];
       const allImpacts: Impact[] = [];
+      const toReaudit = new Set<number>();
+      let unchanged = 0;
 
       for (const content of contents) {
+        const detail = details.get(content.contentId) ?? null;
         const changed: ChangedContent = {
           ...content,
-          eventPeriod: periods.get(content.contentId) ?? null,
-          // 지문은 아직 안 만든다. 이 값들이 비면 FR-MO-036 재노출 차단이 안 걸린다
-          hashFrom: null,
-          hashTo: null,
+          eventPeriod: detail === null ? null : toEventPeriod(detail),
         };
+
+        /*
+         * 조건 1 은 **상품마다 따로 본다.** 직전 지문이 상품별이라, 같은 콘텐츠라도 한
+         * 상품에는 「안 바뀌었다」이고 다른 상품에는 「처음 본다」일 수 있다.
+         */
+        const kept: ImpactCandidate[] = [];
+        const hashes = new Map<number, ChangeHashes>();
+        for (const candidate of direct.get(content.contentId) ?? []) {
+          const decision = await this.judge(candidate.productId, changed, detail, previous);
+          if (decision.reaudit) toReaudit.add(candidate.productId);
+          if (!decision.notify) {
+            unchanged++;
+            continue;
+          }
+          kept.push(candidate);
+          hashes.set(candidate.productId, decision.hashes);
+        }
+
         const impacts = mergeImpacts(
-          matchByContent(direct.get(content.contentId) ?? []),
+          matchByContent(kept),
           matchByRegion(changed, watched, today),
           matchByEventPeriod(changed, watched),
         );
         allImpacts.push(...impacts);
-        pending.push(...impacts.map((i) => toNotification(i, changed)));
+        pending.push(...impacts.map((i) => toNotification(i, changed, hashes.get(i.productId) ?? NO_HASHES)));
       }
 
       const notified = await this.notifications.insertMany(pending);
-      this.logger.log(`영향 ${allImpacts.length}건 · 새 알림 ${notified}건`);
+      this.logger.log(
+        `영향 ${allImpacts.length}건 · 새 알림 ${notified}건`
+        + (unchanged > 0 ? ` · 판정 필드가 그대로라 넘긴 것 ${unchanged}건` : ''),
+      );
 
-      // 조건 1 에 걸린 상품만 재검수한다. 그 콘텐츠가 실제로 일정에 들어 있다
-      await this.reaudit(allImpacts);
+      await this.reaudit([...toReaudit]);
       return { impacts: allImpacts, notified };
     } catch (e) {
       this.logger.error(`영향 탐색에 실패했다. 1단계 결과는 그대로다: ${(e as Error).message}`);
@@ -273,44 +307,95 @@ export class SyncBatchJob {
   }
 
   /**
-   * 행사 개최 기간을 모은다 (조건 3).
+   * 상세를 모은다. **콘텐츠당 한 번**이다.
    *
-   * **예산이 떨어지면 거기서 멈추고 몇 건을 못 봤는지 남긴다.** 조용히 자르면 조건 3 이
+   * 부르는 대상은 둘 — 행사(15)는 개최 기간(조건 3)이 필요하고, 조건 1 에 걸린 것은
+   * 지문 비교가 필요하다. 한 응답으로 둘 다 나온다.
+   *
+   * **예산이 떨어지면 거기서 멈추고 몇 건을 못 봤는지 남긴다.** 조용히 자르면 조건이
    * 안 걸린 것인지 안 본 것인지 구분이 안 된다.
    */
-  private async eventPeriodsOf(
+  private async fetchDetails(
     contents: readonly SyncedContent[],
+    direct: ReadonlyMap<string, readonly ImpactCandidate[]>,
     hasWatched: boolean,
-  ): Promise<ReadonlyMap<string, EventPeriod>> {
-    const out = new Map<string, EventPeriod>();
-    // 감시 중인 상품이 없으면 기간을 알아도 걸릴 곳이 없다
-    if (this.eventPeriod === undefined || !hasWatched) return out;
+  ): Promise<ReadonlyMap<string, Record<string, unknown>>> {
+    const out = new Map<string, Record<string, unknown>>();
+    if (this.fetchDetail === undefined) return out;
 
-    // 응답은 문자열로 온다. 빈 값은 0 이 돼 걸리지 않는다
-    const festivals = contents.filter((c) => Number(c.contentTypeId) === FESTIVAL_TYPE_ID);
+    // 유형은 문자열로 온다. 빈 값은 0 이 돼 행사로 안 걸린다
+    const targets = contents.filter((c) =>
+      direct.has(c.contentId) || (hasWatched && Number(c.contentTypeId) === FESTIVAL_TYPE_ID));
+
     let seen = 0;
-    for (const festival of festivals) {
+    for (const target of targets) {
       if (!(await this.hasBudget())) break;
       seen++;
       try {
-        const period = await this.eventPeriod(festival.contentId);
-        if (period !== null) out.set(festival.contentId, period);
+        out.set(target.contentId, await this.fetchDetail(target.contentId, Number(target.contentTypeId)));
       } catch (e) {
-        // 한 건이 실패해도 나머지는 본다. 조건 3 만 물러난다
-        this.logger.warn(`행사 ${festival.contentId} 기간을 못 읽었다: ${(e as Error).message}`);
+        // 한 건이 실패해도 나머지는 본다. 그 콘텐츠만 지문·기간 없이 간다
+        this.logger.warn(`콘텐츠 ${target.contentId} 상세를 못 읽었다: ${(e as Error).message}`);
       }
     }
 
-    if (seen < festivals.length) {
-      this.logger.warn(`예산이 남지 않아 행사 ${festivals.length - seen}건의 기간을 못 봤다 (조건 3 미판정)`);
+    if (seen < targets.length) {
+      this.logger.warn(`예산이 남지 않아 상세 ${targets.length - seen}건을 못 봤다 (조건 3 · 지문 비교 미판정)`);
     }
     return out;
   }
 
-  /** 조건 1 상품만 재검수를 건다 (FR-MO-013). 한 상품이 여러 번 걸려도 한 번만 */
-  private async reaudit(impacts: readonly Impact[]): Promise<void> {
+  /**
+   * 이 상품에 이 변경을 알릴 것인가 (FR-MO-036 · DR-FP-011).
+   *
+   * 지문을 만들어 그 상품의 직전 지문과 비교한다. **공사가 사진이나 설명만 고쳐도
+   * `modifiedtime` 은 올라간다** — 판정 필드가 그대로면 알리지 않고 재검수도 안 건다.
+   *
+   * 비교할 수 없는 경우는 알린다. 모르는 것을 「안 바뀌었다」로 읽지 않는다 (FR-RU-051).
+   */
+  private async judge(
+    productId: number,
+    content: ChangedContent,
+    detail: Record<string, unknown> | null,
+    cache: Map<number, ReadonlyMap<string, FingerprintSnapshot>>,
+  ): Promise<{ notify: boolean; reaudit: boolean; hashes: ChangeHashes }> {
+    if (detail === null || this.previousFingerprints === undefined) return UNKNOWN_CHANGE;
+
+    let current: FingerprintSnapshot;
+    try {
+      const fp = buildContentFingerprint({ contentTypeId: Number(content.contentTypeId), raw: detail });
+      current = {
+        ...fp,
+        showFlag: content.showFlag === '0' ? 0 : 1,
+        ktoModifiedTime: content.modifiedTime,
+      };
+    } catch (e) {
+      // 지원하지 않는 유형 등. 지문을 못 만들면 비교할 수 없다
+      this.logger.warn(`콘텐츠 ${content.contentId} 지문을 못 만들었다: ${(e as Error).message}`);
+      return UNKNOWN_CHANGE;
+    }
+
+    let seen = cache.get(productId);
+    if (seen === undefined) {
+      seen = await this.previousFingerprints(productId);
+      cache.set(productId, seen);
+    }
+    const previous = seen.get(content.contentId) ?? null;
+    const verdict = compareFingerprint(previous, current);
+    const hashes = { from: previous?.fieldHash ?? null, to: current.fieldHash };
+
+    /*
+     * `FIRST` 는 이 상품이 그 콘텐츠를 한 번도 검수하지 않았다는 뜻이다. 검수 러너에서는
+     * 알릴 것이 없지만 — 그 자리에서 검수 중이다 — 배치에서는 다르다. 기준이 없으니
+     * 「안 바뀌었다」고 말할 수 없다.
+     */
+    if (verdict.kind === 'FIRST') return { notify: true, reaudit: true, hashes };
+    return { notify: verdict.notify, reaudit: verdict.reaudit, hashes };
+  }
+
+  /** 재검수를 건다 (FR-MO-013). 한 상품이 여러 번 걸려도 한 번만 */
+  private async reaudit(targets: readonly number[]): Promise<void> {
     if (this.requestAudit === undefined) return;
-    const targets = [...new Set(impacts.filter((i) => i.condition === 1).map((i) => i.productId))];
     for (const productId of targets) {
       try {
         await this.requestAudit(productId);
@@ -389,19 +474,35 @@ function code(value: unknown): string | null {
 }
 
 /**
+ * 재노출 판정 키 (FR-MO-036). 상품마다 다르므로 콘텐츠가 아니라 여기에 붙인다.
+ *
+ * `null` 이면 그 알림은 DB 의 `uq_notif_change` 로 중복이 안 막힌다 — 평범한 `UNIQUE` 가
+ * NULL 을 서로 다른 값으로 보기 때문이다. 조건 2 · 3 알림이 그렇다.
+ */
+export interface ChangeHashes {
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
+const NO_HASHES: ChangeHashes = { from: null, to: null };
+
+/** 비교할 수 없을 때. 모르는 것을 「안 바뀌었다」로 읽지 않는다 (FR-RU-051) */
+const UNKNOWN_CHANGE = { notify: true, reaudit: true, hashes: NO_HASHES } as const;
+
+/**
  * 알림 본문 (FR-MO-033).
  *
  * ⚠️ **공사 원문을 담지 않는다.** 상품명 · 관광지명은 화면이 자기 데이터로 채운다 —
  *    여기 담으면 알림 테이블에 원문이 남는다 (FR-MO-002).
  */
-function toNotification(impact: Impact, content: ChangedContent): NotificationToSave {
+function toNotification(impact: Impact, content: ChangedContent, hashes: ChangeHashes): NotificationToSave {
   return {
     productId: impact.productId,
     kind: impact.kind,
     condition: impact.condition,
     ktoContentId: content.contentId,
-    hashFrom: content.hashFrom,
-    hashTo: content.hashTo,
+    hashFrom: hashes.from,
+    hashTo: hashes.to,
     body: {
       condition: impact.condition,
       contentTypeId: content.contentTypeId,
