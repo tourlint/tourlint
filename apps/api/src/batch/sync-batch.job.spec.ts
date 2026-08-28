@@ -268,6 +268,21 @@ describe('응답 해석 (FR-MO-002 · 012)', () => {
     }
   });
 
+  it('🔴 좌표가 비면 0 이 아니라 없는 것으로 읽는다', () => {
+    /*
+     * `Number('')` 은 0 이다. 그대로 두면 좌표를 모르는 콘텐츠가 위도 0 · 경도 0 —
+     * 기니만 앞바다 — 에 있는 것이 되어, 기회 알림 조건 6 의 우회거리가 지구 반 바퀴로
+     * 나오거나 반대로 「0 이라 가깝다」가 된다.
+     */
+    for (const bad of ['', '  ', '0', 'x']) {
+      const parsed = toSyncedContent(item({ mapx: bad, mapy: bad }));
+      expect(parsed.mapX, bad).toBeNull();
+      expect(parsed.mapY, bad).toBeNull();
+    }
+    expect(toSyncedContent(item({ mapx: '128.892', mapy: '37.753' })))
+      .toMatchObject({ mapX: 128.892, mapY: 37.753 });
+  });
+
   it('🔴 법정동 코드가 비면 없는 것으로 읽는다', () => {
     // 실측에서 `areacode` · `sigungucode` 가 빈 문자열로 온다. `'' === ''` 로 묶이면
     // 지역을 모르는 것들이 서로 같은 지역인 셈이 돼 조건 2 가 엉뚱하게 걸린다

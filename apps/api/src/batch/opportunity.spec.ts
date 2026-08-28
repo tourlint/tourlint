@@ -79,7 +79,11 @@ describe('빈 시간대 (조건 5)', () => {
   });
 
   it('🔴 시각 모양이 아니면 안 센다 — 00:00 으로 읽지 않는다', () => {
-    for (const bad of ['', '1000', '25:00', '10:70']) {
+    /*
+     * 범위 검사(`25:00` · `10:70`)만으로는 부족하다. 자릿수와 앞뒤를 안 보면 `9:30` 이나
+     * `10:30:00` 이 통과해 엉뚱한 분으로 읽힌다.
+     */
+    for (const bad of ['', '1000', '25:00', '10:70', '9:30', '10:30:00', 'a10:30']) {
       expect(freeSlots([item({ endTime: bad })], 30), bad).toEqual([]);
     }
   });
@@ -91,15 +95,20 @@ describe('빈 시간대 (조건 5)', () => {
     expect(slots[0]?.minutes).toBe(600); // 11:00 ~ 21:00
   });
 
-  it('🔴 일차가 다르면 같은 간격으로 보지 않는다', () => {
-    // 1일차 마지막과 2일차 첫 항목 사이를 이으면 밤새 비어 있는 것으로 읽힌다
+  it('🔴 일차를 가로지른 간격을 만들지 않는다', () => {
+    /*
+     * 1일차 낮에 끝난 뒤와 2일차 저녁 사이를 이으면 「6시간 비어 있다」가 된다. 실제로는
+     * 밤을 사이에 둔 다른 날이라 거기에 일정을 넣을 수 없다.
+     */
     const slots = freeSlots([
-      item({ dayNo: 1, seq: 1, startTime: '19:00', endTime: '20:00' }),
-      item({ dayNo: 2, seq: 1, startTime: '10:00', endTime: '11:00' }),
+      item({ dayNo: 1, seq: 1, startTime: '10:00', endTime: '12:00' }),
+      item({ dayNo: 2, seq: 2, startTime: '18:00', endTime: '19:00' }),
     ], 60);
-    // 각 일차의 마지막 뒤 구간만 나온다 — 일차를 가로지른 간격은 없다
+    for (const slot of slots) {
+      expect(slot.after?.dayNo ?? slot.before.dayNo, JSON.stringify(slot)).toBe(slot.before.dayNo);
+    }
+    // 각 일차의 꼬리만 남는다
     expect(slots.map((s) => s.dayNo)).toEqual([1, 2]);
-    expect(slots.every((s) => s.after === null)).toBe(true);
   });
 
   it('간격이 모자라면 안 센다', () => {
