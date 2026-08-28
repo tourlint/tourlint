@@ -78,7 +78,7 @@ describe('T2 — 여행기간 ±3일 행사 (FR-RU-120)', () => {
     expect(s.count).toBe(2);
   });
 
-  it('🔴 기간을 모르는 행사는 세지 않는다', () => {
+  it('🔴 기간을 모르는 행사를 겹친 것으로 세지 않는다', () => {
     /*
      * 결측을 「그 기간에 열린다」로도 「안 열린다」로도 읽지 않는다. 세면 없는 행사가
      * 생기고, 「0건」이라 말하면 모르는 것을 없다고 하는 셈이다.
@@ -105,19 +105,25 @@ describe('건수와 분포뿐이다 (FR-RU-121 · 122)', () => {
     }
   });
 
-  it('유형 분포는 건수만 담고 순서가 고정이다', () => {
-    const s = summarizeNewContents([
-      content({ contentId: 'a', contentTypeId: '39' }),
-      content({ contentId: 'b', contentTypeId: '12' }),
-      content({ contentId: 'c', contentTypeId: '12' }),
-    ], window());
-    expect(s.byType).toEqual({ 12: 2, 39: 1 });
-    expect(Object.keys(s.byType)).toEqual(['12', '39']);
+  it('🔴 유형 분포는 건수만 담고 입력 순서에 흔들리지 않는다', () => {
+    // 같은 입력이 다른 순서를 내면 화면이 실행마다 달라 보인다 (NF-MT-001 과 같은 취지)
+    const items = ['39', 'UNKNOWN', '12', '12'].map((t, i) =>
+      content({ contentId: String(i), contentTypeId: t === 'UNKNOWN' ? '' : t }));
+    const forward = summarizeNewContents(items, window()).byType;
+    const backward = summarizeNewContents([...items].reverse(), window()).byType;
+
+    expect(forward).toEqual({ 12: 2, 39: 1, UNKNOWN: 1 });
+    expect(Object.keys(forward)).toEqual(Object.keys(backward));
   });
 
-  it('유형을 모르면 UNKNOWN 으로 남긴다 — 조용히 버리지 않는다', () => {
-    expect(summarizeNewContents([content({ contentTypeId: '' })], window()).byType)
-      .toEqual({ UNKNOWN: 1 });
+  it('🔴 유형을 모르면 UNKNOWN 으로 남긴다 — 조용히 버리지 않는다', () => {
+    // 버리면 count 와 byType 합이 어긋나 화면이 「3건인데 분포는 2건」을 보여준다
+    const s = summarizeNewContents([
+      content({ contentId: 'a', contentTypeId: '12' }),
+      content({ contentId: 'b', contentTypeId: '' }),
+    ], window());
+    expect(s.byType).toEqual({ 12: 1, UNKNOWN: 1 });
+    expect(Object.values(s.byType).reduce((a, b) => a + b, 0)).toBe(s.count);
   });
 });
 

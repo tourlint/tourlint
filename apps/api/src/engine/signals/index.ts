@@ -100,13 +100,20 @@ function inRegion(content: SignalContent, window: SignalWindow): boolean {
   return true;
 }
 
-/** 유형 분포. **점수를 매기지 않는다** — 건수만 센다 (FR-RU-121) */
+/**
+ * 유형 분포. **점수를 매기지 않는다** — 건수만 센다 (FR-RU-121).
+ *
+ * 정렬하지 않는다. `contentTypeId` 가 정수형 문자열이라 JS 가 이미 오름차순으로 내고,
+ * `UNKNOWN` 은 그 뒤에 붙는다 — 입력 순서와 무관하게 같은 결과다. `localeCompare` 로
+ * 다시 정렬해 봤자 아무것도 안 바뀌고, 오히려 한 자리 코드가 생기면 `'12' < '9'` 로
+ * 뒤집힌다.
+ */
 function countByType(contents: readonly SignalContent[]): TypeBreakdown {
   const out: Record<string, number> = {};
   for (const c of contents) {
+    // 유형을 모르면 버리지 않고 UNKNOWN 으로 남긴다. 버리면 건수와 분포 합이 어긋난다
     const key = c.contentTypeId === '' ? 'UNKNOWN' : c.contentTypeId;
     out[key] = (out[key] ?? 0) + 1;
   }
-  // 키 순서를 고정한다. 같은 입력이 다른 순서를 내면 화면이 실행마다 달라 보인다
-  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
+  return out;
 }
