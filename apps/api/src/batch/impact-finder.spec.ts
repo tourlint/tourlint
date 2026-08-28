@@ -11,7 +11,8 @@ const candidate = (over: Partial<ImpactCandidate> = {}): ImpactCandidate => ({
 const changed = (over: Partial<ChangedContent> = {}): ChangedContent => ({
   contentId: '125790', contentTypeId: '12', modifiedTime: '20260827120000',
   showFlag: '1', createdTime: '20220101000000',
-  ldongRegnCd: '51', ldongSignguCd: '150', eventPeriod: null,
+  ldongRegnCd: '51', ldongSignguCd: '150',
+  lclsSystm2: 'EV01', mapX: 128.892, mapY: 37.753, eventPeriod: null,
   ...over,
 });
 
