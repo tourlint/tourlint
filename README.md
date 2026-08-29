@@ -12,6 +12,15 @@
 | 상태 확인 | https://api-production-1e7c2.up.railway.app/health |
 | 웹 | https://web-production-82e38.up.railway.app/login |
 
+**배포본이 최신인지**는 `/health` 의 `commit` 을 `git rev-parse --short origin/main` 과 대조한다.
+2026-08-29 에 `main` 머지 두 건이 두 시간 밀렸는데 그동안 `/health` 는 계속 `ok` 였다 —
+옛 코드가 돌고 있어도 살아 있는 것은 사실이라 상태만으로는 구분이 안 된다.
+
+```bash
+git fetch -q origin && echo "main $(git rev-parse --short=7 origin/main)" \
+  && curl -s https://api-production-1e7c2.up.railway.app/health | grep -o '"commit":"[^"]*"'
+```
+
 `/docs` 에서 라우트 목록을 브라우저로 본다. **`실엔진` 태그가 붙은 것만 실제로 판정 · 저장이
 돈다.** `mock` 태그는 API 명세의 응답 예시를 그대로 돌려주는 임시 라우트이며 실엔진으로
 교체되는 즉시 제거된다 (NF-CO-002 · FR-OP-009). 전체 계약은
