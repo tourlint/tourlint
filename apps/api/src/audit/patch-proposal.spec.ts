@@ -103,6 +103,44 @@ describe('R01 — 휴무 충돌이면 날짜를 바꾼다 (FR-RU-013①)', () =>
       .toBeGreaterThanOrEqual(MIN_TRANSFER_MINUTES);
   });
 
+  it('🔴 좁은 틈에 억지로 끼워 넣지 않는다', () => {
+    /*
+     * 소요시간만큼만 보고 자리를 잡으면, 앞 여유를 두는 순간 뒤가 밀려 다음 항목을 덮는다.
+     * 앞뒤 여유까지 들어가는 틈만 자리로 친다.
+     */
+    const target = item({ day: 1, start: '12:00', end: '13:00',
+                          rest: '매주 화요일', use: '09:00~21:00' });
+    const a = item({ day: 2, start: '09:00', end: '10:00' });
+    const b = item({ day: 2, start: '11:00', end: '12:00' }); // a 와 60분 틈뿐이다
+    const [p] = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }),
+      items: [target, a, b], holidays: KOREAN_HOLIDAYS,
+    });
+
+    const payload = p?.payload as { newStartTime: string; newEndTime?: string };
+    const min = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    const from = min(payload.newStartTime);
+    const to = min(payload.newEndTime as string);
+    // 그 날 어느 항목과도 겹치지 않는다
+    for (const other of [a, b]) {
+      const gap = Math.max(min(other.startTime) - to, from - min(other.endTime as string));
+      expect(gap, `${payload.newStartTime}~${payload.newEndTime} vs ${other.startTime}~${String(other.endTime)}`)
+        .toBeGreaterThanOrEqual(MIN_TRANSFER_MINUTES);
+    }
+  });
+
+  it('🔴 숙박 뒤로는 넣지 않는다', () => {
+    // 체크인은 그 날 일정의 끝이다 (R07 `daySpan`). 그 뒤에 관광을 넣으면 밤에 나가란 말이 된다
+    const target = item({ day: 1, start: '12:00', end: '13:00',
+                          rest: '매주 화요일', use: '09:00~21:00' });
+    const lodging = item({ day: 2, start: '17:30', end: null, type: 'LODGING', label: '강릉강변스테이' });
+    const morning = item({ day: 2, start: '09:00', end: '17:00' });
+    expect(proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }),
+      items: [target, morning, lodging], holidays: KOREAN_HOLIDAYS,
+    })).toHaveLength(0);
+  });
+
   it('🔴 들어갈 자리가 없으면 제안하지 않는다', () => {
     // 옮길 날이 하루 종일 차 있으면 어디에 넣어도 겹친다. 억지로 넣느니 안 내는 게 낫다
     const target = item({ day: 1, start: '12:00', end: '13:00',
