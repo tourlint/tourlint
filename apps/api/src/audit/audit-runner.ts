@@ -519,17 +519,9 @@ export class AuditRunner {
     const dates = travelDates(product, items);
     if (dates.length === 0) return out;
 
-    const fail = (reasonCode: ExceptionReasonCode): ReadonlyMap<string, DailyRainOutlook> => {
-      for (const d of dates) out.set(d, { ok: false, reasonCode });
-      return out;
+    const markAll = (list: readonly string[], reasonCode: ExceptionReasonCode): void => {
+      for (const d of list) out.set(d, { ok: false, reasonCode });
     };
-
-    // 키가 없거나 클라이언트를 못 만든 경우다. 조용히 넘기면 "우천 위험 없음" 으로 읽힌다
-    if (this.kma === null) return fail('FORECAST_UNAVAILABLE');
-
-    const point = representativePoint(items);
-    const grid = point === null ? null : toGrid(point.lon, point.lat);
-    if (grid === null) return fail('COORD_MISSING');
 
     const today = kstToday(now);
     const buckets = { short: [] as string[], mid: [] as string[], climate: [] as string[] };
@@ -541,9 +533,27 @@ export class AuditRunner {
       else buckets.climate.push(date);
     }
 
+    const point = representativePoint(items);
+    const grid = point === null ? null : toGrid(point.lon, point.lat);
+
+    /*
+     * **필요한 것이 날짜마다 다르다.**
+     *
+     *   단기(D+0~3)  기상청 + 격자좌표
+     *   중기(D+4~10) 기상청 + 시도 코드
+     *   평년(D+11~)  평년값 표만 — 공사도 격자도 필요 없다
+     *
+     * 예전에는 기상청 클라이언트나 격자가 없으면 **여행일 전부**를 확인 불가로 돌렸다.
+     * 그래서 두 달 뒤 출발 상품처럼 평년값으로 판정되는 날짜까지 같이 묻혔다. 필요 없는
+     * 것이 없다는 이유로 판정을 포기하면 안 된다.
+     */
     await Promise.all([
-      this.fillShortTerm(buckets.short, grid, now, out),
-      this.fillMidTerm(buckets.mid, product, now, out),
+      this.kma === null || grid === null
+        ? markAll(buckets.short, this.kma === null ? 'FORECAST_UNAVAILABLE' : 'COORD_MISSING')
+        : this.fillShortTerm(buckets.short, grid, now, out),
+      this.kma === null
+        ? markAll(buckets.mid, 'FORECAST_UNAVAILABLE')
+        : this.fillMidTerm(buckets.mid, product, now, out),
       this.fillClimate(buckets.climate, product, out),
     ]);
     return out;
