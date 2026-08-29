@@ -46,6 +46,14 @@ services:
       KTO_SERVICE_KEY: ${KTO_SERVICE_KEY:-}
       # 절대경로. API 실행 cwd 는 /app/apps/api 라 상대경로면 fixtures 를 못 찾는다
       KTO_FIXTURE_DIR: /app/fixtures/kto
+      # 카카오모빌리티 · 기상청도 같은 이유로 리플레이가 기본이다. 안 걸어 두면 R08 이
+      # 전 구간 ROUTE_PROVIDER_FAILED, R09 가 확인 불가로 나와 로컬에서 판정을 못 본다.
+      KAKAO_MODE: ${KAKAO_MODE:-fixture}
+      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      KAKAO_FIXTURE_DIR: /app/fixtures/kakao
+      KMA_MODE: ${KMA_MODE:-fixture}
+      KMA_SERVICE_KEY: ${KMA_SERVICE_KEY:-}
+      KMA_FIXTURE_DIR: /app/fixtures/kma
       PORT: "3001"
     ports:
       - "3001:3001"
