@@ -44,6 +44,21 @@ export interface InsertItemPayload {
   readonly startTime: string;
   readonly endTime: string;
   readonly itemType: 'MEAL' | 'REST' | 'SIGHT';
+  /**
+   * 넣을 관광지 (선택).
+   *
+   * R07 식사 삽입은 자리만 만들면 되지만 R09 · R10 은 **무엇을** 넣을지가 제안의 전부다 —
+   * 「빈 시간에 실내 관광지를 넣으세요」로는 사용자가 할 일이 안 준다 (FR-RU-093 · 103).
+   *
+   * ⚠️ 명칭은 담지 않는다. 대체 관광지와 같은 이유다 — 공사 원문이라 표시할 때 조회한다.
+   */
+  readonly content?: {
+    readonly ktoContentId: string;
+    readonly contentTypeId: ContentTypeId;
+    readonly lclsSystm2: string | null;
+    readonly mapx: number | null;
+    readonly mapy: number | null;
+  };
 }
 
 export type RemoveItemPayload = Record<string, never>;

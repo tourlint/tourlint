@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
@@ -429,6 +430,36 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     expect(f?.evidence).toMatchObject({ missingLcls2: ['FD05'] });
   });
 
+  it('🔴 결손 유형을 빈 시간대에 넣는 수정안이 붙는다 (FR-RU-103)', async () => {
+    /*
+     * 「무엇을」 넣을지가 제안의 전부다. 자리만 비워 주면 사용자가 할 일이 안 준다.
+     * 자리 계산은 0콜이고 콘텐츠만 위치기반 조회로 찾는다.
+     */
+    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
+    // 오전 · 오후 사이를 넉넉히 비워 둔다
+    const morning = item({ id: 1, dayNo: 1, seq: 1, startTime: '09:00', endTime: '10:00',
+                           placeLabel: '오죽헌', ktoContentId: '129784', contentTypeId: 14,
+                           lclsSystm2: 'VE07', mapX: 128.898632, mapY: 37.753996 });
+    const evening = item({ id: 2, dayNo: 1, seq: 2, startTime: '17:00', endTime: '18:00',
+                           placeLabel: '경포대', ktoContentId: '125790', contentTypeId: 12,
+                           lclsSystm2: 'VE07', mapX: 128.8961, mapY: 37.7955 });
+
+    // 픽스처 위치기반 목록에 실제로 있는 중분류를 결손으로 둔다
+    const lcls2 = fixtureLcls2();
+    const result = await runner({ profiles: found(['VE07', lcls2]), accountId: 7 })
+      .run(withTarget, [morning, evening]);
+
+    const r10 = result.findings.find((f) => f.ruleCode === 'R10');
+    expect(r10?.evidence).toMatchObject({ missingLcls2: [lcls2] });
+    const inserts = (r10?.patches ?? []).filter((p) => p.type === 'INSERT_ITEM');
+    expect(inserts.length, '넣기 수정안이 안 붙었다').toBeGreaterThan(0);
+
+    const payload = inserts[0]?.payload as { content?: { lclsSystm2: string | null }; startTime: string };
+    // 결손 중분류로 채운다. 아무거나 넣는 제안이 아니다
+    expect(payload.content?.lclsSystm2).toBe(lcls2);
+    expect(payload.startTime).toBe('10:30');
+  });
+
   it('🔴 그 조합의 프로파일이 없으면 확인 불가다', async () => {
     const withTarget: ProductRow = { ...product, targetKey: 'SOLO', conceptKey: 'SHOPPING', accountId: 7 };
     const empty: TargetProfileLookup = { find: async () => null };
@@ -620,3 +651,13 @@ describe('R08 대체 후보는 앞 항목 주변에서 찾는다 (FR-RU-083 ③)
     expect(centers[0]?.y).toBeCloseTo(GYEONGPO.y, 4);
   });
 });
+
+/** 위치기반 픽스처에 실제로 들어 있는 중분류 하나. 없는 값을 결손으로 두면 후보가 안 나온다 */
+function fixtureLcls2(): string {
+  const raw = JSON.parse(
+    readFileSync(join(__dirname, '../../../../fixtures/kto/06_locationBasedList2.json'), 'utf8'),
+  ) as { response: { body: { items: { item: { lclsSystm2?: string }[] } } } };
+  const found = raw.response.body.items.item.map((i) => i.lclsSystm2).find((v) => typeof v === 'string' && v !== '');
+  if (found === undefined) throw new Error('픽스처에 lclsSystm2 가 없다');
+  return found;
+}
