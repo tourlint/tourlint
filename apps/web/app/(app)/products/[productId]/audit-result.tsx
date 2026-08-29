@@ -279,7 +279,6 @@ export function AuditResult({ productId }: { productId: number }) {
           {preview && (
             <PatchPreviewPanel
               preview={preview}
-              itemLabel={labelOf}
               applying={patchBusy === "apply"}
               progress={progress}
               onApply={doApply}
@@ -592,20 +591,18 @@ function PatchBar({
 
 function PatchPreviewPanel({
   preview,
-  itemLabel,
   applying,
   progress,
   onApply,
   onClose,
 }: {
   preview: PatchPreview;
-  itemLabel: (itemId: number | null) => string;
   applying: boolean;
   progress: string | null;
   onApply: () => void;
   onClose: () => void;
 }) {
-  const changes = diffItems(preview.before, preview.after);
+  const cmp = compareSchedules(preview.before, preview.after);
   const blocked = preview.conflict.hasConflict;
   return (
     <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-6 dark:border-indigo-900 dark:bg-indigo-950/20">
@@ -627,21 +624,20 @@ function PatchPreviewPanel({
         </div>
       )}
 
-      {changes.length === 0 ? (
+      {!cmp.anyChange && (
         <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">바뀌는 일정이 없습니다.</p>
-      ) : (
-        <ul className="mt-4 space-y-2">
-          {changes.map((c) => (
-            <li key={c.id} className="rounded-lg bg-white px-3 py-2 text-sm dark:bg-slate-900">
-              <span className="text-slate-500 dark:text-slate-400">{itemLabel(c.id)}</span>
-              <span className="mx-2 text-slate-400">·</span>
-              <span className="text-slate-400 line-through">{c.before}</span>
-              <span className="mx-2">→</span>
-              <span className="font-medium text-slate-800 dark:text-slate-100">{c.after}</span>
-            </li>
-          ))}
-        </ul>
       )}
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <ScheduleColumn title="기존 일정" days={groupByDay(preview.before)} statusOf={(id) => cmp.beforeStatus.get(id) ?? "same"} />
+        <ScheduleColumn title="수정 후 일정" days={groupByDay(preview.after)} statusOf={(id) => cmp.afterStatus.get(id) ?? "same"} />
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
+        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-amber-300" />변경</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-300" />추가</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-rose-300" />제거</span>
+      </div>
 
       {preview.skipped.length > 0 && (
         <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
@@ -762,30 +758,117 @@ function patchLabel(patch: Patch, itemLabel: (itemId: number | null) => string):
   }
 }
 
-interface ItemChange {
-  id: number;
-  before: string;
-  after: string;
+type ChangeStatus = "same" | "changed" | "added" | "removed";
+
+interface DayGroup {
+  day: number;
+  items: PatchItem[];
 }
 
-/** 미리보기 before/after 에서 실제로 바뀐 항목만 뽑는다 */
-function diffItems(before: PatchItem[], after: PatchItem[]): ItemChange[] {
+/** 항목의 상태를 정하는 지문 — 하나라도 다르면 '변경'으로 본다 */
+function signature(it: PatchItem): string {
+  return `${it.dayNo}|${it.seq}|${it.startTime}|${it.endTime ?? ""}|${it.itemType}|${it.placeLabel}`;
+}
+
+/** 좌(기존)·우(수정 후) 각 항목의 상태를 id 기준으로 계산한다 */
+function compareSchedules(
+  before: PatchItem[],
+  after: PatchItem[],
+): { beforeStatus: Map<number, ChangeStatus>; afterStatus: Map<number, ChangeStatus>; anyChange: boolean } {
   const beforeById = new Map(before.map((it) => [it.id, it]));
   const afterById = new Map(after.map((it) => [it.id, it]));
-  const changes: ItemChange[] = [];
-  const ids = new Set<number>([...beforeById.keys(), ...afterById.keys()]);
-  for (const id of ids) {
-    const b = beforeById.get(id);
-    const a = afterById.get(id);
-    if (b && !a) changes.push({ id, before: slot(b), after: "제거됨" });
-    else if (!b && a) changes.push({ id, before: "없음", after: slot(a) });
-    else if (b && a && slot(b) !== slot(a)) changes.push({ id, before: slot(b), after: slot(a) });
+  const beforeStatus = new Map<number, ChangeStatus>();
+  const afterStatus = new Map<number, ChangeStatus>();
+  let anyChange = false;
+
+  for (const it of before) {
+    const a = afterById.get(it.id);
+    if (a === undefined) {
+      beforeStatus.set(it.id, "removed");
+      anyChange = true;
+    } else if (signature(it) !== signature(a)) {
+      beforeStatus.set(it.id, "changed");
+      anyChange = true;
+    } else {
+      beforeStatus.set(it.id, "same");
+    }
   }
-  return changes;
+  for (const it of after) {
+    const b = beforeById.get(it.id);
+    if (b === undefined) {
+      afterStatus.set(it.id, "added");
+      anyChange = true;
+    } else if (signature(it) !== signature(b)) {
+      afterStatus.set(it.id, "changed");
+    } else {
+      afterStatus.set(it.id, "same");
+    }
+  }
+  return { beforeStatus, afterStatus, anyChange };
 }
 
-function slot(it: PatchItem): string {
-  return `${it.dayNo}일차 ${it.startTime}${it.endTime ? `~${it.endTime}` : ""}`;
+/** 항목을 일차별로 묶고 seq 로 정렬한다 */
+function groupByDay(items: PatchItem[]): DayGroup[] {
+  const byDay = new Map<number, PatchItem[]>();
+  for (const it of items) {
+    const list = byDay.get(it.dayNo) ?? [];
+    list.push(it);
+    byDay.set(it.dayNo, list);
+  }
+  return [...byDay.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([day, list]) => ({ day, items: [...list].sort((a, b) => a.seq - b.seq) }));
+}
+
+const STATUS_ROW: Record<ChangeStatus, string> = {
+  same: "border-slate-200 dark:border-slate-800",
+  changed: "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30",
+  added: "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30",
+  removed: "border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30",
+};
+
+/** 한쪽 일정 전체를 일차별로 그린다. 변경/추가/제거 항목은 색으로 강조한다 */
+function ScheduleColumn({
+  title,
+  days,
+  statusOf,
+}: {
+  title: string;
+  days: DayGroup[];
+  statusOf: (itemId: number) => ChangeStatus;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h3>
+      <div className="mt-3 space-y-4">
+        {days.map((d) => (
+          <div key={d.day}>
+            <p className="text-xs font-medium text-slate-400">{d.day}일차</p>
+            <ul className="mt-1.5 space-y-1.5">
+              {d.items.map((it) => {
+                const status = statusOf(it.id);
+                return (
+                  <li
+                    key={it.id}
+                    className={`rounded-lg border px-3 py-2 text-sm ${STATUS_ROW[status]} ${
+                      status === "removed" ? "line-through opacity-70" : ""
+                    }`}
+                  >
+                    <span className="tabular-nums text-slate-500 dark:text-slate-400">
+                      {it.startTime}
+                      {it.endTime ? `~${it.endTime}` : ""}
+                    </span>
+                    <span className="ml-2 text-slate-800 dark:text-slate-100">{it.placeLabel}</span>
+                    <span className="ml-2 text-xs text-slate-400">{ITEM_TYPE_LABEL[it.itemType] ?? it.itemType}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /** itemId 를 "1일차 · 강릉 경포대" 형태로. 대상이 없으면 상품 전체 판정이다 */
