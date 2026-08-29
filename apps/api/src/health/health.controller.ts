@@ -19,6 +19,21 @@ import { Public } from '../auth/public.decorator';
 /** DB 명세서 2-3 의 엔터티 18종 + 로그인 세션 1종. 이보다 적으면 스키마가 덜 적용된 것이다 */
 const EXPECTED_TABLE_COUNT = 19;
 
+/**
+ * 지금 돌고 있는 빌드의 커밋 (7자리). 모르면 `null`.
+ *
+ * **배포가 조용히 밀린 것을 잡으려고 넣는다.** 2026-08-29 에 `main` 머지 두 건이 두 시간
+ * 밀렸는데, 그동안 `/health` 는 계속 `ok` 였고 아무도 몰랐다. 옛 코드가 돌고 있어도
+ * 살아 있는 것은 사실이라 상태만으로는 구분이 안 된다.
+ *
+ * `git rev-parse HEAD` 와 대조하면 한눈에 알 수 있다. Railway 가 넣어 주는 값을 먼저
+ * 보고, 없으면 흔한 다른 이름들을 본다 — 배포처를 옮겨도 이 검사가 살아 있게.
+ */
+export function buildCommit(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env.RAILWAY_GIT_COMMIT_SHA ?? env.GIT_COMMIT_SHA ?? env.SOURCE_COMMIT ?? '';
+  return /^[0-9a-f]{7,40}$/.test(raw) ? raw.slice(0, 7) : null;
+}
+
 type Check = 'ok' | 'missing' | 'unknown';
 
 @ApiTags('실엔진')
@@ -97,6 +112,8 @@ export class HealthController {
         kmaServiceKey: kmaKey,
         llmApiKey: llmKey,
       },
+      // 배포본이 최신인지 대조하는 값. `git rev-parse --short HEAD` 와 비교한다
+      commit: buildCommit(),
       latencyMs: Date.now() - started,
       timestamp: new Date().toISOString(),
     };
