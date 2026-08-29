@@ -21,6 +21,11 @@ git fetch -q origin && echo "main $(git rev-parse --short=7 origin/main)" \
   && curl -s https://api-production-1e7c2.up.railway.app/health | grep -o '"commit":"[^"]*"'
 ```
 
+**손으로 안 봐도 된다.** `main` 에 머지되면 `deploy-watch` 워크플로가 15분 동안 `/health` 를
+지켜보다가 그 커밋이 안 올라오면 빨간 X 를 남긴다. Railway 는 저장소 밖에서 배포하므로
+여기서 할 수 있는 것은 결과 확인뿐이지만, 두 시간 뒤가 아니라 몇 분 안에 알게 된다.
+X 가 뜨면 Railway 대시보드 → Deployments 에서 트리거가 걸렸는지 본다.
+
 `/docs` 에서 라우트 목록을 브라우저로 본다. **`실엔진` 태그가 붙은 것만 실제로 판정 · 저장이
 돈다.** `mock` 태그는 API 명세의 응답 예시를 그대로 돌려주는 임시 라우트이며 실엔진으로
 교체되는 즉시 제거된다 (NF-CO-002 · FR-OP-009). 전체 계약은

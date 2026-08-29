@@ -181,13 +181,14 @@ export function applyPatches(
           // 사용자가 입력한 문구가 아직 없다. 화면이 유형으로 안내한다
           placeLabel: '',
           itemType: p.itemType,
-          ktoContentId: null,
-          contentTypeId: null,
+          // 넣을 관광지가 정해진 제안이면 그것까지 채운다 (R09 · R10). 명칭은 담지 않는다
+          ktoContentId: p.content?.ktoContentId ?? null,
+          contentTypeId: p.content?.contentTypeId ?? null,
           lclsSystm1: null,
-          lclsSystm2: null,
+          lclsSystm2: p.content?.lclsSystm2 ?? null,
           lclsSystm3: null,
-          mapX: null,
-          mapY: null,
+          mapX: p.content?.mapx ?? null,
+          mapY: p.content?.mapy ?? null,
           /*
            * `EXCLUDED` 다. `PENDING` 으로 두면 확정 직후의 자동 재검수가 **자기가 넣은
            * 항목 때문에** `PLACE_UNRESOLVED` 로 거절당한다 (EX-AU-001 · FR-PA-022) —

@@ -133,3 +133,77 @@ function toNumber(v: unknown): number | null {
   }
   return null;
 }
+
+/**
+ * 조건에 맞는 관광지를 **일정에 넣는** 수정안 (`INSERT_ITEM`).
+ *
+ * R10 은 결손 유형을, R09 는 실내 유형을 채운다 (FR-RU-103 · 093 ①). 대체가 아니라 추가라
+ * 자리(빈 시간대)를 호출자가 정해 넘긴다 — 자리 계산은 0콜이고 여기는 콘텐츠만 찾는다.
+ *
+ * ⚠️ 후보의 **명칭을 담지 않는다.** 대체 관광지와 같은 이유다 (DR-PR-001).
+ */
+export interface InsertionSlot {
+  readonly dayNo: number;
+  readonly afterItemId: number | null;
+  readonly startTime: string;
+  readonly endTime: string;
+}
+
+export interface InsertionOptions extends ReplacementOptions {
+  /** 이 중분류 중 하나여야 한다. 비면 중분류를 따지지 않는다 */
+  readonly wantLcls2?: readonly string[];
+  /** 이미 일정에 있는 콘텐츠. 같은 것을 또 넣지 않는다 */
+  readonly exclude?: ReadonlySet<string>;
+}
+
+export async function proposeInsertions(
+  anchor: AuditItem,
+  slot: InsertionSlot,
+  options: InsertionOptions,
+  startIndex = 0,
+): Promise<readonly Patch[]> {
+  const center = options.center ?? (anchor.mapX === null || anchor.mapY === null
+    ? null
+    : { x: anchor.mapX, y: anchor.mapY });
+  if (center === null) return [];
+
+  const radius = Math.min(options.radiusMeters ?? LOCATION_RADIUS_MAX_METERS, LOCATION_RADIUS_MAX_METERS);
+  let items: readonly Record<string, unknown>[];
+  try {
+    // 유형을 좁히지 않는다 — 원하는 중분류가 어느 유형에 들어 있을지 여기서 단정할 수 없다
+    const page = await options.kto.locationBasedList({ mapX: center.x, mapY: center.y, radius, numOfRows: 30 });
+    items = page.items;
+  } catch (e) {
+    if (isKtoError(e)) return [];
+    throw e;
+  }
+
+  const wanted = new Set(options.wantLcls2 ?? []);
+  const exclude = options.exclude ?? new Set<string>();
+  const picked = rankCandidates(items, anchor, options.knownConfidence ?? new Map())
+    .filter((c) => !exclude.has(c.ktoContentId))
+    // 중분류를 지정했으면 그 중 하나여야 한다. 모르는 것(null)은 넣지 않는다 — 결손을 채운다고 말할 수 없다
+    .filter((c) => wanted.size === 0 || (c.lclsSystm2 !== null && wanted.has(c.lclsSystm2)))
+    .slice(0, MAX_CANDIDATES);
+
+  return picked.map((c, i) => ({
+    patchId: patchId(startIndex + i),
+    type: 'INSERT_ITEM' as const,
+    // 자리를 가리키는 항목. 하루의 맨 앞이면 기준 항목을 쓴다 (Patch.targetItemId 는 필수다)
+    targetItemId: slot.afterItemId ?? anchor.id,
+    payload: {
+      dayNo: slot.dayNo,
+      afterItemId: slot.afterItemId,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      itemType: 'SIGHT' as const,
+      content: {
+        ktoContentId: c.ktoContentId,
+        contentTypeId: c.contentTypeId,
+        lclsSystm2: c.lclsSystm2,
+        mapx: c.mapx,
+        mapy: c.mapy,
+      },
+    },
+  }));
+}

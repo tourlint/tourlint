@@ -1,4 +1,4 @@
-import { SETTING_DEFAULTS } from '@tourlint/shared';
+import { SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
 import { addDays, parseIsoDate } from '../engine/calendar/dates';
 import type { HolidayCalendar } from '../engine/calendar/holidays';
 import { evaluateClosed } from '../engine/rules/r01-operating';
@@ -21,10 +21,28 @@ export interface LocalPatchInput {
   readonly finding: Finding;
   readonly items: readonly AuditItem[];
   readonly holidays: HolidayCalendar;
+  /**
+   * 중분류별 실내 · 야외 구분 (FR-OP-021). R09 순서 교체가 쓴다.
+   *
+   * 러너가 계정 설정에서 읽어 넘긴다 — 수정안이 규칙과 다른 표를 보면 반영 후 재검수에서
+   * 또 걸린다.
+   */
+  readonly indoorOutdoor?: Readonly<Record<string, IndoorOutdoor>>;
 }
 
 export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
   const { finding, items } = input;
+
+  /*
+   * **대상 항목이 없는 규칙이 먼저다.** R04 · R09 · R10 은 상품 · 일차 단위 판정이라
+   * `targetItemId` 가 `null` 이다. 아래 `target` 검사에 걸려 수정안이 하나도 안 나왔다.
+   */
+  switch (finding.ruleCode) {
+    case 'R09': return r09(finding, items, input.indoorOutdoor ?? {});
+    case 'R04': return r04(finding, items);
+    default: break;
+  }
+
   const target = items.find((i) => i.id === finding.targetItemId);
   if (target === undefined) return [];
 
@@ -204,6 +222,69 @@ function r03(finding: Finding, items: readonly AuditItem[]): readonly Patch[] {
 }
 
 /**
+ * R04 — 반복 유형 중 한 곳을 뺀다 (FR-RU-043).
+ *
+ * 명세는 「다른 유형으로 교체」다. 교체할 **다른 유형**을 여기서 정할 수가 없다 — 무엇이
+ * 모자란지는 R10 이 아는 것이고 R04 의 근거에는 없다. 그래서 0콜로 낼 수 있는 것은 제거뿐이고,
+ * 다른 유형으로 바꾸는 쪽은 외부 조회가 필요해 `patch-remote` 가 낸다.
+ *
+ * **어느 하나를 뺄지는 마지막 것으로 고정한다.** 순서가 흔들리면 같은 검수가 실행마다 다른
+ * 수정안을 낸다 (NF-MT-001). 앞쪽을 빼면 그 뒤가 통째로 당겨져 영향이 크다.
+ */
+function r04(finding: Finding, items: readonly AuditItem[]): readonly Patch[] {
+  const ids = finding.evidence.itemIds;
+  if (!Array.isArray(ids) || ids.length < 2) return [];
+
+  const repeated = ids
+    .map((id) => items.find((i) => i.id === Number(id)))
+    .filter((i): i is AuditItem => i !== undefined)
+    .sort((a, b) => (a.dayNo - b.dayNo) || (toMinutes(a.startTime) - toMinutes(b.startTime)));
+
+  const last = repeated[repeated.length - 1];
+  if (last === undefined) return [];
+  return [{ patchId: patchId(0), type: 'REMOVE_ITEM', targetItemId: last.id, payload: {} }];
+}
+
+/**
+ * R09 — 실내 · 야외 순서 교체 (FR-RU-093 ②).
+ *
+ * 그 날 야외 항목을 앞으로, 실내 항목을 뒤로 돌린다. 비는 대개 오후에 굵어지므로 실내를
+ * 뒤에 두면 젖는 시간이 준다 — 일정을 빼지 않고 순서만 바꾸는 가장 가벼운 수정이다.
+ *
+ * ⚠️ **실내 관광지 추가(①)와 우천용 대체(③)는 여기서 못 낸다.** 무엇을 넣을지 찾아야 해서
+ *    외부 조회가 필요하다 (`patch-remote`).
+ *
+ * 구분표를 모르는 중분류는 건드리지 않는다. 실내인지 야외인지 모르는 것을 옮기면 더
+ * 나빠질 수도 있다 (FR-RU-051).
+ */
+function r09(
+  finding: Finding,
+  items: readonly AuditItem[],
+  indoorOutdoor: Readonly<Record<string, IndoorOutdoor>>,
+): readonly Patch[] {
+  const date = String(finding.evidence.date ?? '');
+  if (date === '') return [];
+
+  const sameDay = items
+    .filter((i) => i.date === date && i.itemType !== 'LODGING')
+    .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+
+  const kindOf = (item: AuditItem): IndoorOutdoor | null =>
+    item.lclsSystm2 === null ? null : indoorOutdoor[item.lclsSystm2] ?? null;
+
+  // 뒤쪽 야외 ↔ 앞쪽 실내. 그런 쌍이 있어야 바꿀 이유가 있다
+  const outdoorLast = [...sameDay].reverse().find((i) => kindOf(i) === 'OUTDOOR');
+  const indoorFirst = sameDay.find((i) => kindOf(i) === 'INDOOR');
+  if (outdoorLast === undefined || indoorFirst === undefined) return [];
+  if (toMinutes(indoorFirst.startTime) >= toMinutes(outdoorLast.startTime)) return [];
+
+  return [{
+    patchId: patchId(0), type: 'REORDER', targetItemId: indoorFirst.id,
+    payload: { swapWithItemId: outdoorLast.id },
+  }];
+}
+
+/**
  * R08 — 뒤 일정 뒤로 이동 · 방문 순서 재배열 (FR-RU-083 ①②).
  *
  * ③ 더 가까운 동일유형 교체는 외부 조회가 필요해 `patch-remote` 가 낸다.
@@ -295,4 +376,89 @@ function r07(finding: Finding, items: readonly AuditItem[]): readonly Patch[] {
     patchId: patchId(0), type: 'INSERT_ITEM', targetItemId: best.after.id,
     payload: { dayNo, afterItemId: best.after.id, startTime: start, endTime: addMinutes(start, need), itemType: 'MEAL' },
   }];
+}
+
+/**
+ * 넣을 자리와 채울 중분류 (R09 ① · R10 · FR-RU-093 ① · 103).
+ *
+ * **자리 계산은 0콜이다.** 콘텐츠 조회만 외부에 맡긴다 — 자리를 못 찾으면 조회할 이유도 없다.
+ *
+ * R09 는 그 날, R10 은 상품 전체에서 가장 넉넉한 빈 구간을 고른다. 앞뒤로 여유를 둔다 —
+ * 맞붙여 넣으면 반영 후 재검수에서 「배정된 시간 0분」 오류가 난다 (R08).
+ */
+export interface InsertionRequest {
+  /** 조회 중심이 될 항목. 그 근처에서 찾는다 */
+  readonly anchor: AuditItem;
+  readonly slot: { dayNo: number; afterItemId: number | null; startTime: string; endTime: string };
+  /** 이 중분류 중 하나여야 한다. 비면 안 따진다 */
+  readonly wantLcls2: readonly string[];
+}
+
+export function planInsertion(
+  finding: Finding,
+  items: readonly AuditItem[],
+  indoorOutdoor: Readonly<Record<string, IndoorOutdoor>>,
+  dwellMinutes = SETTING_DEFAULTS.dwellFallbackMinutes,
+): InsertionRequest | null {
+  const scope = insertionScope(finding, items, indoorOutdoor);
+  if (scope === null || scope.candidates.length === 0) return null;
+
+  // 가장 넉넉한 구간에 넣는다. 좁은 데 억지로 끼우면 뒤가 밀린다
+  let best: { after: AuditItem; gap: number } | null = null;
+  for (const day of [...new Set(scope.candidates.map((i) => i.dayNo))]) {
+    const sameDay = scope.candidates
+      .filter((i) => i.dayNo === day && i.endTime !== null && i.itemType !== 'LODGING')
+      .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+    for (let i = 0; i < sameDay.length - 1; i++) {
+      const a = sameDay[i] as AuditItem;
+      const b = sameDay[i + 1] as AuditItem;
+      const gap = toMinutes(b.startTime) - toMinutes(a.endTime as string);
+      if (gap >= dwellMinutes + MIN_TRANSFER_MINUTES * 2 && (best === null || gap > best.gap)) {
+        best = { after: a, gap };
+      }
+    }
+  }
+  if (best === null) return null;
+
+  const start = addMinutes(best.after.endTime as string, MIN_TRANSFER_MINUTES);
+  return {
+    anchor: best.after,
+    slot: { dayNo: best.after.dayNo, afterItemId: best.after.id, startTime: start, endTime: addMinutes(start, dwellMinutes) },
+    wantLcls2: scope.wantLcls2,
+  };
+}
+
+/** 어느 항목들 사이에 넣을 것이고 무엇으로 채울 것인가 */
+function insertionScope(
+  finding: Finding,
+  items: readonly AuditItem[],
+  indoorOutdoor: Readonly<Record<string, IndoorOutdoor>>,
+): { candidates: readonly AuditItem[]; wantLcls2: readonly string[] } | null {
+  if (finding.ruleCode === 'R10') {
+    const missing = finding.evidence.missingLcls2;
+    // 결손 유형을 모르면 무엇을 넣을지도 모른다 (FR-RU-051)
+    if (!Array.isArray(missing) || missing.length === 0) return null;
+    return { candidates: items, wantLcls2: missing.map(String) };
+  }
+
+  if (finding.ruleCode === 'R09') {
+    const date = String(finding.evidence.date ?? '');
+    if (date === '') return null;
+    // 실내로 분류된 중분류만 채운다. 표에 없는 것은 실내라고 말할 수 없다
+    const indoor = Object.entries(indoorOutdoor).filter(([, v]) => v === 'INDOOR').map(([k]) => k);
+    return indoor.length === 0 ? null : { candidates: items.filter((i) => i.date === date), wantLcls2: indoor };
+  }
+  return null;
+}
+
+/** R04 가 지목한 반복 항목 중 **마지막 것**. 대체 수정안의 대상이다 (FR-RU-043) */
+export function lastRepeated(finding: Finding, items: readonly AuditItem[]): AuditItem | null {
+  if (finding.ruleCode !== 'R04') return null;
+  const ids = finding.evidence.itemIds;
+  if (!Array.isArray(ids) || ids.length < 2) return null;
+  const repeated = ids
+    .map((id) => items.find((i) => i.id === Number(id)))
+    .filter((i): i is AuditItem => i !== undefined)
+    .sort((a, b) => (a.dayNo - b.dayNo) || (toMinutes(a.startTime) - toMinutes(b.startTime)));
+  return repeated[repeated.length - 1] ?? null;
 }
