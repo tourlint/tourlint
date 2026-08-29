@@ -12,6 +12,11 @@ on:
     branches: [main]
   # 배포가 늦게 흘러갈 수 있어 손으로 다시 볼 수 있게 둔다
   workflow_dispatch:
+    inputs:
+      timeoutSeconds:
+        description: '대기 시간(초). 1 로 두면 곧장 실패시켜 진단 경로를 확인할 수 있다'
+        required: false
+        default: '900'
 
 # 새 머지가 오면 앞의 감시는 의미가 없다 — 그 커밋은 이미 최신이 아니다
 concurrency:
@@ -33,7 +38,7 @@ jobs:
         env:
           HEALTH_URL: https://api-production-1e7c2.up.railway.app/health
           # 빌드 + 기동에 보통 2분 안쪽이다. 열 배쯤 여유를 둔다
-          TIMEOUT_SECONDS: '900'
+          TIMEOUT_SECONDS: ${{ inputs.timeoutSeconds || '900' }}
         run: |
           want="$(git rev-parse --short=7 HEAD)"
           echo "기다리는 커밋: $want"
@@ -83,6 +88,8 @@ jobs:
 
           for id in $ids; do
             state="$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" --jq '.[0].state // "없음"')"
+            env_id="$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id" --jq '.payload.environmentId // ""')"
+            [ -n "$env_id" ] && echo "RAILWAY_ENV_ID=$env_id" >> "$GITHUB_ENV"
             echo "  기록 $id → $state"
             case "$state" in
               failure|error)
@@ -100,3 +107,38 @@ jobs:
             esac
           done
           exit 1
+
+      - name: Railway 에 직접 물어본다
+        if: failure()
+        continue-on-error: true
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          # A 단계가 「Railway 로그를 봐라」까지 짚어 준다. 여기서는 그 로그를 끌고 온다.
+          #
+          # 이 단계는 **실패를 덮지 않는다** (continue-on-error). 토큰이 없거나 스키마가
+          # 바뀌어도 앞 단계의 진단은 그대로 남는다.
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "RAILWAY_TOKEN 이 없다. Railway 쪽 원인은 대시보드에서 본다."
+            exit 0
+          fi
+
+          api() {
+            # 프로젝트 토큰과 계정 토큰의 헤더가 다르다. 둘 다 시도한다
+            for header in "Project-Access-Token: $RAILWAY_TOKEN" "Authorization: Bearer $RAILWAY_TOKEN"; do
+              out="$(curl -sS --max-time 25 https://backboard.railway.com/graphql/v2 \
+                -H 'Content-Type: application/json' -H "$header" -d "$1" || true)"
+              case "$out" in
+                *'"data"'*) printf '%s' "$out"; return 0 ;;
+              esac
+            done
+            printf '%s' "${out:-}"
+            return 1
+          }
+
+          env_id="${RAILWAY_ENV_ID:-}"
+          echo "환경 ${env_id:-확인 못 함}"
+
+          q='{"query":"query($e:String!){deployments(first:5,input:{environmentId:$e}){edges{node{id status createdAt meta}}}}","variables":{"e":"'"$env_id"'"}}'
+          res="$(api "$q")" || { echo "Railway 응답을 못 읽었다: ${res:0:400}"; exit 0; }
+          echo "$res" | head -c 2000; echo
