@@ -302,3 +302,92 @@ describe('대체 관광지 탐색', () => {
     expect(patches.length).toBeLessThanOrEqual(MAX_PATCHES_PER_FINDING);
   });
 });
+
+describe('R08 — 이동시간 부족 (FR-RU-083)', () => {
+  const r08 = (over: Partial<Finding> = {}): Finding => finding({
+    ruleCode: 'R08', severity: 'ERROR', reasonCode: 'TRAVEL_TIME_SHORT',
+    evidence: { shortfallMinutes: 13 }, requiresExternal: true, ...over,
+  });
+
+  it('① 뒤 일정을 부족한 만큼 뒤로 민다', () => {
+    const from = item({ start: '12:30', end: '15:00', label: '오죽헌' });
+    const to = item({ start: '15:00', end: '16:00', label: '농산물도매시장' });
+    const patches = proposeLocalPatches({
+      finding: r08({ targetItemId: from.id, targetItemId2: to.id }),
+      items: [from, to], holidays: KOREAN_HOLIDAYS,
+    });
+
+    expect(patches[0]).toMatchObject({ type: 'TIME_SHIFT', targetItemId: to.id });
+    expect(patches[0]?.payload).toEqual({ newStartTime: '15:13', newEndTime: '16:13' });
+  });
+
+  it('🔴 부족분을 모르면 아무것도 내지 않는다', () => {
+    // 얼마나 밀어야 하는지 모르는 채로 시간을 옮기면 그만큼 또 모자란다
+    const from = item({ start: '12:30', end: '15:00' });
+    const to = item({ start: '15:00', end: '16:00' });
+    for (const bad of [undefined, 0, -5, 'x']) {
+      expect(proposeLocalPatches({
+        finding: r08({ targetItemId: from.id, targetItemId2: to.id, evidence: { shortfallMinutes: bad } }),
+        items: [from, to], holidays: KOREAN_HOLIDAYS,
+      }), String(bad)).toHaveLength(0);
+    }
+  });
+
+  it('② 바꿔 놓으면 더 가까워지는 항목만 낸다', () => {
+    // 경포대(from) 기준 — 오죽헌이 훨씬 가깝다
+    const from = item({ mapX: 128.8961, mapY: 37.7955, label: '경포대' });
+    const far = item({ start: '15:00', end: '16:00', mapX: 129.05, mapY: 37.55, label: '먼 곳' });
+    const near = item({ start: '17:00', end: '18:00', mapX: 128.8779, mapY: 37.7793, label: '오죽헌' });
+
+    const patches = proposeLocalPatches({
+      finding: r08({ targetItemId: from.id, targetItemId2: far.id }),
+      items: [from, far, near], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches).toContainEqual(expect.objectContaining({
+      type: 'REORDER', targetItemId: far.id, payload: { swapWithItemId: near.id },
+    }));
+  });
+
+  it('🔴 더 멀어지는 교체는 내지 않는다', () => {
+    // 순서를 바꿔 봤자 더 멀어지는 제안은 낼 수 없다
+    const from = item({ mapX: 128.8961, mapY: 37.7955 });
+    const near = item({ start: '15:00', end: '16:00', mapX: 128.8779, mapY: 37.7793 });
+    const far = item({ start: '17:00', end: '18:00', mapX: 129.05, mapY: 37.55 });
+
+    const patches = proposeLocalPatches({
+      finding: r08({ targetItemId: from.id, targetItemId2: near.id }),
+      items: [from, near, far], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches.filter((p) => p.type === 'REORDER')).toHaveLength(0);
+  });
+
+  it('🔴 좌표를 모르면 순서 교체를 내지 않는다', () => {
+    // 0 으로 치면 적도 앞바다가 기준이 되어 아무거나 「가깝다」가 된다
+    const from = item({ mapX: null, mapY: null });
+    const to = item({ start: '15:00', end: '16:00' });
+    const other = item({ start: '17:00', end: '18:00' });
+    const patches = proposeLocalPatches({
+      finding: r08({ targetItemId: from.id, targetItemId2: to.id }),
+      items: [from, to, other], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches.filter((p) => p.type === 'REORDER')).toHaveLength(0);
+  });
+
+  it('🔴 ③ 대체 후보는 앞 항목 주변에서 찾는다', async () => {
+    /*
+     * 너무 먼 것이 문제인데 그 자리에서 찾으면 여전히 먼 것들만 나온다. 앞 항목을 중심으로
+     * 찾아야 실제로 가까워진다 (FR-RU-083 ③).
+     */
+    const origin = { x: 128.898632, y: 37.753996 };
+    const far = item({ mapX: 129.2, mapY: 37.2, rest: '연중무휴', use: '09:00~18:00' });
+    const patches = await proposeReplacements(far, {
+      kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
+      center: origin,
+    });
+    expect(patches.length).toBeGreaterThan(0);
+    // 픽스처는 앞 항목 좌표 기준 위치기반 목록이다 — 그 후보들이 나와야 한다
+    for (const p of patches) {
+      expect(String((p.payload as { ktoContentId: string }).ktoContentId)).toMatch(/^\d+$/);
+    }
+  });
+});

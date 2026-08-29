@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_DETOUR_METERS, detourMeters, freeSlots, matchByDetour, matchByFreeSlot, matchByMissingType,
-  straightMeters, type OpportunityCandidate, type OpportunityItem,
+  type OpportunityCandidate, type OpportunityItem,
 } from './opportunity';
+import { straightMeters } from '../engine/geo';
 import { toSyncedContent } from './sync-batch.job';
 
 /** 강릉 경포대 근처 좌표들 */

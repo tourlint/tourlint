@@ -1,3 +1,4 @@
+import { straightMeters } from '../engine/geo';
 import type { ImpactCandidate, Impact } from './impact-finder';
 import type { SyncedContent } from './sync-batch.job';
 
@@ -184,16 +185,6 @@ export function detourMeters(
   if (to.mapX === null || to.mapY === null) return null;
   const b = { x: to.mapX, y: to.mapY };
   return Math.round(straightMeters(a, via) + straightMeters(via, b) - straightMeters(a, b));
-}
-
-/** 두 좌표 사이 대권거리 (m). WGS84 경도 `x` · 위도 `y` */
-export function straightMeters(a: { x: number; y: number }, b: { x: number; y: number }): number {
-  const R = 6_371_000;
-  const rad = (d: number): number => (d * Math.PI) / 180;
-  const dLat = rad(b.y - a.y);
-  const dLon = rad(b.x - a.x);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.y)) * Math.cos(rad(b.y)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
 /**
