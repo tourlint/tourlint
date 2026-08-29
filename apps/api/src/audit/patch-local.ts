@@ -40,6 +40,9 @@ export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
   switch (finding.ruleCode) {
     case 'R09': return r09(finding, items, input.indoorOutdoor ?? {});
     case 'R04': return r04(finding, items);
+    // R07 은 「식사가 짧다」면 그 항목을, 「아예 없다」면 아무것도 지목하지 않는다.
+    // 뒤쪽 `target` 검사에 두면 **식사가 없는 쪽만** 수정안이 사라진다 — 정작 넣어 줘야 할 때다
+    case 'R07': return r07(finding, items);
     default: break;
   }
 
@@ -50,7 +53,6 @@ export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
     case 'R01': return r01(finding, target, items, input.holidays);
     case 'R02': return r02(finding, target);
     case 'R03': return r03(finding, items);
-    case 'R07': return r07(finding, items);
     case 'R08': return r08(finding, items);
     default: return [];
   }
