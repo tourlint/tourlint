@@ -15,6 +15,7 @@ describe('HealthController', () => {
     delete process.env.KAKAO_REST_API_KEY;
     delete process.env.KMA_SERVICE_KEY;
     delete process.env.LLM_API_KEY;
+    delete process.env.RAILWAY_GIT_COMMIT_SHA;
   });
 
   afterEach(() => {
@@ -34,6 +35,20 @@ describe('HealthController', () => {
     expect(((await controller.check()).checks as Record<string, unknown>).ktoServiceKey).toBe('missing');
     process.env.KTO_SERVICE_KEY = '   ';
     expect(((await controller.check()).checks as Record<string, unknown>).ktoServiceKey).toBe('missing');
+  });
+
+  it('🔴 응답에 배포본 커밋이 들어 있다', async () => {
+    /*
+     * 함수만 맞고 응답에 안 실리면 아무 소용이 없다 — 배포가 밀려도 여전히 알 방법이 없다.
+     * 모를 때도 키는 있어야 화면이 「확인 불가」로 표시한다.
+     */
+    process.env.RAILWAY_GIT_COMMIT_SHA = 'aebc1768e2c9f1a4b0d3';
+    expect(await controller.check()).toHaveProperty('commit', 'aebc176');
+
+    delete process.env.RAILWAY_GIT_COMMIT_SHA;
+    const body = await controller.check();
+    expect(Object.keys(body)).toContain('commit');
+    expect(body.commit).toBeNull();
   });
 
   it('리플레이 모드를 사실대로 말한다 (NF-CO-002)', async () => {
