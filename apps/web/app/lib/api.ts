@@ -117,6 +117,63 @@ export interface Finding {
   dismissed: boolean;
   dismissReason: string | null;
   confirmed: boolean;
+  patches: Patch[];
+}
+
+export type PatchType = "TIME_SHIFT" | "REORDER" | "REPLACE_CONTENT" | "INSERT_ITEM" | "REMOVE_ITEM";
+
+export interface Patch {
+  patchId: string;
+  type: PatchType;
+  targetItemId: number;
+  payload: {
+    newDayNo?: number;
+    newStartTime?: string;
+    newEndTime?: string;
+    swapWithItemId?: number;
+    dayNo?: number;
+    startTime?: string;
+    endTime?: string;
+    itemType?: string;
+    distanceMeters?: number;
+  };
+}
+
+export interface PatchItem {
+  id: number;
+  dayNo: number;
+  seq: number;
+  startTime: string;
+  endTime: string | null;
+  placeLabel: string;
+  itemType: string;
+}
+
+export interface PatchConflict {
+  kind: string;
+  a: { findingId: number; patchId: string };
+  b: { findingId: number; patchId: string };
+  message: string;
+}
+
+export interface PatchPreview {
+  previewToken: string;
+  conflict: { hasConflict: boolean; pairs: PatchConflict[] };
+  before: PatchItem[];
+  after: PatchItem[];
+  skipped: { patchId: string; reason: string }[];
+}
+
+export interface PatchApplied {
+  patchApplicationId: number;
+  beforeAuditRunId: number | null;
+  reauditJobId: number;
+  pollIntervalMs: number;
+}
+
+export interface PatchSelection {
+  findingId: number;
+  patchId: string;
 }
 
 export interface UnverifiedItem {
@@ -172,6 +229,21 @@ export const auditApi = {
     request<void>(`/findings/${findingId}/dismiss`, { method: "DELETE" }),
   confirmFinding: (findingId: number) =>
     request<void>(`/findings/${findingId}/confirm`, { method: "POST" }),
+};
+
+export const patchApi = {
+  // 고른 수정안을 반영하면 어떻게 되는지 미리 본다. 저장하지 않는다 (F08)
+  preview: (productId: number, selections: PatchSelection[]) =>
+    request<PatchPreview>(`/products/${productId}/patch-preview`, {
+      method: "POST",
+      body: JSON.stringify({ selections }),
+    }),
+  // 확정 → 일정 반영 + 자동 재검수. reauditJobId 로 진행을 따라간다 (F09)
+  apply: (productId: number, selections: PatchSelection[], previewToken: string) =>
+    request<PatchApplied>(`/products/${productId}/patch-applications`, {
+      method: "POST",
+      body: JSON.stringify({ selections, previewToken }),
+    }),
 };
 
 export function isApiError(e: unknown): e is ApiError {
