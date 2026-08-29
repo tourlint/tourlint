@@ -611,8 +611,9 @@ describe('R08 대체 후보는 앞 항목 주변에서 찾는다 (FR-RU-083 ③)
     const result = await runner.run(product, [from, to]);
 
     const r08 = result.findings.filter((f) => f.ruleCode === 'R08' && f.reasonCode === 'TRAVEL_TIME_SHORT');
-    expect(r08.length, 'R08 이 안 났다').toBeGreaterThan(0);
-    expect(r08[0]?.patches.map((p) => p.type)).toContain('TIME_SHIFT');
+    const first = r08[0];
+    expect(first, 'R08 이 안 났다').toBeDefined();
+    expect((first?.patches ?? []).map((p) => p.type)).toContain('TIME_SHIFT');
 
     expect(centers.length, '위치기반 조회를 안 했다').toBeGreaterThan(0);
     expect(centers[0]?.x).toBeCloseTo(GYEONGPO.x, 4);
