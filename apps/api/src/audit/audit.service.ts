@@ -2,7 +2,7 @@ import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, type Severity } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
-import { shortFingerprint } from '../engine/fingerprint';
+import { buildRunFingerprint, shortFingerprint } from '../engine/fingerprint';
 import { BudgetGuard } from '../external/budget-guard';
 import type { CallIntent } from '../external/budget-guard';
 import { KakaoMobilityClient, createKakaoTransport } from '../external/kakao';
@@ -138,6 +138,17 @@ export class AuditService {
       throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '검수 결과를 찾을 수 없습니다. 목록에서 다시 선택해 주세요.', 'REQUEST');
     }
     return run;
+  }
+
+  /**
+   * 검수 근거 영역에 실을 대표 지문 (DR-FP-008 · FR-PA-062).
+   *
+   * `toRunResponse` 가 인자로 받도록 돼 있었는데 아무도 넘기지 않아 `dataFingerprint` 가
+   * 늘 `null` 이었다. PDF 리포트가 같은 값을 싣기 때문에 여기서 한 곳으로 모은다.
+   */
+  async runFingerprint(auditRunId: number): Promise<string | undefined> {
+    const parts = await this.results.fingerprintHashesOf(auditRunId);
+    return parts.length === 0 ? undefined : buildRunFingerprint([...parts]);
   }
 
   /**

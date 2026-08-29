@@ -182,6 +182,23 @@ export class AuditResultRepository {
     return row === undefined ? null : Number(row.id);
   }
 
+  /**
+   * 그 실행이 남긴 콘텐츠별 지문. **대표 지문(DR-FP-008)의 재료**다.
+   *
+   * 대표 지문은 컬럼으로 없고 조회 시점에 산출한다. 이걸 안 읽으면 검수 근거 영역의
+   * 데이터 지문이 계속 `null` 로 나간다 (FR-PA-062 · UI-S6-005).
+   */
+  async fingerprintHashesOf(
+    auditRunId: number,
+  ): Promise<readonly { ktoContentId: string; fieldHash: string }[]> {
+    const { rows } = await this.pool.query<{ kto_content_id: string; field_hash: string }>(
+      `SELECT kto_content_id, field_hash
+         FROM content_fingerprint WHERE audit_run_id = $1 ORDER BY kto_content_id`,
+      [auditRunId],
+    );
+    return rows.map((r) => ({ ktoContentId: r.kto_content_id, fieldHash: r.field_hash }));
+  }
+
   async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
     const { rows } = await this.pool.query<FindingRow>(
       `SELECT id, rule_code, severity, reason_code, target_item_id, target_item_id2,

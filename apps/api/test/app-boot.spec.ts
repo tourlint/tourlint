@@ -53,6 +53,9 @@ describe('앱 부팅', () => {
       'POST /api/v1/products/:productId/patch-applications',
       'GET /api/v1/patch-applications/:id',
       'POST /api/v1/patch-applications/:id/revert',
+      // F11
+      'POST /api/v1/audit-runs/:runId/reports',
+      'GET /api/v1/reports/:reportId/download',
     ]) {
       expect(routes, r).toContain(r);
     }
