@@ -27,8 +27,7 @@ export class MockController {
 
   // ── 패치 (F10 전후 비교만 남았다. F08 미리보기 · F09 확정 · 되돌리기는 실엔진이 가져갔다) ──
 
-  // ── 리포트 (F11) ──
-  @Post('audit-runs/:runId/reports') @HttpCode(202) report() { return { reportId: 9001, status: 'QUEUED' }; }
+  // ── 리포트 (F11) ── 실엔진(ReportController)으로 교체됨. mock 제거 (NF-CO-002)
 
   // ── 레이더 (F12~F14) ──
   @Get('radar/summary') radarSummary() { return { risk: 0, opportunity: 0, lastBatchAt: null, lastCovered: null }; }

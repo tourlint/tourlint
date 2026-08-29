@@ -50,7 +50,11 @@ export class AuditController {
 
   @Get('audit-runs/:runId')
   async run(@Param('runId', ParseIntPipe) runId: number): Promise<Record<string, unknown>> {
-    return toRunResponse(await this.service.getRun(runId));
+    const [run, fingerprint] = await Promise.all([
+      this.service.getRun(runId),
+      this.service.runFingerprint(runId),
+    ]);
+    return toRunResponse(run, fingerprint);
   }
 
   /**
