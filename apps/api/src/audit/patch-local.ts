@@ -1,5 +1,5 @@
 import { SETTING_DEFAULTS } from '@tourlint/shared';
-import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
+import { addDays, parseIsoDate } from '../engine/calendar/dates';
 import type { HolidayCalendar } from '../engine/calendar/holidays';
 import { evaluateClosed } from '../engine/rules/r01-operating';
 import { addMinutes } from '../engine/itinerary/dwell';
@@ -53,11 +53,15 @@ function r01(
   const isRestDay = finding.reasonCode === 'REST_DAY_CONFLICT' || finding.reasonCode === 'REST_DAY_UNCERTAIN';
 
   if (isRestDay) {
-    const day = openDayFor(target, items, holidays);
-    if (day !== null) {
+    const slot = openSlotFor(target, items, holidays);
+    if (slot !== null) {
       out.push({
         patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: target.id,
-        payload: { newDayNo: day.dayNo, newStartTime: target.startTime },
+        payload: {
+          newDayNo: slot.dayNo,
+          newStartTime: slot.startTime,
+          ...(slot.endTime === null ? {} : { newEndTime: slot.endTime }),
+        },
       });
     }
   } else {
@@ -73,30 +77,87 @@ function r01(
 }
 
 /**
- * 그 콘텐츠가 **열려 있는** 다른 일차를 찾는다.
+ * 그 콘텐츠가 **열려 있고 들어갈 자리가 있는** 다른 일차를 찾는다.
  *
  * 아무 날이나 제안하면 옮긴 날도 휴무라 다시 차단이 난다. 상품 안의 다른 일차를 실제로
  * 판정해 보고 열려 있는 날만 고른다. 판정 로직은 R01 것을 그대로 쓴다 — 수정안이 규칙과
  * 다른 기준으로 날짜를 고르면 반영 후 재검수에서 또 걸린다.
+ *
+ * ⚠️ **날짜만 보고 시각을 그대로 들고 가지 않는다.** 옮긴 날의 그 시각에 이미 다른 항목이
+ *    있으면 붙여 놓게 되고, 반영 후 재검수에서 「이동에 N분이 걸리는데 배정된 시간은
+ *    0분」 오류가 난다 (R08). 실제로 그렇게 냈다 — 화요일 휴무인 식사를 2일차 12:00 으로
+ *    옮겨 앞 식사(11:30~12:00)에 맞붙였다.
+ *
+ * 그래서 **빈 구간을 찾아 앞뒤로 여유를 두고** 놓는다. 이동시간 자체는 0콜 단계라 알 수
+ * 없고, 반영 후 재검수에서 R08 이 본다 (FR-PA-020 의 자동 재검수).
  */
-function openDayFor(
+function openSlotFor(
   target: AuditItem,
   items: readonly AuditItem[],
   holidays: HolidayCalendar,
-): { dayNo: number } | null {
+): { dayNo: number; startTime: string; endTime: string | null } | null {
   const normalized = target.content?.normalized ?? null;
   const base = parseIsoDate(target.date);
   if (normalized === null || base === null) return null;
 
+  const duration = durationOf(target);
   const days = [...new Set(items.map((i) => i.dayNo))].sort((a, b) => a - b);
+
   for (const dayNo of days) {
     if (dayNo === target.dayNo) continue;
     const date = addDays(base, dayNo - target.dayNo);
-    const verdict = evaluateClosed(normalized, date, holidays);
-    if (verdict.kind === 'OPEN') return { dayNo };
-    void formatIsoDate;
+    if (evaluateClosed(normalized, date, holidays).kind !== 'OPEN') continue;
+
+    const placed = placeIn(items.filter((i) => i.dayNo === dayNo), duration);
+    if (placed !== null) {
+      return { dayNo, startTime: placed, endTime: duration === null ? null : addMinutes(placed, duration) };
+    }
   }
   return null;
+}
+
+/**
+ * 옮긴 자리 앞뒤에 두는 최소 여유 (분).
+ *
+ * 이동시간을 여기서 알 수 없다 — 알려면 카카오모빌리티를 불러야 하는데 이 단계는 0콜이다.
+ * 맞붙여 놓는 것만이라도 막는다. 실제 이동시간은 반영 후 재검수에서 R08 이 본다.
+ */
+export const MIN_TRANSFER_MINUTES = 30;
+
+/** 그 일차에서 `duration` 분이 여유까지 들어가는 첫 자리. 없으면 null */
+function placeIn(dayItems: readonly AuditItem[], duration: number | null): string | null {
+  const need = (duration ?? SETTING_DEFAULTS.dwellFallbackMinutes) + MIN_TRANSFER_MINUTES * 2;
+  const sorted = [...dayItems].sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+
+  let cursor = toMinutes(DAY_STARTS_AT);
+  for (const next of sorted) {
+    const gap = toMinutes(next.startTime) - cursor;
+    if (gap >= need) return fromMinutes(cursor + MIN_TRANSFER_MINUTES);
+    // 숙박은 종료시간이 없다. 체크인 시각이 그 날의 끝이라 뒤로 못 간다 (R07 `daySpan`)
+    const end = next.itemType === 'LODGING' ? null : next.endTime;
+    if (end === null) return null;
+    cursor = Math.max(cursor, toMinutes(end));
+  }
+
+  const tail = toMinutes(DAY_ENDS_AT) - cursor;
+  return tail >= need ? fromMinutes(cursor + MIN_TRANSFER_MINUTES) : null;
+}
+
+/** 하루의 양 끝. R07 의 연속 일정 판정과 같은 시간대를 본다 */
+const DAY_STARTS_AT = '09:00';
+const DAY_ENDS_AT = '21:00';
+
+/** 항목의 소요시간(분). 종료시간을 모르면 null */
+function durationOf(item: AuditItem): number | null {
+  if (item.endTime === null) return null;
+  const minutes = toMinutes(item.endTime) - toMinutes(item.startTime);
+  return minutes > 0 ? minutes : null;
+}
+
+function fromMinutes(total: number): string {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 /** 같은 일차 안에서 시간대를 바꿔 볼 만한 항목. 관광 항목끼리만 바꾼다 */
