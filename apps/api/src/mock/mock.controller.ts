@@ -1,9 +1,5 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-
-// ── 명세 5장 JSON 예시를 그대로 사용한다 (손으로 지어내지 않음) ──
-import contentsSearch from '../mocks/contents_search.json';
-import itemMatch from '../mocks/item_match.json';
 
 /**
  * W1 전용 mock 컨트롤러 — API 명세 v1.4 계약의 응답 형태를 그대로 반환한다.
@@ -25,10 +21,7 @@ export class MockController {
   @Delete('items/:itemId') @HttpCode(204) delItem() { return; }
   @Put('products/:productId/items/order') reorder(@Body() b: any) { return { ok: true, ...b }; }
 
-  // ── 관광지 매칭 (F02) ──
-  @Get('contents/search') search(@Query('keyword') keyword = '') { return { ...contentsSearch, keyword }; }
-  @Post('items/:itemId/match') match(@Param('itemId') id: string) { return { ...itemMatch, itemId: Number(id) }; }
-  @Post('items/:itemId/exclude') exclude(@Param('itemId') id: string) { return { itemId: Number(id), matchStatus: 'EXCLUDED' }; }
+  // ── 관광지 매칭 (F02) ── 검색·확정·제외는 실엔진(PlaceMatchController)으로 교체됨. mock 제거 (NF-CO-002)
   @Get('contents/:contentId') content(@Param('contentId') id: string) { return { contentId: id, fetchedAt: new Date().toISOString(), ktoRaw: {} }; }
   // ldong-codes · lcls-codes 는 실엔진(CatalogController)으로 교체됨. mock 제거 (NF-CO-002)
 
