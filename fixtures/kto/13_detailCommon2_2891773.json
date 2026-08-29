@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2891773",
+            "contenttypeid": "39",
+            "title": "자료 동읫",
+            "createdtime": "20221031160344",
+            "modifiedtime": "20250115132149",
+            "tel": "",
+            "telname": "",
+            "homepage": "<a href=\"https://www.instagram.com/cafe106/\"target=\"_blank\" title=\"새창 : cafe106 사이트로 이동\">https://www.instagram.com/cafe106/</a>",
+            "firstimage": "http://tong.visitkorea.or.kr/cms/resource/16/2891716_image2_1.jpg",
+            "firstimage2": "http://tong.visitkorea.or.kr/cms/resource/16/2891716_image3_1.jpg",
+            "cpyrhtDivCd": "Type3",
+            "areacode": "32",
+            "sigungucode": "1",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "FD",
+            "lclsSystm2": "FD05",
+            "lclsSystm3": "FD050100",
+            "cat1": "A05",
+            "cat2": "A0502",
+            "cat3": "A05020900",
+            "addr1": "강원특별자치도 강릉시 금성로13번길 17",
+            "addr2": "",
+            "zipcode": "25543",
+            "mapx": "128.9001719187",
+            "mapy": "37.7533574475",
+            "mlevel": "6",
+            "overview": "cafe106은 강원도 강릉시 성남동, 강릉 중앙시장 근처에 있는 카페이다. 서리태 커피와 태성커피가 시그니처 메뉴인데 서리태 커피는 고소한 서리태 크림과 에스프레소의 조화가 돋보이고, 태성커피는 달달한 커피와 고메 버터의 풍미를 느낄 수 있다. 카페는 1층부터 3층까지 운영하는데 1층은 주문을 받는 카운터와 화장실과 같은 편의시설이 있고 커피를 마실 수 있는 좌석은 2층과 3층에 있다. 아기자기한 소품으로 예쁘게 꾸며 놓아 사진을 남기기에도 좋다. 시장 근처라 주차장을 갖추고 있지 않아 중앙시장 공영주차장에 차를 대고 이동하는 게 편리하다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}
