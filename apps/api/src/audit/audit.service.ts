@@ -21,7 +21,7 @@ import {
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
 import { AuditRunner, type ItineraryItemRow } from './audit-runner';
 import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
-import { PlaceNameResolver, applyNames, replacedContentIds } from './place-name';
+import { PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds } from './place-name';
 import { RULES, RULESET_VERSION } from './rule-registry';
 import type { AuditSettings } from '../engine/rules/types';
 import { applyPatches } from './patch-apply';
@@ -188,11 +188,14 @@ export class AuditService {
     return this.nameResolver;
   }
 
-  /** 수정안에 실을 대체 관광지 이름 (FR-PA-003). 저장하지 않고 표시할 때만 채운다 */
+  /**
+   * 수정안에 실을 관광지 이름 (FR-PA-003). 저장하지 않고 표시할 때만 채운다.
+   *
+   * **대체(`REPLACE_CONTENT`)와 추가(`INSERT_ITEM`) 둘 다다.** 추가 수정안도 무엇을 넣는지가
+   * 전부라, 이름이 없으면 후보 둘이 화면에 똑같이 보인다 — 「2일차에 관광 추가」가 두 줄.
+   */
   async replacementNames(run: StoredAuditRun): Promise<ReadonlyMap<string, string>> {
-    const ids = run.findings.flatMap((f) => f.patches
-      .filter((p) => p.type === 'REPLACE_CONTENT')
-      .map((p) => String((p.payload as { ktoContentId?: unknown }).ktoContentId ?? '')));
+    const ids = collectPatchContentIds(run);
     return ids.length === 0 ? new Map() : this.placeNames().resolve(ids);
   }
 
@@ -734,9 +737,11 @@ export function toFindingsResponse(
        * 때 조회한 것**을 여기서 얹는다 — 없으면 화면이 「가까운 다른 관광지」로만 뜬다.
        */
       patches: f.patches.map((p) => {
-        if (p.type !== 'REPLACE_CONTENT') return p;
-        const id = String((p.payload as { ktoContentId?: unknown }).ktoContentId ?? '');
-        const name = names.get(id);
+        const payload = p.payload as { ktoContentId?: unknown; content?: { ktoContentId?: unknown } };
+        const id = p.type === 'REPLACE_CONTENT' ? String(payload.ktoContentId ?? '')
+          : p.type === 'INSERT_ITEM' ? String(payload.content?.ktoContentId ?? '')
+            : '';
+        const name = id === '' ? undefined : names.get(id);
         return name === undefined ? p : { ...p, placeName: name };
       }),
     }));
