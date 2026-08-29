@@ -10,6 +10,7 @@
 | API | https://api-production-1e7c2.up.railway.app |
 | **API 문서** | https://api-production-1e7c2.up.railway.app/docs |
 | 상태 확인 | https://api-production-1e7c2.up.railway.app/health |
+| 웹 | https://web-production-82e38.up.railway.app/login |
 
 `/docs` 에서 라우트 목록을 브라우저로 본다. **`실엔진` 태그가 붙은 것만 실제로 판정 · 저장이
 돈다.** `mock` 태그는 API 명세의 응답 예시를 그대로 돌려주는 임시 라우트이며 실엔진으로

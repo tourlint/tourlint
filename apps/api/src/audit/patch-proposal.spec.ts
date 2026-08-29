@@ -5,7 +5,7 @@ import { parseOperatingInfo } from '../engine/normalize/parse';
 import type { AuditItem, Finding } from '../engine/rules/types';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
-import { proposeLocalPatches } from './patch-local';
+import { MIN_TRANSFER_MINUTES, proposeLocalPatches } from './patch-local';
 import { proposeReplacements, rankCandidates } from './patch-remote';
 import { MAX_PATCHES_PER_FINDING } from './patch-types';
 
@@ -69,6 +69,87 @@ describe('R01 — 휴무 충돌이면 날짜를 바꾼다 (FR-RU-013①)', () =>
     });
     expect(p).toMatchObject({ type: 'TIME_SHIFT', targetItemId: target.id });
     expect((p?.payload as { newDayNo: number }).newDayNo).toBe(1);
+  });
+
+  it('🔴 옮긴 날의 다른 항목에 맞붙여 놓지 않는다', () => {
+    /*
+     * 실제로 그렇게 냈다 — 화요일 휴무인 식사를 2일차 12:00 으로 옮겨 앞 식사(11:30~12:00)에
+     * 맞붙였고, 반영 후 재검수에서 「이동에 10분이 걸리는데 배정된 시간은 0분」 오류가 났다.
+     * 날짜만 보고 시각을 그대로 들고 간 것이 원인이다.
+     */
+    const target = item({ day: 1, start: '12:00', end: '13:00', type: 'MEAL',
+                          rest: '매주 화요일', use: '09:00~21:00', label: '가람집옹심이' });
+    const before = item({ day: 2, start: '11:30', end: '12:00', type: 'MEAL', label: '감천골' });
+    const [p] = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }),
+      items: [target, before], holidays: KOREAN_HOLIDAYS,
+    });
+
+    const payload = p?.payload as { newDayNo: number; newStartTime: string; newEndTime?: string };
+    expect(payload.newDayNo).toBe(2);
+    // 소요시간(1시간)은 유지된다
+    expect(payload.newEndTime).toBeDefined();
+
+    /*
+     * 어디에 놓든 상관없다. **그 날의 다른 항목과 최소 여유만큼 떨어져 있으면** 된다 —
+     * 앞이든 뒤든. 자리를 특정 시각으로 못 박으면 배치 규칙을 바꿀 때마다 검사가 깨진다.
+     */
+    const min = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    const from = min(payload.newStartTime);
+    const to = min(payload.newEndTime as string);
+    // 앞에 놓였으면 왼쪽 간격이, 뒤에 놓였으면 오른쪽 간격이 양수다. 겹치면 둘 다 음수다
+    const gap = Math.max(min(before.startTime) - to, from - min(before.endTime as string));
+    expect(gap, `${payload.newStartTime}~${payload.newEndTime} vs 11:30~12:00`)
+      .toBeGreaterThanOrEqual(MIN_TRANSFER_MINUTES);
+  });
+
+  it('🔴 좁은 틈에 억지로 끼워 넣지 않는다', () => {
+    /*
+     * 소요시간만큼만 보고 자리를 잡으면, 앞 여유를 두는 순간 뒤가 밀려 다음 항목을 덮는다.
+     * 앞뒤 여유까지 들어가는 틈만 자리로 친다.
+     */
+    const target = item({ day: 1, start: '12:00', end: '13:00',
+                          rest: '매주 화요일', use: '09:00~21:00' });
+    const a = item({ day: 2, start: '09:00', end: '10:00' });
+    const b = item({ day: 2, start: '11:00', end: '12:00' }); // a 와 60분 틈뿐이다
+    const [p] = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }),
+      items: [target, a, b], holidays: KOREAN_HOLIDAYS,
+    });
+
+    const payload = p?.payload as { newStartTime: string; newEndTime?: string };
+    const min = (t: string): number => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    const from = min(payload.newStartTime);
+    const to = min(payload.newEndTime as string);
+    // 그 날 어느 항목과도 겹치지 않는다
+    for (const other of [a, b]) {
+      const gap = Math.max(min(other.startTime) - to, from - min(other.endTime as string));
+      expect(gap, `${payload.newStartTime}~${payload.newEndTime} vs ${other.startTime}~${String(other.endTime)}`)
+        .toBeGreaterThanOrEqual(MIN_TRANSFER_MINUTES);
+    }
+  });
+
+  it('🔴 숙박 뒤로는 넣지 않는다', () => {
+    // 체크인은 그 날 일정의 끝이다 (R07 `daySpan`). 그 뒤에 관광을 넣으면 밤에 나가란 말이 된다
+    const target = item({ day: 1, start: '12:00', end: '13:00',
+                          rest: '매주 화요일', use: '09:00~21:00' });
+    const lodging = item({ day: 2, start: '17:30', end: null, type: 'LODGING', label: '강릉강변스테이' });
+    const morning = item({ day: 2, start: '09:00', end: '17:00' });
+    expect(proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }),
+      items: [target, morning, lodging], holidays: KOREAN_HOLIDAYS,
+    })).toHaveLength(0);
+  });
+
+  it('🔴 들어갈 자리가 없으면 제안하지 않는다', () => {
+    // 옮길 날이 하루 종일 차 있으면 어디에 넣어도 겹친다. 억지로 넣느니 안 내는 게 낫다
+    const target = item({ day: 1, start: '12:00', end: '13:00',
+                          rest: '매주 화요일', use: '09:00~21:00' });
+    const packed = item({ day: 2, start: '09:00', end: '20:59' });
+    expect(proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }),
+      items: [target, packed], holidays: KOREAN_HOLIDAYS,
+    })).toHaveLength(0);
   });
 
   it('옮길 날도 휴무면 제안하지 않는다', () => {
