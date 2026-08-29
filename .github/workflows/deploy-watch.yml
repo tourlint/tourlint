@@ -158,7 +158,8 @@ jobs:
             done
           }
 
-          probe '토큰 확인' '{"query":"{me{id name}}"}'
-          probe '프로젝트 토큰인가' '{"query":"{projectToken{projectId environmentId}}"}'
-          probe '프로젝트 목록' '{"query":"{projects(first:5){edges{node{id name}}}}"}'
-          probe '배포 목록(환경만)' '{"query":"query($e:String!){deployments(first:3,input:{environmentId:$e}){edges{node{id status}}}}","variables":{"e":"'"$env_id"'"}}'
+          pid='103311be-52e7-44ef-becb-28ec5fcb6c38'
+          probe '배포 목록(프로젝트+환경)' '{"query":"query($p:String!,$e:String!){deployments(first:3,input:{projectId:$p,environmentId:$e}){edges{node{id status createdAt}}}}","variables":{"p":"'"$pid"'","e":"'"$env_id"'"}}'
+          probe '배포 목록(프로젝트만)' '{"query":"query($p:String!){deployments(first:3,input:{projectId:$p}){edges{node{id status createdAt}}}}","variables":{"p":"'"$pid"'"}}'
+          probe '프로젝트' '{"query":"query($p:String!){project(id:$p){id name}}","variables":{"p":"'"$pid"'"}}'
+          probe '환경' '{"query":"query($e:String!){environment(id:$e){id name}}","variables":{"e":"'"$env_id"'"}}'
