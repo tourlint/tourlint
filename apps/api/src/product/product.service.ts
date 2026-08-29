@@ -61,6 +61,8 @@ export class ProductService {
       productId: row.id,
       name: row.name,
       region: names.region(row.ldongRegnCd, row.ldongSignguCd),
+      ldongRegnCd: row.ldongRegnCd,
+      ldongSignguCd: row.ldongSignguCd,
       startDate: row.startDate,
       nights: row.nights,
       dayCount: row.nights + 1,

@@ -73,10 +73,28 @@ export interface ProductDetail {
   productId: number;
   name: string;
   region: { regnName: string; signguName: string | null };
+  ldongRegnCd: string;
+  ldongSignguCd: string | null;
   startDate: string;
   nights: number;
   dayCount: number;
   days: { day: number; items: ProductItem[] }[];
+}
+
+export interface ContentCandidate {
+  contentid: string;
+  title: string | null;
+  addr1: string | null;
+  contenttypeid: number | null;
+  cpyrhtDivCd: string | null;
+}
+
+export interface ContentSearchResult {
+  regionFilterApplied: boolean;
+  fetchedAt: string;
+  candidates: ContentCandidate[];
+  totalCount: number;
+  source: string;
 }
 
 export interface RunSummary {
@@ -229,6 +247,25 @@ export const auditApi = {
     request<void>(`/findings/${findingId}/dismiss`, { method: "DELETE" }),
   confirmFinding: (findingId: number) =>
     request<void>(`/findings/${findingId}/confirm`, { method: "POST" }),
+};
+
+export const matchApi = {
+  // 장소명으로 공사 콘텐츠 검색 (F02). 지역 코드로 좁힌다
+  search: (keyword: string, regnCd?: string | null, signguCd?: string | null, size = 8) => {
+    const q = new URLSearchParams({ keyword, size: String(size) });
+    if (regnCd) q.set("regnCd", regnCd);
+    if (signguCd) q.set("signguCd", signguCd);
+    return request<ContentSearchResult>(`/contents/search?${q.toString()}`);
+  },
+  // contentid 확정 → 항목이 CONFIRMED 가 되고 좌표·분류가 붙는다
+  match: (itemId: number, contentid: string) =>
+    request<{ itemId: number; matchStatus: string; content: ContentCandidate & { mapx: number | null } }>(
+      `/items/${itemId}/match`,
+      { method: "POST", body: JSON.stringify({ contentid }) },
+    ),
+  // 해당 없음 → 검수 제외
+  exclude: (itemId: number) =>
+    request<{ itemId: number; matchStatus: string }>(`/items/${itemId}/exclude`, { method: "POST" }),
 };
 
 export const patchApi = {

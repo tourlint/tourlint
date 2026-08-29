@@ -21,6 +21,9 @@ import { AuditResultRepository } from './persistence/audit-result.repository';
 import { BatchStateRepository } from './persistence/batch-state.repository';
 import { NotificationRepository } from './persistence/notification.repository';
 import { HealthController } from './health/health.controller';
+import { PlaceMatchController } from './match/place-match.controller';
+import { PlaceMatchRepository } from './match/place-match.repository';
+import { PlaceMatchService } from './match/place-match.service';
 import { ProductController } from './product/product.controller';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
@@ -49,7 +52,7 @@ import { UsageService } from './usage/usage.service';
   controllers: [
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
-    AuditController, UsageController, DemoController, ProductController,
+    AuditController, UsageController, DemoController, ProductController, PlaceMatchController,
     MockController,
   ],
   providers: [
@@ -66,6 +69,13 @@ import { UsageService } from './usage/usage.service';
       provide: ProductService,
       useFactory: (pool: Pool, catalog: CatalogService) => new ProductService(new ProductRepository(pool), catalog),
       inject: [DB_POOL, CatalogService],
+    },
+    {
+      // 관광지 확정(매칭). 검색·상세 프록시에 KTO 클라이언트를 쓴다 (KTO_MODE 에 따라 live/fixture)
+      provide: PlaceMatchService,
+      useFactory: (pool: Pool) =>
+        new PlaceMatchService(new PlaceMatchRepository(pool), () => createKtoClient(new PgApiCallLogger(pool))),
+      inject: [DB_POOL],
     },
     {
       /*
