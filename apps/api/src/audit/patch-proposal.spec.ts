@@ -468,9 +468,19 @@ describe('R09 — 실내·야외 순서 교체 (FR-RU-093 ②)', () => {
   });
 
   it('🔴 구분을 모르는 중분류는 건드리지 않는다', () => {
-    // 실내인지 야외인지 모르는 것을 옮기면 더 나빠질 수도 있다 (FR-RU-051)
-    const a = withLcls(item({ start: '10:00', end: '11:00' }), 'ZZ99');
-    const b = withLcls(item({ start: '14:00', end: '15:00' }), 'ZZ98');
+    /*
+     * 실내인지 야외인지 모르는 것을 옮기면 더 나빠질 수도 있다 (FR-RU-051). 모르는 것을
+     * 야외로 쳐 버리면 **실내를 그 뒤로 보내는** 엉뚱한 제안이 나간다.
+     */
+    const indoor = withLcls(item({ start: '10:00', end: '11:00' }), 'VE07');
+    const unknown = withLcls(item({ start: '14:00', end: '15:00' }), 'ZZ99');
+    expect(proposeLocalPatches({
+      finding: r09(indoor.date), items: [indoor, unknown], holidays: KOREAN_HOLIDAYS, indoorOutdoor: MAP,
+    })).toHaveLength(0);
+
+    // 둘 다 모르는 경우도 마찬가지다
+    const a = withLcls(item({ start: '10:00', end: '11:00' }), 'ZZ98');
+    const b = withLcls(item({ start: '14:00', end: '15:00' }), 'ZZ97');
     expect(proposeLocalPatches({
       finding: r09(a.date), items: [a, b], holidays: KOREAN_HOLIDAYS, indoorOutdoor: MAP,
     })).toHaveLength(0);
@@ -511,11 +521,18 @@ describe('넣을 자리 계산 (R09 ① · R10 · FR-RU-103)', () => {
     }
   });
 
-  it('🔴 자리가 좁으면 잡지 않는다', () => {
-    // 맞붙여 넣으면 반영 후 재검수에서 「배정된 시간 0분」 오류가 난다
+  it('🔴 소요시간은 되는데 여유가 모자라면 잡지 않는다', () => {
+    /*
+     * 앞뒤 여유까지 들어가야 자리다. 소요시간만 보고 끼우면 앞뒤 항목에 맞붙어, 반영 후
+     * 재검수에서 「이동에 N분이 걸리는데 배정된 시간은 0분」 오류가 난다 (R08).
+     */
     const a = item({ start: '10:00', end: '11:00' });
-    const b = item({ start: '12:00', end: '13:00' });
-    expect(planInsertion(r10(['VE07']), [a, b], {}, 90)).toBeNull();
+    // 120분 틈. 소요 90분은 들어가지만 앞뒤 30분씩(총 150분)은 못 들어간다
+    const tight = item({ start: '13:00', end: '14:00' });
+    expect(planInsertion(r10(['VE07']), [a, tight], {}, 90)).toBeNull();
+
+    const roomy = item({ start: '14:00', end: '15:00' });
+    expect(planInsertion(r10(['VE07']), [a, roomy], {}, 90)).not.toBeNull();
   });
 
   it('🔴 R09 는 그 날 안에서만, 실내 중분류만 채운다', () => {
