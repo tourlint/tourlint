@@ -149,6 +149,16 @@ jobs:
           fi
           echo "환경 $env_id"
 
-          q='{"query":"query($e:String!){deployments(first:5,input:{environmentId:$e}){edges{node{id status createdAt meta}}}}","variables":{"e":"'"$env_id"'"}}'
-          res="$(api "$q")" || { echo "Railway 응답을 못 읽었다: ${res:0:400}"; exit 0; }
-          echo "$res" | head -c 2000; echo
+          probe() {
+            echo "── $1"
+            for header in "Project-Access-Token: $RAILWAY_TOKEN" "Authorization: Bearer $RAILWAY_TOKEN"; do
+              out="$(curl -sS --max-time 25 https://backboard.railway.com/graphql/v2 \
+                -H 'Content-Type: application/json' -H "$header" -d "$2" || true)"
+              echo "   ${header%%:*}: $(printf '%s' "$out" | head -c 300)"
+            done
+          }
+
+          probe '토큰 확인' '{"query":"{me{id name}}"}'
+          probe '프로젝트 토큰인가' '{"query":"{projectToken{projectId environmentId}}"}'
+          probe '프로젝트 목록' '{"query":"{projects(first:5){edges{node{id name}}}}"}'
+          probe '배포 목록(환경만)' '{"query":"query($e:String!){deployments(first:3,input:{environmentId:$e}){edges{node{id status}}}}","variables":{"e":"'"$env_id"'"}}'
