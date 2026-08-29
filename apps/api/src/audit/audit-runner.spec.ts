@@ -301,8 +301,12 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
   const outdoor = (id: number, dayNo: number): ItineraryItemRow =>
     item({ id, dayNo, seq: 1, placeLabel: '경포대', lclsSystm2: 'HS01', mapX: 128.8961, mapY: 37.7952 });
 
+  /** 검수 시각(10-01) 기준 D+2. 단기예보 구간이라 기상청과 격자가 실제로 필요하다 */
+  const soon: ProductRow = { ...product, startDate: '2026-10-03' };
+
   it('기상청 클라이언트가 없으면 확인 불가로 남는다 — 정상이 아니다', async () => {
-    const result = await runner().run(product, [outdoor(1, 1)]);
+    // 조용히 넘기면 「우천 위험 없음」 으로 읽힌다
+    const result = await runner().run(soon, [outdoor(1, 1)]);
 
     const f = result.findings.find((x) => x.ruleCode === 'R09');
     expect(f?.severity).toBe('UNVERIFIED');
@@ -310,7 +314,8 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
   });
 
   it('🔴 좌표가 하나도 없으면 좌표 없음으로 남는다', async () => {
-    const result = await runner({ kma: kmaClient() }).run(product, [
+    // 단기예보는 격자가 있어야 부른다. 평년 경로는 격자를 안 쓰므로 근거리로 본다
+    const result = await runner({ kma: kmaClient() }).run(soon, [
       item({ id: 1, dayNo: 1, seq: 1, lclsSystm2: 'HS01' }),
     ]);
 
@@ -325,6 +330,38 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
     const f = result.findings.find((x) => x.ruleCode === 'R09');
     expect(f?.severity).toBe('UNVERIFIED');
     expect(f?.reasonCode).toBe('CLIMATE_DATA_MISSING');
+  });
+
+  it('🔴 기상청이 없어도 평년값으로는 판정한다', async () => {
+    /*
+     * 필요한 것이 날짜마다 다르다 — 평년 경로(D+11 이상)는 기상청도 격자도 안 쓰고 표만 본다.
+     * 그런데 기상청 클라이언트가 없으면 **여행일 전부**를 확인 불가로 돌리고 있었다.
+     * 필요 없는 것이 없다는 이유로 판정을 포기하면 안 된다.
+     */
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
+    // kma 를 안 넘긴다
+    const result = await runner({ climate }).run(withRegion, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.reasonCode).not.toBe('FORECAST_UNAVAILABLE');
+  });
+
+  it('🔴 좌표가 없어도 평년값으로는 판정한다', async () => {
+    // 격자는 단기예보만 쓴다. 좌표가 없다고 두 달 뒤 일정까지 못 볼 이유가 없다
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
+    const noCoords = { ...outdoor(1, 1), mapX: null, mapY: null };
+    const result = await runner({ kma: kmaClient(), climate }).run(withRegion, [noCoords]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.reasonCode).not.toBe('COORD_MISSING');
   });
 
   it('평년 테이블이 있으면 그것으로 판정한다', async () => {
