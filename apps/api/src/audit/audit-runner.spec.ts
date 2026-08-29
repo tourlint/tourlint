@@ -572,3 +572,50 @@ describe('구간 캐시 (NF-PF-012 · EI-KM-006)', () => {
     expect(same).toHaveLength(1);
   });
 });
+
+describe('R08 대체 후보는 앞 항목 주변에서 찾는다 (FR-RU-083 ③)', () => {
+  const GYEONGPO = { x: 128.898632, y: 37.753996 };
+  const FAR = { x: 129.2, y: 37.2 };
+
+  it('🔴 위치기반 조회 중심이 뒤 항목이 아니라 앞 항목이다', async () => {
+    /*
+     * 너무 먼 것이 문제인데 그 자리에서 찾으면 여전히 먼 것들만 나온다. 러너가 중심을
+     * 안 넘기면 `proposeReplacements` 가 대체 대상 자리에서 찾는다 — 함수만 맞고 배선이
+     * 빠지면 화면은 그대로다.
+     */
+    const centers: { x: number; y: number }[] = [];
+    const real = createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV);
+    const kto = {
+      ...real,
+      detailCommon: real.detailCommon.bind(real),
+      detailIntro: real.detailIntro.bind(real),
+      locationBasedList: async (p: { mapX: number; mapY: number; radius: number }) => {
+        centers.push({ x: p.mapX, y: p.mapY });
+        return real.locationBasedList(p as never);
+      },
+    } as unknown as ReturnType<typeof createKtoClient>;
+
+    // 이동에 아주 오래 걸린다고 답하는 지도 스텁 — R08 오류를 만든다
+    const kakao = {
+      route: async () => ({ durationSeconds: 7200, distanceMeters: 90_000, futureBased: true }),
+    };
+
+    const from = item({ id: 1, dayNo: 1, seq: 1, startTime: '10:00', endTime: '11:00',
+                        placeLabel: '경포대', ktoContentId: '125790', contentTypeId: 12,
+                        mapX: GYEONGPO.x, mapY: GYEONGPO.y });
+    const to = item({ id: 2, dayNo: 1, seq: 2, startTime: '11:00', endTime: '12:00',
+                      placeLabel: '먼 곳', ktoContentId: '129784', contentTypeId: 14,
+                      mapX: FAR.x, mapY: FAR.y });
+
+    const runner = new AuditRunner({ kto, clock, kakao: kakao as never });
+    const result = await runner.run(product, [from, to]);
+
+    const r08 = result.findings.filter((f) => f.ruleCode === 'R08' && f.reasonCode === 'TRAVEL_TIME_SHORT');
+    expect(r08.length, 'R08 이 안 났다').toBeGreaterThan(0);
+    expect(r08[0]?.patches.map((p) => p.type)).toContain('TIME_SHIFT');
+
+    expect(centers.length, '위치기반 조회를 안 했다').toBeGreaterThan(0);
+    expect(centers[0]?.x).toBeCloseTo(GYEONGPO.x, 4);
+    expect(centers[0]?.y).toBeCloseTo(GYEONGPO.y, 4);
+  });
+});
