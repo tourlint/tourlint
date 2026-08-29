@@ -3,6 +3,7 @@ import { addDays, parseIsoDate } from '../engine/calendar/dates';
 import type { HolidayCalendar } from '../engine/calendar/holidays';
 import { evaluateClosed } from '../engine/rules/r01-operating';
 import { addMinutes } from '../engine/itinerary/dwell';
+import { pointOf, straightMeters } from '../engine/geo';
 import { toMinutes } from '../engine/normalize/primitives';
 import type { AuditItem, Finding } from '../engine/rules/types';
 import { patchId, type Patch } from './patch-types';
@@ -32,6 +33,7 @@ export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
     case 'R02': return r02(finding, target);
     case 'R03': return r03(finding, items);
     case 'R07': return r07(finding, items);
+    case 'R08': return r08(finding, items);
     default: return [];
   }
 }
@@ -199,6 +201,70 @@ function r03(finding: Finding, items: readonly AuditItem[]): readonly Patch[] {
     });
   }
   return out;
+}
+
+/**
+ * R08 — 뒤 일정 뒤로 이동 · 방문 순서 재배열 (FR-RU-083 ①②).
+ *
+ * ③ 더 가까운 동일유형 교체는 외부 조회가 필요해 `patch-remote` 가 낸다.
+ *
+ * ①은 부족한 만큼 뒤 일정을 통째로 민다. 뒤에 또 일정이 있으면 밀린 자리에서 겹칠 수
+ * 있는데, 그건 `patch-preview` 가 충돌로 잡아 준다 — R03 이 같은 방식이다.
+ *
+ * ②는 **더 가까워지는 교체만** 낸다. 순서를 바꿔 봤자 더 멀어지는 제안을 낼 수는 없다.
+ * 실제 이동시간은 반영 후 재검수에서 R08 이 다시 본다 (직선거리로 판정하지 않는다).
+ */
+function r08(finding: Finding, items: readonly AuditItem[]): readonly Patch[] {
+  const from = items.find((i) => i.id === finding.targetItemId);
+  const to = items.find((i) => i.id === finding.targetItemId2);
+  const shortfall = Number(finding.evidence.shortfallMinutes);
+  if (from === undefined || to === undefined || !Number.isFinite(shortfall) || shortfall <= 0) return [];
+
+  const out: Patch[] = [];
+
+  // ① 뒤 일정을 부족한 만큼 뒤로 민다
+  out.push({
+    patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: to.id,
+    payload: {
+      newStartTime: addMinutes(to.startTime, shortfall),
+      ...(to.endTime === null ? {} : { newEndTime: addMinutes(to.endTime, shortfall) }),
+    },
+  });
+
+  // ② 같은 일차 안에서 바꿔 놓으면 더 가까워지는 항목
+  const swap = closerSwap(from, to, items);
+  if (swap !== null) {
+    out.push({
+      patchId: patchId(out.length), type: 'REORDER', targetItemId: to.id,
+      payload: { swapWithItemId: swap.id },
+    });
+  }
+  return out;
+}
+
+/**
+ * `to` 와 자리를 바꿨을 때 `from` 에서 **더 가까워지는** 항목.
+ *
+ * 직선거리로 고른다 — 후보마다 지도 API 를 부를 수 없다. 판정이 아니라 고르기이고,
+ * 실제 이동시간은 반영 후 재검수가 본다 (`engine/geo` 주석).
+ */
+function closerSwap(from: AuditItem, to: AuditItem, items: readonly AuditItem[]): AuditItem | null {
+  const origin = pointOf(from);
+  const target = pointOf(to);
+  if (origin === null || target === null) return null;
+  const current = straightMeters(origin, target);
+
+  let best: { item: AuditItem; distance: number } | null = null;
+  for (const candidate of items) {
+    if (candidate.id === to.id || candidate.id === from.id) continue;
+    if (candidate.dayNo !== to.dayNo || candidate.itemType !== to.itemType) continue;
+    const point = pointOf(candidate);
+    if (point === null) continue;
+    const distance = straightMeters(origin, point);
+    if (distance >= current) continue;
+    if (best === null || distance < best.distance) best = { item: candidate, distance };
+  }
+  return best?.item ?? null;
 }
 
 /**
