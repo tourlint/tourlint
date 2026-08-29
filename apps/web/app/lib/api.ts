@@ -144,6 +144,13 @@ export interface Patch {
   patchId: string;
   type: PatchType;
   targetItemId: number;
+  /**
+   * 대체 · 추가할 관광지 이름.
+   *
+   * 수정안에는 명칭이 저장돼 있지 않다 — 공사 원문이라 저장할 수 없다 (DR-PR-001).
+   * 서버가 **표시할 때 조회해** 여기에 실어 준다. 못 읽었으면 없다.
+   */
+  placeName?: string;
   payload: {
     newDayNo?: number;
     newStartTime?: string;
