@@ -56,10 +56,40 @@
             "rnum": 10,
             "code": "44",
             "name": "충청남도"
+          },
+          {
+            "rnum": 11,
+            "code": "47",
+            "name": "경상북도"
+          },
+          {
+            "rnum": 12,
+            "code": "48",
+            "name": "경상남도"
+          },
+          {
+            "rnum": 13,
+            "code": "50",
+            "name": "제주특별자치도"
+          },
+          {
+            "rnum": 14,
+            "code": "51",
+            "name": "강원특별자치도"
+          },
+          {
+            "rnum": 15,
+            "code": "52",
+            "name": "전북특별자치도"
+          },
+          {
+            "rnum": 16,
+            "code": "36110",
+            "name": "세종특별자치시"
           }
         ]
       },
-      "numOfRows": 10,
+      "numOfRows": 16,
       "pageNo": 1,
       "totalCount": 16
     }

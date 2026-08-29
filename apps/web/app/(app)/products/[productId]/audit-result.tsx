@@ -944,6 +944,21 @@ function UnverifiedRow({
   );
 }
 
+/**
+ * 「~으로 / ~로」 조사를 붙인다.
+ *
+ * 관광지 이름은 공사 원문이라 무엇이 올지 모른다. 받침이 있으면 `으로`, 없거나 ㄹ 받침이면
+ * `로` 다 — 「자료 동읫 로 대체」처럼 어색하게 보이지 않게 한다.
+ */
+function euro(name: string): string {
+  const last = name.trim().slice(-1);
+  const code = last.charCodeAt(0);
+  // 한글 음절이 아니면 판단할 근거가 없다. 안전한 쪽(로)으로 둔다
+  if (Number.isNaN(code) || code < 0xac00 || code > 0xd7a3) return "로";
+  const jong = (code - 0xac00) % 28;
+  return jong === 0 || jong === 8 ? "로" : "으로";
+}
+
 /** 수정안 표시 문구를 payload·대상 항목으로 조합한다 — 서버는 문구를 저장하지 않는다 (DR-PR-001) */
 function patchLabel(patch: Patch, itemLabel: (itemId: number | null) => string): string {
   const p = patch.payload;
@@ -958,12 +973,19 @@ function patchLabel(patch: Patch, itemLabel: (itemId: number | null) => string):
     }
     case "REORDER":
       return `${itemLabel(patch.targetItemId)} ↔ ${itemLabel(p.swapWithItemId ?? null)} 순서 바꾸기`;
-    case "REPLACE_CONTENT":
-      return p.distanceMeters !== undefined
-        ? `가까운 다른 관광지로 대체 (약 ${Math.round(p.distanceMeters / 100) / 10}km)`
-        : "다른 관광지로 대체";
-    case "INSERT_ITEM":
-      return `${p.dayNo}일차에 ${ITEM_TYPE_LABEL[p.itemType ?? ""] ?? "항목"} 추가 (${p.startTime ?? ""}~${p.endTime ?? ""})`;
+    case "REPLACE_CONTENT": {
+      // 이름은 서버가 표시 시점에 조회해 실어 준다. 없으면 거리로만 안내한다
+      const near = p.distanceMeters !== undefined
+        ? ` (약 ${Math.round(p.distanceMeters / 100) / 10}km)`
+        : "";
+      return patch.placeName !== undefined
+        ? `${patch.placeName}${euro(patch.placeName)} 대체${near}`
+        : `가까운 다른 관광지로 대체${near}`;
+    }
+    case "INSERT_ITEM": {
+      const what = patch.placeName ?? ITEM_TYPE_LABEL[p.itemType ?? ""] ?? "항목";
+      return `${p.dayNo}일차에 ${what} 추가 (${p.startTime ?? ""}~${p.endTime ?? ""})`;
+    }
     case "REMOVE_ITEM":
       return "일정에서 제거";
     default:
