@@ -26,6 +26,13 @@ export interface ReplacementOptions {
   readonly radiusMeters?: number;
   /** 이번 실행에서 이미 알고 있는 해석 신뢰도. `ktoContentId` → 신뢰도 */
   readonly knownConfidence?: ReadonlyMap<string, 'CONFIRMED' | 'ESTIMATED' | 'UNPARSED'>;
+  /**
+   * 검색 중심. 안 주면 대체 대상 자리에서 찾는다.
+   *
+   * R08 은 **앞 항목** 을 중심으로 찾아야 한다 (FR-RU-083 ③). 너무 먼 곳이 문제인데 그
+   * 자리에서 찾으면 여전히 먼 것들만 나온다.
+   */
+  readonly center?: { readonly x: number; readonly y: number };
 }
 
 /**
@@ -39,13 +46,17 @@ export async function proposeReplacements(
   options: ReplacementOptions,
   startIndex = 0,
 ): Promise<readonly Patch[]> {
-  if (target.content === null || target.mapX === null || target.mapY === null) return [];
+  if (target.content === null) return [];
+  const center = options.center ?? (target.mapX === null || target.mapY === null
+    ? null
+    : { x: target.mapX, y: target.mapY });
+  if (center === null) return [];
 
   const radius = Math.min(options.radiusMeters ?? LOCATION_RADIUS_MAX_METERS, LOCATION_RADIUS_MAX_METERS);
   let items: readonly Record<string, unknown>[];
   try {
     const page = await options.kto.locationBasedList({
-      mapX: target.mapX, mapY: target.mapY, radius,
+      mapX: center.x, mapY: center.y, radius,
       contentTypeId: target.content.contentTypeId,
       numOfRows: 20,
     });

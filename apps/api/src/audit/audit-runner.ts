@@ -442,16 +442,29 @@ export class AuditRunner {
       const local = proposeLocalPatches({ finding, items: ctx.items, holidays: ctx.holidays });
       let patches: Patch[] = [...local];
 
-      // 대체 관광지는 R01 과 R06-b 만 낸다 (FR-RU-013③ · FR-RU-067)
+      /*
+       * 대체 관광지는 R01 · R06-b · R08 이 낸다 (FR-RU-013③ · 067 · 083③).
+       *
+       * R08 은 **앞 항목을 중심으로** 찾는다. 너무 먼 것이 문제인데 그 자리에서 찾으면
+       * 여전히 먼 것들만 나온다. 바꿀 대상은 뒤 항목이다.
+       */
+      const isR08 = finding.ruleCode === 'R08' && finding.reasonCode === 'TRAVEL_TIME_SHORT';
       const wantsReplacement =
-        (finding.ruleCode === 'R01' || finding.ruleCode === 'R06') && finding.targetItemId !== null;
-      const target = ctx.items.find((i) => i.id === finding.targetItemId);
+        (finding.ruleCode === 'R01' || finding.ruleCode === 'R06' || isR08) && finding.targetItemId !== null;
+
+      const target = isR08
+        ? ctx.items.find((i) => i.id === finding.targetItemId2)
+        : ctx.items.find((i) => i.id === finding.targetItemId);
+      const origin = isR08 ? ctx.items.find((i) => i.id === finding.targetItemId) : undefined;
+      const center = origin === undefined || origin.mapX === null || origin.mapY === null
+        ? undefined
+        : { x: origin.mapX, y: origin.mapY };
 
       if (wantsReplacement && target !== undefined && calls < this.maxReplacementCalls) {
         calls++;
         patches = [
           ...patches,
-          ...(await proposeReplacements(target, { kto: this.kto, knownConfidence }, patches.length)),
+          ...(await proposeReplacements(target, { kto: this.kto, knownConfidence, center }, patches.length)),
         ];
       }
 
