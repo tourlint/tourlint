@@ -121,3 +121,21 @@ export function replacedContentIds(
     .filter((i) => i.ktoContentId !== null && was.get(i.id) !== i.ktoContentId)
     .map((i) => i.ktoContentId as string);
 }
+
+/**
+ * 이름을 물어볼 콘텐츠 id (FR-PA-003).
+ *
+ * 대체(`REPLACE_CONTENT`)와 추가(`INSERT_ITEM`) 둘 다다. 추가 수정안도 무엇을 넣는지가
+ * 전부라, 이름이 없으면 후보 둘이 화면에 똑같이 보인다.
+ */
+export function collectPatchContentIds(
+  run: { findings: readonly { patches: readonly { type: string; payload: unknown }[] }[] },
+): readonly string[] {
+  return run.findings.flatMap((f) => f.patches.flatMap((p) => {
+    const payload = p.payload as { ktoContentId?: unknown; content?: { ktoContentId?: unknown } };
+    const id = p.type === 'REPLACE_CONTENT' ? String(payload.ktoContentId ?? '')
+      : p.type === 'INSERT_ITEM' ? String(payload.content?.ktoContentId ?? '')
+        : '';
+    return id === '' ? [] : [id];
+  }));
+}

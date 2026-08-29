@@ -437,66 +437,103 @@ export class AuditRunner {
     );
     let calls = 0;
 
-    const out: Finding[] = [];
-    for (const finding of findings) {
-      const local = proposeLocalPatches({
+    /*
+     * ── 1) 0콜 수정안 먼저 ──────────────────────────────────────────
+     *
+     * 외부 조회는 상한이 있다 (위치기반 목록 3~4콜 · NF-PF-014). 앞에서부터 쓰면 앞선
+     * finding 들이 다 먹고 뒤가 굶는다 — 실제로 차단 두 건이 상한을 소진해 **R10 은 수정안이
+     * 하나도 없는 채로** 화면에 떴다.
+     */
+    const drafts = findings.map((finding) => ({
+      finding,
+      patches: [...proposeLocalPatches({
         finding, items: ctx.items, holidays: ctx.holidays,
         // R09 순서 교체가 규칙과 같은 표를 보게 넘긴다 (FR-OP-021)
         indoorOutdoor: ctx.settings.r09IndoorOutdoor,
-      });
-      let patches: Patch[] = [...local];
+      })] as Patch[],
+    }));
 
-      /*
-       * 대체 관광지는 R01 · R06-b · R08 이 낸다 (FR-RU-013③ · 067 · 083③).
-       *
-       * R08 은 **앞 항목을 중심으로** 찾는다. 너무 먼 것이 문제인데 그 자리에서 찾으면
-       * 여전히 먼 것들만 나온다. 바꿀 대상은 뒤 항목이다.
-       */
-      const isR08 = finding.ruleCode === 'R08' && finding.reasonCode === 'TRAVEL_TIME_SHORT';
-      // R04 는 반복된 것 중 마지막 한 곳을 다른 것으로 바꾼다 (FR-RU-043)
-      const r04Target = finding.ruleCode === 'R04' ? lastRepeated(finding, ctx.items) : null;
-      const wantsReplacement =
-        (finding.ruleCode === 'R01' || finding.ruleCode === 'R06' || isR08 || r04Target !== null)
-        && (finding.targetItemId !== null || r04Target !== null);
+    /*
+     * ── 2) 외부 조회는 굶는 것부터 ────────────────────────────────
+     *
+     * **0콜로 아무것도 못 낸 finding 이 우선이다.** 「고칠 방법이 하나도 없다」와 「셋 중
+     * 둘만 있다」는 사용자에게 다른 문제다. 그다음은 원래 순서 — 차단이 앞에 온다.
+     */
+    const order = [...drafts.keys()].sort((a, b) => {
+      const empty = Number((drafts[b] as { patches: Patch[] }).patches.length === 0)
+        - Number((drafts[a] as { patches: Patch[] }).patches.length === 0);
+      return empty !== 0 ? empty : a - b;
+    });
 
-      const target = r04Target ?? (isR08
-        ? ctx.items.find((i) => i.id === finding.targetItemId2)
-        : ctx.items.find((i) => i.id === finding.targetItemId));
-      const origin = isR08 ? ctx.items.find((i) => i.id === finding.targetItemId) : undefined;
-      const center = origin === undefined || origin.mapX === null || origin.mapY === null
-        ? undefined
-        : { x: origin.mapX, y: origin.mapY };
-
-      if (wantsReplacement && target !== undefined && calls < this.maxReplacementCalls) {
-        calls++;
-        patches = [
-          ...patches,
-          ...(await proposeReplacements(target, { kto: this.kto, knownConfidence, center }, patches.length)),
-        ];
-      }
-
-      /*
-       * 넣는 수정안 (R09 ① · R10). 자리는 0콜로 계산하고 콘텐츠만 조회한다.
-       *
-       * R10 은 결손 중분류를, R09 는 실내 중분류를 채운다. 무엇을 넣을지가 제안의 전부라
-       * 「빈 시간에 뭔가 넣으세요」로는 사용자가 할 일이 안 준다.
-       */
-      const insertion = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor);
-      if (insertion !== null && patches.length < MAX_PATCHES_PER_FINDING && calls < this.maxReplacementCalls) {
-        calls++;
-        patches = [
-          ...patches,
-          ...(await proposeInsertions(insertion.anchor, insertion.slot, {
-            kto: this.kto, knownConfidence,
-            wantLcls2: insertion.wantLcls2,
-            exclude: new Set(ctx.items.map((i) => i.content?.ktoContentId ?? '')),
-          }, patches.length)),
-        ];
-      }
-
-      out.push(patches.length === 0 ? finding : { ...finding, patches: patches.slice(0, MAX_PATCHES_PER_FINDING) });
+    for (const index of order) {
+      if (calls >= this.maxReplacementCalls) break;
+      const draft = drafts[index];
+      if (draft === undefined || draft.patches.length >= MAX_PATCHES_PER_FINDING) continue;
+      const external = await this.externalPatches(draft.finding, ctx, knownConfidence, draft.patches.length);
+      if (external.spent === 0) continue;
+      calls += external.spent;
+      draft.patches.push(...external.patches);
     }
-    return out;
+
+    return drafts.map(({ finding, patches }) =>
+      patches.length === 0 ? finding : { ...finding, patches: patches.slice(0, MAX_PATCHES_PER_FINDING) });
+  }
+
+  /**
+   * 외부 조회가 필요한 수정안 — 대체 관광지와 콘텐츠 추가.
+   *
+   * 부른 콜 수를 함께 돌려준다. 상한을 호출자가 관리해야 어느 finding 이 먼저 쓸지 정할 수 있다.
+   */
+  private async externalPatches(
+    finding: Finding,
+    ctx: ItineraryContext,
+    knownConfidence: ReadonlyMap<string, 'CONFIRMED' | 'ESTIMATED' | 'UNPARSED'>,
+    startIndex: number,
+  ): Promise<{ patches: readonly Patch[]; spent: number }> {
+    /*
+     * 대체 관광지는 R01 · R06-b · R08 · R04 가 낸다 (FR-RU-013③ · 067 · 083③ · 043).
+     *
+     * R08 은 **앞 항목을 중심으로** 찾는다. 너무 먼 것이 문제인데 그 자리에서 찾으면
+     * 여전히 먼 것들만 나온다. 바꿀 대상은 뒤 항목이다.
+     */
+    const isR08 = finding.ruleCode === 'R08' && finding.reasonCode === 'TRAVEL_TIME_SHORT';
+    // R04 는 반복된 것 중 마지막 한 곳을 다른 것으로 바꾼다 (FR-RU-043)
+    const r04Target = finding.ruleCode === 'R04' ? lastRepeated(finding, ctx.items) : null;
+    const wantsReplacement =
+      (finding.ruleCode === 'R01' || finding.ruleCode === 'R06' || isR08 || r04Target !== null)
+      && (finding.targetItemId !== null || r04Target !== null);
+
+    const target = r04Target ?? (isR08
+      ? ctx.items.find((i) => i.id === finding.targetItemId2)
+      : ctx.items.find((i) => i.id === finding.targetItemId));
+    const origin = isR08 ? ctx.items.find((i) => i.id === finding.targetItemId) : undefined;
+    const center = origin === undefined || origin.mapX === null || origin.mapY === null
+      ? undefined
+      : { x: origin.mapX, y: origin.mapY };
+
+    if (wantsReplacement && target !== undefined) {
+      return {
+        patches: await proposeReplacements(target, { kto: this.kto, knownConfidence, center }, startIndex),
+        spent: 1,
+      };
+    }
+
+    /*
+     * 넣는 수정안 (R09 ① · R10). 자리는 0콜로 계산하고 콘텐츠만 조회한다.
+     *
+     * 무엇을 넣을지가 제안의 전부다 — 「빈 시간에 뭔가 넣으세요」로는 사용자가 할 일이 안 준다.
+     */
+    const insertion = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor);
+    if (insertion === null) return { patches: [], spent: 0 };
+
+    return {
+      patches: await proposeInsertions(insertion.anchor, insertion.slot, {
+        kto: this.kto, knownConfidence,
+        wantLcls2: insertion.wantLcls2,
+        exclude: new Set(ctx.items.map((i) => i.content?.ktoContentId ?? '')),
+      }, startIndex),
+      spent: 1,
+    };
   }
 
   /**

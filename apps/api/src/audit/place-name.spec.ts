@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { KtoFetchError } from '../external/kto/kto.errors';
 import type { KtoClient } from '../external/kto';
 import {
-  NAME_CACHE_MAX, NAME_TTL_MS, PlaceNameResolver, applyNames, replacedContentIds,
+  NAME_CACHE_MAX, NAME_TTL_MS, PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds,
 } from './place-name';
 
 /** 부른 횟수를 셀 수 있는 공사 스텁 */
@@ -125,5 +125,36 @@ describe('전후 비교에 대체된 이름을 얹는다 (DR-PR-001)', () => {
     const after = [row(1, '129784', 'x'), row(2, '2868839', 'y'), row(3, null, 'z')];
     expect(replacedContentIds(before, after)).toEqual(['129784']);
     expect(replacedContentIds(before, before)).toEqual([]);
+  });
+});
+
+describe('수정안에 이름을 얹는다 (FR-PA-003)', () => {
+  const run = {
+    findings: [{
+      patches: [
+        { patchId: 'p-1', type: 'REPLACE_CONTENT', targetItemId: 1, payload: { ktoContentId: '111' } },
+        { patchId: 'p-2', type: 'INSERT_ITEM', targetItemId: 1, payload: { dayNo: 1, content: { ktoContentId: '222' } } },
+        { patchId: 'p-3', type: 'INSERT_ITEM', targetItemId: 1, payload: { dayNo: 1 } },
+        { patchId: 'p-4', type: 'TIME_SHIFT', targetItemId: 1, payload: { newStartTime: '10:00' } },
+      ],
+    }],
+  };
+
+  it('🔴 대체와 추가 둘 다 이름을 물어본다', async () => {
+    /*
+     * 추가 수정안도 **무엇을 넣는지가 전부**다. 이름이 없으면 후보 둘이 화면에 똑같이
+     * 보인다 — 「2일차에 관광 추가 (12:30~14:00)」가 두 줄로 뜬다. 실제로 그랬다.
+     */
+    const { kto, calls } = stubKto();
+    const names = await new PlaceNameResolver({ kto }).resolve(
+      collectPatchContentIds(run as never),
+    );
+    expect(calls.sort()).toEqual(['111', '222']);
+    expect(names.get('222')).toBe('이름-222');
+  });
+
+  it('콘텐츠가 없는 추가(식사 자리)는 묻지 않는다', () => {
+    // R07 식사 삽입은 자리만 만든다. 물어볼 콘텐츠가 없다
+    expect(collectPatchContentIds(run as never)).toEqual(['111', '222']);
   });
 });

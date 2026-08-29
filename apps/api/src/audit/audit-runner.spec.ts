@@ -37,6 +37,7 @@ function makeRunner(opts: {
   clock?: () => Date;
   profiles?: TargetProfileLookup;
   accountId?: number;
+  maxReplacementCalls?: number;
 }): AuditRunner {
   return new AuditRunner({
     kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
@@ -47,6 +48,7 @@ function makeRunner(opts: {
     climate: opts.climate,
     profiles: opts.profiles,
     accountId: opts.accountId,
+    maxReplacementCalls: opts.maxReplacementCalls,
   });
 }
 
@@ -698,3 +700,48 @@ function fixtureLcls2(): string {
   if (found === undefined) throw new Error('픽스처에 lclsSystm2 가 없다');
   return found;
 }
+
+describe('외부 조회 상한을 굶는 finding 에 먼저 준다 (NF-PF-014)', () => {
+  it('🔴 앞선 finding 이 상한을 다 먹지 않는다', async () => {
+    /*
+     * 위치기반 조회는 상한이 있다. 앞에서부터 쓰면 앞선 finding 들이 다 먹고 뒤가 굶는다 —
+     * 실제로 차단 두 건이 상한 3콜을 소진해 **R10 이 수정안 하나 없이** 화면에 떴다.
+     *
+     * 0콜로 아무것도 못 낸 finding 이 먼저다. 「고칠 방법이 하나도 없다」와 「셋 중 둘만
+     * 있다」는 사용자에게 다른 문제다.
+     *
+     * 여기서 R01 은 옮길 날이 있어 0콜 수정안이 나오고, R10 은 외부 조회뿐이라 굶는다.
+     */
+    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
+    const lcls2 = fixtureLcls2();
+    const profiles: TargetProfileLookup = {
+      find: async (): Promise<TargetProfileRow> => ({ expectedLcls2: ['FD01', lcls2], expectsNight: false }),
+    };
+
+    const result = await runner({ profiles, accountId: 7, maxReplacementCalls: 1 }).run(withTarget, [
+      // 10/13 은 화요일 — 가람집옹심이가 매주 화요일 휴무다
+      item({ id: 1, dayNo: 1, seq: 1, startTime: '10:00', endTime: '11:00', placeLabel: '가람집옹심이',
+             ktoContentId: '2868839', contentTypeId: 39, lclsSystm2: 'FD01',
+             mapX: 128.9393320379, mapY: 37.7611934162 }),
+      item({ id: 2, dayNo: 1, seq: 2, startTime: '18:00', endTime: '19:00', placeLabel: '경포대',
+             ktoContentId: '125790', contentTypeId: 12, lclsSystm2: 'HS01',
+             mapX: 128.8961, mapY: 37.7955 }),
+      item({ id: 3, dayNo: 2, seq: 1, startTime: '10:00', endTime: '11:00', placeLabel: '오죽헌',
+             ktoContentId: '129784', contentTypeId: 14, lclsSystm2: 'VE07',
+             mapX: 128.8797, mapY: 37.7791 }),
+      item({ id: 4, dayNo: 2, seq: 2, startTime: '17:00', endTime: '18:00', placeLabel: '남산공원',
+             ktoContentId: '3022373', contentTypeId: 12, lclsSystm2: 'LS01',
+             mapX: 128.8934, mapY: 37.7473 }),
+    ]);
+
+    const r01 = result.findings.find((f) => f.ruleCode === 'R01');
+    const r10 = result.findings.find((f) => f.ruleCode === 'R10');
+    expect(r01, 'R01 이 안 났다').toBeDefined();
+    expect(r10, 'R10 이 안 났다').toBeDefined();
+
+    // R01 은 0콜로 낼 것이 있다 — 옮길 날이 있다
+    expect((r01?.patches ?? []).map((p) => p.type)).toContain('TIME_SHIFT');
+    // R10 은 외부 조회뿐이다. 상한 한 콜은 이쪽이 써야 한다
+    expect((r10?.patches ?? []).length, 'R10 이 수정안 없이 남았다').toBeGreaterThan(0);
+  });
+});
