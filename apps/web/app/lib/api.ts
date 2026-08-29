@@ -54,6 +54,198 @@ export const authApi = {
   me: () => request<AccountView>("/auth/me"),
 };
 
+// ── 상품 · 검수 결과 (S3 · F04~F07) ───────────────────────────────────────────
+
+export type Severity = "BLOCKER" | "ERROR" | "WARNING" | "UNVERIFIED";
+
+export interface ProductItem {
+  itemId: number;
+  seq: number;
+  start: string;
+  end: string | null;
+  place: string;
+  itemType: string;
+  ktoContentId: string | null;
+  matchStatus: string;
+}
+
+export interface ProductDetail {
+  productId: number;
+  name: string;
+  region: { regnName: string; signguName: string | null };
+  startDate: string;
+  nights: number;
+  dayCount: number;
+  days: { day: number; items: ProductItem[] }[];
+}
+
+export interface RunSummary {
+  auditRunId: number;
+  productId: number;
+  executedAt: string;
+  rulesetVersion: string;
+  isPartial: boolean;
+  readinessScore: number | null;
+  scoreBreakdown: { formula: string | null; deduction: number | null; weights: Record<string, number> };
+  counts: { blocker: number; error: number; warning: number; unverified: number; dismissed: number };
+  needsConfirmationCount: number;
+  targetCount: number;
+  failedCount: number;
+  releasable: boolean;
+  releaseBlockedReason: string | null;
+  evidence: {
+    fetchedAt: string;
+    dataFingerprint: string | null;
+    rulesetVersion: string;
+    delayNotice: string;
+    source: string;
+  };
+}
+
+export interface Finding {
+  findingId: number;
+  ruleCode: string;
+  severity: Severity;
+  reasonCode: string;
+  message: string;
+  target: { itemId: number | null };
+  targetSecondary: { itemId: number } | null;
+  requiresExternal: boolean;
+  externalSource: string | null;
+  sourceBadge: "TOURLINT_VERDICT" | "EXTERNAL_REFERENCE";
+  needsConfirmation: boolean;
+  dismissed: boolean;
+  dismissReason: string | null;
+  confirmed: boolean;
+  patches: Patch[];
+}
+
+export type PatchType = "TIME_SHIFT" | "REORDER" | "REPLACE_CONTENT" | "INSERT_ITEM" | "REMOVE_ITEM";
+
+export interface Patch {
+  patchId: string;
+  type: PatchType;
+  targetItemId: number;
+  payload: {
+    newDayNo?: number;
+    newStartTime?: string;
+    newEndTime?: string;
+    swapWithItemId?: number;
+    dayNo?: number;
+    startTime?: string;
+    endTime?: string;
+    itemType?: string;
+    distanceMeters?: number;
+  };
+}
+
+export interface PatchItem {
+  id: number;
+  dayNo: number;
+  seq: number;
+  startTime: string;
+  endTime: string | null;
+  placeLabel: string;
+  itemType: string;
+}
+
+export interface PatchConflict {
+  kind: string;
+  a: { findingId: number; patchId: string };
+  b: { findingId: number; patchId: string };
+  message: string;
+}
+
+export interface PatchPreview {
+  previewToken: string;
+  conflict: { hasConflict: boolean; pairs: PatchConflict[] };
+  before: PatchItem[];
+  after: PatchItem[];
+  skipped: { patchId: string; reason: string }[];
+}
+
+export interface PatchApplied {
+  patchApplicationId: number;
+  beforeAuditRunId: number | null;
+  reauditJobId: number;
+  pollIntervalMs: number;
+}
+
+export interface PatchSelection {
+  findingId: number;
+  patchId: string;
+}
+
+export interface UnverifiedItem {
+  findingId: number;
+  reason: string;
+  reasonCode: string;
+  confirmedAt: true | null;
+  excludedFromScore: boolean;
+  targetItemId: number | null;
+}
+
+export interface RunListItem {
+  auditRunId: number;
+  executedAt: string;
+  isPartial: boolean;
+  readinessScore: number | null;
+}
+
+export interface AuditJob {
+  jobId: number;
+  status: string;
+  productId: number;
+  progress: { done: number; total: number; label: string };
+  auditRunId: number | null;
+  errorCode?: string;
+  pollIntervalMs?: number;
+}
+
+export const productApi = {
+  detail: (productId: number) => request<ProductDetail>(`/products/${productId}`),
+};
+
+export const auditApi = {
+  listRuns: (productId: number) =>
+    request<{ totalCount: number; runs: RunListItem[] }>(`/products/${productId}/audit-runs`),
+  getRun: (runId: number) => request<RunSummary>(`/audit-runs/${runId}`),
+  getFindings: (runId: number) =>
+    request<{ content: Finding[]; totalElements: number }>(`/audit-runs/${runId}/findings`),
+  getUnverified: (runId: number) =>
+    request<{ totalCount: number; items: UnverifiedItem[] }>(`/audit-runs/${runId}/unverified`),
+  runAudit: (productId: number, triggerType = "MANUAL") =>
+    request<AuditJob>(`/products/${productId}/audit-jobs`, {
+      method: "POST",
+      body: JSON.stringify({ triggerType }),
+    }),
+  getJob: (jobId: number) => request<AuditJob>(`/audit-jobs/${jobId}`),
+  dismissFinding: (findingId: number, reason?: string) =>
+    request<void>(`/findings/${findingId}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify(reason ? { reason } : {}),
+    }),
+  undismissFinding: (findingId: number) =>
+    request<void>(`/findings/${findingId}/dismiss`, { method: "DELETE" }),
+  confirmFinding: (findingId: number) =>
+    request<void>(`/findings/${findingId}/confirm`, { method: "POST" }),
+};
+
+export const patchApi = {
+  // 고른 수정안을 반영하면 어떻게 되는지 미리 본다. 저장하지 않는다 (F08)
+  preview: (productId: number, selections: PatchSelection[]) =>
+    request<PatchPreview>(`/products/${productId}/patch-preview`, {
+      method: "POST",
+      body: JSON.stringify({ selections }),
+    }),
+  // 확정 → 일정 반영 + 자동 재검수. reauditJobId 로 진행을 따라간다 (F09)
+  apply: (productId: number, selections: PatchSelection[], previewToken: string) =>
+    request<PatchApplied>(`/products/${productId}/patch-applications`, {
+      method: "POST",
+      body: JSON.stringify({ selections, previewToken }),
+    }),
+};
+
 export function isApiError(e: unknown): e is ApiError {
   return typeof e === "object" && e !== null && "status" in e && "message" in e;
 }
