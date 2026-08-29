@@ -106,8 +106,11 @@ LIVE_KMA=1 pnpm --filter @tourlint/api exec vitest run test/live-kma.smoke.spec.
 API · DB · 판정 기준을 바꿔야 하면 **코드보다 문서가 먼저다** (협업 규칙 2 · SC-CM-001).
 
 ```
-2인 합의  →  docs/notion/ 개정 + push  →  코드
+결정  →  docs/notion/ 개정 + push  →  코드
 ```
+
+결정은 두 사람이 마주 앉아야만 서는 것이 아니다. 담당자가 AI 도구에 지시한 것도 그 트랙의
+결정이다. 그 트랙 소유자가 정하면 진행하고, **상대 트랙에 영향이 가면 알린다.**
 
 절차는 `docs/notion/README.md`. 정본을 MCP 로 직접 고치지 않는다. 정본 반영은 상시 이슈
 하나에 체크 항목으로 쌓고 막바지에 한 번에 한다.
