@@ -81,3 +81,43 @@ export class PlaceNameResolver {
     this.cache.set(id, { name, at });
   }
 }
+
+/** 이름을 얹을 대상이 되는 항목의 최소 모양. `ItineraryItemRow` 가 이걸 만족한다 */
+export interface NameableItem {
+  readonly id: number;
+  readonly ktoContentId: string | null;
+  readonly placeLabel: string;
+}
+
+/**
+ * 대체된 항목의 이름을 **응답에만** 얹는다 (DR-PR-001).
+ *
+ * `REPLACE_CONTENT` 는 자리를 두고 콘텐츠만 바꾸며 `placeLabel` 은 건드리지 않는다 —
+ * 대체 후보의 명칭이 공사 원문이라 저장할 수 없기 때문이다. 그래서 전후 비교가 **같아
+ * 보였다.** 여기서 표시용으로만 덮는다. 저장된 `place_label` 은 그대로다.
+ *
+ * 콘텐츠가 안 바뀐 항목은 손대지 않는다. 이름을 못 읽었으면 원래 이름을 둔다 — 지어내지 않는다.
+ */
+export function applyNames<T extends NameableItem>(
+  before: readonly NameableItem[],
+  after: readonly T[],
+  names: ReadonlyMap<string, string>,
+): readonly T[] {
+  const was = new Map(before.map((i) => [i.id, i.ktoContentId]));
+  return after.map((item) => {
+    if (item.ktoContentId === null || was.get(item.id) === item.ktoContentId) return item;
+    const name = names.get(item.ktoContentId);
+    return name === undefined ? item : { ...item, placeLabel: name };
+  });
+}
+
+/** 콘텐츠가 바뀐 항목들의 `ktoContentId`. 이름을 물어볼 대상이다 */
+export function replacedContentIds(
+  before: readonly NameableItem[],
+  after: readonly NameableItem[],
+): readonly string[] {
+  const was = new Map(before.map((i) => [i.id, i.ktoContentId]));
+  return after
+    .filter((i) => i.ktoContentId !== null && was.get(i.id) !== i.ktoContentId)
+    .map((i) => i.ktoContentId as string);
+}

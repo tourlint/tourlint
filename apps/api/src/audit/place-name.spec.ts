@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { KtoFetchError } from '../external/kto/kto.errors';
 import type { KtoClient } from '../external/kto';
-import { NAME_CACHE_MAX, NAME_TTL_MS, PlaceNameResolver } from './place-name';
+import {
+  NAME_CACHE_MAX, NAME_TTL_MS, PlaceNameResolver, applyNames, replacedContentIds,
+} from './place-name';
 
 /** 부른 횟수를 셀 수 있는 공사 스텁 */
 function stubKto(byId: Record<string, unknown> = {}) {
@@ -84,5 +86,44 @@ describe('대체 관광지 이름 (DR-PR-001)', () => {
     const { kto, calls } = stubKto();
     await new PlaceNameResolver({ kto }).resolve(['', '']);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('전후 비교에 대체된 이름을 얹는다 (DR-PR-001)', () => {
+  const row = (id: number, contentId: string | null, label: string) =>
+    ({ id, ktoContentId: contentId, placeLabel: label });
+
+  const before = [row(1, '125790', '강릉 경포대'), row(2, '2868839', '가람집옹심이'), row(3, null, '직접 입력')];
+
+  it('🔴 콘텐츠가 바뀐 항목만 이름을 덮는다', () => {
+    /*
+     * `REPLACE_CONTENT` 는 `place_label` 을 건드리지 않는다 — 대체 후보의 명칭이 공사
+     * 원문이라 저장할 수 없다. 그래서 전후 비교가 **같아 보였다.** 표시용으로만 덮는다.
+     */
+    const after = [row(1, '129784', '강릉 경포대'), row(2, '2868839', '가람집옹심이'), row(3, null, '직접 입력')];
+    const named = applyNames(before, after, new Map([['129784', '강릉 오죽헌·시립박물관']]));
+
+    expect(named[0]?.placeLabel).toBe('강릉 오죽헌·시립박물관');
+    // 안 바뀐 것은 손대지 않는다
+    expect(named[1]?.placeLabel).toBe('가람집옹심이');
+    expect(named[2]?.placeLabel).toBe('직접 입력');
+  });
+
+  it('🔴 이름을 못 읽었으면 원래 이름을 둔다 — 지어내지 않는다', () => {
+    const after = [row(1, '129784', '강릉 경포대')];
+    expect(applyNames(before, after, new Map())[0]?.placeLabel).toBe('강릉 경포대');
+  });
+
+  it('🔴 안 바뀐 항목에는 이름이 있어도 안 덮는다', () => {
+    // 다른 상품이 같은 콘텐츠를 쓸 수 있다. 바뀌지 않은 자리의 사용자 표기를 지우면 안 된다
+    const after = [row(1, '125790', '내가 부르는 이름')];
+    const named = applyNames(before, after, new Map([['125790', '강릉 경포대']]));
+    expect(named[0]?.placeLabel).toBe('내가 부르는 이름');
+  });
+
+  it('물어볼 대상만 고른다', () => {
+    const after = [row(1, '129784', 'x'), row(2, '2868839', 'y'), row(3, null, 'z')];
+    expect(replacedContentIds(before, after)).toEqual(['129784']);
+    expect(replacedContentIds(before, before)).toEqual([]);
   });
 });

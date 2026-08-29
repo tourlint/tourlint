@@ -21,7 +21,7 @@ import {
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
 import { AuditRunner, type ItineraryItemRow } from './audit-runner';
 import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
-import { PlaceNameResolver } from './place-name';
+import { PlaceNameResolver, applyNames, replacedContentIds } from './place-name';
 import { RULES, RULESET_VERSION } from './rule-registry';
 import type { AuditSettings } from '../engine/rules/types';
 import { applyPatches } from './patch-apply';
@@ -177,15 +177,9 @@ export class AuditService {
     before: readonly ItineraryItemRow[],
     after: readonly ItineraryItemRow[],
   ): Promise<readonly ItineraryItemRow[]> {
-    const wasBefore = new Map(before.map((i) => [i.id, i.ktoContentId]));
-    const replaced = after.filter((i) => i.ktoContentId !== null && wasBefore.get(i.id) !== i.ktoContentId);
-    if (replaced.length === 0) return after;
-
-    const names = await this.placeNames().resolve(replaced.map((i) => i.ktoContentId as string));
-    return after.map((i) => {
-      const name = i.ktoContentId === null ? undefined : names.get(i.ktoContentId);
-      return name === undefined || wasBefore.get(i.id) === i.ktoContentId ? i : { ...i, placeLabel: name };
-    });
+    const ids = replacedContentIds(before, after);
+    if (ids.length === 0) return after;
+    return applyNames(before, after, await this.placeNames().resolve(ids));
   }
 
   /** 첫 조회 때 만든다. 캐시를 살리려고 한 번 만든 것을 계속 쓴다 */
