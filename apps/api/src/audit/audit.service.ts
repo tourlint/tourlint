@@ -683,6 +683,9 @@ export function toFindingsResponse(run: StoredAuditRun, severity?: string): Reco
       dismissReason: f.dismissReason,
       confirmed: f.confirmed,
       evidence: f.evidence,
+      // 수정안 후보 (FR-PA-001 · finding 당 최대 3). 화면이 이걸로 미리보기·확정을 건다.
+      // 표시 문구는 담지 않는다 — payload·item 으로 표시 시점에 조합한다 (patch-types 주석 · DR-PR-001)
+      patches: f.patches,
     }));
 
   return { content, totalElements: content.length };

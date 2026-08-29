@@ -1,7 +1,7 @@
 "use client";
 
-// 화면 3 본체 (UI-S3 · F04~F07). 요약 · finding 목록 · 확인 필요 목록을 실 검수 데이터로
-// 렌더한다. 검수가 아직 없으면 실행을 걸고 진행률을 폴링한다 (EX-AU-003).
+// 화면 3 본체 (UI-S3 · F04~F09). 요약 · finding 목록 · 확인 필요 목록을 실 검수 데이터로
+// 렌더하고, finding 이 제안한 수정안을 골라 미리보기(F08) → 확정하면 자동 재검수(F09)한다.
 //
 // 판정 문구·점수·사유는 서버가 준 값을 그대로 쓴다 — 화면이 지어내지 않는다 (FR-RU-051 · EX-SY-004).
 
@@ -11,8 +11,13 @@ import { useRouter } from "next/navigation";
 import {
   auditApi,
   isApiError,
+  patchApi,
   productApi,
   type Finding,
+  type Patch,
+  type PatchItem,
+  type PatchPreview,
+  type PatchSelection,
   type ProductDetail,
   type RunSummary,
   type Severity,
@@ -46,6 +51,15 @@ const SEVERITY_META: Record<Severity, { label: string; order: number; badge: str
   },
 };
 
+const ITEM_TYPE_LABEL: Record<string, string> = {
+  SIGHT: "관광",
+  MEAL: "식사",
+  LODGING: "숙박",
+  REST: "휴식",
+  MOVE: "이동",
+  FREE: "자유",
+};
+
 interface Loaded {
   run: RunSummary;
   findings: Finding[];
@@ -60,6 +74,11 @@ export function AuditResult({ productId }: { productId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
+  // 수정안 선택: findingId → patchId (finding 당 하나)
+  const [selected, setSelected] = useState<Record<number, string>>({});
+  const [preview, setPreview] = useState<PatchPreview | null>(null);
+  const [patchBusy, setPatchBusy] = useState<"preview" | "apply" | null>(null);
+  const [patchMsg, setPatchMsg] = useState<string | null>(null);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -105,28 +124,38 @@ export function AuditResult({ productId }: { productId: number }) {
     };
   }, [productId, loadRun, router]);
 
+  function resetPatchState() {
+    setSelected({});
+    setPreview(null);
+    setPatchMsg(null);
+  }
+
+  async function pollJob(jobId: number): Promise<number | null> {
+    let job = await auditApi.getJob(jobId);
+    const interval = job.pollIntervalMs ?? 1500;
+    while (job.auditRunId === null && job.errorCode === undefined) {
+      await sleep(interval);
+      if (!alive.current) return null;
+      job = await auditApi.getJob(jobId);
+      setProgress(job.progress.label);
+    }
+    if (job.errorCode !== undefined) throw new Error(`검수를 마치지 못했습니다 (${job.errorCode}).`);
+    return job.auditRunId;
+  }
+
   async function runAudit() {
     setRunning(true);
     setError(null);
     setProgress(null);
     try {
       const job = await auditApi.runAudit(productId, "MANUAL");
-      const interval = job.pollIntervalMs ?? 1500;
-      let current = job;
-      // 검수는 뒤에서 돈다. auditRunId 가 채워지면 끝, errorCode 면 실패 (EX-AU-003)
-      while (current.auditRunId === null && current.errorCode === undefined) {
-        await sleep(interval);
-        if (!alive.current) return;
-        current = await auditApi.getJob(job.jobId);
-        setProgress(current.progress.label);
-      }
-      if (current.errorCode !== undefined) {
-        setError(`검수를 마치지 못했습니다 (${current.errorCode}).`);
-      } else if (current.auditRunId !== null) {
-        await loadRun(current.auditRunId);
+      const runId = await pollJob(job.jobId);
+      if (runId !== null) {
+        resetPatchState();
+        await loadRun(runId);
       }
     } catch (err) {
-      setError(isApiError(err) ? err.message : "검수 실행에 실패했습니다.");
+      setError(isApiError(err) ? err.message : err instanceof Error ? err.message : "검수 실행에 실패했습니다.");
     } finally {
       if (alive.current) {
         setRunning(false);
@@ -135,10 +164,64 @@ export function AuditResult({ productId }: { productId: number }) {
     }
   }
 
-  // 무시·확정은 점수·건수를 바꾸므로 요약과 목록을 함께 다시 읽는다 (FR-AU-046)
+  function selectPatch(findingId: number, patchId: string | null) {
+    setPreview(null); // 선택이 바뀌면 이전 미리보기는 무효다
+    setPatchMsg(null);
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (patchId === null) delete next[findingId];
+      else next[findingId] = patchId;
+      return next;
+    });
+  }
+
+  function selections(): PatchSelection[] {
+    return Object.entries(selected).map(([findingId, patchId]) => ({ findingId: Number(findingId), patchId }));
+  }
+
+  async function doPreview() {
+    setPatchBusy("preview");
+    setPatchMsg(null);
+    try {
+      const p = await patchApi.preview(productId, selections());
+      if (alive.current) setPreview(p);
+    } catch (err) {
+      setPatchMsg(isApiError(err) ? err.message : "미리보기에 실패했습니다.");
+    } finally {
+      if (alive.current) setPatchBusy(null);
+    }
+  }
+
+  async function doApply() {
+    if (preview === null) return;
+    setPatchBusy("apply");
+    setPatchMsg(null);
+    setProgress(null);
+    try {
+      const applied = await patchApi.apply(productId, selections(), preview.previewToken);
+      const runId = await pollJob(applied.reauditJobId);
+      if (runId !== null) {
+        resetPatchState();
+        await loadRun(runId);
+      }
+    } catch (err) {
+      // PATCH_CONFLICT · PATCH_STALE 는 서버 문구를 그대로 보여준다. stale 이면 다시 미리보기해야 한다
+      setPatchMsg(isApiError(err) ? err.message : err instanceof Error ? err.message : "확정에 실패했습니다.");
+      setPreview(null);
+    } finally {
+      if (alive.current) {
+        setPatchBusy(null);
+        setProgress(null);
+      }
+    }
+  }
+
   async function refresh() {
     if (data) await loadRun(data.run.auditRunId);
   }
+
+  const labelOf = itemLabeler(product);
+  const selectedCount = Object.keys(selected).length;
 
   return (
     <>
@@ -164,7 +247,7 @@ export function AuditResult({ productId }: { productId: number }) {
           <button
             type="button"
             onClick={runAudit}
-            disabled={running}
+            disabled={running || patchBusy !== null}
             className="shrink-0 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             {running ? "검수 중…" : "지금 재검수"}
@@ -181,29 +264,46 @@ export function AuditResult({ productId }: { productId: number }) {
       ) : data === null ? (
         <EmptyState running={running} progress={progress} onRun={runAudit} />
       ) : (
-        <div className="mt-6 space-y-8">
+        <div className="mt-6 space-y-8 pb-28">
           <SummaryCard run={data.run} />
           <FindingsSection
             findings={data.findings}
-            itemLabel={itemLabeler(product)}
+            itemLabel={labelOf}
+            selected={selected}
+            onSelectPatch={selectPatch}
             onChanged={refresh}
+            busy={patchBusy !== null || running}
           />
-          <UnverifiedSection items={data.unverified} itemLabel={itemLabeler(product)} onChanged={refresh} />
+          <UnverifiedSection items={data.unverified} itemLabel={labelOf} onChanged={refresh} />
+
+          {preview && (
+            <PatchPreviewPanel
+              preview={preview}
+              itemLabel={labelOf}
+              applying={patchBusy === "apply"}
+              progress={progress}
+              onApply={doApply}
+              onClose={() => setPreview(null)}
+            />
+          )}
         </div>
+      )}
+
+      {data && selectedCount > 0 && (
+        <PatchBar
+          count={selectedCount}
+          busy={patchBusy}
+          message={patchMsg}
+          hasPreview={preview !== null}
+          onPreview={doPreview}
+          onClear={() => resetPatchState()}
+        />
       )}
     </>
   );
 }
 
-function EmptyState({
-  running,
-  progress,
-  onRun,
-}: {
-  running: boolean;
-  progress: string | null;
-  onRun: () => void;
-}) {
+function EmptyState({ running, progress, onRun }: { running: boolean; progress: string | null; onRun: () => void }) {
   return (
     <div className="mt-10 rounded-2xl border border-dashed border-slate-300 py-16 text-center dark:border-slate-700">
       <p className="text-sm text-slate-500 dark:text-slate-400">아직 검수하지 않았습니다.</p>
@@ -235,7 +335,6 @@ function SummaryCard({ run }: { run: RunSummary }) {
         <div>
           <p className="text-sm text-slate-500 dark:text-slate-400">출시 준비도</p>
           {run.isPartial ? (
-            // 부분 검수는 점수를 매기지 않는다 (DR-IN-005 · EX-AU-007)
             <span className="mt-1 inline-block rounded bg-slate-200 px-3 py-1 text-sm font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200">
               부분 검수
             </span>
@@ -251,10 +350,7 @@ function SummaryCard({ run }: { run: RunSummary }) {
         </div>
         <div className="flex gap-2">
           {counts.map(({ key, n }) => (
-            <div
-              key={key}
-              className={`min-w-[64px] rounded-lg px-3 py-2 text-center ${SEVERITY_META[key].badge}`}
-            >
+            <div key={key} className={`min-w-[64px] rounded-lg px-3 py-2 text-center ${SEVERITY_META[key].badge}`}>
               <div className="text-lg font-bold tabular-nums">{n}</div>
               <div className="text-xs">{SEVERITY_META[key].label}</div>
             </div>
@@ -285,11 +381,17 @@ function SummaryCard({ run }: { run: RunSummary }) {
 function FindingsSection({
   findings,
   itemLabel,
+  selected,
+  onSelectPatch,
   onChanged,
+  busy,
 }: {
   findings: Finding[];
   itemLabel: (itemId: number | null) => string;
+  selected: Record<number, string>;
+  onSelectPatch: (findingId: number, patchId: string | null) => void;
   onChanged: () => Promise<void>;
+  busy: boolean;
 }) {
   const sorted = [...findings].sort(
     (a, b) => SEVERITY_META[a.severity].order - SEVERITY_META[b.severity].order || a.findingId - b.findingId,
@@ -304,7 +406,15 @@ function FindingsSection({
       ) : (
         <ul className="mt-3 space-y-3">
           {sorted.map((f) => (
-            <FindingCard key={f.findingId} finding={f} itemLabel={itemLabel} onChanged={onChanged} />
+            <FindingCard
+              key={f.findingId}
+              finding={f}
+              itemLabel={itemLabel}
+              selectedPatchId={selected[f.findingId] ?? null}
+              onSelectPatch={onSelectPatch}
+              onChanged={onChanged}
+              busy={busy}
+            />
           ))}
         </ul>
       )}
@@ -315,20 +425,26 @@ function FindingsSection({
 function FindingCard({
   finding,
   itemLabel,
+  selectedPatchId,
+  onSelectPatch,
   onChanged,
+  busy,
 }: {
   finding: Finding;
   itemLabel: (itemId: number | null) => string;
+  selectedPatchId: string | null;
+  onSelectPatch: (findingId: number, patchId: string | null) => void;
   onChanged: () => Promise<void>;
+  busy: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [dismissBusy, setDismissBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const meta = SEVERITY_META[finding.severity];
-  // 차단은 무시할 수 없다 (PM-NG-001) — 버튼을 아예 내지 않는다
   const canDismiss = finding.severity !== "BLOCKER";
+  const hasPatches = finding.patches.length > 0 && !finding.dismissed;
 
   async function toggleDismiss() {
-    setBusy(true);
+    setDismissBusy(true);
     setErr(null);
     try {
       if (finding.dismissed) await auditApi.undismissFinding(finding.findingId);
@@ -337,7 +453,7 @@ function FindingCard({
     } catch (e) {
       setErr(isApiError(e) ? e.message : "처리하지 못했습니다.");
     } finally {
-      setBusy(false);
+      setDismissBusy(false);
     }
   }
 
@@ -373,19 +489,48 @@ function FindingCard({
           <button
             type="button"
             onClick={toggleDismiss}
-            disabled={busy}
+            disabled={dismissBusy}
             className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             {finding.dismissed ? "무시 해제" : "무시"}
           </button>
         )}
       </div>
+
+      {hasPatches && (
+        <fieldset className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800" disabled={busy}>
+          <legend className="text-xs font-medium text-slate-500 dark:text-slate-400">수정안 (골라서 미리보기)</legend>
+          <div className="mt-2 space-y-1.5">
+            {finding.patches.map((p) => (
+              <label key={p.patchId} className="flex cursor-pointer items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name={`patch-${finding.findingId}`}
+                  className="mt-0.5"
+                  checked={selectedPatchId === p.patchId}
+                  onChange={() => onSelectPatch(finding.findingId, p.patchId)}
+                />
+                <span className="text-slate-700 dark:text-slate-300">{patchLabel(p, itemLabel)}</span>
+              </label>
+            ))}
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
+              <input
+                type="radio"
+                name={`patch-${finding.findingId}`}
+                className="mt-0.5"
+                checked={selectedPatchId === null}
+                onChange={() => onSelectPatch(finding.findingId, null)}
+              />
+              선택 안 함
+            </label>
+          </div>
+        </fieldset>
+      )}
     </li>
   );
 }
 
 function SourceBadge({ finding }: { finding: Finding }) {
-  // 4종 출처 배지 중 finding 이 쓰는 둘 (FR-CM-010 · UI-CM-011)
   const isExternal = finding.sourceBadge === "EXTERNAL_REFERENCE";
   return (
     <span
@@ -397,6 +542,125 @@ function SourceBadge({ finding }: { finding: Finding }) {
     >
       {isExternal ? "외부 참고" : "판정"}
     </span>
+  );
+}
+
+function PatchBar({
+  count,
+  busy,
+  message,
+  hasPreview,
+  onPreview,
+  onClear,
+}: {
+  count: number;
+  busy: "preview" | "apply" | null;
+  message: string | null;
+  hasPreview: boolean;
+  onPreview: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-3">
+        <div className="text-sm text-slate-600 dark:text-slate-300">
+          수정안 <strong>{count}</strong>개 선택됨
+          {message && <span className="ml-3 text-rose-600 dark:text-rose-400">{message}</span>}
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={busy !== null}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            선택 해제
+          </button>
+          <button
+            type="button"
+            onClick={onPreview}
+            disabled={busy !== null}
+            className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60"
+          >
+            {busy === "preview" ? "미리보는 중…" : hasPreview ? "다시 미리보기" : "미리보기"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PatchPreviewPanel({
+  preview,
+  itemLabel,
+  applying,
+  progress,
+  onApply,
+  onClose,
+}: {
+  preview: PatchPreview;
+  itemLabel: (itemId: number | null) => string;
+  applying: boolean;
+  progress: string | null;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  const changes = diffItems(preview.before, preview.after);
+  const blocked = preview.conflict.hasConflict;
+  return (
+    <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-6 dark:border-indigo-900 dark:bg-indigo-950/20">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">수정안 미리보기</h2>
+        <button type="button" onClick={onClose} className="text-sm text-slate-400 hover:text-slate-600">
+          닫기
+        </button>
+      </div>
+
+      {blocked && (
+        <div className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
+          <p className="font-medium">선택한 수정안 사이에 충돌이 있습니다. 하나를 해제해 주세요.</p>
+          <ul className="mt-1 list-disc pl-5">
+            {preview.conflict.pairs.map((c, i) => (
+              <li key={i}>{c.message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {changes.length === 0 ? (
+        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">바뀌는 일정이 없습니다.</p>
+      ) : (
+        <ul className="mt-4 space-y-2">
+          {changes.map((c) => (
+            <li key={c.id} className="rounded-lg bg-white px-3 py-2 text-sm dark:bg-slate-900">
+              <span className="text-slate-500 dark:text-slate-400">{itemLabel(c.id)}</span>
+              <span className="mx-2 text-slate-400">·</span>
+              <span className="text-slate-400 line-through">{c.before}</span>
+              <span className="mx-2">→</span>
+              <span className="font-medium text-slate-800 dark:text-slate-100">{c.after}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {preview.skipped.length > 0 && (
+        <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
+          반영하지 못한 수정안 {preview.skipped.length}건 — {preview.skipped.map((s) => s.reason).join(" / ")}
+        </p>
+      )}
+
+      <div className="mt-5 flex items-center justify-end gap-3">
+        {applying && <span className="text-sm text-slate-500 dark:text-slate-400">{progress ?? "재검수 중…"}</span>}
+        <button
+          type="button"
+          onClick={onApply}
+          disabled={blocked || applying}
+          className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60"
+        >
+          {applying ? "확정 중…" : "확정하고 재검수"}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -469,6 +733,59 @@ function UnverifiedRow({
       </button>
     </li>
   );
+}
+
+/** 수정안 표시 문구를 payload·대상 항목으로 조합한다 — 서버는 문구를 저장하지 않는다 (DR-PR-001) */
+function patchLabel(patch: Patch, itemLabel: (itemId: number | null) => string): string {
+  const p = patch.payload;
+  switch (patch.type) {
+    case "TIME_SHIFT": {
+      const parts: string[] = [];
+      if (p.newDayNo !== undefined) parts.push(`${p.newDayNo}일차로 이동`);
+      if (p.newStartTime !== undefined || p.newEndTime !== undefined) {
+        parts.push(`${p.newStartTime ?? "그대로"}~${p.newEndTime ?? "그대로"} 로 시간 조정`);
+      }
+      return parts.length > 0 ? parts.join(" · ") : "시간 조정";
+    }
+    case "REORDER":
+      return `${itemLabel(patch.targetItemId)} ↔ ${itemLabel(p.swapWithItemId ?? null)} 순서 바꾸기`;
+    case "REPLACE_CONTENT":
+      return p.distanceMeters !== undefined
+        ? `가까운 다른 관광지로 대체 (약 ${Math.round(p.distanceMeters / 100) / 10}km)`
+        : "다른 관광지로 대체";
+    case "INSERT_ITEM":
+      return `${p.dayNo}일차에 ${ITEM_TYPE_LABEL[p.itemType ?? ""] ?? "항목"} 추가 (${p.startTime ?? ""}~${p.endTime ?? ""})`;
+    case "REMOVE_ITEM":
+      return "일정에서 제거";
+    default:
+      return "수정안";
+  }
+}
+
+interface ItemChange {
+  id: number;
+  before: string;
+  after: string;
+}
+
+/** 미리보기 before/after 에서 실제로 바뀐 항목만 뽑는다 */
+function diffItems(before: PatchItem[], after: PatchItem[]): ItemChange[] {
+  const beforeById = new Map(before.map((it) => [it.id, it]));
+  const afterById = new Map(after.map((it) => [it.id, it]));
+  const changes: ItemChange[] = [];
+  const ids = new Set<number>([...beforeById.keys(), ...afterById.keys()]);
+  for (const id of ids) {
+    const b = beforeById.get(id);
+    const a = afterById.get(id);
+    if (b && !a) changes.push({ id, before: slot(b), after: "제거됨" });
+    else if (!b && a) changes.push({ id, before: "없음", after: slot(a) });
+    else if (b && a && slot(b) !== slot(a)) changes.push({ id, before: slot(b), after: slot(a) });
+  }
+  return changes;
+}
+
+function slot(it: PatchItem): string {
+  return `${it.dayNo}일차 ${it.startTime}${it.endTime ? `~${it.endTime}` : ""}`;
 }
 
 /** itemId 를 "1일차 · 강릉 경포대" 형태로. 대상이 없으면 상품 전체 판정이다 */
