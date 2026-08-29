@@ -548,3 +548,36 @@ describe('넣을 자리 계산 (R09 ① · R10 · FR-RU-103)', () => {
     expect(plan?.slot.dayNo).toBe(1);
   });
 });
+
+describe('R07 — 식사가 아예 없을 때 (FR-RU-073)', () => {
+  const r07 = (dayNo: number): Finding => finding({
+    ruleCode: 'R07', severity: 'WARNING', reasonCode: 'MEAL_REST_MISSING',
+    // 식사가 없으니 지목할 항목도 없다
+    targetItemId: null, evidence: { dayNo, span: { from: '10:00', to: '18:00', minutes: 480 } },
+  });
+
+  it('🔴 지목할 항목이 없어도 공백에 식사를 넣는다', () => {
+    /*
+     * `MEAL_TIME_SHORT` 는 짧은 식사 항목을 지목하지만 `MEAL_REST_MISSING` 은 지목할 것이
+     * 없어 `targetItemId` 가 null 이다. 대상 항목을 먼저 찾는 자리에 두면 **정작 넣어 줘야
+     * 할 때만** 수정안이 사라진다.
+     */
+    const a = item({ day: 1, start: '10:00', end: '11:30' });
+    const b = item({ day: 1, start: '12:30', end: '15:00' });
+    const patches = proposeLocalPatches({
+      finding: r07(1), items: [a, b], holidays: KOREAN_HOLIDAYS,
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toMatchObject({ type: 'INSERT_ITEM' });
+    expect(patches[0]?.payload).toMatchObject({ dayNo: 1, startTime: '11:30', itemType: 'MEAL' });
+  });
+
+  it('공백이 모자라면 제안하지 않는다', () => {
+    // 넣자마자 시간 중복이 날 수정안을 낼 수는 없다
+    const a = item({ day: 1, start: '10:00', end: '11:30' });
+    const b = item({ day: 1, start: '12:00', end: '15:00' });
+    expect(proposeLocalPatches({ finding: r07(1), items: [a, b], holidays: KOREAN_HOLIDAYS }))
+      .toHaveLength(0);
+  });
+});
