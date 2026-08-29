@@ -21,6 +21,7 @@ import {
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
 import { AuditRunner, type ItineraryItemRow } from './audit-runner';
 import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
+import { PlaceNameResolver } from './place-name';
 import { RULES, RULESET_VERSION } from './rule-registry';
 import type { AuditSettings } from '../engine/rules/types';
 import { applyPatches } from './patch-apply';
@@ -73,6 +74,13 @@ export class AuditService {
   private readonly results: AuditResultRepository;
   private readonly patchApplications: PatchApplicationRepository;
   private readonly callLogger: PgApiCallLogger;
+  /**
+   * 대체 관광지 이름 조회 (DR-PR-001).
+   *
+   * **생성자에서 만들지 않는다.** 인증키가 비면 `HttpKtoTransport` 가 생성자에서 던져
+   * 앱 전체가 못 뜬다 — 배치에서 한 번 겪고 `app-boot.spec` 이 잡아 줬는데 여기서 또 했다.
+   */
+  private nameResolver: PlaceNameResolver | null = null;
   private running = 0;
   /** 돌고 있는 검수들. 테스트가 완료를 기다릴 수 있게 붙잡아 둔다 */
   private readonly inFlight = new Set<Promise<void>>();
@@ -151,9 +159,47 @@ export class AuditService {
       previewToken: snapshotToken(items),
       conflict: { hasConflict: conflict.hasConflict, pairs: conflict.conflicts },
       before: items,
-      after: applied.items,
+      after: await this.withReplacedNames(items, applied.items),
       skipped: applied.skipped,
     };
+  }
+
+  /**
+   * 대체된 항목의 이름을 **응답에만** 채운다 (DR-PR-001).
+   *
+   * `REPLACE_CONTENT` 는 자리를 두고 콘텐츠만 바꾸며 `placeLabel` 은 건드리지 않는다 —
+   * 대체 후보의 명칭이 공사 원문이라 저장할 수 없기 때문이다. 그래서 전후 비교가 **같아
+   * 보였다.** 표시용으로만 이름을 얹는다. 저장된 `place_label` 은 그대로다.
+   *
+   * 이름을 못 읽으면 원래 이름을 둔다. 지어내지 않는다.
+   */
+  private async withReplacedNames(
+    before: readonly ItineraryItemRow[],
+    after: readonly ItineraryItemRow[],
+  ): Promise<readonly ItineraryItemRow[]> {
+    const wasBefore = new Map(before.map((i) => [i.id, i.ktoContentId]));
+    const replaced = after.filter((i) => i.ktoContentId !== null && wasBefore.get(i.id) !== i.ktoContentId);
+    if (replaced.length === 0) return after;
+
+    const names = await this.placeNames().resolve(replaced.map((i) => i.ktoContentId as string));
+    return after.map((i) => {
+      const name = i.ktoContentId === null ? undefined : names.get(i.ktoContentId);
+      return name === undefined || wasBefore.get(i.id) === i.ktoContentId ? i : { ...i, placeLabel: name };
+    });
+  }
+
+  /** 첫 조회 때 만든다. 캐시를 살리려고 한 번 만든 것을 계속 쓴다 */
+  private placeNames(): PlaceNameResolver {
+    this.nameResolver ??= new PlaceNameResolver({ kto: createKtoClient(this.callLogger) });
+    return this.nameResolver;
+  }
+
+  /** 수정안에 실을 대체 관광지 이름 (FR-PA-003). 저장하지 않고 표시할 때만 채운다 */
+  async replacementNames(run: StoredAuditRun): Promise<ReadonlyMap<string, string>> {
+    const ids = run.findings.flatMap((f) => f.patches
+      .filter((p) => p.type === 'REPLACE_CONTENT')
+      .map((p) => String((p.payload as { ktoContentId?: unknown }).ktoContentId ?? '')));
+    return ids.length === 0 ? new Map() : this.placeNames().resolve(ids);
   }
 
   /**
@@ -662,7 +708,11 @@ export function toRunResponse(run: StoredAuditRun, runFingerprint?: string): Rec
   };
 }
 
-export function toFindingsResponse(run: StoredAuditRun, severity?: string): Record<string, unknown> {
+export function toFindingsResponse(
+  run: StoredAuditRun,
+  severity?: string,
+  names: ReadonlyMap<string, string> = new Map(),
+): Record<string, unknown> {
   const wanted = SEVERITY.includes(severity as Severity) ? (severity as Severity) : null;
   const content = run.findings
     .filter((f) => wanted === null || f.severity === wanted)
@@ -683,9 +733,18 @@ export function toFindingsResponse(run: StoredAuditRun, severity?: string): Reco
       dismissReason: f.dismissReason,
       confirmed: f.confirmed,
       evidence: f.evidence,
-      // 수정안 후보 (FR-PA-001 · finding 당 최대 3). 화면이 이걸로 미리보기·확정을 건다.
-      // 표시 문구는 담지 않는다 — payload·item 으로 표시 시점에 조합한다 (patch-types 주석 · DR-PR-001)
-      patches: f.patches,
+      /*
+       * 수정안 후보 (FR-PA-001 · finding 당 최대 3). 화면이 이걸로 미리보기·확정을 건다.
+       *
+       * 저장된 수정안에는 문구가 없다 (DR-PR-001). 대체 관광지만 이름이 필요해서 **표시할
+       * 때 조회한 것**을 여기서 얹는다 — 없으면 화면이 「가까운 다른 관광지」로만 뜬다.
+       */
+      patches: f.patches.map((p) => {
+        if (p.type !== 'REPLACE_CONTENT') return p;
+        const id = String((p.payload as { ktoContentId?: unknown }).ktoContentId ?? '');
+        const name = names.get(id);
+        return name === undefined ? p : { ...p, placeName: name };
+      }),
     }));
 
   return { content, totalElements: content.length };
