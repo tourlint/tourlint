@@ -107,12 +107,19 @@ export class AuditController {
     return toRevertResponse(application, revertedAt);
   }
 
+  /**
+   * 발견 항목 목록.
+   *
+   * 대체 관광지 이름은 **여기서 조회해 얹는다.** 수정안에는 명칭이 없다 — 공사 원문이라
+   * 저장하지 않기 때문이다 (DR-PR-001). 안 얹으면 화면이 「가까운 다른 관광지」로만 뜬다.
+   */
   @Get('audit-runs/:runId/findings')
   async findings(
     @Param('runId', ParseIntPipe) runId: number,
     @Query('severity') severity?: string,
   ): Promise<Record<string, unknown>> {
-    return toFindingsResponse(await this.service.getRun(runId), severity);
+    const run = await this.service.getRun(runId);
+    return toFindingsResponse(run, severity, await this.service.replacementNames(run));
   }
 
   /** 확인 필요 목록 (FR-AU-008 · API 설계 5-7) */

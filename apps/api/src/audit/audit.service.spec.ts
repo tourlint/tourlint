@@ -234,6 +234,32 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
     picks[i] as { findingId: number; patchId: string };
 
   describe('수정안 미리보기 (F08 · FR-PA-004 ~ 007)', () => {
+    it('🔴 대체 관광지 수정안은 이름을 채워 돌려준다 (DR-PR-001)', async () => {
+      /*
+       * `REPLACE_CONTENT` 는 `place_label` 을 안 바꾼다 — 대체 후보의 명칭이 공사 원문이라
+       * 저장할 수 없다. 그래서 전후 비교가 **같아 보였다.** 응답에만 이름을 얹는다.
+       */
+      const { job } = await service.requestAudit(productId, 'INITIAL');
+      await service.waitForIdle();
+      const run = await service.getRun((await service.getJob(job.id)).auditRunId as number);
+
+      const found = run.findings.flatMap((f) => f.patches
+        .filter((p) => p.type === 'REPLACE_CONTENT')
+        .map((p) => ({ findingId: f.id, patchId: p.patchId, itemId: p.targetItemId })));
+      expect(found.length, '대체 수정안이 하나도 안 나왔다').toBeGreaterThan(0);
+
+      const one = found[0] as { findingId: number; patchId: string; itemId: number };
+      const preview = await service.previewPatches(productId, [{ findingId: one.findingId, patchId: one.patchId }]);
+      const was = preview.before.find((i) => i.id === one.itemId);
+      const now = preview.after.find((i) => i.id === one.itemId);
+
+      // 콘텐츠가 실제로 바뀌었고
+      expect(now?.ktoContentId).not.toBe(was?.ktoContentId);
+      // 이름도 따라 바뀌었다. 안 바뀌면 화면이 「수정 안 됨」으로 보인다
+      expect(now?.placeLabel).not.toBe(was?.placeLabel);
+      expect(String(now?.placeLabel ?? '')).not.toBe('');
+    });
+
     it('충돌 여부와 반영 전후 일정을 돌려준다 — 아무것도 저장하지 않는다', async () => {
       const picks = await runAndPick();
       expect(picks.length).toBeGreaterThan(0);
