@@ -113,53 +113,52 @@ jobs:
         continue-on-error: true
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
         run: |
-          # A 단계가 「Railway 로그를 봐라」까지 짚어 준다. 여기서는 그 로그를 끌고 온다.
+          # 앞 단계가 「Railway 로그를 봐라」까지 짚어 준다. 여기서는 **그 로그를 끌고 온다.**
           #
-          # 이 단계는 **실패를 덮지 않는다** (continue-on-error). 토큰이 없거나 스키마가
-          # 바뀌어도 앞 단계의 진단은 그대로 남는다.
+          # 이 단계는 실패를 덮지 않는다 (continue-on-error). 토큰이 없거나 Railway 가
+          # 스키마를 바꿔도 앞 단계의 진단은 그대로 남는다.
           if [ -z "${RAILWAY_TOKEN:-}" ]; then
             echo "RAILWAY_TOKEN 이 없다. Railway 쪽 원인은 대시보드에서 본다."
             exit 0
           fi
 
-          api() {
-            # 프로젝트 토큰과 계정 토큰의 헤더가 다르다. 둘 다 시도한다
-            for header in "Project-Access-Token: $RAILWAY_TOKEN" "Authorization: Bearer $RAILWAY_TOKEN"; do
-              out="$(curl -sS --max-time 25 https://backboard.railway.com/graphql/v2 \
-                -H 'Content-Type: application/json' -H "$header" -d "$1" || true)"
-              case "$out" in
-                *'"data"'*) printf '%s' "$out"; return 0 ;;
-              esac
-            done
-            printf '%s' "${out:-}"
-            return 1
+          gql() {
+            curl -sS --max-time 25 https://backboard.railway.com/graphql/v2 \
+              -H 'Content-Type: application/json' \
+              -H "Project-Access-Token: $RAILWAY_TOKEN" -d "$1" || true
           }
 
-          # 이 커밋에 기록이 없어도 환경은 알아야 한다 — 저장소의 최근 배포 기록에서 꺼낸다
-          env_id="${RAILWAY_ENV_ID:-}"
-          if [ -z "$env_id" ]; then
-            env_id="$(gh api "repos/$GITHUB_REPOSITORY/deployments?per_page=1" \
-              --jq '.[0].payload.environmentId // ""' 2>/dev/null || true)"
-          fi
-          if [ -z "$env_id" ]; then
-            echo "환경 id 를 못 찾았다. Railway 쪽은 대시보드에서 본다."
+          # 프로젝트 토큰은 자기가 어느 프로젝트인지 안다. 여기에 id 를 박아 두지 않는다
+          who="$(gql '{"query":"{projectToken{projectId environmentId}}"}')"
+          pid="$(printf '%s' "$who" | jq -r '.data.projectToken.projectId // empty')"
+          eid="$(printf '%s' "$who" | jq -r '.data.projectToken.environmentId // empty')"
+          if [ -z "$pid" ]; then
+            echo "토큰이 프로젝트를 못 알려줬다: $(printf '%s' "$who" | head -c 300)"
+            echo "  → 계정 토큰을 넣었거나 만료됐다. 프로젝트 토큰으로 다시 만든다."
             exit 0
           fi
-          echo "환경 $env_id"
 
-          probe() {
-            echo "── $1"
-            for header in "Project-Access-Token: $RAILWAY_TOKEN" "Authorization: Bearer $RAILWAY_TOKEN"; do
-              out="$(curl -sS --max-time 25 https://backboard.railway.com/graphql/v2 \
-                -H 'Content-Type: application/json' -H "$header" -d "$2" || true)"
-              echo "   ${header%%:*}: $(printf '%s' "$out" | head -c 300)"
-            done
-          }
+          q='{"query":"query($p:String!,$e:String!){deployments(first:5,input:{projectId:$p,environmentId:$e}){edges{node{id status createdAt}}}}","variables":{"p":"'"$pid"'","e":"'"$eid"'"}}'
+          res="$(gql "$q")"
+          rows="$(printf '%s' "$res" | jq -r '.data.deployments.edges[]?.node | "\(.createdAt[5:16]) \(.status) \(.id)"')"
 
-          pid='103311be-52e7-44ef-becb-28ec5fcb6c38'
-          probe '배포 목록(프로젝트+환경)' '{"query":"query($p:String!,$e:String!){deployments(first:3,input:{projectId:$p,environmentId:$e}){edges{node{id status createdAt}}}}","variables":{"p":"'"$pid"'","e":"'"$env_id"'"}}'
-          probe '배포 목록(프로젝트만)' '{"query":"query($p:String!){deployments(first:3,input:{projectId:$p}){edges{node{id status createdAt}}}}","variables":{"p":"'"$pid"'"}}'
-          probe '프로젝트' '{"query":"query($p:String!){project(id:$p){id name}}","variables":{"p":"'"$pid"'"}}'
-          probe '환경' '{"query":"query($e:String!){environment(id:$e){id name}}","variables":{"e":"'"$env_id"'"}}'
+          if [ -z "$rows" ]; then
+            echo "Railway 가 배포 목록을 안 줬다: $(printf '%s' "$res" | head -c 300)"
+            exit 0
+          fi
+
+          echo "Railway 최근 배포"
+          printf '%s\n' "$rows" | sed 's/^/  /'
+
+          # 실패한 것이 있으면 그 로그를 여기로 가져온다. 대시보드를 안 열어도 되게
+          failed="$(printf '%s' "$res" | jq -r '[.data.deployments.edges[]?.node | select(.status | test("FAILED|CRASHED|REMOVED"))][0].id // empty')"
+          if [ -z "$failed" ]; then
+            echo "  실패한 배포는 없다 — 배포가 걸리지 않았거나 아직 도는 중이다."
+            exit 0
+          fi
+
+          echo
+          echo "실패한 배포 $failed 의 로그"
+          lq='{"query":"query($d:String!){buildLogs(deploymentId:$d,limit:60){message}}","variables":{"d":"'"$failed"'"}}'
+          printf '%s' "$(gql "$lq")" | jq -r '.data.buildLogs[]?.message // empty' | tail -40 | sed 's/^/  /'
