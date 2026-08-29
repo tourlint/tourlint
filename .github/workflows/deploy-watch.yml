@@ -18,6 +18,11 @@ concurrency:
   group: deploy-watch
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  # 실패 원인을 좁히려고 Railway 가 만든 배포 기록을 읽는다
+  deployments: read
+
 jobs:
   watch:
     runs-on: ubuntu-latest
@@ -52,6 +57,46 @@ jobs:
 
           # 여기까지 왔으면 배포가 안 됐거나 아주 늦은 것이다. 어느 쪽이든 사람이 봐야 한다
           echo "::error::$TIMEOUT_SECONDS 초 안에 $want 가 배포되지 않았다 (배포본=${seen:-확인 불가})."
-          echo "Railway 대시보드 → Deployments 에서 트리거가 걸렸는지 본다."
-          echo "/health 에 commit 이 아예 없으면 RAILWAY_GIT_COMMIT_SHA 가 안 들어간 것이다."
+          echo "DEPLOYED=${seen:-}" >> "$GITHUB_ENV"
+          exit 1
+
+      - name: 왜 안 됐는지 좁힌다
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Railway 가 이 커밋에 대해 배포 기록을 만들었는지 본다. 만들었다면 어디까지 갔는지도.
+          # 여기서 갈리는 것이 대응이 갈리는 지점의 전부다 — 연동이냐, 빌드냐, 밀린 거냐.
+          sha="$(git rev-parse HEAD)"
+          echo "커밋 $sha"
+
+          ids="$(gh api "repos/$GITHUB_REPOSITORY/deployments?sha=$sha&per_page=10" --jq '.[].id' || true)"
+
+          if [ -z "$ids" ]; then
+            echo "::error::Railway 가 이 커밋에 배포 기록을 만들지 않았다."
+            echo "  → 신호 자체가 안 갔거나 아직 처리 전이다. GitHub 연동(Settings → Source)과 사용량 한도를 본다."
+            echo "  → 대시보드에서 Redeploy 가 되면 연동 문제, 그것도 안 되면 계정 · 한도 문제다."
+            echo "  → 2026-08-29 에는 기록이 두 시간 뒤에야 생겼다. 이 워크플로를 나중에 다시 돌리면(Re-run)"
+            echo "     그때 상태를 볼 수 있다."
+            exit 1
+          fi
+
+          for id in $ids; do
+            state="$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" --jq '.[0].state // "없음"')"
+            echo "  기록 $id → $state"
+            case "$state" in
+              failure|error)
+                echo "::error::Railway 가 배포를 시도했고 실패했다 ($state)."
+                echo "  → 빌드나 기동이 깨졌다. Railway → Deployments → 해당 배포의 로그를 본다." ;;
+              inactive)
+                echo "::warning::더 새 커밋에 밀려 무효 처리됐다 (inactive)."
+                echo "  → 그 사이 다른 머지가 있었다면 정상이다. 최신 커밋의 감시 결과를 본다." ;;
+              in_progress|queued|pending)
+                echo "::warning::아직 배포 중이다 ($state)."
+                echo "  → 이 워크플로의 대기 시간(TIMEOUT_SECONDS)이 짧았을 수 있다." ;;
+              success)
+                echo "::warning::기록은 success 인데 /health 의 커밋이 다르다."
+                echo "  → 앱이 옛 이미지로 떴거나 RAILWAY_GIT_COMMIT_SHA 가 안 들어갔다." ;;
+            esac
+          done
           exit 1
