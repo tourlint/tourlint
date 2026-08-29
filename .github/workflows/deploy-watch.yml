@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       timeoutSeconds:
-        description: '대기 시간(초). 1 로 두면 곧장 실패시켜 진단 경로를 확인할 수 있다'
+        description: '대기 시간(초). 1 로 두면 곧장 실패시켜 진단 단계가 무엇을 찍는지 볼 수 있다'
         required: false
         default: '900'
 
