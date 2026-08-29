@@ -114,6 +114,30 @@ describe('리포트 렌더', () => {
     expect(src).not.toMatch(/\bdoc\.image\s*\(/);
   });
 
+  it('🔴 꼬리말이 페이지를 늘리지 않는다', async () => {
+    /*
+     * 꼬리말을 하단 여백 안쪽에 그리면 pdfkit 이 본문이 넘친 것으로 보고 페이지를 만들고,
+     * 그 페이지에 또 꼬리말을 그려서 계속 불어난다. 실제로 2쪽짜리가 6쪽으로 나갔다.
+     *
+     * 꼬리말이 페이지를 만들면 **쪽수가 곱절이 된다** — 실제로 2쪽이 6쪽으로 나갔다.
+     * 판정도 일정도 없는 리포트는 섹션 머리말만으로 2쪽이니 그 이상이면 그 사고다.
+     */
+    const small = model({
+      run: {
+        id: 5, productId: 3, executedAt: new Date('2026-08-29T01:00:00.000Z'),
+        rulesetVersion: 'r1', storedScore: 100, isPartial: false, targetCount: 1, failedCount: 0,
+        weights: SEVERITY_WEIGHT_DEFAULT, travelTotals: null, findings: [],
+        current: calculateReadiness({
+          findings: [], weights: SEVERITY_WEIGHT_DEFAULT, targetCount: 1, failedCount: 0,
+        }),
+      },
+      items: [],
+      patches: [],
+      evidence: new Map(),
+    });
+    expect(pageCount(await renderReport(small))).toBeLessThanOrEqual(2);
+  });
+
   it('여러 페이지가 되면 쪽 번호가 붙는다', async () => {
     const many = model({
       items: Array.from({ length: 60 }, (_, i) => ({
@@ -122,8 +146,10 @@ describe('리포트 렌더', () => {
         itemType: 'SIGHT', matchStatus: 'CONFIRMED', ktoContentId: null,
       })),
     });
-    const pdf = await renderReport(many);
-    const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
-    expect(pages).toBeGreaterThan(1);
+    expect(pageCount(await renderReport(many))).toBeGreaterThan(1);
   });
 });
+
+function pageCount(pdf: Buffer): number {
+  return (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+}

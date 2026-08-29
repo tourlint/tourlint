@@ -233,7 +233,7 @@ function drawProduct(doc: Doc, m: ReportModel): void {
   definitions(doc, [
     ['상품명', p.name],
     ['지역', p.region],
-    ['일정', `${p.startDate} 출발 · ${p.dayCount}일 ${p.nights}박`],
+    ['일정', `${p.startDate} 출발 · ${p.nights}박 ${p.dayCount}일`],
     ['인원', p.headCount === null ? '미지정' : `${p.headCount}명`],
     ['이동수단', p.transport],
     ['출시 상태', p.releasedAt === null ? '미출시' : `출시 ${stamp(p.releasedAt)}`],
@@ -436,12 +436,20 @@ function drawFooters(doc: Doc, m: ReportModel): void {
   const range = doc.bufferedPageRange();
   for (let i = range.start; i < range.start + range.count; i += 1) {
     doc.switchToPage(i);
+    /*
+     * 꼬리말은 하단 여백 자리에 그린다. 그대로 쓰면 pdfkit 이 "본문이 넘쳤다"고 보고
+     * 페이지를 새로 만들고, 그 페이지에 또 꼬리말을 그리느라 쪽수가 곱절이 된다 —
+     * 실제로 2쪽짜리가 6쪽으로 나갔다. 그리는 동안만 여백을 0 으로 둔다.
+     */
+    const saved = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
     const y = doc.page.height - MARGIN - 6;
     doc.font('body').fontSize(SMALL).fillColor(GRAY);
     doc.text(m.provenance.source, MARGIN, y, { width: contentWidth(doc) / 2, lineBreak: false });
     doc.text(`${i - range.start + 1} / ${range.count}`,
       MARGIN + contentWidth(doc) / 2, y,
       { width: contentWidth(doc) / 2, align: 'right', lineBreak: false });
+    doc.page.margins.bottom = saved;
   }
 }
 
