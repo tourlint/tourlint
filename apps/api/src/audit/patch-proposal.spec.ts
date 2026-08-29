@@ -5,7 +5,7 @@ import { parseOperatingInfo } from '../engine/normalize/parse';
 import type { AuditItem, Finding } from '../engine/rules/types';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
-import { MIN_TRANSFER_MINUTES, proposeLocalPatches } from './patch-local';
+import { MIN_TRANSFER_MINUTES, lastRepeated, planInsertion, proposeLocalPatches } from './patch-local';
 import { proposeReplacements, rankCandidates } from './patch-remote';
 import { MAX_PATCHES_PER_FINDING } from './patch-types';
 
@@ -389,5 +389,145 @@ describe('R08 — 이동시간 부족 (FR-RU-083)', () => {
     for (const p of patches) {
       expect(String((p.payload as { ktoContentId: string }).ktoContentId)).toMatch(/^\d+$/);
     }
+  });
+});
+
+describe('R04 — 반복 유형 (FR-RU-043)', () => {
+  const r04 = (itemIds: unknown): Finding => finding({
+    ruleCode: 'R04', severity: 'WARNING', reasonCode: 'CONTENT_IMBALANCE',
+    targetItemId: null, evidence: { itemIds, axis: 'lclsSystm2', key: 'VE07', count: 3 },
+  });
+
+  it('반복된 것 중 마지막 하나를 뺀다', () => {
+    const a = item({ day: 1, start: '10:00', end: '11:00' });
+    const b = item({ day: 1, start: '13:00', end: '14:00' });
+    const c = item({ day: 2, start: '10:00', end: '11:00' });
+    const patches = proposeLocalPatches({
+      finding: r04([a.id, b.id, c.id]), items: [a, b, c], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches).toEqual([{ patchId: 'p-1', type: 'REMOVE_ITEM', targetItemId: c.id, payload: {} }]);
+  });
+
+  it('🔴 대상 항목이 없어도 진입한다 — 상품 단위 판정이다', () => {
+    /*
+     * R04 · R09 · R10 은 `targetItemId` 가 null 이다. 대상 항목을 먼저 찾고 없으면 돌아가던
+     * 구조라 이 셋은 수정안이 하나도 안 나왔다.
+     */
+    const a = item(); const b = item();
+    expect(r04([a.id, b.id]).targetItemId).toBeNull();
+    expect(proposeLocalPatches({ finding: r04([a.id, b.id]), items: [a, b], holidays: KOREAN_HOLIDAYS }))
+      .toHaveLength(1);
+  });
+
+  it('🔴 순서가 흔들리지 않는다 (NF-MT-001)', () => {
+    // 같은 검수가 실행마다 다른 항목을 빼면 안 된다
+    const a = item({ day: 1, start: '10:00', end: '11:00' });
+    const b = item({ day: 2, start: '09:00', end: '10:00' });
+    const forward = proposeLocalPatches({ finding: r04([a.id, b.id]), items: [a, b], holidays: KOREAN_HOLIDAYS });
+    const backward = proposeLocalPatches({ finding: r04([b.id, a.id]), items: [b, a], holidays: KOREAN_HOLIDAYS });
+    expect(forward).toEqual(backward);
+    expect(lastRepeated(r04([b.id, a.id]), [a, b])?.id).toBe(b.id);
+  });
+
+  it('🔴 근거가 없으면 아무것도 안 낸다', () => {
+    const a = item();
+    for (const bad of [undefined, [], [a.id], 'x']) {
+      expect(proposeLocalPatches({ finding: r04(bad), items: [a], holidays: KOREAN_HOLIDAYS }), String(bad))
+        .toHaveLength(0);
+    }
+  });
+});
+
+describe('R09 — 실내·야외 순서 교체 (FR-RU-093 ②)', () => {
+  const MAP = { VE07: 'INDOOR', LS01: 'OUTDOOR' } as const;
+  const r09 = (date = '2026-10-22'): Finding => finding({
+    ruleCode: 'R09', severity: 'WARNING', reasonCode: 'RAIN_RISK',
+    targetItemId: null, evidence: { date, outdoorRatio: 0.8 }, requiresExternal: true,
+  });
+
+  const withLcls = (base: AuditItem, lcls2: string): AuditItem => ({ ...base, lclsSystm2: lcls2 });
+
+  it('앞쪽 실내와 뒤쪽 야외를 바꾼다', () => {
+    const indoor = withLcls(item({ start: '10:00', end: '11:00' }), 'VE07');
+    const outdoor = withLcls(item({ start: '14:00', end: '15:00' }), 'LS01');
+    const patches = proposeLocalPatches({
+      finding: r09(indoor.date), items: [indoor, outdoor], holidays: KOREAN_HOLIDAYS, indoorOutdoor: MAP,
+    });
+    expect(patches).toEqual([{
+      patchId: 'p-1', type: 'REORDER', targetItemId: indoor.id, payload: { swapWithItemId: outdoor.id },
+    }]);
+  });
+
+  it('🔴 이미 실내가 뒤면 바꾸지 않는다', () => {
+    // 바꿔 봤자 더 나빠진다
+    const outdoor = withLcls(item({ start: '10:00', end: '11:00' }), 'LS01');
+    const indoor = withLcls(item({ start: '14:00', end: '15:00' }), 'VE07');
+    expect(proposeLocalPatches({
+      finding: r09(outdoor.date), items: [outdoor, indoor], holidays: KOREAN_HOLIDAYS, indoorOutdoor: MAP,
+    })).toHaveLength(0);
+  });
+
+  it('🔴 구분을 모르는 중분류는 건드리지 않는다', () => {
+    // 실내인지 야외인지 모르는 것을 옮기면 더 나빠질 수도 있다 (FR-RU-051)
+    const a = withLcls(item({ start: '10:00', end: '11:00' }), 'ZZ99');
+    const b = withLcls(item({ start: '14:00', end: '15:00' }), 'ZZ98');
+    expect(proposeLocalPatches({
+      finding: r09(a.date), items: [a, b], holidays: KOREAN_HOLIDAYS, indoorOutdoor: MAP,
+    })).toHaveLength(0);
+  });
+
+  it('🔴 다른 날 항목은 섞지 않는다', () => {
+    const indoor = withLcls(item({ day: 1, start: '10:00', end: '11:00' }), 'VE07');
+    const outdoor = withLcls(item({ day: 2, start: '14:00', end: '15:00' }), 'LS01');
+    expect(proposeLocalPatches({
+      finding: r09(indoor.date), items: [indoor, outdoor], holidays: KOREAN_HOLIDAYS, indoorOutdoor: MAP,
+    })).toHaveLength(0);
+  });
+});
+
+describe('넣을 자리 계산 (R09 ① · R10 · FR-RU-103)', () => {
+  const r10 = (missing: unknown): Finding => finding({
+    ruleCode: 'R10', severity: 'WARNING', reasonCode: 'TARGET_MISMATCH',
+    targetItemId: null, evidence: { missingLcls2: missing },
+  });
+
+  it('가장 넉넉한 빈 구간에 앞뒤 여유를 두고 자리를 잡는다', () => {
+    const a = item({ start: '10:00', end: '11:00' });
+    const b = item({ start: '16:00', end: '17:00' });
+    const plan = planInsertion(r10(['VE07']), [a, b], {}, 90);
+
+    expect(plan?.slot.afterItemId).toBe(a.id);
+    expect(plan?.slot.startTime).toBe('11:30');
+    expect(plan?.slot.endTime).toBe('13:00');
+    expect(plan?.wantLcls2).toEqual(['VE07']);
+  });
+
+  it('🔴 결손 유형을 모르면 자리를 잡지 않는다', () => {
+    // 무엇을 넣을지 모르는 채로 자리만 비워 두면 제안이 아니다 (FR-RU-051)
+    const a = item({ start: '10:00', end: '11:00' });
+    const b = item({ start: '16:00', end: '17:00' });
+    for (const bad of [undefined, [], 'x']) {
+      expect(planInsertion(r10(bad), [a, b], {}, 90), String(bad)).toBeNull();
+    }
+  });
+
+  it('🔴 자리가 좁으면 잡지 않는다', () => {
+    // 맞붙여 넣으면 반영 후 재검수에서 「배정된 시간 0분」 오류가 난다
+    const a = item({ start: '10:00', end: '11:00' });
+    const b = item({ start: '12:00', end: '13:00' });
+    expect(planInsertion(r10(['VE07']), [a, b], {}, 90)).toBeNull();
+  });
+
+  it('🔴 R09 는 그 날 안에서만, 실내 중분류만 채운다', () => {
+    const a = item({ day: 1, start: '10:00', end: '11:00' });
+    const b = item({ day: 1, start: '16:00', end: '17:00' });
+    const other = item({ day: 2, start: '10:00', end: '11:00' });
+    const r09 = finding({
+      ruleCode: 'R09', reasonCode: 'RAIN_RISK', targetItemId: null,
+      evidence: { date: a.date }, requiresExternal: true,
+    });
+    const plan = planInsertion(r09, [a, b, other], { VE07: 'INDOOR', LS01: 'OUTDOOR' }, 90);
+    expect(plan?.wantLcls2).toEqual(['VE07']);
+    expect(plan?.slot.dayNo).toBe(1);
   });
 });

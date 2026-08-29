@@ -27,8 +27,8 @@ import {
   chooseMidPublication, chooseShortPublication, isKmaError, kstToday, midLandRegionOf,
   representativePoint, toGrid, type KmaClient,
 } from '../external/kma';
-import { proposeLocalPatches } from './patch-local';
-import { proposeReplacements } from './patch-remote';
+import { lastRepeated, planInsertion, proposeLocalPatches } from './patch-local';
+import { proposeInsertions, proposeReplacements } from './patch-remote';
 import { MAX_PATCHES_PER_FINDING, type Patch } from './patch-types';
 import { RULESET_VERSION, evaluateAll } from './rule-registry';
 
@@ -439,7 +439,11 @@ export class AuditRunner {
 
     const out: Finding[] = [];
     for (const finding of findings) {
-      const local = proposeLocalPatches({ finding, items: ctx.items, holidays: ctx.holidays });
+      const local = proposeLocalPatches({
+        finding, items: ctx.items, holidays: ctx.holidays,
+        // R09 순서 교체가 규칙과 같은 표를 보게 넘긴다 (FR-OP-021)
+        indoorOutdoor: ctx.settings.r09IndoorOutdoor,
+      });
       let patches: Patch[] = [...local];
 
       /*
@@ -449,12 +453,15 @@ export class AuditRunner {
        * 여전히 먼 것들만 나온다. 바꿀 대상은 뒤 항목이다.
        */
       const isR08 = finding.ruleCode === 'R08' && finding.reasonCode === 'TRAVEL_TIME_SHORT';
+      // R04 는 반복된 것 중 마지막 한 곳을 다른 것으로 바꾼다 (FR-RU-043)
+      const r04Target = finding.ruleCode === 'R04' ? lastRepeated(finding, ctx.items) : null;
       const wantsReplacement =
-        (finding.ruleCode === 'R01' || finding.ruleCode === 'R06' || isR08) && finding.targetItemId !== null;
+        (finding.ruleCode === 'R01' || finding.ruleCode === 'R06' || isR08 || r04Target !== null)
+        && (finding.targetItemId !== null || r04Target !== null);
 
-      const target = isR08
+      const target = r04Target ?? (isR08
         ? ctx.items.find((i) => i.id === finding.targetItemId2)
-        : ctx.items.find((i) => i.id === finding.targetItemId);
+        : ctx.items.find((i) => i.id === finding.targetItemId));
       const origin = isR08 ? ctx.items.find((i) => i.id === finding.targetItemId) : undefined;
       const center = origin === undefined || origin.mapX === null || origin.mapY === null
         ? undefined
@@ -465,6 +472,25 @@ export class AuditRunner {
         patches = [
           ...patches,
           ...(await proposeReplacements(target, { kto: this.kto, knownConfidence, center }, patches.length)),
+        ];
+      }
+
+      /*
+       * 넣는 수정안 (R09 ① · R10). 자리는 0콜로 계산하고 콘텐츠만 조회한다.
+       *
+       * R10 은 결손 중분류를, R09 는 실내 중분류를 채운다. 무엇을 넣을지가 제안의 전부라
+       * 「빈 시간에 뭔가 넣으세요」로는 사용자가 할 일이 안 준다.
+       */
+      const insertion = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor);
+      if (insertion !== null && patches.length < MAX_PATCHES_PER_FINDING && calls < this.maxReplacementCalls) {
+        calls++;
+        patches = [
+          ...patches,
+          ...(await proposeInsertions(insertion.anchor, insertion.slot, {
+            kto: this.kto, knownConfidence,
+            wantLcls2: insertion.wantLcls2,
+            exclude: new Set(ctx.items.map((i) => i.content?.ktoContentId ?? '')),
+          }, patches.length)),
         ];
       }
 
