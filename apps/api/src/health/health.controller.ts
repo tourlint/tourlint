@@ -19,13 +19,13 @@ import { Public } from '../auth/public.decorator';
 /**
  * `db/schema.sql` 의 `CREATE TABLE` 수. 이보다 적으면 스키마가 덜 적용된 것이다.
  *
- * DB 명세서 2-3 의 엔터티 19종 + 로그인 세션 1종 = 20.
+ * DB 명세서 2-3 의 엔터티 20종 + 로그인 세션 1종 = 21.
  *
  * ⚠️ **표를 늘리면 여기도 올린다.** 비교가 `>=` 라 안 올리면 새 표가 통째로 없어도
  *    `ok` 가 나간다 — 2026-08-30 `demand_signal` 이 그랬다. `health.controller.spec` 이
  *    `schema.sql` 을 세어 이 값과 맞는지 본다.
  */
-export const EXPECTED_TABLE_COUNT = 20;
+export const EXPECTED_TABLE_COUNT = 21;
 
 /**
  * 지금 돌고 있는 빌드의 커밋 (7자리). 모르면 `null`.
