@@ -60,6 +60,10 @@ describe('앱 부팅', () => {
       'GET /api/v1/notifications',
       'POST /api/v1/notifications/:id/read',
       'POST /api/v1/notifications/:id/dismiss',
+      // F12 ~ F14 레이더
+      'GET /api/v1/radar/summary',
+      'GET /api/v1/radar/changes',
+      'GET /api/v1/radar/signals',
     ]) {
       expect(routes, r).toContain(r);
     }
