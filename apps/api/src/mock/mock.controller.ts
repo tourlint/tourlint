@@ -29,11 +29,7 @@ export class MockController {
 
   // ── 리포트 (F11) ── 실엔진(ReportController)으로 교체됨. mock 제거 (NF-CO-002)
 
-  // ── 레이더 (F12~F14) ──
-  @Get('radar/summary') radarSummary() { return { risk: 0, opportunity: 0, lastBatchAt: null, lastCovered: null }; }
-  @Get('radar/changes') radarChanges() { return { content: [], page: 0, size: 20, totalElements: 0 }; }
-  // 알림 3종은 실엔진(NotificationController)으로 교체됨. mock 제거 (NF-CO-002)
-  @Get('radar/signals') radarSignals() { return { t1: { count: 0, byType: {} }, t2: { count: 0, byType: {} } }; }
+  // ── 레이더 (F12~F14) ── 전부 실엔진(RadarController · NotificationController)으로 교체됨 (NF-CO-002)
 
   // ── 운영 (F15·F16) ──
   @Get('settings') settings() {

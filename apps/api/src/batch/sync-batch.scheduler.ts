@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { IsoDate } from '../engine/calendar/dates';
 import type { BatchStateRepository } from '../persistence/batch-state.repository';
+import type { SignalBatchJob } from './signal-batch.job';
 import type { SkipReason, SyncBatchJob } from './sync-batch.job';
 import { kstMinutesOfDay, kstToday, minutesOfDay } from './sync-window';
 
@@ -33,6 +34,13 @@ export interface SyncBatchSchedulerOptions {
   readonly job: SyncBatchJob;
   readonly state: BatchStateRepository;
   readonly clock?: () => Date;
+  /**
+   * T1 · T2 산출 (F14). 변경 감지가 끝난 뒤에 이어서 돈다.
+   *
+   * 별도 잡이라 여기서 실패해도 변경 감지 결과는 이미 저장돼 있다 — 둘은 서로
+   * 끌고 내려가지 않아야 한다.
+   */
+  readonly signalJob?: SignalBatchJob;
 }
 
 @Injectable()
@@ -41,6 +49,7 @@ export class SyncBatchScheduler {
   private readonly job: SyncBatchJob;
   private readonly state: BatchStateRepository;
   private readonly clock: () => Date;
+  private readonly signalJob: SignalBatchJob | null;
 
   /** 마지막으로 배치를 건 날 (KST). 하루 한 번을 이걸로 지킨다 */
   private lastFired: IsoDate | null = null;
@@ -53,6 +62,7 @@ export class SyncBatchScheduler {
     this.job = options.job;
     this.state = options.state;
     this.clock = options.clock ?? ((): Date => new Date());
+    this.signalJob = options.signalJob ?? null;
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -93,11 +103,33 @@ export class SyncBatchScheduler {
           : `배치 ${result.status} · 날짜 ${result.dates.length}일 · 변경 ${result.contents.length}건`
             + ` · 알림 ${result.notified}건 · 콜 ${result.calls}`,
       );
+
+      await this.runSignals();
     } catch (e) {
       // `run()` 은 던지지 않기로 돼 있다. 그래도 던졌다면 다음 분에 다시 본다
       this.logger.error(`배치가 던졌다: ${(e as Error).message}`);
     } finally {
       this.running = false;
+    }
+  }
+
+  /**
+   * 수요 신호 산출. **던지지 않는다** — 변경 감지는 이미 끝났고 저장됐다.
+   *
+   * 신호를 못 만든 것과 변경을 못 잡은 것은 심각도가 다르다. 여기서 예외가 올라가면
+   * 바깥 catch 가 「배치가 던졌다」로 남겨 변경 감지가 실패한 것처럼 읽힌다.
+   */
+  private async runSignals(): Promise<void> {
+    if (this.signalJob === null) return;
+    try {
+      const r = await this.signalJob.run();
+      this.logger.log(
+        r.skippedReason !== null
+          ? `신호 산출을 건너뛰었다 — ${r.skippedReason}`
+          : `신호 산출 ${r.computed}건 · 실패 ${r.failed}건`,
+      );
+    } catch (e) {
+      this.logger.error(`신호 산출이 던졌다: ${(e as Error).message}`);
     }
   }
 
