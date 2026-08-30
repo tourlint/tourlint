@@ -32,10 +32,8 @@ export class MockController {
   // ── 레이더 (F12~F14) ──
   @Get('radar/summary') radarSummary() { return { risk: 0, opportunity: 0, lastBatchAt: null, lastCovered: null }; }
   @Get('radar/changes') radarChanges() { return { content: [], page: 0, size: 20, totalElements: 0 }; }
+  // 알림 3종은 실엔진(NotificationController)으로 교체됨. mock 제거 (NF-CO-002)
   @Get('radar/signals') radarSignals() { return { t1: { count: 0, byType: {} }, t2: { count: 0, byType: {} } }; }
-  @Get('notifications') notifications() { return { content: [], page: 0, size: 20, totalElements: 0 }; }
-  @Post('notifications/:id/read') readNoti(@Param('id') id: string) { return { id: Number(id), readAt: new Date().toISOString() }; }
-  @Post('notifications/:id/dismiss') dismissNoti(@Param('id') id: string) { return { id: Number(id), dismissedAt: new Date().toISOString() }; }
 
   // ── 운영 (F15·F16) ──
   @Get('settings') settings() {
