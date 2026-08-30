@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { LlmClient, LlmUnavailableError, type LlmProvider, type LlmStructuredResult } from '../external/llm';
 import type { NormalizedOperatingInfo, UnparsedFragment } from '../engine/normalize/types';
 import type { CachedParse, LlmParseCacheRepository } from '../persistence/llm-parse-cache.repository';
-import { applyNormalizeFallback, MAX_FRAGMENTS_PER_CONTENT } from './normalize-fallback';
+import {
+  applyNormalizeFallback, FALLBACK_REASONS, MAX_FIXED_CLOSED, MAX_FRAGMENTS_PER_CONTENT,
+} from './normalize-fallback';
 
 const CONFIG = { provider: 'anthropic', modelStructure: 'm-s', modelNormalize: 'm-n', apiKey: 'k' };
 
 function frag(fragment: string): UnparsedFragment {
-  return { fragment, reason: 'MISSING', affects: ['weeklyClosed'] };
+  // 기본을 CONDITIONAL 로 둔다 — 실측에서 LLM 이 읽을 값이 실제로 있는 유일한 사유다
+  return { fragment, reason: 'CONDITIONAL', affects: ['weeklyClosed'] };
 }
 
 function normalized(unparsed: readonly UnparsedFragment[]): NormalizedOperatingInfo {
@@ -114,10 +117,62 @@ describe('정규화 폴백', () => {
     expect((cache as unknown as { size: () => number }).size()).toBe(0);
   });
 
+  it('🔴 고정휴무를 수십 개 답하면 버린다 — 기간을 날짜로 펼친 것이다', async () => {
+    /*
+     * 실호출에서 「매년 12월~1월」이 고정휴무 62일로 왔다. 원문은 기간을 말하는데
+     * 날짜를 지어낸 것이고, 그것이 CONFIRMED 로 굳으면 12~1월 방문이 전부 차단된다
+     * (PM-NG-001). 지시로도 막지만 지시는 부탁이고 이 상한이 강제다.
+     */
+    const many = Array.from({ length: MAX_FIXED_CLOSED + 1 }, (_, i) =>
+      `12-${String(i + 1).padStart(2, '0')}`);
+    const { llm } = fakeLlm({ fixedClosed: many });
+    const f = frag('매년 12월~1월');
+    const out = await applyNormalizeFallback(normalized([f]), { llm, cache: fakeCache() });
+    expect(out.fixedClosed).toEqual([]);
+    expect(out.unparsed).toEqual([f]);
+  });
+
+  it(`고정휴무 ${String(MAX_FIXED_CLOSED)}개까지는 받는다 — 설날 · 1월 1일 같은 목록이다`, async () => {
+    const few = ['01-01', '12-25'];
+    const { llm } = fakeLlm({ fixedClosed: few });
+    const out = await applyNormalizeFallback(normalized([frag('1월 1일, 성탄절 휴무')]), { llm, cache: fakeCache() });
+    expect(out.fixedClosed).toEqual(few);
+  });
+
   it('LLM 이 없으면 아무것도 하지 않는다', async () => {
     const input = normalized([frag('월요일 쉼')]);
     const out = await applyNormalizeFallback(input, { llm: null, cache: fakeCache() });
     expect(out).toBe(input);
+  });
+
+  it('🔴 값이 없다고 말하는 조각은 LLM 에 넘기지 않는다 — 지어낼 자리를 만들지 않는다', async () => {
+    /*
+     * 실측 119개 조각 중 106개가 이랬다. 「노선별로 상이함」 · 「홈페이지 참조」 ·
+     * 빈 문자열은 파싱 실패가 아니라 관측 결과다. 여기에 LLM 을 물리면 없는 값을
+     * 지어낼 자리를 만드는 것이고, 그것이 CONFIRMED 로 굳으면 잘못된 차단이 된다.
+     */
+    const { llm, calls } = fakeLlm({ weeklyClosed: ['MON'] });
+    const skip: UnparsedFragment[] = [
+      { fragment: '', reason: 'MISSING', affects: [] },
+      { fragment: '노선별로 상이함', reason: 'TARGET_VARIES', affects: ['openHours'] },
+      { fragment: '자세한 사항은 전화문의 요망', reason: 'REFERENCE', affects: ['openHours'] },
+    ];
+    const out = await applyNormalizeFallback(normalized(skip), { llm, cache: fakeCache() });
+    expect(calls()).toBe(0);
+    expect(out.unparsed).toEqual(skip);
+  });
+
+  it('넘기는 사유는 CONDITIONAL · SCHEMA_INVALID 둘뿐이다', () => {
+    expect([...FALLBACK_REASONS].sort()).toEqual(['CONDITIONAL', 'SCHEMA_INVALID']);
+  });
+
+  it('빈 조각은 사유가 맞아도 넘기지 않는다 — 보낼 것이 없다', async () => {
+    const { llm, calls } = fakeLlm({ weeklyClosed: ['MON'] });
+    await applyNormalizeFallback(
+      normalized([{ fragment: '   ', reason: 'CONDITIONAL', affects: [] }]),
+      { llm, cache: fakeCache() },
+    );
+    expect(calls()).toBe(0);
   });
 
   it('미해석 조각이 없으면 부르지 않는다 — 대부분의 콘텐츠가 그렇다', async () => {

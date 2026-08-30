@@ -1,6 +1,8 @@
 import {
   FALLBACK_SCHEMA, FALLBACK_SCHEMA_NAME, mergeFallback, parseFallbackResult,
+  type FallbackParse,
 } from '../engine/normalize/fallback';
+import type { UnparsedReason } from '@tourlint/shared';
 import type { NormalizedOperatingInfo } from '../engine/normalize/types';
 import { fragmentKey, isLlmError, type LlmClient } from '../external/llm';
 import type { LlmParseCacheRepository } from '../persistence/llm-parse-cache.repository';
@@ -32,16 +34,66 @@ import type { LlmParseCacheRepository } from '../persistence/llm-parse-cache.rep
  * 폴백은 나머지 몫이고, 조각이 없으면 이 함수는 아무것도 하지 않는다.
  */
 
-/** 콘텐츠 하나에서 LLM 에 넘기는 조각 수 상한. 넘치면 앞에서부터만 본다 */
+/**
+ * 콘텐츠 하나에서 LLM 에 넘기는 조각 수 상한.
+ *
+ * 실측(`fixtures/operating_info.csv` 287건)에서 한 콘텐츠의 미해석 조각은 최대 3개였다.
+ * 상한이 없으면 파싱이 많이 깨진 콘텐츠 하나가 예산을 다 쓴다.
+ */
 export const MAX_FRAGMENTS_PER_CONTENT = 3;
 
+/**
+ * LLM 에 넘길 사유 (F03).
+ *
+ * **미해석이라고 다 넘기지 않는다.** 실측 119개 조각의 사유별 분포가 이랬다.
+ *
+ * ```
+ * MISSING        69   조각이 빈 문자열이다 — 보낼 것이 없다
+ * TARGET_VARIES  19   「노선별로 상이함」 — 원문이 "다르다"고 말한다
+ * REFERENCE      18   「홈페이지 참조」 — 다른 곳을 가리킨다
+ * CONDITIONAL    13   「1회차 20:00~20:30 / 2회차 20:30~21:00」 ← 구조가 실제로 있다
+ * ```
+ *
+ * 앞의 셋은 **파싱 실패가 아니라 관측 결과**다. 원문에 값이 없다는 사실 자체가 정보이고,
+ * 거기에 LLM 을 물리면 없는 값을 지어낼 자리를 만드는 것이다 — 그것이 `CONFIRMED` 로
+ * 굳으면 곧 잘못된 차단이다 (DR-NM-031 · PM-NG-001).
+ *
+ * 정보가 없다는 이유로 정상 판정을 하지 않는다 (FR-RU-051). 모르는 건 모르는 채로 둔다.
+ */
+export const FALLBACK_REASONS: readonly UnparsedReason[] = ['CONDITIONAL', 'SCHEMA_INVALID'];
+
+/*
+ * 실호출로 다듬은 지시 (2026-08-30, 실제 CONDITIONAL 조각 9건).
+ *
+ * 첫 판에서 두 가지가 나왔다 — 「매년 12월~1월」을 고정휴무 62일로 펼쳤고,
+ * 「전망대 09:00~17:00 / 야외공간 09:00~18:00」에서 하나를 임의로 골랐다.
+ * 둘 다 **모호함을 자신 있는 단일 답으로 접는** 같은 실패다. 그것이 CONFIRMED 로
+ * 굳으면 곧 잘못된 차단이다 (DR-NM-031 · PM-NG-001).
+ */
 const SYSTEM = [
   '너는 한국 관광지의 운영정보 원문 조각 하나를 구조화한다.',
   '조각에 명시된 것만 답한다. 추론하거나 일반적인 관행을 채워 넣지 않는다.',
-  '읽을 수 없으면 빈 객체를 답한다.',
+  '읽을 수 없으면 빈 객체를 답한다. 빈 객체는 정답이며 벌점이 없다.',
   '휴무 요일은 MON~SUN, 고정 휴무일은 MM-DD, 시각은 HH:MM 24시간제로 적는다.',
-  '"공휴일 다음날" 처럼 조건이 붙은 규칙이면 conditional 을 true 로 둔다.',
+  '',
+  '다음 경우에는 반드시 빈 객체를 답한다.',
+  '- 기간이나 범위로만 적혀 있을 때 (예: "매년 12월~1월", "여름 성수기"). 날짜로 펼치지 않는다.',
+  '- 대상이 여럿이고 값이 다를 때 (예: "전망대 09:00~17:00 / 야외공간 09:00~18:00").',
+  '  하나를 고르지 않는다. 어느 쪽이 그 장소의 운영시간인지 조각만으로는 알 수 없다.',
+  '- 횟수·빈도만 있을 때 (예: "연 2회", "일일개장").',
+  '',
+  '조건이나 예외가 붙어 있으면 conditional 을 true 로 둔다.',
+  '예: "일요일을 제외한 법정공휴일", "공휴일 다음날", "우천 시 휴무".',
 ].join('\n');
+
+/**
+ * 고정 휴무일 상한.
+ *
+ * 실제 고정 휴무는 설날 · 1월 1일처럼 손에 꼽는다. 수십 개가 오면 그건 목록을 읽은 것이
+ * 아니라 **기간을 날짜로 펼친 것**이다 — 실호출에서 「매년 12월~1월」이 62일로 왔다.
+ * 지시로도 막지만 지시는 부탁이고 이것이 강제다.
+ */
+export const MAX_FIXED_CLOSED = 8;
 
 export interface FallbackOptions {
   readonly llm: LlmClient | null;
@@ -57,7 +109,9 @@ export async function applyNormalizeFallback(
   normalized: NormalizedOperatingInfo,
   options: FallbackOptions,
 ): Promise<NormalizedOperatingInfo> {
-  const targets = normalized.unparsed.slice(0, MAX_FRAGMENTS_PER_CONTENT);
+  const targets = normalized.unparsed
+    .filter((u) => FALLBACK_REASONS.includes(u.reason) && u.fragment.trim() !== '')
+    .slice(0, MAX_FRAGMENTS_PER_CONTENT);
   if (targets.length === 0 || options.llm === null) return normalized;
 
   let model: string;
@@ -78,8 +132,8 @@ export async function applyNormalizeFallback(
 
     if (hit !== undefined) {
       const parsed = parseFallbackResult(hit.result);
-      // 캐시에 든 값이 지금 스키마를 못 지나면 무시한다. 지우지는 않는다
-      if (parsed !== null) out = mergeFallback(out, fragment, parsed);
+      // 캐시에 든 값이 지금 스키마나 상한을 못 지나면 무시한다. 지우지는 않는다
+      if (parsed !== null && withinLimits(parsed)) out = mergeFallback(out, fragment, parsed);
       continue;
     }
 
@@ -87,7 +141,7 @@ export async function applyNormalizeFallback(
     if (fresh === null) continue;
 
     const parsed = parseFallbackResult(fresh.value);
-    if (parsed === null) continue;
+    if (parsed === null || !withinLimits(parsed)) continue;
 
     // 검증을 통과한 것만 캐시한다. 못 지나는 답을 넣으면 매번 다시 버리게 된다
     await options.cache.put(key, 'NORMALIZE', fresh.model, fresh.value);
@@ -114,4 +168,14 @@ async function callOnce(
     if (!isLlmError(e)) throw e;
     return null;
   }
+}
+
+/**
+ * 상한을 지켰는가. 넘으면 통째로 버린다.
+ *
+ * 검증(`parseFallbackResult`)은 **모양**을 보고 여기는 **분량**을 본다. 모양이 맞아도
+ * 분량이 이상하면 조각에 없던 것을 만들어 낸 것이다.
+ */
+function withinLimits(parsed: FallbackParse): boolean {
+  return parsed.fixedClosed.length <= MAX_FIXED_CLOSED;
 }
