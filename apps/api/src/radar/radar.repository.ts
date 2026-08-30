@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { MatchCondition } from '../batch/impact-finder';
+import { BATCH_KEY } from '../persistence/batch-state.repository';
 
 /**
  * 레이더 조회 (F12 ~ F14 · FR-MO-050 · 006 · 058).
@@ -79,8 +80,14 @@ export class RadarRepository {
     };
   }
 
-  /** 마지막 배치 상태 (NF-OB-004). 전역 값이라 계정과 무관하다 */
-  async batchState(key = 'sync'): Promise<BatchState | null> {
+  /**
+   * 마지막 배치 상태 (NF-OB-004). 전역 값이라 계정과 무관하다.
+   *
+   * ⚠️ **키를 여기서 지어내지 않는다.** `'sync'` 라고 박아 뒀다가 실제 키가 `'sync_list'`
+   * 라서 `lastBatch` 가 영영 `null` 로 나갔다 (2026-08-30 운영에서 확인). 배치가 쓰는
+   * 상수를 그대로 가져다 쓴다.
+   */
+  async batchState(key: string = BATCH_KEY): Promise<BatchState | null> {
     const { rows } = await this.pool.query<{
       last_run_at: Date | null; last_covered: Date | string | null;
       last_status: string | null; last_item_count: number | null;
