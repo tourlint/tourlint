@@ -147,6 +147,12 @@ export interface AuditRunnerOptions {
    * (API 설계 6-1 8단계 "약 3콜").
    */
   readonly maxReplacementCalls?: number;
+  /**
+   * 정규화 폴백 (F03 · FR-AU-010). 없으면 미해석 조각을 그대로 둔다.
+   *
+   * 캐시가 먼저고 LLM 은 미스일 때만 부른다 — 매 검수마다 부르면 NF-MT-001 이 흔들린다.
+   */
+  readonly normalizeFallback?: (n: NormalizedOperatingInfo) => Promise<NormalizedOperatingInfo>;
   /** 길찾기 클라이언트. 없으면 R08 을 판정하지 않는다 */
   readonly kakao?: KakaoMobilityClient;
   /** 기상청 클라이언트. 없으면 R09 를 확인 불가로 남긴다 */
@@ -202,6 +208,8 @@ export class AuditRunner {
   private readonly settings: AuditSettings;
   private readonly previous: ReadonlyMap<string, FingerprintSnapshot>;
   private readonly maxReplacementCalls: number;
+  private readonly normalizeFallback:
+    ((n: NormalizedOperatingInfo) => Promise<NormalizedOperatingInfo>) | null;
   private readonly kakao: KakaoMobilityClient | null;
   private readonly kma: KmaClient | null;
   private readonly climate: ClimateNormalLookup | null;
@@ -224,6 +232,7 @@ export class AuditRunner {
     this.accountId = options.accountId ?? null;
     this.clock = options.clock ?? ((): Date => new Date());
     this.onProgress = options.onProgress ?? ((): void => undefined);
+    this.normalizeFallback = options.normalizeFallback ?? null;
   }
 
   async run(product: ProductRow, items: readonly ItineraryItemRow[]): Promise<AuditRunResult> {
@@ -735,12 +744,15 @@ export class AuditRunner {
       ),
       this.kto.detailIntro(contentId, contentTypeId),
     ]);
-    return {
-      contentTypeId,
-      intro,
-      common: commonResult,
-      normalized: parseOperatingInfo({ contentTypeId, raw: intro }),
-    };
+    const parsed = parseOperatingInfo({ contentTypeId, raw: intro });
+    /*
+     * 사전 파서가 못 읽은 조각만 폴백에 넘긴다 (F03 · FR-AU-010). 조각이 없으면
+     * 아무 일도 없고, 폴백이 실패해도 파서 결과는 그대로다 — 검수는 계속된다.
+     */
+    const normalized = this.normalizeFallback === null
+      ? parsed
+      : await this.normalizeFallback(parsed);
+    return { contentTypeId, intro, common: commonResult, normalized };
   }
 
   private buildContext(
