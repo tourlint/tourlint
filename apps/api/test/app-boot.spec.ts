@@ -56,6 +56,14 @@ describe('앱 부팅', () => {
       // F11
       'POST /api/v1/audit-runs/:runId/reports',
       'GET /api/v1/reports/:reportId/download',
+      // F13 알림
+      'GET /api/v1/notifications',
+      'POST /api/v1/notifications/:id/read',
+      'POST /api/v1/notifications/:id/dismiss',
+      // F12 ~ F14 레이더
+      'GET /api/v1/radar/summary',
+      'GET /api/v1/radar/changes',
+      'GET /api/v1/radar/signals',
     ]) {
       expect(routes, r).toContain(r);
     }

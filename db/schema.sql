@@ -428,6 +428,37 @@ CREATE TABLE system_setting (
 COMMENT ON TABLE  system_setting IS
     '전역 운영 설정. 배치 시각·활성화·일일 호출 예산은 전 계정 공통 - PM-DA-006 · DR-CF-007';
 
+-- ---------------------------------------------------------------------
+-- 19. demand_signal : 수요 신호 T1 · T2 (배치 산출)
+-- ---------------------------------------------------------------------
+CREATE TABLE demand_signal (
+    id              BIGSERIAL PRIMARY KEY,
+    signal_type     TEXT        NOT NULL,
+    -- `regn` 또는 `regn:signgu`. 시군구가 NULL 인 행이 섞이면 평범한 UNIQUE 가
+    -- 행마다 다른 것으로 보아 제약이 통째로 논다 (notification.change_key 와 같은 함정).
+    region_key      TEXT        NOT NULL,
+    ldong_regn_cd   TEXT        NOT NULL,
+    ldong_signgu_cd TEXT,
+    window_from     DATE        NOT NULL,
+    window_to       DATE        NOT NULL,
+    total_count     INT         NOT NULL,
+    by_type         JSONB       NOT NULL,
+    computed_at     TIMESTAMPTZ NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT ck_signal_type   CHECK (signal_type IN ('T1','T2')),
+    CONSTRAINT ck_signal_count  CHECK (total_count >= 0),
+    CONSTRAINT ck_signal_window CHECK (window_from <= window_to),
+    CONSTRAINT uq_signal UNIQUE (signal_type, region_key, window_from, window_to)
+);
+
+COMMENT ON TABLE  demand_signal IS
+    'T1 신규 콘텐츠 · T2 행사 밀도. 배치 산출값이며 강도 점수를 담지 않는다 - FR-RU-121';
+COMMENT ON COLUMN demand_signal.by_type IS
+    'contentTypeId → 건수. 공사 원문 미포함 - DR-PR-001';
+COMMENT ON COLUMN demand_signal.region_key IS
+    'regn 또는 regn:signgu. NULL 이 UNIQUE 를 무력화하는 것을 피한다';
+
 -- DR-IN-011 최소 목록
 CREATE INDEX idx_product_account    ON product(account_id);
 CREATE INDEX idx_item_content       ON itinerary_item(kto_content_id)
@@ -443,6 +474,7 @@ CREATE UNIQUE INDEX uq_job_active   ON audit_job(product_id)
 CREATE INDEX idx_notif_product_read ON notification(product_id, read_at);
 CREATE INDEX idx_product_region_start ON product(ldong_signgu_cd, start_date);
 CREATE INDEX idx_patch_product_time ON patch_application(product_id, applied_at DESC);
+CREATE INDEX idx_signal_lookup      ON demand_signal(signal_type, region_key, window_from);
 
 -- ---------------------------------------------------------------------
 -- DR-IN-003 : day_no <= product.nights + 1

@@ -70,13 +70,26 @@ async function constraintsOf(table) {
 
 async function describe(table) {
   const cols = await columnsOf(table);
+  // 새로 만드는 표는 적용 전에 없다. 「컬럼 0개」로 적으면 빈 표가 있는 것처럼 읽힌다
+  if (cols.length === 0) {
+    console.log(`  ${table} — 아직 없다`);
+    return;
+  }
   console.log(`  ${table} 컬럼 ${cols.length}개: ${cols.join(', ')}`);
   for (const c of await constraintsOf(table)) console.log(`    · ${c}`);
 }
 
-// 파일이 건드리는 표 이름을 뽑아 적용 전후를 보여준다
-const tables = [...new Set([...sql.matchAll(/ALTER TABLE\s+(?:IF EXISTS\s+)?(\w+)/gi)]
-  .map((m) => m[1].toLowerCase()))];
+/*
+ * 파일이 건드리는 표 이름을 뽑아 적용 전후를 보여준다.
+ *
+ * `ALTER` 만 보면 **표를 새로 만드는 마이그레이션이 아무것도 안 보여준다** — `--check` 가
+ * 빈 출력을 내고 적용 뒤에도 무엇이 생겼는지 안 남는다. 2026-08-30 `demand_signal` 에서
+ * 그랬다. `CREATE TABLE` 도 함께 뽑는다.
+ */
+const tables = [...new Set([
+  ...[...sql.matchAll(/ALTER TABLE\s+(?:IF EXISTS\s+)?(\w+)/gi)].map((m) => m[1]),
+  ...[...sql.matchAll(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(\w+)/gi)].map((m) => m[1]),
+].map((t) => t.toLowerCase()))];
 
 try {
   for (const t of tables) await describe(t);
