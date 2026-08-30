@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildCommit, HealthController } from './health.controller';
+import { buildCommit, EXPECTED_TABLE_COUNT, HealthController } from './health.controller';
 
 /**
  * `/health` 는 **배포 후 확인 목록**이다. 값이 아니라 상태만 말한다.
@@ -140,5 +142,20 @@ describe('배포본 커밋 (배포 지연 감지)', () => {
       expect(buildCommit({ RAILWAY_GIT_COMMIT_SHA: bad }), bad).toBeNull();
     }
     expect(buildCommit({})).toBeNull();
+  });
+});
+
+describe('기대 테이블 수', () => {
+  it('🔴 schema.sql 의 CREATE TABLE 수와 맞는다', () => {
+    /*
+     * 비교가 `>=` 라 상수를 안 올리면 새 표가 통째로 없어도 `ok` 가 나간다.
+     * 2026-08-30 `demand_signal` 을 넣고 상수를 안 올려서 운영 /health 가
+     * `tableCount: 20 · expectedTableCount: 19` 로 어긋난 채 `ok` 를 냈다.
+     *
+     * 표를 늘리면 이 검사가 먼저 걸린다.
+     */
+    const schema = readFileSync(join(__dirname, '../../../../db/schema.sql'), 'utf8');
+    const tables = (schema.match(/^CREATE TABLE /gm) ?? []).length;
+    expect(EXPECTED_TABLE_COUNT).toBe(tables);
   });
 });

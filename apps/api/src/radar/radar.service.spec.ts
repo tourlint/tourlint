@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DomainException } from '../common/domain.exception';
+import { BATCH_KEY } from '../persistence/batch-state.repository';
 import { DemandSignalRepository } from '../persistence/demand-signal.repository';
 import { RadarService } from './radar.service';
 
@@ -119,8 +120,24 @@ describe.skipIf(URL === undefined)('RadarService — 관통', () => {
     expect(JSON.stringify(res)).not.toMatch(/"(score|strength|intensity|강도)"/);
   });
 
-  it('요약에 마지막 배치 상태가 실린다 (NF-OB-004)', async () => {
-    const res = await service.summary(mine);
-    expect(res).toHaveProperty('lastBatch');
+  it('🔴 요약에 마지막 배치 상태가 실린다 (NF-OB-004)', async () => {
+    /*
+     * `toHaveProperty` 만 보던 검사는 `lastBatch: null` 도 통과시켰다. 실제로 키를
+     * `'sync'` 로 지어내 두는 바람에 운영에서 영영 null 이 나갔다 — 배치가 도는데도
+     * 「배치 기록 없음」으로 보인다. 배치가 쓰는 키로 실제 행을 읽는지 본다.
+     */
+    await pool.query(
+      `INSERT INTO batch_state (key, last_covered, last_run_at, last_status, last_item_count)
+       VALUES ($1, DATE '2026-08-29', now(), 'OK', 7)
+       ON CONFLICT (key) DO UPDATE
+         SET last_covered = EXCLUDED.last_covered, last_run_at = EXCLUDED.last_run_at,
+             last_status = EXCLUDED.last_status, last_item_count = EXCLUDED.last_item_count`,
+      [BATCH_KEY],
+    );
+    const batch = (await service.summary(mine)).lastBatch as Record<string, unknown> | null;
+    expect(batch).not.toBeNull();
+    expect(batch?.status).toBe('OK');
+    expect(batch?.covered).toBe('2026-08-29');
+    expect(batch?.itemCount).toBe(7);
   });
 });
