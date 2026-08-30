@@ -459,6 +459,27 @@ COMMENT ON COLUMN demand_signal.by_type IS
 COMMENT ON COLUMN demand_signal.region_key IS
     'regn 또는 regn:signgu. NULL 이 UNIQUE 를 무력화하는 것을 피한다';
 
+-- ---------------------------------------------------------------------
+-- 20. llm_parse_cache : LLM 해석 결과 캐시
+-- ---------------------------------------------------------------------
+CREATE TABLE llm_parse_cache (
+    fragment_hash TEXT        PRIMARY KEY,
+    purpose       TEXT        NOT NULL,
+    model         TEXT        NOT NULL,
+    result_json   JSONB       NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT ck_lpc_purpose CHECK (purpose IN ('STRUCTURE','NORMALIZE')),
+    CONSTRAINT ck_lpc_hash    CHECK (fragment_hash ~ '^[0-9a-f]{64}$')
+);
+
+COMMENT ON TABLE  llm_parse_cache IS
+    'LLM 해석 결과 캐시. 같은 조각을 두 번 부르지 않고 같은 답을 보장한다 - EI-LM-005 · NF-MT-001';
+COMMENT ON COLUMN llm_parse_cache.fragment_hash IS
+    'sha256(purpose + model + fragment). 원문 대신 이것만 저장한다 - DR-PR-001';
+COMMENT ON COLUMN llm_parse_cache.model IS
+    '모델을 바꾸면 답도 달라진다. 키에 섞여 있고 조회 결과에도 남긴다';
+
 -- DR-IN-011 최소 목록
 CREATE INDEX idx_product_account    ON product(account_id);
 CREATE INDEX idx_item_content       ON itinerary_item(kto_content_id)

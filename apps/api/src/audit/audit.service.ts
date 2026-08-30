@@ -3,12 +3,15 @@ import type { Pool } from 'pg';
 import { LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, type Severity } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
+import { LlmParseCacheRepository } from '../persistence/llm-parse-cache.repository';
+import { applyNormalizeFallback } from './normalize-fallback';
 import { buildRunFingerprint, shortFingerprint } from '../engine/fingerprint';
 import { BudgetGuard } from '../external/budget-guard';
 import type { CallIntent } from '../external/budget-guard';
 import { KakaoMobilityClient, createKakaoTransport } from '../external/kakao';
 import { KmaClient, createKmaTransport } from '../external/kma';
 import { createKtoClient } from '../external/kto';
+import { LlmClient, createProvider, readLlmConfig } from '../external/llm';
 import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
@@ -25,6 +28,7 @@ import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
 import { PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds } from './place-name';
 import { RULES, RULESET_VERSION } from './rule-registry';
 import type { AuditSettings } from '../engine/rules/types';
+import type { NormalizedOperatingInfo } from '../engine/normalize/types';
 import { applyPatches } from './patch-apply';
 import { checkConflicts, type Conflict, type PatchRef } from './patch-conflict';
 import { snapshotToken, toSnapshot } from './patch-snapshot';
@@ -87,6 +91,7 @@ export class AuditService {
   private readonly patchApplications: PatchApplicationRepository;
   private readonly callLogger: PgApiCallLogger;
   private readonly owns: AuditOwnershipRepository;
+  private readonly parseCache: LlmParseCacheRepository;
   /**
    * 대체 관광지 이름 조회 (DR-PR-001).
    *
@@ -105,6 +110,21 @@ export class AuditService {
     this.patchApplications = new PatchApplicationRepository(pool);
     this.callLogger = new PgApiCallLogger(pool);
     this.owns = new AuditOwnershipRepository(pool);
+    this.parseCache = new LlmParseCacheRepository(pool);
+  }
+
+  /**
+   * 정규화 폴백 (F03). LLM 설정이 없으면 `null` — 폴백 없이 검수한다 (FR-AU-010).
+   *
+   * **생성자에서 만들지 않는다.** 설정이 비면 생성자가 던져 앱 전체가 못 뜬다 —
+   * 공사 클라이언트에서 두 번 겪은 실수다.
+   */
+  private normalizeFallback(): ((n: NormalizedOperatingInfo) => Promise<NormalizedOperatingInfo>) {
+    const config = readLlmConfig();
+    const llm = config === null ? null : new LlmClient({
+      provider: createProvider(config), config, logger: this.callLogger,
+    });
+    return async (n) => applyNormalizeFallback(n, { llm, cache: this.parseCache });
   }
 
   /**
@@ -646,6 +666,8 @@ export class AuditService {
         climate: new ClimateNormalRepository(this.pool),
         // 타깃 적합성. 상품에 타깃 · 콘셉트가 없으면 R10 이 조용히 물러난다 (FR-RU-100)
         profiles: new TargetProfileRepository(this.pool),
+        // 사전 파서가 못 읽은 조각의 LLM 해석. 캐시가 먼저다 (F03 · NF-MT-001)
+        normalizeFallback: this.normalizeFallback(),
         accountId: product.accountId,
         // 계정 설정. 못 읽으면 기본값으로 돌아간다 — 설정 조회 실패가 검수를 멈추면 안 된다
         settings: await this.loadSettings(product.accountId),

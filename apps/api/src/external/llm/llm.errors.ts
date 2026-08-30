@@ -38,3 +38,8 @@ export class LlmNotConfiguredError extends LlmError {
   readonly reasonCode = 'LLM_UNAVAILABLE' as const;
   readonly retryable = false;
 }
+
+/** 호출 결과가 `LlmError` 인지 — `instanceof` 를 한 곳에 모아둔다 (`isKtoError` 와 같은 꼴) */
+export function isLlmError(e: unknown): e is LlmError {
+  return e instanceof LlmError;
+}
