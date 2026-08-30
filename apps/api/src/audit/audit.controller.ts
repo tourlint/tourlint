@@ -2,6 +2,8 @@ import {
   BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { CurrentAccount } from '../auth/current-account.decorator';
+import type { SessionAccount } from '../auth/session.repository';
 import {
   AuditService,
   toFindingsResponse,
@@ -34,9 +36,11 @@ export class AuditController {
   @Post('products/:productId/audit-jobs')
   @HttpCode(202)
   async createJob(
+    @CurrentAccount() account: SessionAccount,
     @Param('productId', ParseIntPipe) productId: number,
     @Body() body: { triggerType?: string } | undefined,
   ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('product', productId, account.accountId);
     const triggerType = normalizeTrigger(body?.triggerType);
     const { job } = await this.service.requestAudit(productId, triggerType);
     return toJobResponse(job, true);
@@ -44,12 +48,20 @@ export class AuditController {
 
   /** 폴링. 화면을 벗어났다 돌아와도 jobId 로 이어서 본다 (EX-AU-003) */
   @Get('audit-jobs/:jobId')
-  async job(@Param('jobId', ParseIntPipe) jobId: number): Promise<Record<string, unknown>> {
+  async job(
+    @CurrentAccount() account: SessionAccount,
+    @Param('jobId', ParseIntPipe) jobId: number,
+  ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('job', jobId, account.accountId);
     return toJobResponse(await this.service.getJob(jobId));
   }
 
   @Get('audit-runs/:runId')
-  async run(@Param('runId', ParseIntPipe) runId: number): Promise<Record<string, unknown>> {
+  async run(
+    @CurrentAccount() account: SessionAccount,
+    @Param('runId', ParseIntPipe) runId: number,
+  ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('run', runId, account.accountId);
     const [run, fingerprint] = await Promise.all([
       this.service.getRun(runId),
       this.service.runFingerprint(runId),
@@ -66,9 +78,11 @@ export class AuditController {
   @Post('products/:productId/patch-preview')
   @HttpCode(200)
   async patchPreview(
+    @CurrentAccount() account: SessionAccount,
     @Param('productId', ParseIntPipe) productId: number,
     @Body() body: { selections?: unknown } | undefined,
   ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('product', productId, account.accountId);
     return { ...(await this.service.previewPatches(productId, readSelections(body?.selections))) };
   }
 
@@ -81,9 +95,11 @@ export class AuditController {
   @Post('products/:productId/patch-applications')
   @HttpCode(202)
   async applyPatches(
+    @CurrentAccount() account: SessionAccount,
     @Param('productId', ParseIntPipe) productId: number,
     @Body() body: { selections?: unknown; previewToken?: unknown } | undefined,
   ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('product', productId, account.accountId);
     return { ...(await this.service.confirmPatches(
       productId,
       readSelections(body?.selections),
@@ -93,7 +109,11 @@ export class AuditController {
 
   /** 패치 이력 상세 (FR-PA-028) + 경고 배너 · 되돌리기 가능 여부 (FR-PA-027) */
   @Get('patch-applications/:id')
-  async patchApplication(@Param('id', ParseIntPipe) id: number): Promise<Record<string, unknown>> {
+  async patchApplication(
+    @CurrentAccount() account: SessionAccount,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('patchApplication', id, account.accountId);
     const application = await this.service.getPatchApplication(id);
     const [before, after, latest] = await Promise.all([
       this.service.findRun(application.beforeAuditRunId),
@@ -106,7 +126,11 @@ export class AuditController {
   /** 되돌리기. 직전 1건이 아니면 409 `UNDO_UNAVAILABLE` (FR-PA-026 · EX-PA-006) */
   @Post('patch-applications/:id/revert')
   @HttpCode(200)
-  async revert(@Param('id', ParseIntPipe) id: number): Promise<Record<string, unknown>> {
+  async revert(
+    @CurrentAccount() account: SessionAccount,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('patchApplication', id, account.accountId);
     const { application, revertedAt } = await this.service.revertPatch(id);
     return toRevertResponse(application, revertedAt);
   }
@@ -119,16 +143,22 @@ export class AuditController {
    */
   @Get('audit-runs/:runId/findings')
   async findings(
+    @CurrentAccount() account: SessionAccount,
     @Param('runId', ParseIntPipe) runId: number,
     @Query('severity') severity?: string,
   ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('run', runId, account.accountId);
     const run = await this.service.getRun(runId);
     return toFindingsResponse(run, severity, await this.service.replacementNames(run));
   }
 
   /** 확인 필요 목록 (FR-AU-008 · API 설계 5-7) */
   @Get('audit-runs/:runId/unverified')
-  async unverified(@Param('runId', ParseIntPipe) runId: number): Promise<Record<string, unknown>> {
+  async unverified(
+    @CurrentAccount() account: SessionAccount,
+    @Param('runId', ParseIntPipe) runId: number,
+  ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('run', runId, account.accountId);
     return toUnverifiedResponse(await this.service.getRun(runId));
   }
 
@@ -141,29 +171,43 @@ export class AuditController {
   @Post('findings/:id/dismiss')
   @HttpCode(204)
   async dismiss(
+    @CurrentAccount() account: SessionAccount,
     @Param('id', ParseIntPipe) id: number,
     @Body() body: unknown,
   ): Promise<void> {
+    await this.service.assertOwns('finding', id, account.accountId);
     await this.service.dismissFinding(id, readReason(body));
   }
 
   /** 무시 해제 (FR-AU-047) */
   @Delete('findings/:id/dismiss')
   @HttpCode(204)
-  async undismiss(@Param('id', ParseIntPipe) id: number): Promise<void> {
+  async undismiss(
+    @CurrentAccount() account: SessionAccount,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    await this.service.assertOwns('finding', id, account.accountId);
     await this.service.undismissFinding(id);
   }
 
   /** 확인 필요 목록 체크 (FR-AU-008). 본문을 받지 않는다 (API 설계) */
   @Post('findings/:id/confirm')
   @HttpCode(204)
-  async confirm(@Param('id', ParseIntPipe) id: number): Promise<void> {
+  async confirm(
+    @CurrentAccount() account: SessionAccount,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    await this.service.assertOwns('finding', id, account.accountId);
     await this.service.confirmFinding(id);
   }
 
   /** 검수 이력 (F13) */
   @Get('products/:productId/audit-runs')
-  async runs(@Param('productId', ParseIntPipe) productId: number): Promise<Record<string, unknown>> {
+  async runs(
+    @CurrentAccount() account: SessionAccount,
+    @Param('productId', ParseIntPipe) productId: number,
+  ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('product', productId, account.accountId);
     return toRunListResponse(await this.service.listRuns(productId));
   }
 
@@ -174,7 +218,11 @@ export class AuditController {
    * 빈 비교를 그럴듯하게 만들어 주지 않는다.
    */
   @Get('products/:productId/comparison')
-  async comparison(@Param('productId', ParseIntPipe) productId: number): Promise<Record<string, unknown>> {
+  async comparison(
+    @CurrentAccount() account: SessionAccount,
+    @Param('productId', ParseIntPipe) productId: number,
+  ): Promise<Record<string, unknown>> {
+    await this.service.assertOwns('product', productId, account.accountId);
     const { application, before, after } = await this.service.getComparison(productId);
     return toComparisonResponse(application, before, after);
   }

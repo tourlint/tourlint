@@ -2,6 +2,7 @@ import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, type Severity } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
+import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
 import { buildRunFingerprint, shortFingerprint } from '../engine/fingerprint';
 import { BudgetGuard } from '../external/budget-guard';
 import type { CallIntent } from '../external/budget-guard';
@@ -66,6 +67,17 @@ export interface PatchApplied {
   readonly pollIntervalMs: number;
 }
 
+/** 리소스별 404 문구. 무엇을 찾다 실패했는지는 알려 주되 존재 여부는 말하지 않는다 */
+type OwnedKind = 'product' | 'run' | 'job' | 'finding' | 'patchApplication';
+
+const NOT_FOUND_MESSAGE: Readonly<Record<OwnedKind, string>> = {
+  product: '상품을 찾을 수 없습니다. 목록에서 다시 선택해 주세요.',
+  run: '검수 결과를 찾을 수 없습니다. 목록에서 다시 선택해 주세요.',
+  job: '검수 작업을 찾을 수 없습니다. 다시 요청해 주세요.',
+  finding: '발견 항목을 찾을 수 없습니다. 목록을 새로 고쳐 주세요.',
+  patchApplication: '수정 이력을 찾을 수 없습니다. 목록을 새로 고쳐 주세요.',
+};
+
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
@@ -74,6 +86,7 @@ export class AuditService {
   private readonly results: AuditResultRepository;
   private readonly patchApplications: PatchApplicationRepository;
   private readonly callLogger: PgApiCallLogger;
+  private readonly owns: AuditOwnershipRepository;
   /**
    * 대체 관광지 이름 조회 (DR-PR-001).
    *
@@ -91,6 +104,7 @@ export class AuditService {
     this.results = new AuditResultRepository(pool);
     this.patchApplications = new PatchApplicationRepository(pool);
     this.callLogger = new PgApiCallLogger(pool);
+    this.owns = new AuditOwnershipRepository(pool);
   }
 
   /**
@@ -130,6 +144,28 @@ export class AuditService {
       throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '검수 작업을 찾을 수 없습니다. 다시 요청해 주세요.', 'REQUEST');
     }
     return job;
+  }
+
+  /**
+   * 그 리소스가 이 계정 것인지 확인하고, 아니면 404 로 끊는다 (PM-DA-002 · EX-SY-003).
+   *
+   * **없는 것과 남의 것을 구분하지 않는다.** 403 을 내면 그 자체가 「존재한다」는 답이
+   * 된다 (PM-DA-003).
+   *
+   * 진입점에서만 막는다 — 서비스 내부와 배치는 계정이 없다. 배치는 전 계정을 돈다.
+   */
+  async assertOwns(kind: OwnedKind, id: number, accountId: number): Promise<void> {
+    const check = {
+      product: async (): Promise<boolean> => this.owns.product(id, accountId),
+      run: async (): Promise<boolean> => this.owns.run(id, accountId),
+      job: async (): Promise<boolean> => this.owns.job(id, accountId),
+      finding: async (): Promise<boolean> => this.owns.finding(id, accountId),
+      patchApplication: async (): Promise<boolean> => this.owns.patchApplication(id, accountId),
+    }[kind];
+    if (await check()) return;
+    throw new DomainException(
+      HttpStatus.NOT_FOUND, 'NOT_FOUND', NOT_FOUND_MESSAGE[kind], 'REQUEST',
+    );
   }
 
   async getRun(auditRunId: number): Promise<StoredAuditRun> {
