@@ -102,6 +102,177 @@ export class NotificationRepository {
     );
     return rows.map(toCandidate);
   }
+
+  /**
+   * 알림 목록 (FR-MO-033 · 035).
+   *
+   * **계정을 대조한다.** `notification` 은 `product` 를 통해서만 계정에 매인다 —
+   * 조인 조건을 빼면 남의 알림이 그대로 나간다 (PM-DA-002).
+   *
+   * 무시한 알림은 기본으로 빼되 `includeDismissed` 로 되돌려 볼 수 있게 둔다.
+   * 지운 것이 아니라 접어 둔 것이기 때문이다.
+   */
+  async listFor(accountId: number, filter: NotificationFilter): Promise<NotificationPage> {
+    const where = ['p.account_id = $1'];
+    const params: unknown[] = [accountId];
+    if (filter.kind !== undefined) {
+      params.push(filter.kind);
+      where.push(`n.kind = $${params.length}`);
+    }
+    if (filter.unreadOnly) where.push('n.read_at IS NULL');
+    if (!filter.includeDismissed) where.push('n.dismissed_at IS NULL');
+    if (filter.productId !== undefined) {
+      params.push(filter.productId);
+      where.push(`n.product_id = $${params.length}`);
+    }
+    const clause = where.join(' AND ');
+
+    const total = await this.pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM notification n
+         JOIN product p ON p.id = n.product_id
+        WHERE ${clause}`,
+      params,
+    );
+
+    params.push(filter.size, filter.page * filter.size);
+    const { rows } = await this.pool.query<NotificationRow>(
+      `SELECT n.id, n.product_id, n.kind, n.match_condition, n.kto_content_id,
+              n.change_hash_from, n.change_hash_to, n.body, n.read_at, n.dismissed_at,
+              n.created_at, p.name AS product_name, p.start_date
+         FROM notification n
+         JOIN product p ON p.id = n.product_id
+        WHERE ${clause}
+        ORDER BY n.created_at DESC, n.id DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+    return { total: Number(total.rows[0]?.n ?? 0), rows: rows.map(toStored) };
+  }
+
+  /** 한 건. 소유자가 아니면 `null` 이고 호출자가 404 를 만든다 (EX-SY-003) */
+  async findFor(id: number, accountId: number): Promise<StoredNotification | null> {
+    const { rows } = await this.pool.query<NotificationRow>(
+      `SELECT n.id, n.product_id, n.kind, n.match_condition, n.kto_content_id,
+              n.change_hash_from, n.change_hash_to, n.body, n.read_at, n.dismissed_at,
+              n.created_at, p.name AS product_name, p.start_date
+         FROM notification n
+         JOIN product p ON p.id = n.product_id
+        WHERE n.id = $1 AND p.account_id = $2`,
+      [id, accountId],
+    );
+    const row = rows[0];
+    return row === undefined ? null : toStored(row);
+  }
+
+  /**
+   * 확인 처리 (FR-CM-005). **이미 읽은 것은 시각을 덮어쓰지 않는다** —
+   * 처음 읽은 때가 기록이고, 목록을 다시 열 때마다 갱신되면 그 기록이 사라진다.
+   */
+  async markRead(id: number, accountId: number): Promise<Date | null> {
+    const { rows } = await this.pool.query<{ read_at: Date }>(
+      `UPDATE notification n
+          SET read_at = COALESCE(n.read_at, now())
+         FROM product p
+        WHERE p.id = n.product_id AND n.id = $1 AND p.account_id = $2
+        RETURNING n.read_at`,
+      [id, accountId],
+    );
+    return rows[0]?.read_at ?? null;
+  }
+
+  /**
+   * 무시 처리 (FR-MO-037).
+   *
+   * ⚠️ **비표출 전환 알림은 여기 오면 안 된다.** 무시 금지 판정은 서비스가 하고
+   * 403 을 낸다 (PM-NG-010). 저장소는 소유권만 본다.
+   */
+  async dismiss(id: number, accountId: number): Promise<Date | null> {
+    const { rows } = await this.pool.query<{ dismissed_at: Date }>(
+      `UPDATE notification n
+          SET dismissed_at = COALESCE(n.dismissed_at, now())
+         FROM product p
+        WHERE p.id = n.product_id AND n.id = $1 AND p.account_id = $2
+        RETURNING n.dismissed_at`,
+      [id, accountId],
+    );
+    return rows[0]?.dismissed_at ?? null;
+  }
+
+  /** 안 읽은 건수. 헤더 배지가 쓴다 (UI-CM-005) */
+  async unreadCount(accountId: number): Promise<number> {
+    const { rows } = await this.pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM notification n
+         JOIN product p ON p.id = n.product_id
+        WHERE p.account_id = $1 AND n.read_at IS NULL AND n.dismissed_at IS NULL`,
+      [accountId],
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+}
+
+export interface NotificationFilter {
+  readonly kind?: NotificationKind;
+  readonly unreadOnly: boolean;
+  readonly includeDismissed: boolean;
+  readonly productId?: number;
+  readonly page: number;
+  readonly size: number;
+}
+
+export interface StoredNotification {
+  readonly id: number;
+  readonly productId: number;
+  readonly productName: string;
+  readonly startDate: string;
+  readonly kind: NotificationKind;
+  readonly condition: MatchCondition;
+  readonly ktoContentId: string | null;
+  /** 조건 2 · 3 은 둘 다 null 이다 — 그 콘텐츠가 어느 일정에도 없어 지문 이력이 없다 */
+  readonly hashFrom: string | null;
+  readonly hashTo: string | null;
+  readonly body: Readonly<Record<string, unknown>>;
+  readonly readAt: Date | null;
+  readonly dismissedAt: Date | null;
+  readonly createdAt: Date;
+}
+
+export interface NotificationPage {
+  readonly total: number;
+  readonly rows: readonly StoredNotification[];
+}
+
+interface NotificationRow {
+  id: string;
+  product_id: string;
+  kind: string;
+  match_condition: number;
+  kto_content_id: string | null;
+  change_hash_from: string | null;
+  change_hash_to: string | null;
+  body: Record<string, unknown>;
+  read_at: Date | null;
+  dismissed_at: Date | null;
+  created_at: Date;
+  product_name: string;
+  start_date: Date | string;
+}
+
+function toStored(row: NotificationRow): StoredNotification {
+  return {
+    id: Number(row.id),
+    productId: Number(row.product_id),
+    productName: row.product_name,
+    startDate: toIsoDate(row.start_date),
+    kind: row.kind as NotificationKind,
+    condition: Number(row.match_condition) as MatchCondition,
+    ktoContentId: row.kto_content_id,
+    hashFrom: row.change_hash_from,
+    hashTo: row.change_hash_to,
+    body: row.body,
+    readAt: row.read_at,
+    dismissedAt: row.dismissed_at,
+    createdAt: row.created_at,
+  };
 }
 
 interface CandidateRow {

@@ -27,6 +27,8 @@ import { PlaceMatchService } from './match/place-match.service';
 import { ProductController } from './product/product.controller';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
+import { NotificationController } from './radar/notification.controller';
+import { NotificationService } from './radar/notification.service';
 import { ReportController } from './report/report.controller';
 import { ReportService } from './report/report.service';
 import { UploadController } from './upload/upload.controller';
@@ -55,7 +57,7 @@ import { UsageService } from './usage/usage.service';
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
     AuditController, UsageController, DemoController, ProductController, PlaceMatchController,
-    ReportController,
+    ReportController, NotificationController,
     MockController,
   ],
   providers: [
@@ -131,6 +133,7 @@ import { UsageService } from './usage/usage.service';
     UsageService,
     // 지역 코드를 이름으로 바꾸는 데 CatalogService 를 쓴다 (fixture 리플레이라 예산 0)
     ReportService,
+    NotificationService,
   ],
 })
 export class AppModule {}
