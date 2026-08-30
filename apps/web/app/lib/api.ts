@@ -290,6 +290,26 @@ export const patchApi = {
     }),
 };
 
+// ── 호출 예산 위젯 (F15 · FR-OP-005) ──────────────────────────────────────────
+
+export type BudgetState = "NORMAL" | "WARN" | "EXHAUSTED";
+
+export interface BudgetView {
+  quotaDate: string;
+  dailyQuota: number;
+  used: number;
+  usageRatio: number;
+  state: BudgetState;
+  batchAutoStopped: boolean;
+  topOperations: { operation: string; count: number }[];
+  resetAt: string;
+}
+
+export const usageApi = {
+  // 오늘 공사 호출 소진 상태. 헤더 위젯이 2분마다 폴링한다 (FR-OP-005)
+  budget: () => request<BudgetView>("/usage/budget"),
+};
+
 export function isApiError(e: unknown): e is ApiError {
   return typeof e === "object" && e !== null && "status" in e && "message" in e;
 }
