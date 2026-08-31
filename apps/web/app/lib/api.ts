@@ -310,6 +310,76 @@ export const usageApi = {
   budget: () => request<BudgetView>("/usage/budget"),
 };
 
+// ── 레이더 · 알림 (S7 · FR-MO-050~058) ────────────────────────────────────────
+
+export interface RadarSummary {
+  risk: number;
+  opportunity: number;
+  unread: number;
+  affectedProducts: number;
+  changedContents: number;
+  lastBatch: null | { runAt: string | null; covered: string | null; status: string; itemCount: number };
+}
+
+/** 신호 하나. 산출 전이면 t1·t2 가 null 이다 — 0(세어 보니 없음)과 구분한다. */
+export interface DemandSignal {
+  count: number;
+  byType: Record<string, number>;
+  window: { from: string; to: string };
+  computedAt: string;
+}
+
+export interface RadarSignals {
+  productId: number;
+  t1: DemandSignal | null;
+  t2: DemandSignal | null;
+  notice: string;
+}
+
+export type NotificationKind = "RISK" | "OPPORTUNITY";
+
+export interface RadarNotification {
+  notificationId: number;
+  kind: NotificationKind;
+  condition: number;
+  productId: number;
+  productName: string;
+  startDate: string;
+  ktoContentId: string;
+  what: string;
+  impact: string;
+  action: string;
+  hidden: boolean;
+  // 지문 비교값. 조건 2·3 은 지문 이력이 없어 from·to 가 둘 다 null 이다 (FR-MO-058)
+  fingerprint: { from: string | null; to: string | null };
+  dismissable: boolean;
+  readAt: string | null;
+  dismissedAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationPage {
+  content: RadarNotification[];
+  page: number;
+  size: number;
+  totalElements: number;
+  unreadCount: number;
+}
+
+export const radarApi = {
+  summary: () => request<RadarSummary>("/radar/summary"),
+  // signals 는 productId 가 필수다 — T2(행사 밀도) 창이 그 상품의 여행일에서 나온다
+  signals: (productId: number) => request<RadarSignals>(`/radar/signals?productId=${productId}`),
+};
+
+export const notificationApi = {
+  list: (kind?: NotificationKind) =>
+    request<NotificationPage>(`/notifications${kind ? `?kind=${kind}` : ""}`),
+  read: (id: number) => request<{ id: number; readAt: string }>(`/notifications/${id}/read`, { method: "POST" }),
+  dismiss: (id: number) =>
+    request<{ id: number; dismissedAt: string }>(`/notifications/${id}/dismiss`, { method: "POST" }),
+};
+
 export function isApiError(e: unknown): e is ApiError {
   return typeof e === "object" && e !== null && "status" in e && "message" in e;
 }
