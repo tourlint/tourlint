@@ -83,14 +83,18 @@ async function insertDemoProduct(client: PoolClient, accountId: number, product:
 
   for (const item of product.items) {
     await client.query(
+      // 좌표를 함께 넣는다. 실사용 경로는 F02 매칭이 detailCommon2 의 mapx 를 저장하는데
+      // (place-match.service.ts) 시드는 그 경로를 건너뛰므로 여기서 채우지 않으면 빈다.
+      // 비면 R08 이 전 구간을 COORD_MISSING 으로 넘겨 길찾기를 한 번도 부르지 않는다.
       `INSERT INTO itinerary_item
          (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
-          kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, match_status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'CONFIRMED')`,
+          kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy,
+          match_status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'CONFIRMED')`,
       [
         productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource,
         item.placeLabel, item.itemType, item.ktoContentId, item.contentTypeId,
-        item.lclsSystm1, item.lclsSystm2, item.lclsSystm3,
+        item.lclsSystm1, item.lclsSystm2, item.lclsSystm3, item.mapx, item.mapy,
       ],
     );
   }

@@ -23,7 +23,7 @@ import { ReportStore, type ReportEntry } from './report-store';
  *
  * API 설계 4-7 이 `POST .../reports` → 201 + `reportId` 와 `GET /reports/{id}/download` 를
  * 규정한다. 그런데 DB 명세서 6-4 는 PDF 를 남기지 말라고 하고 `report` 테이블은 엔터티
- * 18종에 없다 — `reportId` 가 가리킬 행이 없다.
+ * 20종에 없다 — `reportId` 가 가리킬 행이 없다.
  *
  * 만드는 쪽에서 렌더까지 끝내고 결과를 **프로세스 메모리에** 짧게 들고, 내려받기는 그것을
  * 흘려보낸다. 디스크에도 DB 에도 남지 않고, 공사 재조회는 리포트당 한 번만 나간다.
