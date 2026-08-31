@@ -34,11 +34,20 @@ const pool = new Pool({
 });
 
 const since = `now() - interval '${days} days'`;
-/** 목표 대비 판정. 표본이 적으면 p95 라고 부르지 않는다 */
-const verdict = (value, target, n) => {
+/**
+ * 목표 대비 판정. 표본이 적으면 p95 라고 부르지 않는다.
+ *
+ * **숫자로 비교한다.** 문자열로 비교하면 `"100초" <= "20초"` 가 참이 되어(사전순 `'1' < '2'`)
+ * 미달이 통과로 찍힌다. `pg` 가 `numeric` 을 문자열로 돌려주므로 조용히 섞이기 쉽다.
+ * 단위는 표시할 때만 붙인다.
+ */
+const verdict = (value, target, n, unit = '초') => {
   if (value === null) return '표본 없음';
-  if (n < 20) return `${value} (표본 ${n}건 — p95 라고 부르기엔 적다)`;
-  return `${value} ${value <= target ? '<=' : '>'} 목표 ${target}`;
+  const v = Number(value);
+  // 숫자로 못 읽으면 통과로 넘기지 않는다. 판정 도구가 침묵하는 것이 제일 나쁘다
+  if (!Number.isFinite(v)) return `${String(value)}${unit} (숫자로 못 읽었다 — 판정 불가)`;
+  if (n < 20) return `${v}${unit} (표본 ${n}건 — p95 라고 부르기엔 적다)`;
+  return `${v}${unit} ${v <= target ? '<=' : '>'} 목표 ${target}${unit}`;
 };
 
 try {
@@ -61,7 +70,7 @@ try {
   if (byBucket.length === 0) console.log('  완료된 검수가 없다');
   for (const r of byBucket) {
     const target = r.bucket === '8곳 이하' ? 15 : 20;
-    console.log(`  ${r.bucket}: ${r.n}건 · p50 ${r.p50}초 · p95 ${verdict(`${r.p95}초`, `${target}초`, r.n)} · 최악 ${r.worst}초`);
+    console.log(`  ${r.bucket}: ${r.n}건 · p50 ${r.p50}초 · p95 ${verdict(r.p95, target, r.n)} · 최악 ${r.worst}초`);
   }
 
   // ── 검수 한 건이 실제로 몇 콜인가 (명세 추정 29~43) ──
