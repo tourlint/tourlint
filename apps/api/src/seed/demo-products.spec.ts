@@ -45,6 +45,17 @@ describe('DEMO_PRODUCTS', () => {
       // CONFIRMED 로 넣으므로 contentid 가 반드시 있어야 한다 (ck_item_match_content · DR-IN-004)
       expect(item.ktoContentId, 'CONFIRMED 는 contentid 필수').toBeTruthy();
 
+      /*
+       * 좌표가 없으면 R08 이 그 구간을 COORD_MISSING 으로 넘겨 길찾기를 부르지 않는다
+       * (audit-runner.ts). 시드는 F02 매칭 경로를 건너뛰므로 여기서 빠지면 아무도 못 잡는다 —
+       * 2026-08-31 성능 실측에서 데모 4개 상품 전부가 이동시간 확인 불가인 채로 발견됐다.
+       * 강릉이므로 경도 128 · 위도 37 대다. 0 이나 뒤바뀐 값도 걸러야 한다.
+       */
+      expect(item.mapx, 'mapx 없음 — R08 이 COORD_MISSING 으로 넘어간다').toBeGreaterThan(124);
+      expect(item.mapx, 'mapx 가 경도 범위를 벗어난다').toBeLessThan(132);
+      expect(item.mapy, 'mapy 없음 — R08 이 COORD_MISSING 으로 넘어간다').toBeGreaterThan(33);
+      expect(item.mapy, 'mapy 가 위도 범위를 벗어난다').toBeLessThan(39);
+
       const key = `${item.dayNo}-${item.seq}`;
       expect(seen.has(key), `uq_item_product_day_seq 중복: ${key}`).toBe(false);
       seen.add(key);
