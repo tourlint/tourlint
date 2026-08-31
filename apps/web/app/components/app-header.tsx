@@ -2,12 +2,12 @@
 
 // 전역 헤더 (UI-CM-002). 인증 후 모든 화면이 공유한다 — 서비스명, 주요 화면 이동
 // (대시보드 · 레이더 · 설정), 알림 진입점, 오늘 호출량 위젯, 로그아웃.
-// 알림 건수(UI-CM-008)와 호출량 위젯(UI-S1-004)은 뒷단(mock) 연동 전이라 자리만 잡는다.
+// 호출량 위젯(UI-S1-004)은 usage/budget 실엔진에 붙는다 — 알림 건수(UI-CM-008)만 아직 자리표시.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { authApi, isApiError, type AccountView } from "../lib/api";
+import { authApi, isApiError, usageApi, type AccountView, type BudgetView } from "../lib/api";
 
 const NAV = [
   { href: "/", label: "대시보드" },
@@ -74,10 +74,8 @@ export function AppHeader() {
         </div>
 
         <div className="flex items-center gap-3 text-sm">
-          {/* 오늘 호출량 위젯 · 알림 진입점 — 뒷단 연동 전 자리만 (UI-S1-004 · UI-CM-002/008) */}
-          <span className="hidden rounded-md border border-dashed border-slate-300 px-2 py-1 text-xs text-slate-400 sm:inline dark:border-slate-700 dark:text-slate-500">
-            호출량 —
-          </span>
+          {/* 오늘 호출량 위젯 (UI-S1-004) · 알림 진입점은 아직 자리표시 (UI-CM-008) */}
+          <BudgetWidget />
           <button
             type="button"
             aria-label="알림"
@@ -104,5 +102,57 @@ export function AppHeader() {
         </div>
       </div>
     </header>
+  );
+}
+
+// 상태별 테두리·글자색. WARN(80%)·EXHAUSTED(100%) 경계를 눈으로 밟을 수 있어야 한다 (FR-OP-003)
+const BUDGET_TONE: Record<BudgetView["state"], string> = {
+  NORMAL: "border-slate-300 text-slate-500 dark:border-slate-700 dark:text-slate-400",
+  WARN: "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  EXHAUSTED: "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300",
+};
+
+/**
+ * 오늘 공사 호출 소진 위젯 (UI-S1-004 · F15).
+ *
+ * 예산은 서비스 전체 단일 인증키 기준이라 계정과 무관하다 (PM-DA-006). 2분마다 폴링해
+ * 시연 중 예산 경계를 눈으로 확인한다 (FR-OP-005). 조회 실패해도 헤더는 죽지 않는다 —
+ * 직전 값을 그대로 두고 다음 폴링을 기다린다.
+ */
+function BudgetWidget() {
+  const [budget, setBudget] = useState<BudgetView | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      usageApi
+        .budget()
+        .then((b) => {
+          if (alive) setBudget(b);
+        })
+        .catch(() => undefined);
+    load();
+    const id = setInterval(load, 120_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  if (!budget) {
+    return (
+      <span className="hidden rounded-md border border-dashed border-slate-300 px-2 py-1 text-xs text-slate-400 sm:inline dark:border-slate-700 dark:text-slate-500">
+        호출량 —
+      </span>
+    );
+  }
+
+  return (
+    <span
+      title={`오늘 공사 호출 ${budget.used}/${budget.dailyQuota} (${Math.round(budget.usageRatio * 100)}%)`}
+      className={`hidden rounded-md border px-2 py-1 text-xs font-medium tabular-nums sm:inline ${BUDGET_TONE[budget.state]}`}
+    >
+      호출량 {budget.used}/{budget.dailyQuota}
+    </span>
   );
 }
