@@ -133,18 +133,30 @@ for (const productId of products) {
     }
     total = r.total;
     seconds.push(r.seconds);
-    console.log(`  ${String(i).padStart(2)}회  ${r.seconds.toFixed(1)}초  (job ${r.jobId} · run ${r.auditRunId} · ${r.total}곳)`);
+    // 첫 회차만 cold 라고 부른다. llm_parse_cache 가 비어 있어 폴백을 타는 상품에서는
+    // 이후 회차보다 눈에 띄게 느리다 (NF-PF-022)
+    const warmth = i === 1 ? ' cold' : '';
+    console.log(`  ${String(i).padStart(2)}회  ${r.seconds.toFixed(1)}초${warmth.padEnd(5)}  (job ${r.jobId} · run ${r.auditRunId} · ${r.total}곳)`);
   }
   const sorted = [...seconds].sort((a, b) => a - b);
-  summary.push({ productId, total, n: sorted.length, p50: pct(sorted, 0.5), p95: pct(sorted, 0.95), max: sorted.at(-1) ?? null });
+  summary.push({
+    productId, total, n: sorted.length,
+    p50: pct(sorted, 0.5), p95: pct(sorted, 0.95), max: sorted.at(-1) ?? null,
+    cold: seconds[0] ?? null,
+    warmMax: seconds.length > 1 ? Math.max(...seconds.slice(1)) : null,
+  });
   console.log('');
 }
 
 console.log('── 요약 (왕복 지연 포함 · 참고값) ──');
+console.log('  cold = 그 상품의 첫 회차. llm_parse_cache 가 비어 있다 (NF-PF-022)');
 for (const s of summary) {
   const target = s.total !== null && s.total <= 8 ? 15 : 20;
   const note = s.n < 20 ? `표본 ${s.n}건 — p95 라고 부르기엔 적다` : `목표 ${target}초`;
   const fmt = (v) => (v === null ? '—' : `${v.toFixed(1)}초`);
-  console.log(`  상품 ${s.productId} (${s.total ?? '?'}곳)  n=${s.n}  p50 ${fmt(s.p50)}  p95 ${fmt(s.p95)}  최대 ${fmt(s.max)}  · ${note}`);
+  console.log(
+    `  상품 ${s.productId} (${s.total ?? '?'}곳)  n=${s.n}  p50 ${fmt(s.p50)}  p95 ${fmt(s.p95)}  최대 ${fmt(s.max)}\n` +
+    `      cold ${fmt(s.cold)}  ·  warm 최대 ${fmt(s.warmMax)}  · ${note}`,
+  );
 }
 console.log('\n판정에 쓸 값은 서버 계측이다 — DATABASE_URL=... node scripts/perf_report.mjs --days 1\n');

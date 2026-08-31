@@ -43,6 +43,21 @@ try {
   }
   if (rows.length === 0) console.log('  (상품 없음)');
 
+  /*
+   * 시드는 상품을 지우고 다시 넣으므로(reseedDemoProducts) 돌릴 때마다 id 가 새로 붙는다.
+   * 전에 쓰던 id 로 검수를 걸면 404 다. 그래서 다음 명령을 여기서 만들어 준다.
+   */
+  const big = rows.find((r) => r.contents >= 9);
+  const small = rows.find((r) => r.contents >= 6 && r.contents <= 8);
+  if (big !== undefined && small !== undefined) {
+    console.log('\n성능 표본 명령 (NF-PF-001 두 버킷)');
+    console.log(
+      `  API_BASE_URL='https://api-production-1e7c2.up.railway.app' \\\n` +
+      `    PERF_EMAIL='openapi@tourlint.example' PERF_PASSWORD='<암호>' \\\n` +
+      `    node scripts/perf_sample.mjs --product ${String(big.id)} --product ${String(small.id)} --runs 3 --yes`,
+    );
+  }
+
   const { rows: acc } = await pool.query(`SELECT id, email, is_demo FROM account ORDER BY id`);
   console.log('\n계정');
   for (const a of acc) console.log(`  ${a.id}  demo=${a.is_demo}  ${a.email}`);
