@@ -26,6 +26,7 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
+import { GradeBadge, GradeCounts, SourceBadge, StatusBadge } from "../../../components/badges";
 
 const CONTENT_TYPE_LABEL: Record<number, string> = {
   12: "관광지",
@@ -38,31 +39,13 @@ const CONTENT_TYPE_LABEL: Record<number, string> = {
   39: "음식점",
 };
 
-const SEVERITY_META: Record<Severity, { label: string; order: number; badge: string; bar: string }> = {
-  BLOCKER: {
-    label: "차단",
-    order: 0,
-    badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
-    bar: "border-l-rose-500",
-  },
-  ERROR: {
-    label: "오류",
-    order: 1,
-    badge: "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
-    bar: "border-l-orange-500",
-  },
-  WARNING: {
-    label: "주의",
-    order: 2,
-    badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-    bar: "border-l-amber-500",
-  },
-  UNVERIFIED: {
-    label: "확인불가",
-    order: 3,
-    badge: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
-    bar: "border-l-slate-400",
-  },
+// 배지·건수·라벨은 공통 컴포넌트(components/badges)가 등급 토큰으로 그린다.
+// 여기서는 finding 카드의 좌측 테두리 색과 정렬 순서만 등급별로 둔다.
+const SEVERITY_META: Record<Severity, { order: number; bar: string }> = {
+  BLOCKER: { order: 0, bar: "border-l-rose-500" },
+  ERROR: { order: 1, bar: "border-l-orange-500" },
+  WARNING: { order: 2, bar: "border-l-amber-500" },
+  UNVERIFIED: { order: 3, bar: "border-l-slate-400" },
 };
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
@@ -535,21 +518,13 @@ function MatchItemRow({
 }
 
 function SummaryCard({ run }: { run: RunSummary }) {
-  const counts: { key: Severity; n: number }[] = [
-    { key: "BLOCKER", n: run.counts.blocker },
-    { key: "ERROR", n: run.counts.error },
-    { key: "WARNING", n: run.counts.warning },
-    { key: "UNVERIFIED", n: run.counts.unverified },
-  ];
   return (
     <section className="rounded-2xl border border-slate-200 p-6 dark:border-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-sm text-slate-500 dark:text-slate-400">출시 준비도</p>
           {run.isPartial ? (
-            <span className="mt-1 inline-block rounded bg-slate-200 px-3 py-1 text-sm font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-              부분 검수
-            </span>
+            <StatusBadge status="PARTIAL" className="mt-1" />
           ) : (
             <p className="mt-1 text-3xl font-bold text-slate-900 dark:text-slate-50">
               {run.readinessScore ?? "-"}
@@ -560,14 +535,7 @@ function SummaryCard({ run }: { run: RunSummary }) {
             <p className="mt-1 font-mono text-xs text-slate-400">{run.scoreBreakdown.formula}</p>
           )}
         </div>
-        <div className="flex gap-2">
-          {counts.map(({ key, n }) => (
-            <div key={key} className={`min-w-[64px] rounded-lg px-3 py-2 text-center ${SEVERITY_META[key].badge}`}>
-              <div className="text-lg font-bold tabular-nums">{n}</div>
-              <div className="text-xs">{SEVERITY_META[key].label}</div>
-            </div>
-          ))}
-        </div>
+        <GradeCounts counts={run.counts} variant="tile" />
       </div>
 
       {!run.releasable && run.releaseBlockedReason && (
@@ -678,14 +646,10 @@ function FindingCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded px-2 py-0.5 text-xs font-medium ${meta.badge}`}>{meta.label}</span>
+            <GradeBadge grade={finding.severity} />
             <span className="text-xs text-slate-400">{finding.ruleCode}</span>
-            <SourceBadge finding={finding} />
-            {finding.dismissed && (
-              <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                무시됨
-              </span>
-            )}
+            <SourceBadge source={finding.sourceBadge} externalName={finding.externalSource} />
+            {finding.dismissed && <StatusBadge status="DISMISSED" />}
           </div>
           <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{finding.message}</p>
           <p className="mt-1 text-xs text-slate-400">
@@ -739,21 +703,6 @@ function FindingCard({
         </fieldset>
       )}
     </li>
-  );
-}
-
-function SourceBadge({ finding }: { finding: Finding }) {
-  const isExternal = finding.sourceBadge === "EXTERNAL_REFERENCE";
-  return (
-    <span
-      className={`rounded px-2 py-0.5 text-xs ${
-        isExternal
-          ? "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
-          : "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
-      }`}
-    >
-      {isExternal ? "외부 참고" : "판정"}
-    </span>
   );
 }
 

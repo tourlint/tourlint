@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isApiError } from "../lib/api";
+import { GradeCounts, StatusBadge } from "../components/badges";
 
 interface Product {
   productId: number;
@@ -116,19 +117,15 @@ export default function DashboardPage() {
                   </td>
                   <td className="p-3">
                     {a?.isPartial ? (
-                      <span className="rounded bg-slate-200 px-2 py-0.5 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                        부분 검수
-                      </span>
+                      <StatusBadge status="PARTIAL" />
                     ) : a?.readinessScore != null ? (
                       <strong className="text-slate-900 dark:text-slate-100">{a.readinessScore}점</strong>
                     ) : (
                       "-"
                     )}
                   </td>
-                  <td className="p-3 tabular-nums text-slate-600 dark:text-slate-300">
-                    {a
-                      ? `${a.counts.blocker} / ${a.counts.error} / ${a.counts.warning} / ${a.counts.unverified}`
-                      : "-"}
+                  <td className="p-3">
+                    {a ? <GradeCounts counts={a.counts} variant="chip" /> : <span className="text-slate-400">-</span>}
                   </td>
                 </tr>
               );
