@@ -3,6 +3,18 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* 검수 등급 4단계 색 토큰 (UI-CM-020~022). 전 화면이 이 값을 참조하고
+     화면별 하드코딩을 금지한다 (UI-CM-021). 확인 불가는 나머지 3개와 다른
+     무채색 계열이다 (UI-CM-022). 값은 기존 검수 결과 팔레트를 그대로 옮긴 것. */
+  --severity-blocker-bg: #ffe4e6;
+  --severity-blocker-fg: #be123c;
+  --severity-error-bg: #ffedd5;
+  --severity-error-fg: #c2410c;
+  --severity-warning-bg: #fef3c7;
+  --severity-warning-fg: #b45309;
+  --severity-unverified-bg: #e2e8f0;
+  --severity-unverified-fg: #475569;
 }
 
 @theme inline {
@@ -16,6 +28,15 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --severity-blocker-bg: rgba(76, 5, 25, 0.5);
+    --severity-blocker-fg: #fda4af;
+    --severity-error-bg: rgba(67, 20, 7, 0.5);
+    --severity-error-fg: #fdba74;
+    --severity-warning-bg: rgba(69, 26, 3, 0.5);
+    --severity-warning-fg: #fcd34d;
+    --severity-unverified-bg: #334155;
+    --severity-unverified-fg: #cbd5e1;
   }
 }
 
