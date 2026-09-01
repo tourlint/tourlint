@@ -32,15 +32,7 @@ export class MockController {
   // ── 레이더 (F12~F14) ── 전부 실엔진(RadarController · NotificationController)으로 교체됨 (NF-CO-002)
 
   // ── 운영 (F15·F16) ──
-  @Get('settings') settings() {
-    return {
-      weights: { BLOCKER: 25, ERROR: 10, WARNING: 4, UNVERIFIED: 3 },
-      r07SpanHours: 6, r07MealMinutes: 60, r04Threshold: 3,
-      watchKeywords: [],
-      global: { batchTime: '05:00', batchEnabled: false, dailyQuota: 800, scope: '서비스 전체 기준' },
-    };
-  }
-  @Put('settings') putSettings(@Body() b: any) { return { ...this.settings(), ...b }; }
+  // settings 계열은 SettingsController(실엔진)로 교체됨
 
   // ── 데모 복원 (PM-TA-003) ── 실엔진(DemoController)으로 교체됨. mock 제거 (NF-CO-002)
 }
