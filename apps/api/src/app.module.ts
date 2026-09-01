@@ -45,6 +45,9 @@ import { UsageService } from './usage/usage.service';
 import { SettingsController } from './settings/settings.controller';
 import { SettingsService } from './settings/settings.service';
 import { SettingsRepository } from './settings/settings.repository';
+import { SettingsTablesController } from './settings/settings-tables.controller';
+import { SettingsTablesService } from './settings/settings-tables.service';
+import { SettingsTablesRepository } from './settings/settings-tables.repository';
 
 /**
  * `MockController` 는 아직 교체되지 않은 라우트를 담당한다. 실엔진으로 교체된 라우트는
@@ -66,7 +69,7 @@ import { SettingsRepository } from './settings/settings.repository';
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
     AuditController, UsageController, DemoController, ProductController, PlaceMatchController,
-    ReportController, NotificationController, RadarController, SettingsController,
+    ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
     MockController,
   ],
   providers: [
@@ -76,6 +79,12 @@ import { SettingsRepository } from './settings/settings.repository';
       // 관리자 설정 (F16). 계정 설정 조회·저장 + 전역 설정 조회 (PM-DA-005)
       provide: SettingsService,
       useFactory: (pool: Pool) => new SettingsService(new SettingsRepository(pool)),
+      inject: [DB_POOL],
+    },
+    {
+      // 계정 기준표 편집 (F16 · 체류시간 · 실내외 매핑)
+      provide: SettingsTablesService,
+      useFactory: (pool: Pool) => new SettingsTablesService(new SettingsTablesRepository(pool)),
       inject: [DB_POOL],
     },
     {
