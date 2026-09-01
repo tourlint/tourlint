@@ -288,7 +288,39 @@ export const patchApi = {
       method: "POST",
       body: JSON.stringify({ selections, previewToken }),
     }),
+  // 반영 이력 상세 — 경고 배너·되돌리기 가능 여부 (FR-PA-027/028)
+  application: (id: number) => request<PatchApplicationDetail>(`/patch-applications/${id}`),
+  // 되돌리기. 직전 1건이 아니면 409 UNDO_UNAVAILABLE (EX-PA-006)
+  revert: (id: number) => request<RevertResult>(`/patch-applications/${id}/revert`, { method: "POST" }),
 };
+
+export interface PatchSideSummary {
+  auditRunId: number;
+  executedAt?: string;
+  readinessScore?: number | null;
+  counts?: { blocker: number; error: number; warning: number; unverified: number };
+}
+
+export interface PatchApplicationDetail {
+  patchApplicationId: number;
+  productId: number;
+  appliedAt: string;
+  itemCount: { before: number; after: number };
+  before: PatchSideSummary | null;
+  after: PatchSideSummary | null;
+  reauditStatus: "PENDING" | "DONE";
+  // 점수 하락·차단 증가 시 서버가 만든 문구. 아니면 null (EX-PA-005)
+  warningBanner: string | null;
+  revertible: boolean;
+  revertedAt: string | null;
+}
+
+export interface RevertResult {
+  patchApplicationId: number;
+  productId: number;
+  revertedAt: string;
+  restoredAuditRunId: number | null;
+}
 
 // ── 호출 예산 위젯 (F15 · FR-OP-005) ──────────────────────────────────────────
 
