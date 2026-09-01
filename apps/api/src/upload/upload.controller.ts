@@ -27,7 +27,11 @@ interface UploadFile {
   size: number;
 }
 
-const MAX_BYTES = 2 * 1024 * 1024;
+// 업로드 상한 (EX-IN-003 · NF-CP-005). 초과하면 파싱 전에 UPLOAD_LIMIT_EXCEEDED 로 거부한다.
+const MAX_BYTES = 5 * 1024 * 1024;
+// multer 메모리 안전망 — 상한보다 크게 둬서, 상한 초과는 우리가 안내 문구와 함께 거부하고
+// 정말 큰 파일만 버퍼링 자체를 막는다.
+const HARD_CAP_BYTES = 20 * 1024 * 1024;
 const TEMPLATE_PATH = resolve(process.cwd(), '../../fixtures/excel/sample_3days_ok.xlsx');
 
 @ApiTags('실엔진')
@@ -43,12 +47,25 @@ export class UploadController {
 
   /** 엑셀·CSV 업로드 파싱. 저장 전 편집용 결과만 돌려준다 (UI-S2-010·011) */
   @Post('schedule')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_BYTES } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: HARD_CAP_BYTES } }))
   async schedule(@UploadedFile() file: UploadFile | undefined): Promise<ParseResult> {
     if (file === undefined) throw new BadRequestException('파일이 없습니다.');
     const name = file.originalname.toLowerCase();
     if (!name.endsWith('.xlsx') && !name.endsWith('.csv')) {
       throw new BadRequestException('지정 양식(.xlsx) 또는 CSV 파일만 업로드할 수 있습니다.');
+    }
+    // 파싱 전에 크기부터 거른다 (EX-IN-003). 행·항목 상한은 parseSchedule 이 본다.
+    if (file.size > MAX_BYTES) {
+      const mb = Math.round((file.size / 1024 / 1024) * 10) / 10;
+      return {
+        nights: 0,
+        items: [],
+        errors: [],
+        rejected: {
+          code: 'UPLOAD_LIMIT_EXCEEDED',
+          message: `파일이 5MB 를 넘습니다(약 ${String(mb)}MB). 5MB 이하로 줄여 주세요.`,
+        },
+      };
     }
     const rows = await readSheetRows(file.buffer, file.originalname);
     return parseSchedule(rows);

@@ -22,6 +22,9 @@ const TYPE_MAP: Record<string, ItemType> = {
 
 /** 당일(0) ~ 2박 3일(2) → 최대 3일차 (SC-PD-001) */
 const MAX_DAY = 3;
+/** 업로드 상한. 행은 파싱 전, 유효 항목은 파싱 후에 본다 (EX-IN-003 · 004 · NF-CP-003) */
+const MAX_ROWS = 500;
+const MAX_ITEMS = 45;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const HEADER_TOKENS = ['일차', '시작시간', '종료시간', '장소명', '유형'];
 
@@ -53,8 +56,21 @@ type Cell = string | number | null | undefined;
  * 원본 행 번호는 `i + 1`(1-기반)로 보고한다.
  */
 export function parseSchedule(rows: readonly (readonly Cell[])[]): ParseResult {
-  const headerIdx = findHeaderRow(rows);
-  if (headerIdx === -1) {
+  // 행 상한은 파싱 전에 본다 (EX-IN-003)
+  if (rows.length > MAX_ROWS) {
+    return {
+      nights: 0,
+      items: [],
+      errors: [],
+      rejected: {
+        code: 'UPLOAD_LIMIT_EXCEEDED',
+        message: `행이 ${rows.length}개입니다. 한 번에 ${MAX_ROWS}행까지 올릴 수 있습니다.`,
+      },
+    };
+  }
+
+  const header = locateHeader(rows);
+  if (header.idx === -1) {
     return {
       nights: 0,
       items: [],
@@ -65,11 +81,23 @@ export function parseSchedule(rows: readonly (readonly Cell[])[]): ParseResult {
       },
     };
   }
+  // 헤더는 찾았지만 일부 컬럼이 빠졌다 — 어느 컬럼인지 짚어 준다 (EX-IN-001)
+  if (header.missing.length > 0) {
+    return {
+      nights: 0,
+      items: [],
+      errors: [],
+      rejected: {
+        code: 'TEMPLATE_MISMATCH',
+        message: `필수 컬럼이 없습니다: ${header.missing.join(' · ')}. 지정 양식을 내려받아 다시 작성해 주세요.`,
+      },
+    };
+  }
 
   const items: ParsedItem[] = [];
   const errors: RowError[] = [];
 
-  for (let i = headerIdx + 1; i < rows.length; i++) {
+  for (let i = header.idx + 1; i < rows.length; i++) {
     const rowNo = i + 1;
     const row = rows[i] ?? [];
     if (isBlank(row)) continue;
@@ -95,6 +123,19 @@ export function parseSchedule(rows: readonly (readonly Cell[])[]): ParseResult {
     };
   }
 
+  // 유효 항목 상한은 파싱 후에 본다 (EX-IN-004)
+  if (items.length > MAX_ITEMS) {
+    return {
+      nights: 0,
+      items: [],
+      errors,
+      rejected: {
+        code: 'UPLOAD_LIMIT_EXCEEDED',
+        message: `유효한 일정 항목이 ${items.length}건입니다. 한 상품에 ${MAX_ITEMS}건까지 담을 수 있습니다. 상품을 나눠 주세요.`,
+      },
+    };
+  }
+
   return { nights: maxDay === 0 ? 0 : maxDay - 1, items, errors };
 }
 
@@ -116,12 +157,21 @@ function parseRow(row: readonly Cell[]): ParsedItem | string {
   return { day, start, end: end === '' ? null : end, place, itemType };
 }
 
-function findHeaderRow(rows: readonly (readonly Cell[])[]): number {
+/**
+ * 헤더 행을 찾고, 못 채운 필수 컬럼을 함께 돌려준다.
+ *
+ * 헤더 토큰이 가장 많이 맞는 행을 헤더로 본다. 하나도 없으면 `idx: -1`(양식 아님),
+ * 일부만 있으면 `missing` 에 빠진 컬럼을 담아 어느 것이 없는지 짚을 수 있게 한다 (EX-IN-001).
+ */
+function locateHeader(rows: readonly (readonly Cell[])[]): { idx: number; missing: string[] } {
+  let best = { idx: -1, present: 0, missing: [...HEADER_TOKENS] };
   for (let i = 0; i < rows.length; i++) {
     const cells = (rows[i] ?? []).map((c) => text(c));
-    if (HEADER_TOKENS.every((tok) => cells.includes(tok))) return i;
+    const missing = HEADER_TOKENS.filter((tok) => !cells.includes(tok));
+    const present = HEADER_TOKENS.length - missing.length;
+    if (present > best.present) best = { idx: i, present, missing };
   }
-  return -1;
+  return best.present === 0 ? { idx: -1, missing: [...HEADER_TOKENS] } : { idx: best.idx, missing: best.missing };
 }
 
 function isBlank(row: readonly Cell[]): boolean {

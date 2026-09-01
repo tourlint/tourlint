@@ -4,7 +4,7 @@
 // A 기본정보 + B 상품 성격·이동 + C 일정 입력 + 저장 → 검수 결과(화면 전이 2→3).
 // 업로드·자연어(D)와 관광지 확정(E)은 후속 단계라 진입만 열어 둔다.
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Field, Section, Segmented, SelectInput, TextInput } from "./controls";
@@ -58,6 +58,26 @@ export default function ProductNewPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // 세션이 만료돼 저장이 튕겼다가 재로그인하고 돌아오면 작성분을 되살린다 (EX-SY-002).
+  // 임시저장은 세션 만료 순간에만 쓰므로 평소 사용에는 초안이 없다. 한 번 복원하면 지운다.
+  useEffect(() => {
+    void (async () => {
+      const d = readDraft();
+      if (d === null) return;
+      clearDraft();
+      setMethod(d.method);
+      setName(d.name);
+      setRegion(d.region);
+      setStartDate(d.startDate);
+      setNights(d.nights);
+      setTarget(d.target);
+      setConcept(d.concept);
+      setHeadcount(d.headcount);
+      setTransport(d.transport);
+      setSchedule(d.schedule);
+    })();
+  }, []);
+
   // 업로드 파싱 결과를 폼에 채운다 (UI-S2-010). 박수와 일정만 채우고 나머지는 편집으로 둔다.
   function applyUpload(nights: number, items: ParsedItemDTO[]) {
     const n = Math.max(0, Math.min(2, nights)) as Nights;
@@ -103,6 +123,12 @@ export default function ProductNewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildPayload({ name, region, startDate, nights, target, concept, headcount, transport, schedule })),
       });
+      if (res.status === 401) {
+        // 세션 만료 — 작성분을 담아 두고 재로그인으로 유도한다 (EX-SY-002). 돌아오면 복원된다.
+        saveDraft({ method, name, region, startDate, nights, target, concept, headcount, transport, schedule });
+        router.push("/login");
+        return;
+      }
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
       // 저장 후 검수 결과로 (화면 전이 2→3). 관광지 확정은 2차라 자동 검수는 아직 안 돈다.
@@ -241,6 +267,50 @@ export default function ProductNewPage() {
       </form>
     </>
   );
+}
+
+// ── 세션 만료 대비 임시저장 (EX-SY-002) ──────────────────────────────────────
+// sessionStorage 는 같은 탭에서 로그인 화면을 거쳐 돌아와도 유지된다. 세션 만료 순간에만
+// 쓰고, 복원하면 지운다.
+
+const DRAFT_KEY = "tourlint:product-new-draft";
+
+interface Draft {
+  method: Method;
+  name: string;
+  region: Region;
+  startDate: string;
+  nights: Nights;
+  target: string;
+  concept: string;
+  headcount: string;
+  transport: Transport;
+  schedule: Schedule;
+}
+
+function saveDraft(d: Draft): void {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+  } catch {
+    // 저장이 안 되면(사생활 모드 등) 임시저장만 건너뛴다 — 저장 흐름 자체는 막지 않는다
+  }
+}
+
+function readDraft(): Draft | null {
+  try {
+    const s = sessionStorage.getItem(DRAFT_KEY);
+    return s === null ? null : (JSON.parse(s) as Draft);
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft(): void {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // 지우기 실패는 무시한다 — 다음 복원에서 clearDraft 가 다시 시도한다
+  }
 }
 
 interface FormState {
