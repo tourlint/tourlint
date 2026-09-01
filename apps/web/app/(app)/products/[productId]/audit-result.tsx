@@ -627,6 +627,12 @@ function ApplyResultBanner({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+        <Link
+          href={`/products/${application.productId}/comparison`}
+          className="mr-auto rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          전후 비교
+        </Link>
         {application.revertible ? (
           undoConfirm ? (
             <>

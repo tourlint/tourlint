@@ -412,6 +412,49 @@ export const notificationApi = {
     request<{ id: number; dismissedAt: string }>(`/notifications/${id}/dismiss`, { method: "POST" }),
 };
 
+// ── 수정 전후 비교 (S5 · FR-PA-040~045) ───────────────────────────────────────
+
+/**
+ * 대조 지표 한 줄. 대부분 before·after 숫자지만 몇은 다르다 — 총 감점은 계산식을,
+ * 이동시간·거리는 출처를, 수요 적합성은 텍스트를 함께 준다.
+ */
+export interface ComparisonMetric {
+  key: string;
+  label: string;
+  before?: number | null;
+  after?: number | null;
+  beforeText?: string;
+  afterText?: string;
+  formulaBefore?: string;
+  formulaAfter?: string;
+  sourceBadge?: string;
+  externalSource?: string;
+}
+
+export interface ComparisonResult {
+  patchApplicationId: number;
+  before: { auditRunId: number; executedAt: string };
+  after: { auditRunId: number; executedAt: string };
+  metrics: ComparisonMetric[];
+  warningBanner: string | null;
+  revertible: boolean;
+}
+
+export const comparisonApi = {
+  // 직전 패치의 전후 한 쌍. 수정 이력이 없거나 재검수가 안 끝났으면 404 (UI-S5-006)
+  get: (productId: number) => request<ComparisonResult>(`/products/${productId}/comparison`),
+};
+
+// ── 리포트 (F11 · UI-S5-004 진입점) ───────────────────────────────────────────
+
+export const reportApi = {
+  // 렌더까지 끝내고 reportId 를 준다 (가장 최근 실행만, 아니면 409)
+  generate: (runId: number) => request<{ reportId: string }>(`/audit-runs/${runId}/reports`, { method: "POST" }),
+  // 다운로드는 브라우저 내비게이션으로 — 세션 쿠키가 실려 PDF 를 그대로 받는다.
+  // 공통 fetch 래퍼는 .json() 이라 바이너리에 못 쓴다.
+  downloadUrl: (reportId: string) => `/api/v1/reports/${reportId}/download`,
+};
+
 export function isApiError(e: unknown): e is ApiError {
   return typeof e === "object" && e !== null && "status" in e && "message" in e;
 }
