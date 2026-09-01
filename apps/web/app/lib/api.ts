@@ -455,6 +455,42 @@ export const reportApi = {
   downloadUrl: (reportId: string) => `/api/v1/reports/${reportId}/download`,
 };
 
+// ── 관리자 설정 (F16 · UI-S8 · FR-OP-020~027) ────────────────────────────────
+
+export interface WeightSettings {
+  BLOCKER: number;
+  ERROR: number;
+  WARNING: number;
+  UNVERIFIED: number;
+}
+
+export interface AccountSettings {
+  weights: WeightSettings;
+  r07SpanHours: number;
+  r07MealMinutes: number;
+  r04Threshold: number;
+  watchKeywords: string[];
+}
+
+export interface GlobalSettings {
+  batchTime: string;
+  batchEnabled: boolean;
+  dailyQuota: number;
+}
+
+export interface SettingsView {
+  account: AccountSettings;
+  global: GlobalSettings;
+  defaults: { account: AccountSettings; global: GlobalSettings };
+}
+
+export const settingsApi = {
+  get: () => request<SettingsView>("/settings"),
+  // 계정 설정만 저장한다. 전역 값은 이 경로로 바꾸지 않는다.
+  update: (account: AccountSettings) =>
+    request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify(account) }),
+};
+
 export function isApiError(e: unknown): e is ApiError {
   return typeof e === "object" && e !== null && "status" in e && "message" in e;
 }
