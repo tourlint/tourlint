@@ -491,6 +491,36 @@ export const settingsApi = {
     request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify(account) }),
 };
 
+// ── 계정 기준표 (F16 · UI-S8-005) ────────────────────────────────────────────
+
+export type IndoorOutdoor = "INDOOR" | "OUTDOOR" | "MIXED";
+
+export interface DwellEntry {
+  lcls2: string;
+  name: string;
+  minutes: number;
+  defaultMinutes: number;
+}
+
+export interface IoEntry {
+  lcls2: string;
+  name: string;
+  spaceType: IndoorOutdoor;
+  defaultSpaceType: IndoorOutdoor;
+}
+
+export const settingsTablesApi = {
+  dwell: () => request<{ entries: DwellEntry[] }>("/settings/dwell"),
+  saveDwell: (entries: { lcls2: string; minutes: number }[]) =>
+    request<{ entries: DwellEntry[] }>("/settings/dwell", { method: "PUT", body: JSON.stringify({ entries }) }),
+  indoorOutdoor: () => request<{ entries: IoEntry[] }>("/settings/indoor-outdoor"),
+  saveIndoorOutdoor: (entries: { lcls2: string; spaceType: IndoorOutdoor }[]) =>
+    request<{ entries: IoEntry[] }>("/settings/indoor-outdoor", {
+      method: "PUT",
+      body: JSON.stringify({ entries }),
+    }),
+};
+
 export function isApiError(e: unknown): e is ApiError {
   return typeof e === "object" && e !== null && "status" in e && "message" in e;
 }

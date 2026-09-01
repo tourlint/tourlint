@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Field, Section, TextInput } from "../products/new/controls";
+import { DwellTable, IndoorOutdoorTable } from "./tables";
 import { isApiError, settingsApi, type AccountSettings, type SettingsView } from "../../lib/api";
 
 const SEVERITIES: { key: keyof AccountSettings["weights"]; label: string }[] = [
@@ -157,6 +158,14 @@ export default function SettingsPage() {
               }}
             />
           </Field>
+        </Section>
+
+        {/* 계정 기준표 — 표로 편집한다 (UI-S8-005). 각 표는 스스로 저장한다. */}
+        <Section title="중분류별 기본 체류시간">
+          <DwellTable />
+        </Section>
+        <Section title="중분류별 실내 · 야외">
+          <IndoorOutdoorTable />
         </Section>
 
         {/* 전역 설정 — 서비스 전체 공통. 조회만 (UI-S8-002). */}
