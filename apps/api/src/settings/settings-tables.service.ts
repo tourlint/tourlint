@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { LCLS_SYSTM2 } from '@tourlint/shared';
 import {
   SettingsTablesRepository,
   type DwellEntry,
@@ -41,5 +42,14 @@ export class SettingsTablesService {
     if (entries === undefined) throw new BadRequestException(errors.join(' '));
     await this.repo.saveProfiles(accountId, entries);
     return this.profiles(accountId);
+  }
+
+  /** 중분류 59종 카탈로그(코드→이름). 프로파일 편집기의 기대 중분류 선택에 쓴다. 정적이다. */
+  lcls(): { entries: { code: string; name: string }[] } {
+    return {
+      entries: Object.entries(LCLS_SYSTM2)
+        .map(([code, v]) => ({ code, name: v.name }))
+        .sort((a, b) => a.code.localeCompare(b.code)),
+    };
   }
 }

@@ -509,6 +509,18 @@ export interface IoEntry {
   defaultSpaceType: IndoorOutdoor;
 }
 
+export interface ProfileEntry {
+  targetKey: string;
+  conceptKey: string;
+  expectedLcls2: string[];
+  expectsNight: boolean;
+}
+
+export interface LclsItem {
+  code: string;
+  name: string;
+}
+
 export const settingsTablesApi = {
   dwell: () => request<{ entries: DwellEntry[] }>("/settings/dwell"),
   saveDwell: (entries: { lcls2: string; minutes: number }[]) =>
@@ -519,6 +531,12 @@ export const settingsTablesApi = {
       method: "PUT",
       body: JSON.stringify({ entries }),
     }),
+  // R10 기대 콘텐츠 프로파일. 저장은 전체 교체다.
+  profiles: () => request<{ entries: ProfileEntry[] }>("/settings/profiles"),
+  saveProfiles: (entries: ProfileEntry[]) =>
+    request<{ entries: ProfileEntry[] }>("/settings/profiles", { method: "PUT", body: JSON.stringify({ entries }) }),
+  // 중분류 카탈로그(코드→이름). 프로파일 편집기의 기대 중분류 선택에 쓴다.
+  lcls: () => request<{ entries: LclsItem[] }>("/settings/lcls"),
 };
 
 export function isApiError(e: unknown): e is ApiError {
