@@ -4,6 +4,8 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { getPool } from './persistence/db';
+import { bootstrapDemoAccount, demoEmail } from './seed/demo-seed';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -19,6 +21,30 @@ async function bootstrap(): Promise<void> {
   await app.listen(port, '::');
   // eslint-disable-next-line no-console
   console.log(`TourLint API → http://localhost:${port}  ·  문서 /docs  ·  상태 /health`);
+
+  await ensureDemoAccountOnBoot();
+}
+
+/**
+ * 심사용 계정을 부팅 때 보장한다 (PM-TA-001).
+ *
+ * `listen` 뒤에 부른다 — DB 가 느리거나 막혀도 API 는 이미 응답할 수 있는 상태여야 한다.
+ * 실패해도 부팅을 중단하지 않고 한 줄만 남긴다. 로그에 이메일까지만 적고 비밀번호는
+ * 절대 남기지 않는다 (NF-SC-008 · DB 명세서 6-4).
+ */
+async function ensureDemoAccountOnBoot(): Promise<void> {
+  try {
+    const result = await bootstrapDemoAccount(getPool());
+    // eslint-disable-next-line no-console
+    console.log(
+      result.status === 'skipped'
+        ? '심사용 계정 건너뜀 — DEMO_ACCOUNT_PASSWORD 미설정'
+        : `심사용 계정 준비 완료 · ${demoEmail()} · 시연 상품 ${result.seeded}건 적재`,
+    );
+  } catch (err: unknown) {
+    // eslint-disable-next-line no-console
+    console.error('심사용 계정 준비 실패:', err instanceof Error ? err.message : err);
+  }
 }
 
 /**

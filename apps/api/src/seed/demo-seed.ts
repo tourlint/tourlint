@@ -14,7 +14,12 @@ import { DEMO_PRODUCTS, type DemoProduct } from './demo-products';
  * (DB 명세서 데모 시드 주석). 항목은 product ON DELETE CASCADE 로 함께 지워진다.
  */
 
-export const DEFAULT_DEMO_EMAIL = 'openapi@tourlint.example';
+/**
+ * 심사자가 화면에 그대로 입력하는 값이다. 로그인 식별자일 뿐 메일함은 없다 —
+ * `.example` 자리표시자를 쓰면 제출 자료에서 가짜 계정으로 읽힌다.
+ * 형식은 공모전이 지정한 `openapi@메일도메인` 을 따른다 (PM-TA-008).
+ */
+export const DEFAULT_DEMO_EMAIL = 'openapi@tourlint.kr';
 
 export function demoEmail(): string {
   const value = process.env.DEMO_ACCOUNT_EMAIL;
@@ -114,4 +119,38 @@ export async function seedDemo(pool: Pool): Promise<{ accountId: number; product
   const accountId = await ensureDemoAccount(pool);
   const products = await reseedDemoProducts(pool, accountId);
   return { accountId, products };
+}
+
+export type DemoBootstrap =
+  | { status: 'skipped' }
+  | { status: 'ready'; accountId: number; seeded: number };
+
+/**
+ * 부팅 시 데모 계정 보장 (PM-TA-001).
+ *
+ * CLI 시드는 배포 환경에서 사람이 한 번 실행해야 하는데, 그 한 번을 빠뜨리면 심사자가
+ * 로그인하지 못한다. 실제로 배포 DB 에 계정이 없는 상태로 제출 직전까지 왔다.
+ *
+ * `seedDemo` 와 다른 점이 하나 있고 그게 이 함수의 존재 이유다 — **상품이 이미 있으면
+ * 다시 넣지 않는다.** 매 배포마다 `reseedDemoProducts` 를 돌리면 심사 중 재배포 한 번에
+ * 심사자가 수정·패치하던 상품이 초기 상태로 돌아간다. 복원은 PM-TA-003 의 명시적
+ * 복원 버튼이 할 일이지 부팅이 할 일이 아니다.
+ *
+ * 비밀번호 환경변수가 없으면 아무것도 하지 않고 넘어간다. 자격증명을 소스에 두지 않는
+ * 대가로(PM-TA-008) 환경변수가 비는 경우가 생기는데, 그때 부팅을 죽이면 API 전체가
+ * 내려간다. 계정 하나 때문에 서비스를 멈추지 않는다.
+ */
+export async function bootstrapDemoAccount(pool: Pool): Promise<DemoBootstrap> {
+  const password = process.env.DEMO_ACCOUNT_PASSWORD;
+  if (password === undefined || password === '') return { status: 'skipped' };
+
+  const accountId = await ensureDemoAccount(pool);
+  const { rows } = await pool.query<{ n: string }>(
+    `SELECT count(*)::text n FROM product WHERE account_id = $1`,
+    [accountId],
+  );
+  if (Number(rows[0]?.n ?? '0') > 0) return { status: 'ready', accountId, seeded: 0 };
+
+  const seeded = await reseedDemoProducts(pool, accountId);
+  return { status: 'ready', accountId, seeded };
 }
