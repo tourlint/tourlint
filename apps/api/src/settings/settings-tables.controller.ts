@@ -54,4 +54,10 @@ export class SettingsTablesController {
   ): Promise<{ entries: ProfileEntry[] }> {
     return this.service.saveProfiles(account.accountId, body);
   }
+
+  /** 중분류 카탈로그(코드→이름). 프로파일 편집기의 기대 중분류 선택 목록이다. */
+  @Get('settings/lcls')
+  lcls(): { entries: { code: string; name: string }[] } {
+    return this.service.lcls();
+  }
 }

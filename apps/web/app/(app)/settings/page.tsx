@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Field, Section, TextInput } from "../products/new/controls";
 import { DwellTable, IndoorOutdoorTable } from "./tables";
+import { ProfileEditor } from "./profiles";
 import { isApiError, settingsApi, type AccountSettings, type SettingsView } from "../../lib/api";
 
 const SEVERITIES: { key: keyof AccountSettings["weights"]; label: string }[] = [
@@ -166,6 +167,9 @@ export default function SettingsPage() {
         </Section>
         <Section title="중분류별 실내 · 야외">
           <IndoorOutdoorTable />
+        </Section>
+        <Section title="R10 기대 콘텐츠 프로파일">
+          <ProfileEditor />
         </Section>
 
         {/* 전역 설정 — 서비스 전체 공통. 조회만 (UI-S8-002). */}
