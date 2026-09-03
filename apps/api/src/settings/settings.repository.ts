@@ -32,6 +32,8 @@ export const ACCOUNT_SETTING_DEFAULTS: AccountSettings = {
 };
 
 export const GLOBAL_SETTING_DEFAULTS: GlobalSettings = { ...SYSTEM_SETTING_DEFAULTS };
+/** 일일 호출 예산 상한 (system_setting.ck_sys_quota · DR-IN-008 운영계정 상한). */
+export const GLOBAL_QUOTA_CAP = 100000;
 
 interface AccountRow {
   weights: AccountSettings['weights'];
@@ -91,5 +93,19 @@ export class SettingsRepository {
       batchEnabled: row.batch_enabled,
       dailyQuota: row.daily_quota,
     };
+  }
+
+  /** 전역 설정 저장. 서비스 전체 공통이라 한 행(key='global')을 upsert 한다. */
+  async saveGlobal(g: GlobalSettings): Promise<GlobalSettings> {
+    await this.pool.query(
+      `INSERT INTO system_setting (key, batch_time, batch_enabled, daily_quota)
+       VALUES ('global', $1, $2, $3)
+       ON CONFLICT (key) DO UPDATE SET
+         batch_time = EXCLUDED.batch_time,
+         batch_enabled = EXCLUDED.batch_enabled,
+         daily_quota = EXCLUDED.daily_quota`,
+      [g.batchTime, g.batchEnabled, g.dailyQuota],
+    );
+    return g;
   }
 }

@@ -65,4 +65,13 @@ describe.skipIf(URL === undefined)('SettingsRepository — 실 DB', () => {
     expect(s2.r04Threshold).toBe(ACCOUNT_SETTING_DEFAULTS.r04Threshold);
     expect(s2.watchKeywords).toEqual([]);
   });
+
+  it('전역 설정을 저장하고 다시 읽는다 (원복)', async () => {
+    // 전역은 계정에 매이지 않는 공유 행이라, 원본을 되돌려 다른 테스트에 새지 않게 한다.
+    const before = await repo.global();
+    await repo.saveGlobal({ batchTime: '06:30', batchEnabled: true, dailyQuota: 1234 });
+    expect(await repo.global()).toEqual({ batchTime: '06:30', batchEnabled: true, dailyQuota: 1234 });
+    await repo.saveGlobal(before);
+    expect(await repo.global()).toEqual(before);
+  });
 });

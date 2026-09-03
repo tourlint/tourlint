@@ -1,4 +1,6 @@
-import type { AccountSettings } from './settings.repository';
+import { GLOBAL_QUOTA_CAP, type AccountSettings, type GlobalSettings } from './settings.repository';
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
  * 계정 설정 입력 검증. 범위는 스키마 CHECK 제약과 일치시킨다 (user_setting) — DB 가 던지기
@@ -83,4 +85,29 @@ function keywords(v: unknown, errors: string[]): string[] | undefined {
     return undefined;
   }
   return cleaned;
+}
+
+interface RawGlobal {
+  batchTime?: unknown;
+  batchEnabled?: unknown;
+  dailyQuota?: unknown;
+}
+
+/** 전역 설정 검증. 예산 상한은 스키마 CHECK(1~100000)와 맞춘다 (UI-S8-006). */
+export function validateGlobal(body: RawGlobal | undefined): { errors: string[]; settings?: GlobalSettings } {
+  const errors: string[] = [];
+  const b = body ?? {};
+
+  const batchTime = typeof b.batchTime === 'string' ? b.batchTime : '';
+  if (!TIME_RE.test(batchTime)) errors.push('배치 실행 시각을 HH:MM 형식으로 입력하세요.');
+
+  const dailyQuota = b.dailyQuota;
+  if (typeof dailyQuota !== 'number' || !Number.isInteger(dailyQuota) || dailyQuota < 1 || dailyQuota > GLOBAL_QUOTA_CAP) {
+    errors.push(`일일 호출 예산은 1~${GLOBAL_QUOTA_CAP.toLocaleString()} 범위여야 합니다.`);
+  }
+
+  const batchEnabled = b.batchEnabled === true;
+
+  if (errors.length > 0) return { errors };
+  return { errors, settings: { batchTime, dailyQuota: dailyQuota as number, batchEnabled } };
 }

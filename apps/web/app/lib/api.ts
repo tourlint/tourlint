@@ -482,6 +482,9 @@ export interface SettingsView {
   account: AccountSettings;
   global: GlobalSettings;
   defaults: { account: AccountSettings; global: GlobalSettings };
+  // 전역 편집 권한·예산 상한 (UI-S8-006). 데모 계정은 전역을 못 바꾼다.
+  globalEditable: boolean;
+  quotaCap: number;
 }
 
 export const settingsApi = {
@@ -489,6 +492,9 @@ export const settingsApi = {
   // 계정 설정만 저장한다. 전역 값은 이 경로로 바꾸지 않는다.
   update: (account: AccountSettings) =>
     request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify(account) }),
+  // 전역 설정 저장(배치 시각·일일 예산). 데모 계정이면 서버가 403 을 준다.
+  updateGlobal: (global: GlobalSettings) =>
+    request<SettingsView>("/settings/global", { method: "PUT", body: JSON.stringify(global) }),
 };
 
 // ── 계정 기준표 (F16 · UI-S8-005) ────────────────────────────────────────────
