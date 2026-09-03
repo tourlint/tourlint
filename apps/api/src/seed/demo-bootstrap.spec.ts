@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { bootstrapDemoAccount, seedDemo } from './demo-seed';
 import { DEMO_PRODUCTS } from './demo-products';
+import { hashPassword, verifyPassword } from '../auth/password';
 
 /**
  * 부팅 시 심사용 계정 보장 (PM-TA-001).
@@ -65,6 +66,26 @@ describe.skipIf(URL === undefined)('bootstrapDemoAccount — 실 DB', () => {
       [result.accountId],
     );
     expect(demo.rows[0]?.is_demo).toBe(true);
+  });
+
+  it('이미 있는 계정의 비밀번호와 is_demo 를 환경변수 기준으로 맞춘다', async () => {
+    const { accountId } = await seedDemo(pool);
+    // 운영에서 실제로 있었던 상태 — 계정은 있는데 해시가 옛 비밀번호이고 데모 표시도 빠져 있다
+    await pool.query(`UPDATE account SET password_hash = $2, is_demo = FALSE WHERE id = $1`, [
+      accountId,
+      await hashPassword('옛-비밀번호'),
+    ]);
+
+    await bootstrapDemoAccount(pool);
+
+    const { rows } = await pool.query<{ password_hash: string; is_demo: boolean }>(
+      `SELECT password_hash, is_demo FROM account WHERE id = $1`,
+      [accountId],
+    );
+    const row = rows[0];
+    expect(row?.is_demo).toBe(true);
+    expect(await verifyPassword('spec-only-password', row?.password_hash ?? '')).toBe(true);
+    expect(await verifyPassword('옛-비밀번호', row?.password_hash ?? '')).toBe(false);
   });
 
   it('상품이 이미 있으면 다시 넣지 않는다 — 심사자가 고친 상품을 보존한다', async () => {
