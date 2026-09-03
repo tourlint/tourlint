@@ -23,6 +23,14 @@ export interface IoEntry {
   defaultSpaceType: IndoorOutdoor;
 }
 
+/** R10 기대 콘텐츠 프로파일 한 줄 — (타깃·콘셉트) → 기대 중분류 목록 (가변 행). */
+export interface ProfileEntry {
+  targetKey: string;
+  conceptKey: string;
+  expectedLcls2: string[];
+  expectsNight: boolean;
+}
+
 const nameOf = (lcls2: string): string => LCLS_SYSTM2[lcls2]?.name ?? lcls2;
 
 export class SettingsTablesRepository {
@@ -81,8 +89,57 @@ export class SettingsTablesRepository {
       [accountId, entries.map((e) => e.lcls2), entries.map((e) => e.spaceType)],
     );
   }
+
+  /** R10 프로파일 목록 (계정이 정의한 것). */
+  async profiles(accountId: number): Promise<ProfileEntry[]> {
+    const { rows } = await this.pool.query<{
+      target_key: string;
+      concept_key: string;
+      expected_lcls2: string[];
+      expects_night: boolean;
+    }>(
+      `SELECT target_key, concept_key, expected_lcls2, expects_night
+         FROM target_profile WHERE account_id = $1 ORDER BY target_key, concept_key`,
+      [accountId],
+    );
+    return rows.map((r) => ({
+      targetKey: r.target_key,
+      conceptKey: r.concept_key,
+      expectedLcls2: r.expected_lcls2,
+      expectsNight: r.expects_night,
+    }));
+  }
+
+  /**
+   * 프로파일 전체 교체. 화면이 보낸 집합으로 계정 프로파일을 통째로 바꾼다.
+   *
+   * 가변 행이라 upsert 로는 삭제를 표현할 수 없다 — 지운 프로파일을 반영하려면 전체를
+   * 다시 써야 한다. 삭제·삽입을 한 트랜잭션으로 묶어 중간 상태가 판정에 새지 않게 한다.
+   */
+  async saveProfiles(accountId: number, entries: ProfileEntry[]): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`DELETE FROM target_profile WHERE account_id = $1`, [accountId]);
+      for (const e of entries) {
+        await client.query(
+          `INSERT INTO target_profile (account_id, target_key, concept_key, expected_lcls2, expects_night)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [accountId, e.targetKey, e.conceptKey, e.expectedLcls2, e.expectsNight],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 /** 알려진 중분류인지 — 편집 입력 검증용. dwell 은 47종, io 는 59종이 시드다. */
 export const KNOWN_DWELL_LCLS = new Set(Object.keys(DWELL_MINUTES_SEED));
 export const KNOWN_IO_LCLS = new Set(Object.keys(INDOOR_OUTDOOR_SEED));
+/** 전체 중분류 59종 — R10 기대 중분류 입력 검증용. */
+export const KNOWN_LCLS = new Set(Object.keys(LCLS_SYSTM2));

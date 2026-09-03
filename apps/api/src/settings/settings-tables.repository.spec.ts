@@ -57,4 +57,25 @@ describe.skipIf(URL === undefined)('SettingsTablesRepository — 실 DB', () => 
     expect(ev01?.minutes).toBe(DWELL_MINUTES_SEED.EV01);
     expect(ac01?.spaceType).toBe(INDOOR_OUTDOOR_SEED.AC01);
   });
+
+  it('R10 프로파일 전체 교체 — 보낸 집합만 남는다', async () => {
+    await repo.saveProfiles(a1, [
+      { targetKey: 'T1', conceptKey: 'C1', expectedLcls2: ['AC01', 'EV01'], expectsNight: true },
+      { targetKey: 'T2', conceptKey: 'C2', expectedLcls2: ['AC02'], expectsNight: false },
+    ]);
+    expect(await repo.profiles(a1)).toHaveLength(2);
+    // 다시 하나만 보내면 나머지는 사라진다 (upsert 가 아니라 교체)
+    await repo.saveProfiles(a1, [
+      { targetKey: 'T1', conceptKey: 'C1', expectedLcls2: ['AC01', 'EV01'], expectsNight: true },
+    ]);
+    const after = await repo.profiles(a1);
+    expect(after).toHaveLength(1);
+    expect(after[0]?.expectedLcls2).toEqual(['AC01', 'EV01']);
+    expect(after[0]?.expectsNight).toBe(true);
+  });
+
+  it('R10 프로파일도 계정 격리 — a1 교체가 a2 를 안 건드린다', async () => {
+    const a2p = await repo.profiles(a2);
+    expect(a2p.some((p) => p.targetKey === 'T1')).toBe(false);
+  });
 });

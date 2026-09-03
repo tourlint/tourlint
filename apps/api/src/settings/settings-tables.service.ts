@@ -3,8 +3,9 @@ import {
   SettingsTablesRepository,
   type DwellEntry,
   type IoEntry,
+  type ProfileEntry,
 } from './settings-tables.repository';
-import { validateDwell, validateIo } from './settings-tables.dto';
+import { validateDwell, validateIo, validateProfiles } from './settings-tables.dto';
 
 export class SettingsTablesService {
   constructor(private readonly repo: SettingsTablesRepository) {}
@@ -29,5 +30,16 @@ export class SettingsTablesService {
     if (entries === undefined) throw new BadRequestException(errors.join(' '));
     await this.repo.saveIndoorOutdoor(accountId, entries);
     return this.indoorOutdoor(accountId);
+  }
+
+  async profiles(accountId: number): Promise<{ entries: ProfileEntry[] }> {
+    return { entries: await this.repo.profiles(accountId) };
+  }
+
+  async saveProfiles(accountId: number, body: unknown): Promise<{ entries: ProfileEntry[] }> {
+    const { errors, entries } = validateProfiles(body as { entries?: unknown } | undefined);
+    if (entries === undefined) throw new BadRequestException(errors.join(' '));
+    await this.repo.saveProfiles(accountId, entries);
+    return this.profiles(accountId);
   }
 }
