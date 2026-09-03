@@ -17,6 +17,7 @@ import {
   type ContentCandidate,
   type Finding,
   type Patch,
+  type PatchApplicationDetail,
   type PatchItem,
   type PatchPreview,
   type PatchSelection,
@@ -26,6 +27,7 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
+import { GradeBadge, GradeCounts, SourceBadge, StatusBadge } from "../../../components/badges";
 
 const CONTENT_TYPE_LABEL: Record<number, string> = {
   12: "관광지",
@@ -38,31 +40,13 @@ const CONTENT_TYPE_LABEL: Record<number, string> = {
   39: "음식점",
 };
 
-const SEVERITY_META: Record<Severity, { label: string; order: number; badge: string; bar: string }> = {
-  BLOCKER: {
-    label: "차단",
-    order: 0,
-    badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
-    bar: "border-l-rose-500",
-  },
-  ERROR: {
-    label: "오류",
-    order: 1,
-    badge: "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
-    bar: "border-l-orange-500",
-  },
-  WARNING: {
-    label: "주의",
-    order: 2,
-    badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-    bar: "border-l-amber-500",
-  },
-  UNVERIFIED: {
-    label: "확인불가",
-    order: 3,
-    badge: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
-    bar: "border-l-slate-400",
-  },
+// 배지·건수·라벨은 공통 컴포넌트(components/badges)가 등급 토큰으로 그린다.
+// 여기서는 finding 카드의 좌측 테두리 색과 정렬 순서만 등급별로 둔다.
+const SEVERITY_META: Record<Severity, { order: number; bar: string }> = {
+  BLOCKER: { order: 0, bar: "border-l-rose-500" },
+  ERROR: { order: 1, bar: "border-l-orange-500" },
+  WARNING: { order: 2, bar: "border-l-amber-500" },
+  UNVERIFIED: { order: 3, bar: "border-l-slate-400" },
 };
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
@@ -93,6 +77,11 @@ export function AuditResult({ productId }: { productId: number }) {
   const [preview, setPreview] = useState<PatchPreview | null>(null);
   const [patchBusy, setPatchBusy] = useState<"preview" | "apply" | null>(null);
   const [patchMsg, setPatchMsg] = useState<string | null>(null);
+  // 확정 직후 반영 이력 — 경고 배너·되돌리기 (F09). 되돌리기는 확인 단계를 거친다.
+  const [application, setApplication] = useState<PatchApplicationDetail | null>(null);
+  const [undoConfirm, setUndoConfirm] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoMsg, setUndoMsg] = useState<string | null>(null);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -167,6 +156,8 @@ export function AuditResult({ productId }: { productId: number }) {
     setRunning(true);
     setError(null);
     setProgress(null);
+    setApplication(null); // 수동 재검수는 직전 반영 배너를 무효화한다
+    setUndoMsg(null);
     try {
       const job = await auditApi.runAudit(productId, "MANUAL");
       const runId = await pollJob(job.jobId);
@@ -217,12 +208,25 @@ export function AuditResult({ productId }: { productId: number }) {
     setPatchBusy("apply");
     setPatchMsg(null);
     setProgress(null);
+    setApplication(null);
+    setUndoMsg(null);
     try {
       const applied = await patchApi.apply(productId, selections(), preview.previewToken);
       const runId = await pollJob(applied.reauditJobId);
       if (runId !== null) {
         resetPatchState();
         await loadRun(runId);
+        // 재검수가 끝난 뒤 반영 상세를 읽어 경고 배너·되돌리기 가능 여부를 받는다.
+        // 이 조회가 실패해도 반영 자체는 이미 성공했으므로 배너 없이 진행한다.
+        try {
+          const detail = await patchApi.application(applied.patchApplicationId);
+          if (alive.current) {
+            setApplication(detail);
+            setUndoConfirm(false);
+          }
+        } catch {
+          /* 배너 생략 */
+        }
       }
     } catch (err) {
       // PATCH_CONFLICT · PATCH_STALE 는 서버 문구를 그대로 보여준다. stale 이면 다시 미리보기해야 한다
@@ -233,6 +237,27 @@ export function AuditResult({ productId }: { productId: number }) {
         setPatchBusy(null);
         setProgress(null);
       }
+    }
+  }
+
+  // 되돌리기 (EX-PA-005 · EX-MS-006). 직전 1건이 아니면 서버가 409 UNDO_UNAVAILABLE 을
+  // 준다 — 그 문구를 그대로 보여 준다 (EX-PA-006).
+  async function doRevert() {
+    if (application === null) return;
+    setUndoBusy(true);
+    setUndoMsg(null);
+    try {
+      const res = await patchApi.revert(application.patchApplicationId);
+      if (res.restoredAuditRunId !== null) await loadRun(res.restoredAuditRunId);
+      await refetchProduct();
+      if (alive.current) {
+        setApplication(null);
+        setUndoConfirm(false);
+      }
+    } catch (err) {
+      setUndoMsg(isApiError(err) ? err.message : err instanceof Error ? err.message : "되돌리기에 실패했습니다.");
+    } finally {
+      if (alive.current) setUndoBusy(false);
     }
   }
 
@@ -290,6 +315,21 @@ export function AuditResult({ productId }: { productId: number }) {
         <EmptyState running={running} progress={progress} onRun={runAudit} />
       ) : (
         <div className="mt-6 space-y-8 pb-28">
+          {application && (
+            <ApplyResultBanner
+              application={application}
+              undoConfirm={undoConfirm}
+              undoBusy={undoBusy}
+              undoMsg={undoMsg}
+              onAskUndo={() => setUndoConfirm(true)}
+              onCancelUndo={() => setUndoConfirm(false)}
+              onConfirmUndo={doRevert}
+              onDismiss={() => {
+                setApplication(null);
+                setUndoMsg(null);
+              }}
+            />
+          )}
           <SummaryCard run={data.run} />
           <FindingsSection
             findings={data.findings}
@@ -534,22 +574,113 @@ function MatchItemRow({
   );
 }
 
+/**
+ * 확정 직후 배너 (F09). 재검수로 준비도가 내려갔으면 경고 문구를 보여 주고(EX-PA-005),
+ * 되돌리기 수단을 준다. 되돌리기는 파괴적이라 확인 단계를 한 번 거친다 (EX-MS-006).
+ */
+function ApplyResultBanner({
+  application,
+  undoConfirm,
+  undoBusy,
+  undoMsg,
+  onAskUndo,
+  onCancelUndo,
+  onConfirmUndo,
+  onDismiss,
+}: {
+  application: PatchApplicationDetail;
+  undoConfirm: boolean;
+  undoBusy: boolean;
+  undoMsg: string | null;
+  onAskUndo: () => void;
+  onCancelUndo: () => void;
+  onConfirmUndo: () => void;
+  onDismiss: () => void;
+}) {
+  const warn = application.warningBanner;
+  const before = application.before?.readinessScore;
+  const after = application.after?.readinessScore;
+  const box = warn
+    ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30"
+    : "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20";
+
+  return (
+    <section className={`rounded-2xl border p-5 ${box}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+            {warn ? "재검수 결과 확인" : "수정안을 반영했습니다"}
+          </p>
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
+            {warn ?? "일정에 수정안을 반영하고 다시 검수했습니다."}
+          </p>
+          {before != null && after != null && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+              준비도 {before} → {after}
+            </p>
+          )}
+          {undoMsg && <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{undoMsg}</p>}
+        </div>
+        <button type="button" onClick={onDismiss} className="shrink-0 text-sm text-slate-400 hover:text-slate-600">
+          닫기
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+        <Link
+          href={`/products/${application.productId}/comparison`}
+          className="mr-auto rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          전후 비교
+        </Link>
+        {application.revertible ? (
+          undoConfirm ? (
+            <>
+              <span className="mr-auto text-xs text-slate-500 dark:text-slate-400">
+                반영 전 일정으로 되돌립니다. 계속할까요?
+              </span>
+              <button
+                type="button"
+                onClick={onCancelUndo}
+                disabled={undoBusy}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={onConfirmUndo}
+                disabled={undoBusy}
+                className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-500 disabled:opacity-60"
+              >
+                {undoBusy ? "되돌리는 중…" : "되돌리기"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onAskUndo}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              되돌리기
+            </button>
+          )
+        ) : (
+          <span className="text-xs text-slate-400">직전에 반영한 것만 되돌릴 수 있습니다.</span>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SummaryCard({ run }: { run: RunSummary }) {
-  const counts: { key: Severity; n: number }[] = [
-    { key: "BLOCKER", n: run.counts.blocker },
-    { key: "ERROR", n: run.counts.error },
-    { key: "WARNING", n: run.counts.warning },
-    { key: "UNVERIFIED", n: run.counts.unverified },
-  ];
   return (
     <section className="rounded-2xl border border-slate-200 p-6 dark:border-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-sm text-slate-500 dark:text-slate-400">출시 준비도</p>
           {run.isPartial ? (
-            <span className="mt-1 inline-block rounded bg-slate-200 px-3 py-1 text-sm font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-              부분 검수
-            </span>
+            <StatusBadge status="PARTIAL" className="mt-1" />
           ) : (
             <p className="mt-1 text-3xl font-bold text-slate-900 dark:text-slate-50">
               {run.readinessScore ?? "-"}
@@ -560,14 +691,7 @@ function SummaryCard({ run }: { run: RunSummary }) {
             <p className="mt-1 font-mono text-xs text-slate-400">{run.scoreBreakdown.formula}</p>
           )}
         </div>
-        <div className="flex gap-2">
-          {counts.map(({ key, n }) => (
-            <div key={key} className={`min-w-[64px] rounded-lg px-3 py-2 text-center ${SEVERITY_META[key].badge}`}>
-              <div className="text-lg font-bold tabular-nums">{n}</div>
-              <div className="text-xs">{SEVERITY_META[key].label}</div>
-            </div>
-          ))}
-        </div>
+        <GradeCounts counts={run.counts} variant="tile" />
       </div>
 
       {!run.releasable && run.releaseBlockedReason && (
@@ -678,14 +802,10 @@ function FindingCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded px-2 py-0.5 text-xs font-medium ${meta.badge}`}>{meta.label}</span>
+            <GradeBadge grade={finding.severity} />
             <span className="text-xs text-slate-400">{finding.ruleCode}</span>
-            <SourceBadge finding={finding} />
-            {finding.dismissed && (
-              <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                무시됨
-              </span>
-            )}
+            <SourceBadge source={finding.sourceBadge} externalName={finding.externalSource} />
+            {finding.dismissed && <StatusBadge status="DISMISSED" />}
           </div>
           <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{finding.message}</p>
           <p className="mt-1 text-xs text-slate-400">
@@ -739,21 +859,6 @@ function FindingCard({
         </fieldset>
       )}
     </li>
-  );
-}
-
-function SourceBadge({ finding }: { finding: Finding }) {
-  const isExternal = finding.sourceBadge === "EXTERNAL_REFERENCE";
-  return (
-    <span
-      className={`rounded px-2 py-0.5 text-xs ${
-        isExternal
-          ? "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
-          : "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
-      }`}
-    >
-      {isExternal ? "외부 참고" : "판정"}
-    </span>
   );
 }
 

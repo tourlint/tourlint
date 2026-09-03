@@ -288,7 +288,39 @@ export const patchApi = {
       method: "POST",
       body: JSON.stringify({ selections, previewToken }),
     }),
+  // 반영 이력 상세 — 경고 배너·되돌리기 가능 여부 (FR-PA-027/028)
+  application: (id: number) => request<PatchApplicationDetail>(`/patch-applications/${id}`),
+  // 되돌리기. 직전 1건이 아니면 409 UNDO_UNAVAILABLE (EX-PA-006)
+  revert: (id: number) => request<RevertResult>(`/patch-applications/${id}/revert`, { method: "POST" }),
 };
+
+export interface PatchSideSummary {
+  auditRunId: number;
+  executedAt?: string;
+  readinessScore?: number | null;
+  counts?: { blocker: number; error: number; warning: number; unverified: number };
+}
+
+export interface PatchApplicationDetail {
+  patchApplicationId: number;
+  productId: number;
+  appliedAt: string;
+  itemCount: { before: number; after: number };
+  before: PatchSideSummary | null;
+  after: PatchSideSummary | null;
+  reauditStatus: "PENDING" | "DONE";
+  // 점수 하락·차단 증가 시 서버가 만든 문구. 아니면 null (EX-PA-005)
+  warningBanner: string | null;
+  revertible: boolean;
+  revertedAt: string | null;
+}
+
+export interface RevertResult {
+  patchApplicationId: number;
+  productId: number;
+  revertedAt: string;
+  restoredAuditRunId: number | null;
+}
 
 // ── 호출 예산 위젯 (F15 · FR-OP-005) ──────────────────────────────────────────
 
@@ -308,6 +340,209 @@ export interface BudgetView {
 export const usageApi = {
   // 오늘 공사 호출 소진 상태. 헤더 위젯이 2분마다 폴링한다 (FR-OP-005)
   budget: () => request<BudgetView>("/usage/budget"),
+};
+
+// ── 레이더 · 알림 (S7 · FR-MO-050~058) ────────────────────────────────────────
+
+export interface RadarSummary {
+  risk: number;
+  opportunity: number;
+  unread: number;
+  affectedProducts: number;
+  changedContents: number;
+  lastBatch: null | { runAt: string | null; covered: string | null; status: string; itemCount: number };
+}
+
+/** 신호 하나. 산출 전이면 t1·t2 가 null 이다 — 0(세어 보니 없음)과 구분한다. */
+export interface DemandSignal {
+  count: number;
+  byType: Record<string, number>;
+  window: { from: string; to: string };
+  computedAt: string;
+}
+
+export interface RadarSignals {
+  productId: number;
+  t1: DemandSignal | null;
+  t2: DemandSignal | null;
+  notice: string;
+}
+
+export type NotificationKind = "RISK" | "OPPORTUNITY";
+
+export interface RadarNotification {
+  notificationId: number;
+  kind: NotificationKind;
+  condition: number;
+  productId: number;
+  productName: string;
+  startDate: string;
+  ktoContentId: string;
+  what: string;
+  impact: string;
+  action: string;
+  hidden: boolean;
+  // 지문 비교값. 조건 2·3 은 지문 이력이 없어 from·to 가 둘 다 null 이다 (FR-MO-058)
+  fingerprint: { from: string | null; to: string | null };
+  dismissable: boolean;
+  readAt: string | null;
+  dismissedAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationPage {
+  content: RadarNotification[];
+  page: number;
+  size: number;
+  totalElements: number;
+  unreadCount: number;
+}
+
+export const radarApi = {
+  summary: () => request<RadarSummary>("/radar/summary"),
+  // signals 는 productId 가 필수다 — T2(행사 밀도) 창이 그 상품의 여행일에서 나온다
+  signals: (productId: number) => request<RadarSignals>(`/radar/signals?productId=${productId}`),
+};
+
+export const notificationApi = {
+  list: (kind?: NotificationKind) =>
+    request<NotificationPage>(`/notifications${kind ? `?kind=${kind}` : ""}`),
+  read: (id: number) => request<{ id: number; readAt: string }>(`/notifications/${id}/read`, { method: "POST" }),
+  dismiss: (id: number) =>
+    request<{ id: number; dismissedAt: string }>(`/notifications/${id}/dismiss`, { method: "POST" }),
+};
+
+// ── 수정 전후 비교 (S5 · FR-PA-040~045) ───────────────────────────────────────
+
+/**
+ * 대조 지표 한 줄. 대부분 before·after 숫자지만 몇은 다르다 — 총 감점은 계산식을,
+ * 이동시간·거리는 출처를, 수요 적합성은 텍스트를 함께 준다.
+ */
+export interface ComparisonMetric {
+  key: string;
+  label: string;
+  before?: number | null;
+  after?: number | null;
+  beforeText?: string;
+  afterText?: string;
+  formulaBefore?: string;
+  formulaAfter?: string;
+  sourceBadge?: string;
+  externalSource?: string;
+}
+
+export interface ComparisonResult {
+  patchApplicationId: number;
+  before: { auditRunId: number; executedAt: string };
+  after: { auditRunId: number; executedAt: string };
+  metrics: ComparisonMetric[];
+  warningBanner: string | null;
+  revertible: boolean;
+}
+
+export const comparisonApi = {
+  // 직전 패치의 전후 한 쌍. 수정 이력이 없거나 재검수가 안 끝났으면 404 (UI-S5-006)
+  get: (productId: number) => request<ComparisonResult>(`/products/${productId}/comparison`),
+};
+
+// ── 리포트 (F11 · UI-S5-004 진입점) ───────────────────────────────────────────
+
+export const reportApi = {
+  // 렌더까지 끝내고 reportId 를 준다 (가장 최근 실행만, 아니면 409)
+  generate: (runId: number) => request<{ reportId: string }>(`/audit-runs/${runId}/reports`, { method: "POST" }),
+  // 다운로드는 브라우저 내비게이션으로 — 세션 쿠키가 실려 PDF 를 그대로 받는다.
+  // 공통 fetch 래퍼는 .json() 이라 바이너리에 못 쓴다.
+  downloadUrl: (reportId: string) => `/api/v1/reports/${reportId}/download`,
+};
+
+// ── 관리자 설정 (F16 · UI-S8 · FR-OP-020~027) ────────────────────────────────
+
+export interface WeightSettings {
+  BLOCKER: number;
+  ERROR: number;
+  WARNING: number;
+  UNVERIFIED: number;
+}
+
+export interface AccountSettings {
+  weights: WeightSettings;
+  r07SpanHours: number;
+  r07MealMinutes: number;
+  r04Threshold: number;
+  watchKeywords: string[];
+}
+
+export interface GlobalSettings {
+  batchTime: string;
+  batchEnabled: boolean;
+  dailyQuota: number;
+}
+
+export interface SettingsView {
+  account: AccountSettings;
+  global: GlobalSettings;
+  defaults: { account: AccountSettings; global: GlobalSettings };
+  // 전역 편집 권한·예산 상한 (UI-S8-006). 데모 계정은 전역을 못 바꾼다.
+  globalEditable: boolean;
+  quotaCap: number;
+}
+
+export const settingsApi = {
+  get: () => request<SettingsView>("/settings"),
+  // 계정 설정만 저장한다. 전역 값은 이 경로로 바꾸지 않는다.
+  update: (account: AccountSettings) =>
+    request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify(account) }),
+  // 전역 설정 저장(배치 시각·일일 예산). 데모 계정이면 서버가 403 을 준다.
+  updateGlobal: (global: GlobalSettings) =>
+    request<SettingsView>("/settings/global", { method: "PUT", body: JSON.stringify(global) }),
+};
+
+// ── 계정 기준표 (F16 · UI-S8-005) ────────────────────────────────────────────
+
+export type IndoorOutdoor = "INDOOR" | "OUTDOOR" | "MIXED";
+
+export interface DwellEntry {
+  lcls2: string;
+  name: string;
+  minutes: number;
+  defaultMinutes: number;
+}
+
+export interface IoEntry {
+  lcls2: string;
+  name: string;
+  spaceType: IndoorOutdoor;
+  defaultSpaceType: IndoorOutdoor;
+}
+
+export interface ProfileEntry {
+  targetKey: string;
+  conceptKey: string;
+  expectedLcls2: string[];
+  expectsNight: boolean;
+}
+
+export interface LclsItem {
+  code: string;
+  name: string;
+}
+
+export const settingsTablesApi = {
+  dwell: () => request<{ entries: DwellEntry[] }>("/settings/dwell"),
+  saveDwell: (entries: { lcls2: string; minutes: number }[]) =>
+    request<{ entries: DwellEntry[] }>("/settings/dwell", { method: "PUT", body: JSON.stringify({ entries }) }),
+  indoorOutdoor: () => request<{ entries: IoEntry[] }>("/settings/indoor-outdoor"),
+  saveIndoorOutdoor: (entries: { lcls2: string; spaceType: IndoorOutdoor }[]) =>
+    request<{ entries: IoEntry[] }>("/settings/indoor-outdoor", {
+      method: "PUT",
+      body: JSON.stringify({ entries }),
+    }),
+  // R10 기대 콘텐츠 프로파일. 저장은 전체 교체다.
+  profiles: () => request<{ entries: ProfileEntry[] }>("/settings/profiles"),
+  saveProfiles: (entries: ProfileEntry[]) =>
+    request<{ entries: ProfileEntry[] }>("/settings/profiles", { method: "PUT", body: JSON.stringify({ entries }) }),
+  // 중분류 카탈로그(코드→이름). 프로파일 편집기의 기대 중분류 선택에 쓴다.
+  lcls: () => request<{ entries: LclsItem[] }>("/settings/lcls"),
 };
 
 export function isApiError(e: unknown): e is ApiError {

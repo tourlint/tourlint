@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { ItemType, MatchStatus, Transport } from '@tourlint/shared';
 import { withTransaction } from '../persistence/db';
-import type { ValidItem, ValidProduct } from './product.dto';
+import type { ItemOrder, ItemPatch, ValidItem, ValidItemInput, ValidProduct } from './product.dto';
 
 /**
  * 상품·일정 쓰기·읽기 (B 트랙 CRUD). 검수 읽기 전용인 audit/product.repository 와 별개다 —
@@ -218,6 +218,102 @@ export class ProductRepository {
       [productId, accountId],
     );
     return (rowCount ?? 0) > 0;
+  }
+
+  // ── 일정 항목 개별 CRUD (FR-IN-013/014) ──────────────────────────────────
+  // 소유권은 item -> product -> account 로 스코프한다. 남의 항목은 0건이라 NOT_FOUND 가 된다.
+
+  /** 상품이 그 계정 것이면 박수(nights)를, 아니면 null. dayNo 범위 검증용. */
+  async ownedNights(accountId: number, productId: number): Promise<number | null> {
+    const { rows } = await this.pool.query<{ nights: number }>(
+      `SELECT nights FROM product WHERE id = $1 AND account_id = $2`,
+      [productId, accountId],
+    );
+    return rows[0]?.nights ?? null;
+  }
+
+  /** 항목 추가. seq 는 그 일차 끝에 붙인다. 소유권은 호출 전 ownedNights 로 확인한다. */
+  async addItem(productId: number, item: ValidItemInput): Promise<ItemDetail> {
+    const { rows } = await this.pool.query<ItemRaw>(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status)
+       VALUES ($1, $2,
+               (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
+               $3, $4, $5, $6, $7, 'PENDING')
+       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status`,
+      [productId, item.dayNo, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType],
+    );
+    const row = rows[0];
+    if (row === undefined) throw new Error('항목 추가 결과가 비어 있다');
+    return toItemDetail(row);
+  }
+
+  /** 항목 수정(부분). 준 필드만 바꾼다. 남의 항목이면 null. */
+  async patchItem(accountId: number, itemId: number, patch: ItemPatch): Promise<ItemDetail | null> {
+    const col: Record<string, string> = {
+      startTime: 'start_time',
+      endTime: 'end_time',
+      endTimeSource: 'end_time_source',
+      placeLabel: 'place_label',
+      itemType: 'item_type',
+    };
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    for (const [k, v] of Object.entries(patch)) {
+      params.push(v);
+      sets.push(`${col[k]} = $${params.length}`);
+    }
+    params.push(itemId, accountId);
+    const { rows } = await this.pool.query<ItemRaw>(
+      `UPDATE itinerary_item i SET ${sets.join(', ')}
+         FROM product p
+        WHERE i.id = $${params.length - 1} AND i.product_id = p.id AND p.account_id = $${params.length}
+       RETURNING i.id, i.day_no, i.seq, i.start_time, i.end_time, i.place_label, i.item_type, i.kto_content_id, i.match_status`,
+      params,
+    );
+    const row = rows[0];
+    return row === undefined ? null : toItemDetail(row);
+  }
+
+  /** 항목 삭제. 남의 항목이면 false. */
+  async deleteItem(accountId: number, itemId: number): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `DELETE FROM itinerary_item i USING product p
+        WHERE i.id = $1 AND i.product_id = p.id AND p.account_id = $2`,
+      [itemId, accountId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  /**
+   * 순서변경. 상품 항목 전체의 새 (일차 · 순서)를 받는다. 유니크(product, day, seq) 때문에
+   * 한 번에 못 옮긴다 — 전부 큰 seq 로 비켜 두고 최종값을 박는다(트랜잭션).
+   *
+   * 반환: 소유·정합성 실패(남의 상품 · 항목 누락/외부 항목)면 null, 성공이면 옮긴 항목 수.
+   */
+  async reorderItems(accountId: number, productId: number, order: ItemOrder[]): Promise<number | null> {
+    return withTransaction(this.pool, async (client) => {
+      const owned = await client.query<{ id: string }>(
+        `SELECT i.id FROM itinerary_item i JOIN product p ON i.product_id = p.id
+          WHERE p.id = $1 AND p.account_id = $2`,
+        [productId, accountId],
+      );
+      const ids = new Set(owned.rows.map((r) => Number(r.id)));
+      const given = new Set(order.map((o) => o.itemId));
+      // 상품의 전체 항목을 빠짐없이·남의 것 없이 보내야 한다
+      if (ids.size !== given.size || [...given].some((id) => !ids.has(id))) return null;
+
+      await client.query(`UPDATE itinerary_item SET seq = seq + 10000 WHERE product_id = $1`, [productId]);
+      for (const o of order) {
+        await client.query(`UPDATE itinerary_item SET day_no = $1, seq = $2 WHERE id = $3 AND product_id = $4`, [
+          o.dayNo,
+          o.seq,
+          o.itemId,
+          productId,
+        ]);
+      }
+      return order.length;
+    });
   }
 }
 

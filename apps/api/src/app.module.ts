@@ -27,6 +27,7 @@ import { PlaceMatchController } from './match/place-match.controller';
 import { PlaceMatchRepository } from './match/place-match.repository';
 import { PlaceMatchService } from './match/place-match.service';
 import { ProductController } from './product/product.controller';
+import { ItemController } from './product/item.controller';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
 import { DemandSignalRepository } from './persistence/demand-signal.repository';
@@ -42,6 +43,12 @@ import { MockController } from './mock/mock.controller';
 import { RootController } from './root/root.controller';
 import { UsageController } from './usage/usage.controller';
 import { UsageService } from './usage/usage.service';
+import { SettingsController } from './settings/settings.controller';
+import { SettingsService } from './settings/settings.service';
+import { SettingsRepository } from './settings/settings.repository';
+import { SettingsTablesController } from './settings/settings-tables.controller';
+import { SettingsTablesService } from './settings/settings-tables.service';
+import { SettingsTablesRepository } from './settings/settings-tables.repository';
 
 /**
  * `MockController` 는 아직 교체되지 않은 라우트를 담당한다. 실엔진으로 교체된 라우트는
@@ -62,13 +69,25 @@ import { UsageService } from './usage/usage.service';
   controllers: [
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
-    AuditController, UsageController, DemoController, ProductController, PlaceMatchController,
-    ReportController, NotificationController, RadarController,
+    AuditController, UsageController, DemoController, ProductController, ItemController, PlaceMatchController,
+    ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
     MockController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
     { provide: APP_GUARD, useClass: AuthGuard },
+    {
+      // 관리자 설정 (F16). 계정 설정 조회·저장 + 전역 설정 조회 (PM-DA-005)
+      provide: SettingsService,
+      useFactory: (pool: Pool) => new SettingsService(new SettingsRepository(pool)),
+      inject: [DB_POOL],
+    },
+    {
+      // 계정 기준표 편집 (F16 · 체류시간 · 실내외 매핑)
+      provide: SettingsTablesService,
+      useFactory: (pool: Pool) => new SettingsTablesService(new SettingsTablesRepository(pool)),
+      inject: [DB_POOL],
+    },
     {
       // 지역·분류 코드 프록시. KTO_MODE=fixture 면 fixtures/kto 리플레이 (예산 0)
       provide: CatalogService,
