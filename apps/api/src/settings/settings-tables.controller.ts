@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import { SettingsTablesService } from './settings-tables.service';
-import type { DwellEntry, IoEntry } from './settings-tables.repository';
+import type { DwellEntry, IoEntry, ProfileEntry } from './settings-tables.repository';
 
 /**
  * 계정 기준표 편집 (F16 · UI-S8-005). 중분류별 기본 체류시간 · 실내 · 야외 매핑을
@@ -39,5 +39,19 @@ export class SettingsTablesController {
     @Body() body: unknown,
   ): Promise<{ entries: IoEntry[] }> {
     return this.service.saveIndoorOutdoor(account.accountId, body);
+  }
+
+  @Get('settings/profiles')
+  async profiles(@CurrentAccount() account: SessionAccount): Promise<{ entries: ProfileEntry[] }> {
+    return this.service.profiles(account.accountId);
+  }
+
+  // 전체 교체 — 화면이 보낸 집합으로 계정 프로파일을 통째로 바꾼다 (가변 행)
+  @Put('settings/profiles')
+  async saveProfiles(
+    @CurrentAccount() account: SessionAccount,
+    @Body() body: unknown,
+  ): Promise<{ entries: ProfileEntry[] }> {
+    return this.service.saveProfiles(account.accountId, body);
   }
 }
