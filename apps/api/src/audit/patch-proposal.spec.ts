@@ -309,16 +309,48 @@ describe('R08 — 이동시간 부족 (FR-RU-083)', () => {
     evidence: { shortfallMinutes: 13 }, requiresExternal: true, ...over,
   });
 
-  it('① 뒤 일정을 부족한 만큼 뒤로 민다', () => {
-    const from = item({ start: '12:30', end: '15:00', label: '오죽헌' });
-    const to = item({ start: '15:00', end: '16:00', label: '농산물도매시장' });
+  const shiftOf = (start: string, end: string | null, shortfall: number) => {
+    const from = item({ start: '12:30', end: start, label: '오죽헌' });
+    const to = item({ start, end, label: '농산물도매시장' });
     const patches = proposeLocalPatches({
-      finding: r08({ targetItemId: from.id, targetItemId2: to.id }),
+      finding: r08({ targetItemId: from.id, targetItemId2: to.id, evidence: { shortfallMinutes: shortfall } }),
       items: [from, to], holidays: KOREAN_HOLIDAYS,
     });
+    return patches[0];
+  };
 
-    expect(patches[0]).toMatchObject({ type: 'TIME_SHIFT', targetItemId: to.id });
-    expect(patches[0]?.payload).toEqual({ newStartTime: '15:13', newEndTime: '16:13' });
+  it('① 뒤 일정을 뒤로 밀되 시각을 30분 단위로 올린다', () => {
+    // 부족분 13분이면 15:13 인데, 사람이 맞출 수 있는 시각이 아니고 여유가 0이라
+    // 1분만 밀려도 다시 모자란다 (FR-RU-083 · 이슈 #307)
+    const patch = shiftOf('15:00', '16:00', 13);
+    expect(patch).toMatchObject({ type: 'TIME_SHIFT' });
+    expect(patch?.payload).toEqual({ newStartTime: '15:30', newEndTime: '16:30' });
+  });
+
+  it('🔴 종료 시각도 같은 폭으로 민다 — 체류시간이 바뀌면 안 된다', () => {
+    // 시작만 올리고 종료를 부족분만큼만 밀면 체류가 17분 줄어든다
+    const patch = shiftOf('15:00', '16:00', 13);
+    const { newStartTime, newEndTime } = patch?.payload as { newStartTime: string; newEndTime: string };
+    const span = (a: string, b: string) =>
+      (Number(b.slice(0, 2)) * 60 + Number(b.slice(3))) - (Number(a.slice(0, 2)) * 60 + Number(a.slice(3)));
+    expect(span(newStartTime, newEndTime)).toBe(60);
+  });
+
+  it('🔴 이미 30분 단위면 올리지 않는다 — 부족분은 이미 채워졌다', () => {
+    // 15:00 + 30분 = 15:30 이라 더 밀 이유가 없다
+    expect(shiftOf('15:00', '16:00', 30)?.payload)
+      .toEqual({ newStartTime: '15:30', newEndTime: '16:30' });
+  });
+
+  it('🔴 자정을 넘기면 올리지 않는다 — 24:00 은 유효한 시각이 아니다', () => {
+    // 23:40 + 5분 = 23:45 → 올리면 24:00 이고, addMinutes 가 그대로 자른다.
+    // 그 값은 시각 형식(`[01]\d|2[0-3]`)을 통과하지 못해 저장 단계에서 걸린다
+    expect(shiftOf('23:40', '23:50', 5)?.payload)
+      .toEqual({ newStartTime: '23:45', newEndTime: '23:55' });
+  });
+
+  it('종료 시각이 없으면 시작만 낸다', () => {
+    expect(shiftOf('15:00', null, 13)?.payload).toEqual({ newStartTime: '15:30' });
   });
 
   it('🔴 부족분을 모르면 아무것도 내지 않는다', () => {

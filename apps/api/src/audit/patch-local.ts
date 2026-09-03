@@ -1,10 +1,11 @@
-import { SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
+import { PATCH_TIME_STEP_MINUTES, SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
 import { addDays, parseIsoDate } from '../engine/calendar/dates';
 import type { HolidayCalendar } from '../engine/calendar/holidays';
 import { evaluateClosed } from '../engine/rules/r01-operating';
 import { addMinutes } from '../engine/itinerary/dwell';
 import { pointOf, straightMeters } from '../engine/geo';
 import { toMinutes } from '../engine/normalize/primitives';
+import type { TimeOfDay } from '../engine/normalize/types';
 import type { AuditItem, Finding } from '../engine/rules/types';
 import { patchId, type Patch } from './patch-types';
 
@@ -287,6 +288,23 @@ function r09(
 }
 
 /**
+ * 부족분만큼 민 시각을 `PATCH_TIME_STEP_MINUTES` 단위로 올려, 실제로 밀 분 수를 돌려준다.
+ *
+ * 「13:19 에 시작」은 사람이 맞출 수 있는 시각이 아니고, 부족분을 정확히 채운 값이라
+ * 1분만 밀려도 다시 모자란다. 30분 단위로 올려 여유를 만든다.
+ *
+ * **이미 단위에 맞으면 그대로 둔다** — 부족분은 채워졌고 더 밀 이유가 없다.
+ * **자정을 넘기면 올리지 않는다** — `addMinutes` 가 24:00 으로 자르는데 그 값은 시각
+ * 형식(`[01]\d|2[0-3]`)을 통과하지 못해 저장 단계에서 걸린다.
+ */
+function roundedShift(startTime: TimeOfDay, shortfall: number): number {
+  const shifted = toMinutes(startTime) + shortfall;
+  const rounded = Math.ceil(shifted / PATCH_TIME_STEP_MINUTES) * PATCH_TIME_STEP_MINUTES;
+  if (rounded === shifted || rounded >= 24 * 60) return shortfall;
+  return rounded - toMinutes(startTime);
+}
+
+/**
  * R08 — 뒤 일정 뒤로 이동 · 방문 순서 재배열 (FR-RU-083 ①②).
  *
  * ③ 더 가까운 동일유형 교체는 외부 조회가 필요해 `patch-remote` 가 낸다.
@@ -305,12 +323,14 @@ function r08(finding: Finding, items: readonly AuditItem[]): readonly Patch[] {
 
   const out: Patch[] = [];
 
-  // ① 뒤 일정을 부족한 만큼 뒤로 민다
+  // ① 뒤 일정을 부족한 만큼 뒤로 민다. 시각은 30분 단위로 올린다
+  const shiftMinutes = roundedShift(to.startTime, shortfall);
   out.push({
     patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: to.id,
     payload: {
-      newStartTime: addMinutes(to.startTime, shortfall),
-      ...(to.endTime === null ? {} : { newEndTime: addMinutes(to.endTime, shortfall) }),
+      newStartTime: addMinutes(to.startTime, shiftMinutes),
+      // 시작만 올리면 체류시간이 줄어든다. 같은 폭으로 민다
+      ...(to.endTime === null ? {} : { newEndTime: addMinutes(to.endTime, shiftMinutes) }),
     },
   });
 

@@ -321,6 +321,14 @@ export const SYSTEM_SETTING_DEFAULTS = {
 /** 예산 게이트 경계 — 80% 배치 중지 / 100% 신규 검수 차단 (FR-OP-003·004) */
 export const BUDGET_THRESHOLD_RATIO = { WARN: 0.8, EXHAUSTED: 1.0 } as const;
 
+/**
+ * 수정안이 내는 시각을 올릴 단위 (분) — FR-RU-083 ①.
+ *
+ * R08 은 부족분을 분 단위로 계산하므로 그대로 더하면 「13:19 에 시작」이 나온다. 사람이
+ * 그 시각에 맞춰 움직이지 않고, 부족분을 정확히 채운 값이라 1분만 밀려도 다시 모자란다.
+ */
+export const PATCH_TIME_STEP_MINUTES = 30;
+
 /** 부분 검수 승격 조건 — 실패 콘텐츠가 이 비율을 **초과**하면 점수 미산출 (FR-AU-029) */
 export const PARTIAL_AUDIT_FAILURE_RATIO = 0.5;
 
