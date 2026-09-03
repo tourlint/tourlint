@@ -27,6 +27,7 @@ import { PlaceMatchController } from './match/place-match.controller';
 import { PlaceMatchRepository } from './match/place-match.repository';
 import { PlaceMatchService } from './match/place-match.service';
 import { ProductController } from './product/product.controller';
+import { ItemController } from './product/item.controller';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
 import { DemandSignalRepository } from './persistence/demand-signal.repository';
@@ -68,7 +69,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
   controllers: [
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
-    AuditController, UsageController, DemoController, ProductController, PlaceMatchController,
+    AuditController, UsageController, DemoController, ProductController, ItemController, PlaceMatchController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
     MockController,
   ],

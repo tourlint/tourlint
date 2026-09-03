@@ -91,6 +91,50 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     const items = await pool.query(`SELECT 1 FROM itinerary_item WHERE product_id = $1`, [created.productId]);
     expect(items.rowCount).toBe(0);
   });
+
+  it('항목을 추가·수정·삭제한다 (FR-IN-013)', async () => {
+    const p = (await repo.create(accountA, sample())).productId;
+    const added = await repo.addItem(p, {
+      dayNo: 1,
+      startTime: '22:00',
+      endTime: '22:30',
+      endTimeSource: 'INPUT',
+      placeLabel: '야식',
+      itemType: 'MEAL',
+    });
+    expect(added.matchStatus).toBe('PENDING');
+    const patched = await repo.patchItem(accountA, added.itemId, {
+      placeLabel: '야식2',
+      endTime: '23:00',
+      endTimeSource: 'INPUT',
+    });
+    expect(patched?.place).toBe('야식2');
+    expect(patched?.end).toBe('23:00');
+    expect(await repo.deleteItem(accountA, added.itemId)).toBe(true);
+    expect(await repo.deleteItem(accountA, added.itemId)).toBe(false);
+  });
+
+  it('남의 상품·항목은 못 건드린다 (item → product → account · PM-DA-003)', async () => {
+    const p = (await repo.create(accountA, sample())).productId;
+    const detail = await repo.detail(accountA, p);
+    const first = detail?.items[0];
+    expect(first).toBeDefined();
+    const itemId = first?.itemId ?? -1;
+    expect(await repo.ownedNights(accountB, p)).toBeNull();
+    expect(await repo.patchItem(accountB, itemId, { placeLabel: '침입' })).toBeNull();
+    expect(await repo.deleteItem(accountB, itemId)).toBe(false);
+  });
+
+  it('순서변경 — 전체를 보내야 하고 남의 상품은 못 바꾼다 (FR-IN-014)', async () => {
+    const p = (await repo.create(accountA, sample())).productId;
+    const detail = await repo.detail(accountA, p);
+    const order = (detail?.items ?? []).map((it) => ({ itemId: it.itemId, dayNo: it.dayNo, seq: it.seq }));
+    expect(await repo.reorderItems(accountA, p, order)).toBe(order.length);
+    // 일부만 보내면 거부한다 (전체가 필요하다)
+    expect(await repo.reorderItems(accountA, p, order.slice(0, 1))).toBeNull();
+    // 남의 상품은 못 바꾼다
+    expect(await repo.reorderItems(accountB, p, order)).toBeNull();
+  });
 });
 
 async function makeAccount(pool: Pool, email: string): Promise<number> {

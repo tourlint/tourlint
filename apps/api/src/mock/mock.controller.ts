@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import { Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 /**
@@ -16,10 +16,7 @@ export class MockController {
 
   // ── 일정 항목 (F01) ── 개별 항목 CRUD·순서변경은 후속(등록은 상품 생성에 포함) ──
   @Get('products/:productId/items') items() { return { items: [] }; }
-  @Post('products/:productId/items') @HttpCode(201) addItem(@Body() b: any) { return { itemId: 101, ...b }; }
-  @Patch('items/:itemId') patchItem(@Param('itemId') id: string, @Body() b: any) { return { itemId: Number(id), ...b }; }
-  @Delete('items/:itemId') @HttpCode(204) delItem() { return; }
-  @Put('products/:productId/items/order') reorder(@Body() b: any) { return { ok: true, ...b }; }
+  // 항목 추가·수정·삭제·순서변경은 ItemController(실엔진)로 교체됨 (FR-IN-013/014)
 
   // ── 관광지 매칭 (F02) ── 검색·확정·제외는 실엔진(PlaceMatchController)으로 교체됨. mock 제거 (NF-CO-002)
   @Get('contents/:contentId') content(@Param('contentId') id: string) { return { contentId: id, fetchedAt: new Date().toISOString(), ktoRaw: {} }; }
