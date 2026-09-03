@@ -45,14 +45,24 @@ function demoPassword(): string {
  *
  * **이미 있는 계정에도 다시 불러 채운다.** 조회 후 바로 반환하면 그때 빠진 계정은 영영
  * 비어 있다. `ON CONFLICT DO NOTHING` 이라 사용자가 고친 값을 덮지 않는다.
+ *
+ * **비밀번호와 `is_demo` 는 이미 있는 계정에도 다시 맞춘다.** 만드는 경로에서만
+ * `demoPassword()` 를 쓰면 비대칭이 생긴다 — 운영 DB 에 계정이 먼저 생겨 있으면 그 해시가
+ * 무엇이든 영영 그대로라, 환경변수를 고쳐도 심사자가 못 들어온다. 실제로 배포 후에도 401 이
+ * 계속됐다 (이슈 #315). 환경변수가 정본이고 DB 를 거기에 맞춘다.
  */
 export async function ensureDemoAccount(pool: Pool): Promise<number> {
   const email = demoEmail();
   const found = await pool.query<{ id: string }>(`SELECT id FROM account WHERE email = $1`, [email]);
   const existing = found.rows[0];
   if (existing !== undefined) {
-    await seedAccountDefaults(pool, Number(existing.id));
-    return Number(existing.id);
+    const id = Number(existing.id);
+    await pool.query(`UPDATE account SET password_hash = $2, is_demo = TRUE WHERE id = $1`, [
+      id,
+      await hashPassword(demoPassword()),
+    ]);
+    await seedAccountDefaults(pool, id);
+    return id;
   }
 
   const passwordHash = await hashPassword(demoPassword());
