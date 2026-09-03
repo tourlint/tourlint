@@ -2,7 +2,10 @@
 //
 // fixtures/products/TP-01~04 에서 생성한다 — 픽스처가 검수 정답셋의 원본이라 데모도
 // 같은 데이터를 쓰면 시연과 회귀가 어긋나지 않는다. 손으로 고치지 말고 스크립트로 다시 뽑는다.
-// contentId 가 전부 있어 match_status 는 CONFIRMED 로 고정한다 (DR-IN-004).
+// contentId 가 전부 있어 match_status 는 CONFIRMED 로 고정한다 (DR-IN-004)
+//
+// targetKey · conceptKey 는 **코드**다. 한글 라벨을 담으면 target_profile 이 코드로
+// 저장돼 있어 R10 이 어느 행도 못 찾고 판정 대신 확인 불가를 낸다 (이슈 #310)..
 
 export interface DemoItem {
   readonly dayNo: number;
@@ -42,8 +45,8 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     ldongSignguCd: "150",
     startDate: "2026-10-22",
     nights: 2,
-    targetKey: "50~60대",
-    conceptKey: "힐링·역사",
+    targetKey: "SENIOR",
+    conceptKey: "HERITAGE",
     headCount: 20,
     transport: "CAR",
     items: [
@@ -67,8 +70,8 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     ldongSignguCd: "150",
     startDate: "2026-10-15",
     nights: 2,
-    targetKey: "50~60대",
-    conceptKey: "힐링·역사",
+    targetKey: "SENIOR",
+    conceptKey: "HERITAGE",
     headCount: 15,
     transport: "CAR",
     items: [
@@ -89,8 +92,8 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     ldongSignguCd: "150",
     startDate: "2026-10-13",
     nights: 1,
-    targetKey: "20대",
-    conceptKey: "감성",
+    targetKey: "YOUTH_20S",
+    conceptKey: "EMOTIONAL",
     headCount: 12,
     transport: "CAR",
     items: [
@@ -110,8 +113,8 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     ldongSignguCd: "150",
     startDate: "2026-10-08",
     nights: 1,
-    targetKey: "50~60대",
-    conceptKey: "힐링·역사",
+    targetKey: "SENIOR",
+    conceptKey: "HERITAGE",
     headCount: 10,
     transport: "CAR",
     items: [
