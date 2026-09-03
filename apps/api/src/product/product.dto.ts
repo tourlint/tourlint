@@ -232,3 +232,123 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
 
   return items;
 }
+
+// ── 일정 항목 개별 CRUD (F01 · FR-IN-013/014) ────────────────────────────────
+
+export interface ValidItemInput {
+  dayNo: number;
+  startTime: string;
+  endTime: string | null;
+  endTimeSource: 'INPUT' | 'DWELL_DEFAULT';
+  placeLabel: string;
+  itemType: ItemType;
+}
+
+interface RawItem {
+  dayNo?: unknown;
+  startTime?: unknown;
+  endTime?: unknown;
+  placeLabel?: unknown;
+  itemType?: unknown;
+}
+
+/** 항목 추가. dayNo 는 1~dayCount, 나머지는 등록 때와 같은 규칙. */
+export function validateAddItem(body: RawItem | undefined, dayCount: number): { errors: string[]; item?: ValidItemInput } {
+  const errors: string[] = [];
+  const b = body ?? {};
+  const dayNo = typeof b.dayNo === 'number' && Number.isInteger(b.dayNo) ? b.dayNo : 0;
+  if (dayNo < 1 || dayNo > dayCount) errors.push(`일차는 1~${dayCount} 범위여야 합니다.`);
+  const start = str(b.startTime);
+  const endRaw = str(b.endTime);
+  const place = str(b.placeLabel);
+  const itemType = str(b.itemType);
+  if (!HHMM.test(start)) errors.push('시작 시각을 HH:MM 형식으로 입력하세요.');
+  if (endRaw !== '' && !HHMM.test(endRaw)) errors.push('종료 시각을 HH:MM 형식으로 입력하세요.');
+  if (place === '') errors.push('장소명을 입력하세요.');
+  if (!(ITEM_TYPE as readonly string[]).includes(itemType)) errors.push('항목 유형이 올바르지 않습니다.');
+  if (errors.length > 0) return { errors };
+  return {
+    errors,
+    item: {
+      dayNo,
+      startTime: start,
+      endTime: endRaw === '' ? null : endRaw,
+      endTimeSource: endRaw === '' ? 'DWELL_DEFAULT' : 'INPUT',
+      placeLabel: place,
+      itemType: itemType as ItemType,
+    },
+  };
+}
+
+export interface ItemPatch {
+  startTime?: string;
+  endTime?: string | null;
+  endTimeSource?: 'INPUT' | 'DWELL_DEFAULT';
+  placeLabel?: string;
+  itemType?: ItemType;
+}
+
+/** 항목 수정. 준 필드만 바꾼다(부분 수정). 일차 · 순서는 순서변경 경로로 다룬다. */
+export function validatePatchItem(body: RawItem | undefined): { errors: string[]; patch?: ItemPatch } {
+  const errors: string[] = [];
+  const b = body ?? {};
+  const patch: ItemPatch = {};
+  if (b.startTime !== undefined) {
+    const s = str(b.startTime);
+    if (!HHMM.test(s)) errors.push('시작 시각을 HH:MM 형식으로 입력하세요.');
+    else patch.startTime = s;
+  }
+  if (b.endTime !== undefined) {
+    const e = str(b.endTime);
+    if (e !== '' && !HHMM.test(e)) errors.push('종료 시각을 HH:MM 형식으로 입력하세요.');
+    else {
+      patch.endTime = e === '' ? null : e;
+      patch.endTimeSource = e === '' ? 'DWELL_DEFAULT' : 'INPUT';
+    }
+  }
+  if (b.placeLabel !== undefined) {
+    const p = str(b.placeLabel);
+    if (p === '') errors.push('장소명은 비울 수 없습니다.');
+    else patch.placeLabel = p;
+  }
+  if (b.itemType !== undefined) {
+    const t = str(b.itemType);
+    if (!(ITEM_TYPE as readonly string[]).includes(t)) errors.push('항목 유형이 올바르지 않습니다.');
+    else patch.itemType = t as ItemType;
+  }
+  if (errors.length > 0) return { errors };
+  if (Object.keys(patch).length === 0) return { errors: ['바꿀 값이 없습니다.'] };
+  return { errors, patch };
+}
+
+export interface ItemOrder {
+  itemId: number;
+  dayNo: number;
+  seq: number;
+}
+
+/** 순서변경. 상품 항목들의 새 (일차 · 순서)를 통째로 받는다. */
+export function validateOrder(body: { items?: unknown } | undefined, dayCount: number): { errors: string[]; order?: ItemOrder[] } {
+  const errors: string[] = [];
+  const raw = body?.items;
+  if (!Array.isArray(raw)) return { errors: ['items 는 {itemId, dayNo, seq} 목록이어야 합니다.'] };
+  const order: ItemOrder[] = [];
+  const seenId = new Set<number>();
+  const seenPos = new Set<string>();
+  for (const r of raw as { itemId?: unknown; dayNo?: unknown; seq?: unknown }[]) {
+    const itemId = typeof r.itemId === 'number' && Number.isInteger(r.itemId) ? r.itemId : 0;
+    const dayNo = typeof r.dayNo === 'number' && Number.isInteger(r.dayNo) ? r.dayNo : 0;
+    const seq = typeof r.seq === 'number' && Number.isInteger(r.seq) ? r.seq : 0;
+    if (itemId < 1) errors.push('itemId 가 올바르지 않습니다.');
+    else if (seenId.has(itemId)) errors.push(`itemId 가 중복됐습니다: ${itemId}`);
+    if (dayNo < 1 || dayNo > dayCount) errors.push(`일차는 1~${dayCount} 범위여야 합니다.`);
+    if (seq < 1) errors.push('순서(seq)는 1 이상이어야 합니다.');
+    const pos = `${dayNo}:${seq}`;
+    if (seenPos.has(pos)) errors.push(`같은 자리에 두 항목을 둘 수 없습니다 (${dayNo}일차 ${seq}번).`);
+    seenId.add(itemId);
+    seenPos.add(pos);
+    order.push({ itemId, dayNo, seq });
+  }
+  if (errors.length > 0) return { errors };
+  return { errors, order };
+}

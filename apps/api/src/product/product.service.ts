@@ -2,7 +2,10 @@ import { BadRequestException, HttpStatus } from '@nestjs/common';
 import type { CatalogService } from '../catalog/catalog.service';
 import { DomainException } from '../common/domain.exception';
 import {
+  validateAddItem,
   validateCreate,
+  validateOrder,
+  validatePatchItem,
   validateUpdate,
   type CreateProductDto,
   type UpdateProductDto,
@@ -89,6 +92,40 @@ export class ProductService {
     if (!ok) throw notFound(productId);
   }
 
+  // ── 일정 항목 개별 CRUD (FR-IN-013/014) ──────────────────────────────────
+
+  async addItem(accountId: number, productId: number, body: unknown): Promise<Record<string, unknown>> {
+    const nights = await this.repo.ownedNights(accountId, productId);
+    if (nights === null) throw notFound(productId);
+    const { errors, item } = validateAddItem(body as Record<string, unknown> | undefined, nights + 1);
+    if (item === undefined) throw new BadRequestException(errors.join(' '));
+    return { ...(await this.repo.addItem(productId, item)) };
+  }
+
+  async patchItem(accountId: number, itemId: number, body: unknown): Promise<Record<string, unknown>> {
+    const { errors, patch } = validatePatchItem(body as Record<string, unknown> | undefined);
+    if (patch === undefined) throw new BadRequestException(errors.join(' '));
+    const updated = await this.repo.patchItem(accountId, itemId, patch);
+    if (updated === null) throw notFoundItem(itemId);
+    return { ...updated };
+  }
+
+  async removeItem(accountId: number, itemId: number): Promise<void> {
+    const ok = await this.repo.deleteItem(accountId, itemId);
+    if (!ok) throw notFoundItem(itemId);
+  }
+
+  async reorderItems(accountId: number, productId: number, body: unknown): Promise<{ productId: number; reordered: number }> {
+    const nights = await this.repo.ownedNights(accountId, productId);
+    if (nights === null) throw notFound(productId);
+    const { errors, order } = validateOrder(body as { items?: unknown } | undefined, nights + 1);
+    if (order === undefined) throw new BadRequestException(errors.join(' '));
+    const count = await this.repo.reorderItems(accountId, productId, order);
+    // null 은 상품의 전체 항목을 빠짐없이 보내지 않았거나 남의 항목이 섞인 것이다
+    if (count === null) throw new BadRequestException('상품의 모든 항목 순서를 빠짐없이 보내야 합니다.');
+    return { productId, reordered: count };
+  }
+
   /** 목록에 나온 지역 코드들을 한 번에 이름으로 바꾼다. 조회 실패는 삼키고 코드를 그대로 둔다 */
   private async regionNames(
     rows: readonly { ldongRegnCd: string; ldongSignguCd: string | null }[],
@@ -116,6 +153,11 @@ export class ProductService {
 function notFound(productId: number): DomainException {
   // 소유자가 아니면 조회 자체가 0건이라 여기로 온다 — 403 이 아니라 404 로 존재를 숨긴다 (EX-SY-003)
   return new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', `상품을 찾을 수 없습니다 (#${productId}).`, 'PRODUCT');
+}
+
+function notFoundItem(itemId: number): DomainException {
+  // 남의 항목도 없는 항목과 똑같이 404 다 (item -> product -> account 스코프에서 0건)
+  return new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', `일정 항목을 찾을 수 없습니다 (#${itemId}).`, 'REQUEST');
 }
 
 /** 항목을 일차별로 묶는다 (화면·편집이 일차 단위로 다룬다) */
