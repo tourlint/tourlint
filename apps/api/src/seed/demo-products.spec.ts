@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TARGET_PROFILE_SEED } from '@tourlint/shared';
 import { DEMO_PRODUCTS } from './demo-products';
 
 /**
@@ -28,6 +29,21 @@ describe('DEMO_PRODUCTS', () => {
       expect(product.headCount, 'ck_product_headcount > 0').toBeGreaterThan(0);
     }
     expect(product.items.length, '항목이 있어야 대시보드에 뜬다').toBeGreaterThan(0);
+  });
+
+  it('🔴 타깃 · 콘셉트가 코드다 — 한글 라벨이면 R10 이 프로파일을 못 찾는다', () => {
+    /*
+     * `target_profile` 은 코드(`YOUTH_20S` · `EMOTIONAL` …)로 저장된다. 시드가 한글 라벨
+     * (`"20대"` · `"감성"`)을 담고 있어 R10 이 어느 행도 못 찾고 판정 대신 확인 불가를
+     * 냈다 — TP-03 이 명세 AC 의 29점이 아니라 27점이었다 (이슈 #310).
+     */
+    const targets = new Set(TARGET_PROFILE_SEED.map((p) => p.targetKey));
+    const concepts = new Set(TARGET_PROFILE_SEED.map((p) => p.conceptKey));
+    for (const product of DEMO_PRODUCTS) {
+      if (product.targetKey === null && product.conceptKey === null) continue;
+      expect(targets, `${product.name} targetKey`).toContain(product.targetKey);
+      expect(concepts, `${product.name} conceptKey`).toContain(product.conceptKey);
+    }
   });
 
   it.each(DEMO_PRODUCTS.map((p) => [p.name, p] as const))('항목 제약을 만족한다 — %s', (_name, product) => {
