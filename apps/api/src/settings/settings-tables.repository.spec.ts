@@ -70,8 +70,8 @@ describe.skipIf(URL === undefined)('SettingsTablesRepository — 실 DB', () => 
     ]);
     const after = await repo.profiles(a1);
     expect(after).toHaveLength(1);
-    expect(after[0].expectedLcls2).toEqual(['AC01', 'EV01']);
-    expect(after[0].expectsNight).toBe(true);
+    expect(after[0]?.expectedLcls2).toEqual(['AC01', 'EV01']);
+    expect(after[0]?.expectsNight).toBe(true);
   });
 
   it('R10 프로파일도 계정 격리 — a1 교체가 a2 를 안 건드린다', async () => {
