@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
+import { seedAccountDefaults } from '../auth/account.repository';
 import { hashPassword } from '../auth/password';
 import { withTransaction } from '../persistence/db';
 import { DEMO_PRODUCTS, type DemoProduct } from './demo-products';
@@ -30,16 +31,24 @@ function demoPassword(): string {
 }
 
 /**
- * 데모 계정을 보장한다. 없으면 만들고(user_setting 1행 포함), 있으면 그 id 를 돌려준다.
+ * 데모 계정을 보장한다. 없으면 만들고, 있으면 그 id 를 돌려준다.
  *
- * 회원가입 경로(AccountRepository.create)를 쓰지 않는 이유는 두 가지다 — is_demo 를 TRUE 로
- * 강제해야 하고, 이미 있으면 "가입 불가" 예외가 아니라 기존 id 로 넘어가야 한다.
+ * **기본 데이터는 `seedAccountDefaults` 하나로 넣는다** — 회원가입 경로가 쓰는 것과 같은
+ * 함수다. 여기에 INSERT 를 따로 두었더니 실제로 갈렸다: `user_setting` 만 넣고 나머지 셋을
+ * 빠뜨려 운영 데모 계정이 `target_profile 0/63` 인 채로 돌았고, R10 이 기대 프로파일을 못
+ * 찾아 판정 대신 확인 불가를 냈다 — TP-03 이 명세 AC 의 29점이 아니라 27점이 됐다 (이슈 #310).
+ *
+ * **이미 있는 계정에도 다시 불러 채운다.** 조회 후 바로 반환하면 그때 빠진 계정은 영영
+ * 비어 있다. `ON CONFLICT DO NOTHING` 이라 사용자가 고친 값을 덮지 않는다.
  */
 export async function ensureDemoAccount(pool: Pool): Promise<number> {
   const email = demoEmail();
   const found = await pool.query<{ id: string }>(`SELECT id FROM account WHERE email = $1`, [email]);
   const existing = found.rows[0];
-  if (existing !== undefined) return Number(existing.id);
+  if (existing !== undefined) {
+    await seedAccountDefaults(pool, Number(existing.id));
+    return Number(existing.id);
+  }
 
   const passwordHash = await hashPassword(demoPassword());
   return withTransaction(pool, async (client) => {
@@ -49,7 +58,7 @@ export async function ensureDemoAccount(pool: Pool): Promise<number> {
     );
     const created = rows[0];
     if (created === undefined) throw new Error('데모 계정 생성 결과가 비어 있다');
-    await client.query(`INSERT INTO user_setting (account_id) VALUES ($1)`, [created.id]);
+    await seedAccountDefaults(client, Number(created.id));
     return Number(created.id);
   });
 }

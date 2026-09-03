@@ -15,6 +15,60 @@ export interface AccountRow {
   isDemo: boolean;
 }
 
+/**
+ * 계정 단위 기본 데이터 (DR-CF-002). **회원가입과 데모 시드가 이 함수 하나를 쓴다.**
+ *
+ * 두 곳에 같은 INSERT 를 두었더니 실제로 갈렸다 — 데모 시드가 `user_setting` 만 넣고
+ * 나머지 셋을 빠뜨려 운영 데모 계정이 `target_profile 0/63` 인 채로 돌았다. 그 상태에서는
+ * R10 이 기대 프로파일을 못 찾아 **판정 대신 확인 불가**를 내고(TP-03 이 29점이 아니라
+ * 27점), R09 실내·야외와 체류시간 보완이 계정 설정 대신 상수로 돌아간다 (이슈 #310).
+ *
+ * `ON CONFLICT DO NOTHING` 이라 **이미 있는 계정에 다시 불러도 안전하다** — 사용자가 설정
+ * 화면에서 고친 값을 시드가 덮지 않는다.
+ */
+export async function seedAccountDefaults(client: ClientLike, accountId: number): Promise<void> {
+  await client.query(
+    `INSERT INTO user_setting (account_id) VALUES ($1) ON CONFLICT (account_id) DO NOTHING`,
+    [accountId],
+  );
+  /*
+   * 63행을 한 번에 넣는다. `expected_lcls2` 는 배열의 배열인데 `unnest` 가 다차원 배열을
+   * **평탄화**해 버려서 그대로는 넘길 수 없다 — 쉼표로 이어 보내고 SQL 에서 다시 가른다.
+   * 중분류 코드는 영숫자뿐이라 쉼표가 값에 섞이지 않는다.
+   */
+  await client.query(
+    `INSERT INTO target_profile (account_id, target_key, concept_key, expected_lcls2, expects_night)
+     SELECT $1, t.target_key, t.concept_key, string_to_array(t.codes, ','), t.expects_night
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::boolean[])
+         AS t(target_key, concept_key, codes, expects_night)
+     ON CONFLICT (account_id, target_key, concept_key) DO NOTHING`,
+    [
+      accountId,
+      TARGET_PROFILE_SEED.map((p) => p.targetKey),
+      TARGET_PROFILE_SEED.map((p) => p.conceptKey),
+      TARGET_PROFILE_SEED.map((p) => p.expectedLcls2.join(',')),
+      TARGET_PROFILE_SEED.map((p) => p.expectsNight),
+    ],
+  );
+  await client.query(
+    `INSERT INTO indoor_outdoor_map (account_id, lcls_systm2, space_type)
+     SELECT $1, t.code, t.kind FROM unnest($2::text[], $3::text[]) AS t(code, kind)
+     ON CONFLICT (account_id, lcls_systm2) DO NOTHING`,
+    [accountId, Object.keys(INDOOR_OUTDOOR_SEED), Object.values(INDOOR_OUTDOOR_SEED)],
+  );
+  await client.query(
+    `INSERT INTO dwell_default (account_id, lcls_systm2, minutes)
+     SELECT $1, t.code, t.minutes FROM unnest($2::text[], $3::int[]) AS t(code, minutes)
+     ON CONFLICT (account_id, lcls_systm2) DO NOTHING`,
+    [accountId, Object.keys(DWELL_MINUTES_SEED), Object.values(DWELL_MINUTES_SEED)],
+  );
+}
+
+/** 트랜잭션 클라이언트와 풀 양쪽을 받는다 — 가입은 트랜잭션 안, 데모 시드는 풀로 부른다 */
+export interface ClientLike {
+  query(sql: string, params?: readonly unknown[]): Promise<unknown>;
+}
+
 export class AccountRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -52,35 +106,7 @@ export class AccountRepository {
       );
       const row = rows[0];
       if (row === undefined) throw new Error('계정 생성 결과가 비어 있다');
-      await client.query(`INSERT INTO user_setting (account_id) VALUES ($1)`, [row.id]);
-      /*
-       * 63행을 한 번에 넣는다. `expected_lcls2` 는 배열의 배열인데 `unnest` 가 다차원
-       * 배열을 **평탄화**해 버려서 그대로는 넘길 수 없다 — 쉼표로 이어 보내고 SQL 에서
-       * 다시 가른다. 중분류 코드는 영숫자뿐이라 쉼표가 값에 섞이지 않는다.
-       */
-      await client.query(
-        `INSERT INTO target_profile (account_id, target_key, concept_key, expected_lcls2, expects_night)
-         SELECT $1, t.target_key, t.concept_key, string_to_array(t.codes, ','), t.expects_night
-           FROM unnest($2::text[], $3::text[], $4::text[], $5::boolean[])
-             AS t(target_key, concept_key, codes, expects_night)`,
-        [
-          row.id,
-          TARGET_PROFILE_SEED.map((p) => p.targetKey),
-          TARGET_PROFILE_SEED.map((p) => p.conceptKey),
-          TARGET_PROFILE_SEED.map((p) => p.expectedLcls2.join(',')),
-          TARGET_PROFILE_SEED.map((p) => p.expectsNight),
-        ],
-      );
-      await client.query(
-        `INSERT INTO indoor_outdoor_map (account_id, lcls_systm2, space_type)
-         SELECT $1, t.code, t.kind FROM unnest($2::text[], $3::text[]) AS t(code, kind)`,
-        [row.id, Object.keys(INDOOR_OUTDOOR_SEED), Object.values(INDOOR_OUTDOOR_SEED)],
-      );
-      await client.query(
-        `INSERT INTO dwell_default (account_id, lcls_systm2, minutes)
-         SELECT $1, t.code, t.minutes FROM unnest($2::text[], $3::int[]) AS t(code, minutes)`,
-        [row.id, Object.keys(DWELL_MINUTES_SEED), Object.values(DWELL_MINUTES_SEED)],
-      );
+      await seedAccountDefaults(client, Number(row.id));
       return { id: Number(row.id), email: row.email, passwordHash, isDemo: row.is_demo };
     });
   }
