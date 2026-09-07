@@ -10,7 +10,7 @@
 | API | https://api-production-1e7c2.up.railway.app |
 | **API 문서** | https://api-production-1e7c2.up.railway.app/docs |
 | 상태 확인 | https://api-production-1e7c2.up.railway.app/health |
-| 웹 | https://web-production-82e38.up.railway.app/login |
+| 웹 | https://tourlint-web.up.railway.app/login |
 
 **배포본이 최신인지**는 `/health` 의 `commit` 을 `git rev-parse --short origin/main` 과 대조한다.
 2026-08-29 에 `main` 머지 두 건이 두 시간 밀렸는데 그동안 `/health` 는 계속 `ok` 였다 —
