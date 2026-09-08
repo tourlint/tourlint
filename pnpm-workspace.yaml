@@ -4,6 +4,8 @@ packages:
 
 allowBuilds:
   "@nestjs/core": true
+  # vitest 가 데코레이터 메타데이터를 뽑게 하려면 네이티브 바이너리가 필요하다
+  "@swc/core": true
   "unrs-resolver": true
   "@tailwindcss/oxide": true
   "sharp": true

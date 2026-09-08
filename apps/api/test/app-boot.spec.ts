@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { NestFactory } from '@nestjs/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { RootController } from '../src/root/root.controller';
@@ -16,18 +16,36 @@ import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
  * 실행해 보는 테스트가 하나도 없었기 때문이다.
  *
  * DI 배선은 컴파일 타임에 검증되지 않는다. 모듈을 실제로 조립해 봐야만 드러난다.
+ *
+ * ## `NestFactory` 로 띄운다
+ *
+ * 종전에는 `Test.createTestingModule` 을 썼는데 **그건 `main.ts` 와 다른 경로다.** 테스트
+ * 모듈은 컨트롤러를 providers 쪽에서 풀어 주고 `NestFactory` 는 그러지 않아서, 컨트롤러를
+ * provider 로 잘못 등록한 상태가 여기서는 초록불이고 실행하면 죽었다 (이슈 #329).
+ * 같은 사고를 한 번 더 통과시키지 않으려면 조립 경로가 같아야 한다.
  */
 describe('앱 부팅', () => {
   let app: INestApplication;
+  let bootError: unknown = null;
 
   beforeAll(async () => {
     // Pool 은 생성 시점에 접속하지 않는다. 실제 DB 없이도 배선을 확인할 수 있다
     process.env.DATABASE_URL ??= 'postgres://boot-check@127.0.0.1:1/none';
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication();
-    app.useGlobalFilters(new AllExceptionsFilter());
-    await app.init();
+    /*
+     * main.ts 와 같은 경로로 조립한다. 로그는 끈다 — 부팅 성공 여부만 보면 된다.
+     *
+     * `abortOnError: false` 가 중요하다. 기본값이면 Nest 가 배선 실패에 프로세스를 죽여서
+     * vitest 워커가 통째로 사라지고 「Worker exited unexpectedly」만 남는다. 무엇이
+     * 안 풀렸는지는 안 나온다.
+     */
+    try {
+      app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
+      app.useGlobalFilters(new AllExceptionsFilter());
+      await app.init();
+    } catch (e) {
+      bootError = e;
+    }
   }, 30_000);
 
   afterAll(async () => {
@@ -35,6 +53,7 @@ describe('앱 부팅', () => {
   });
 
   it('모듈이 조립된다 — 주입이 전부 풀린다', () => {
+    expect(bootError, `부팅 실패: ${String(bootError)}`).toBeNull();
     expect(app).toBeDefined();
   });
 
@@ -173,8 +192,9 @@ describe('앱 부팅', () => {
     const saved = process.env.KTO_SERVICE_KEY;
     delete process.env.KTO_SERVICE_KEY;
     try {
-      const ref = await Test.createTestingModule({ imports: [AppModule] }).compile();
-      await ref.close();
+      const boot = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
+      await boot.init();
+      await boot.close();
     } finally {
       if (saved !== undefined) process.env.KTO_SERVICE_KEY = saved;
     }
