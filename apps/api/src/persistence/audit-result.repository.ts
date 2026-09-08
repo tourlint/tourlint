@@ -66,6 +66,12 @@ export interface StoredFinding extends ScorableFinding {
   readonly patches: readonly Patch[];
 }
 
+/** 콘텐츠 1건의 해석 결과. `normalized` 는 해석하지 못했으면 `null` 이다 */
+export interface NormalizedView {
+  readonly normalized: unknown | null;
+  readonly confidence: string;
+}
+
 export interface StoredAuditRun {
   readonly id: number;
   readonly productId: number;
@@ -197,6 +203,25 @@ export class AuditResultRepository {
       [auditRunId],
     );
     return rows.map((r) => ({ ktoContentId: r.kto_content_id, fieldHash: r.field_hash }));
+  }
+
+  /**
+   * 그 실행이 남긴 **AI 해석** — 콘텐츠별 정규화 결과와 신뢰도 (FR-AU-007 · DR-NM).
+   *
+   * 판정 근거 3단 중 가운데 단이다. 자체 산출물이라 공사 호출 없이 DB 에서 온다 (5-12).
+   */
+  async normalizedOf(auditRunId: number): Promise<ReadonlyMap<string, NormalizedView>> {
+    const { rows } = await this.pool.query<{
+      kto_content_id: string; normalized_json: unknown | null; parse_confidence: string;
+    }>(
+      `SELECT kto_content_id, normalized_json, parse_confidence
+         FROM content_fingerprint WHERE audit_run_id = $1`,
+      [auditRunId],
+    );
+    return new Map(rows.map((r) => [
+      r.kto_content_id,
+      { normalized: r.normalized_json, confidence: r.parse_confidence },
+    ]));
   }
 
   async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
