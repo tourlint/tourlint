@@ -10,11 +10,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   auditApi,
+  contentApi,
   isApiError,
   matchApi,
   patchApi,
   productApi,
   type ContentCandidate,
+  type ContentDetail,
+  type EvidenceView,
   type Finding,
   type Patch,
   type PatchApplicationDetail,
@@ -27,7 +30,8 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
-import { GradeBadge, GradeCounts, SourceBadge, StatusBadge } from "../../../components/badges";
+import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
+import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
 
 const CONTENT_TYPE_LABEL: Record<number, string> = {
   12: "관광지",
@@ -266,6 +270,7 @@ export function AuditResult({ productId }: { productId: number }) {
   }
 
   const labelOf = itemLabeler(product);
+  const contentOf = contentIdOf(product);
   const selectedCount = Object.keys(selected).length;
   const pendingItems: ProductItem[] = product
     ? product.days.flatMap((d) => d.items).filter((it) => it.matchStatus === "PENDING")
@@ -334,6 +339,7 @@ export function AuditResult({ productId }: { productId: number }) {
           <FindingsSection
             findings={data.findings}
             itemLabel={labelOf}
+            contentOf={contentOf}
             selected={selected}
             onSelectPatch={selectPatch}
             onChanged={refresh}
@@ -717,6 +723,7 @@ function SummaryCard({ run }: { run: RunSummary }) {
 function FindingsSection({
   findings,
   itemLabel,
+  contentOf,
   selected,
   onSelectPatch,
   onChanged,
@@ -724,6 +731,7 @@ function FindingsSection({
 }: {
   findings: Finding[];
   itemLabel: (itemId: number | null) => string;
+  contentOf: (itemId: number | null) => string | null;
   selected: Record<number, string>;
   onSelectPatch: (findingId: number, patchId: string | null) => void;
   onChanged: () => Promise<void>;
@@ -746,6 +754,7 @@ function FindingsSection({
               key={f.findingId}
               finding={f}
               itemLabel={itemLabel}
+              contentId={contentOf(f.target.itemId)}
               selectedPatchId={selected[f.findingId] ?? null}
               onSelectPatch={onSelectPatch}
               onChanged={onChanged}
@@ -761,6 +770,7 @@ function FindingsSection({
 function FindingCard({
   finding,
   itemLabel,
+  contentId,
   selectedPatchId,
   onSelectPatch,
   onChanged,
@@ -768,6 +778,7 @@ function FindingCard({
 }: {
   finding: Finding;
   itemLabel: (itemId: number | null) => string;
+  contentId: string | null;
   selectedPatchId: string | null;
   onSelectPatch: (findingId: number, patchId: string | null) => void;
   onChanged: () => Promise<void>;
@@ -815,6 +826,7 @@ function FindingCard({
           {finding.requiresExternal && finding.externalSource && (
             <p className="mt-1 text-xs text-slate-400">외부 참고: {finding.externalSource}</p>
           )}
+          <EvidencePanel contentId={contentId} view={finding.evidenceView} />
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
         </div>
         {canDismiss && (
@@ -1040,6 +1052,7 @@ function UnverifiedRow({
         {item.note !== null && (
           <p className="mt-1 text-xs text-slate-400">{item.note}</p>
         )}
+        <EvidencePanel contentId={item.contentid} extra />
       </div>
       <button
         type="button"
@@ -1216,6 +1229,191 @@ function ScheduleColumn({
 }
 
 /** itemId 를 "1일차 · 강릉 경포대" 형태로. 대상이 없으면 상품 전체 판정이다 */
+/**
+ * 한 번 펼친 콘텐츠는 다시 부르지 않는다 (5-12). 새로고침하면 비는 것이 맞다 —
+ * 오래 들고 있으면 그건 저장이다 (DR-PR-004).
+ */
+const contentCache = new Map<string, ContentDetail>();
+
+/** 항목 id → 확정된 콘텐츠 번호. 없으면 검수 제외이거나 상품 전체 판정이다 */
+function contentIdOf(product: ProductDetail | null): (itemId: number | null) => string | null {
+  const map = new Map<number, string | null>();
+  if (product) {
+    for (const day of product.days) {
+      for (const it of day.items) map.set(it.itemId, it.ktoContentId);
+    }
+  }
+  return (itemId) => (itemId === null ? null : (map.get(itemId) ?? null));
+}
+
+/**
+ * 판단 근거 — 공사 원문 · AI 해석 · 판정 3단 병기 (FR-AU-013 · 061).
+ *
+ * **기본은 접힘이다** (UI-S3-011). 8건을 한꺼번에 펼치면 화면에 들어올 때마다 공사 호출이
+ * 그만큼 나간다. 펼친 그 1건만 부른다 (5-12).
+ *
+ * 원문은 한 글자도 고치지 않는다. 관광지 개요는 요약·재작성하지 않으므로 애초에 받지 않는다
+ * (FR-AU-062).
+ */
+function EvidencePanel({
+  contentId,
+  view,
+  extra,
+}: {
+  contentId: string | null;
+  view?: EvidenceView;
+  /** 확인 필요 목록은 문의처·홈페이지를 함께 보인다 (FR-AU-081 · 082) */
+  extra?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [content, setContent] = useState<ContentDetail | null>(
+    contentId === null ? null : (contentCache.get(contentId) ?? null),
+  );
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const ai = readNormalized(view?.aiNormalized);
+  const verdict = readVerdict(view?.verdict);
+
+  async function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (!next || contentId === null || content !== null || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const got = await contentApi.detail(contentId);
+      contentCache.set(contentId, got);
+      setContent(got);
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "일시적으로 조회할 수 없습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={toggle}
+        className="text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
+      >
+        {open ? "판단 근거 접기" : "판단 근거 보기"}
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-3 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900/60">
+          <EvidenceBlock label="공사 원문" badge="KTO_ORIGINAL">
+            {busy && <p className="text-slate-400">불러오는 중…</p>}
+            {err !== null && <p className="text-slate-500 dark:text-slate-400">{err}</p>}
+            {!busy && err === null && content === null && (
+              <p className="text-slate-400">{contentId === null ? "대상 콘텐츠가 없습니다." : "정보 없음"}</p>
+            )}
+            {content !== null && content.hidden && (
+              <p className="text-slate-500 dark:text-slate-400">
+                공사에서 표출이 중단된 콘텐츠입니다 ({content.contentId})
+              </p>
+            )}
+            {content !== null && !content.hidden && (
+              <dl className="grid gap-1">
+                {Object.entries(content.ktoRaw).map(([name, value]) => (
+                  <div key={name} className="flex gap-2">
+                    <dt className="shrink-0 text-slate-400">{name}</dt>
+                    {/* 원문 그대로 — 다듬지 않는다 */}
+                    <dd className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{value || "—"}</dd>
+                  </div>
+                ))}
+                {content.unavailableReason !== null && (
+                  <p className="text-slate-400">조회하지 못했습니다 ({content.unavailableReason})</p>
+                )}
+              </dl>
+            )}
+          </EvidenceBlock>
+
+          {/* 확인 필요 목록은 판정이 없어서 온 항목이라 2단을 그리지 않는다 */}
+          {view !== undefined && (
+            <>
+              <EvidenceBlock label="AI 해석" badge="AI_NORMALIZED">
+                {ai.length === 0 ? <p className="text-slate-400">해석 결과가 없습니다.</p> : <Rows rows={ai} />}
+              </EvidenceBlock>
+
+              <EvidenceBlock label="판정" badge="TOURLINT_VERDICT">
+                {verdict.length === 0 ? <p className="text-slate-400">판정 입력값이 없습니다.</p> : <Rows rows={verdict} />}
+              </EvidenceBlock>
+            </>
+          )}
+
+          {extra === true && (
+            <EvidenceBlock label="확인처" badge="KTO_ORIGINAL">
+              <div className="grid gap-1">
+                <div className="flex gap-2">
+                  <span className="shrink-0 text-slate-400">문의처</span>
+                  {content?.contact.tel != null && content.contact.tel !== "" ? (
+                    <a className="text-indigo-600 hover:underline dark:text-indigo-400" href={`tel:${content.contact.tel}`}>
+                      {content.contact.tel}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400">{contactText(content?.contact.tel)}</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <span className="shrink-0 text-slate-400">홈페이지</span>
+                  {content?.homepageUrl != null && content.homepageUrl !== "" ? (
+                    <a
+                      className="truncate text-indigo-600 hover:underline dark:text-indigo-400"
+                      href={content.homepageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {content.homepageUrl}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400">정보 없음</span>
+                  )}
+                </div>
+              </div>
+            </EvidenceBlock>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceBlock({
+  label,
+  badge,
+  children,
+}: {
+  label: string;
+  badge: SourceKind;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="font-medium text-slate-600 dark:text-slate-300">{label}</span>
+        <SourceBadge source={badge} externalName={null} />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Rows({ rows }: { rows: { label: string; value: string }[] }) {
+  return (
+    <dl className="grid gap-1">
+      {rows.map((r) => (
+        <div key={r.label} className="flex gap-2">
+          <dt className="shrink-0 text-slate-400">{r.label}</dt>
+          <dd className="text-slate-700 dark:text-slate-200">{r.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function itemLabeler(product: ProductDetail | null): (itemId: number | null) => string {
   const map = new Map<number, string>();
   if (product) {
