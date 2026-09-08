@@ -196,6 +196,11 @@ export class AuditService {
     return run;
   }
 
+  /** 일정 항목. 확인 필요 목록이 관광지명·위치를 채우는 데 쓴다 — DB 만 읽는다 (0콜) */
+  async itemsOf(productId: number): Promise<readonly ItineraryItemRow[]> {
+    return this.products.findItems(productId);
+  }
+
   /**
    * 검수 근거 영역에 실을 대표 지문 (DR-FP-008 · FR-PA-062).
    *
@@ -909,23 +914,50 @@ export function toRevertResponse(application: StoredPatchApplication, revertedAt
  * ⚠️ **관광지명은 `place_label`(사용자 입력)만 쓴다.** 공사 원문은 담지 않는다
  * (DR-PR-001 · API 설계 5-7). 원문이 필요하면 화면이 펼칠 때 1콜로 조달한다.
  */
-export function toUnverifiedResponse(run: StoredAuditRun): Record<string, unknown> {
+/**
+ * 확인 필요 목록 (API 설계 5-7 · FR-AU-081).
+ *
+ * 관광지명은 `place_label`, 위치는 `itinerary_item` 에서 온다. 둘 다 저장된 값이라
+ * **공사 호출이 0건이다** (5-12 「사용자 입력 · 자체 산출물」).
+ *
+ * 공사 원문 · 문의처 · 홈페이지는 여기 없다. 항목을 펼칠 때 `GET /contents/{contentId}`
+ * 로 그 1건만 조달한다 (5-12 · FR-AU-082).
+ */
+export function toUnverifiedResponse(
+  run: StoredAuditRun,
+  itinerary: readonly ItineraryItemRow[] = [],
+): Record<string, unknown> {
+  const byId = new Map(itinerary.map((i) => [i.id, i]));
   const items = run.findings
     .filter((f) => f.severity === 'UNVERIFIED' || f.needsConfirmation)
-    .map((f) => ({
-      findingId: f.id,
-      reason: f.message,
-      reasonCode: f.reasonCode,
-      confirmedAt: f.confirmed ? true : null,
+    .map((f) => {
+      const item = f.targetItemId === null ? undefined : byId.get(f.targetItemId);
       /*
        * 출발 전 확인 항목은 공사 데이터의 D+1 구조적 시차로 자동 생성된 것이라
        * 감점 대상이 아니다 (FR-AU-016). 화면이 그 사실을 표기해야 한다.
        */
-      excludedFromScore: f.reasonCode === 'PRE_DEPARTURE_CHECK',
-      targetItemId: f.targetItemId,
-    }));
+      const excluded = f.reasonCode === 'PRE_DEPARTURE_CHECK';
+      return {
+        findingId: f.id,
+        contentid: item?.ktoContentId ?? null,
+        placeLabel: item?.placeLabel ?? null,
+        reason: f.message,
+        reasonCode: f.reasonCode,
+        location: item === undefined
+          ? null
+          : { dayNo: item.dayNo, seq: item.seq, startTime: item.startTime },
+        confirmedAt: f.confirmed ? true : null,
+        excludedFromScore: excluded,
+        note: excluded ? PRE_DEPARTURE_NOTE : null,
+        targetItemId: f.targetItemId,
+      };
+    });
   return { totalCount: items.length, items };
 }
+
+/** 출발 전 확인 항목에만 붙는 안내 (API 설계 5-7 · FR-AU-085 · 086) */
+export const PRE_DEPARTURE_NOTE =
+  '공사 데이터의 D+1 구조적 시차로 자동 생성된 항목이며 감점 대상이 아닙니다';
 
 /** 검수 이력 (F13 · API 설계 5-9) */
 export function toRunListResponse(runs: readonly StoredAuditRun[]): Record<string, unknown> {

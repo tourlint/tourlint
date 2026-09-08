@@ -1033,9 +1033,13 @@ function UnverifiedRow({
       <div className="min-w-0">
         <p className="text-sm text-slate-800 dark:text-slate-200">{item.reason}</p>
         <p className="mt-1 text-xs text-slate-400">
-          대상: {itemLabel(item.targetItemId)}
-          {item.excludedFromScore && " · 감점 제외(출발 전 확인)"}
+          대상: {item.placeLabel ?? itemLabel(item.targetItemId)}
+          {item.location !== null && ` · ${item.location.dayNo}일차 ${item.location.startTime}`}
+          {item.excludedFromScore && " · 감점 제외"}
         </p>
+        {item.note !== null && (
+          <p className="mt-1 text-xs text-slate-400">{item.note}</p>
+        )}
       </div>
       <button
         type="button"

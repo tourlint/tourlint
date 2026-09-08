@@ -159,7 +159,8 @@ export class AuditController {
     @Param('runId', ParseIntPipe) runId: number,
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('run', runId, account.accountId);
-    return toUnverifiedResponse(await this.service.getRun(runId));
+    const run = await this.service.getRun(runId);
+    return toUnverifiedResponse(run, await this.service.itemsOf(run.productId));
   }
 
   /**
