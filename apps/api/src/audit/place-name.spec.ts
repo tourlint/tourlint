@@ -8,18 +8,29 @@ import {
 /** 부른 횟수를 셀 수 있는 공사 스텁 */
 function stubKto(byId: Record<string, unknown> = {}) {
   const calls: string[] = [];
+  let made = 0;
   const kto = {
     detailCommon: async (contentId: string) => {
+      made ||= 1;
       calls.push(contentId);
       const found = byId[contentId];
       if (found instanceof Error) throw found;
       return (found ?? { title: `이름-${contentId}` }) as Record<string, unknown>;
     },
   } as unknown as KtoClient;
-  return { kto, calls };
+  // 리졸버는 클라이언트가 아니라 만드는 함수를 받는다 — 조립 시점에 만들면 키가 없을 때 던진다
+  return { kto: () => kto, calls, made: () => made };
 }
 
 describe('대체 관광지 이름 (DR-PR-001)', () => {
+  it('🔴 만들 때 공사 클라이언트를 세우지 않는다 — 인증키가 없으면 앱이 못 뜬다', () => {
+    const { kto, made } = stubKto();
+    let built = 0;
+    new PlaceNameResolver({ kto: () => { built += 1; return kto(); } });
+    expect(built).toBe(0);
+    expect(made()).toBe(0);
+  });
+
   it('콘텐츠 이름을 모아 온다', async () => {
     const { kto, calls } = stubKto();
     const names = await new PlaceNameResolver({ kto }).resolve(['1', '2']);

@@ -38,7 +38,7 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
       new ProductRepository(pool),
       new CatalogService(kto),
       patches,
-      new PlaceNameResolver({ kto: kto() }),
+      new PlaceNameResolver({ kto }),
     );
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO account (email, password_hash) VALUES ($1, 'x')

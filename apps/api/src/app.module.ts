@@ -104,7 +104,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
         catalog,
         new PatchApplicationRepository(pool),
         // 대체·추가된 항목의 이름은 표시할 때 읽는다 (FR-PA-003 · DR-PR-001)
-        new PlaceNameResolver({ kto: createKtoClient(new PgApiCallLogger(pool)) }),
+        new PlaceNameResolver({ kto: () => createKtoClient(new PgApiCallLogger(pool)) }),
       ),
       inject: [DB_POOL, CatalogService],
     },

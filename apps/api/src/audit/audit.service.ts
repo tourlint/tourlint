@@ -251,7 +251,7 @@ export class AuditService {
 
   /** 첫 조회 때 만든다. 캐시를 살리려고 한 번 만든 것을 계속 쓴다 */
   private placeNames(): PlaceNameResolver {
-    this.nameResolver ??= new PlaceNameResolver({ kto: createKtoClient(this.callLogger) });
+    this.nameResolver ??= new PlaceNameResolver({ kto: () => createKtoClient(this.callLogger) });
     return this.nameResolver;
   }
 
