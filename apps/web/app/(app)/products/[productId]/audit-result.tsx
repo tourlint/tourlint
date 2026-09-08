@@ -16,6 +16,7 @@ import {
   matchApi,
   patchApi,
   productApi,
+  reportApi,
   type ContentCandidate,
   type ContentDetail,
   type EvidenceView,
@@ -716,12 +717,15 @@ function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string 
         </p>
       )}
 
-      <ReleaseButton
-        productId={run.productId}
-        releasable={run.releasable}
-        blockedReason={run.releaseBlockedReason}
-        releasedAt={releasedAt}
-      />
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <ReleaseButton
+          productId={run.productId}
+          releasable={run.releasable}
+          blockedReason={run.releaseBlockedReason}
+          releasedAt={releasedAt}
+        />
+        <ReportButton runId={run.auditRunId} releasable={run.releasable} />
+      </div>
 
       <AuditBasis rows={basisRows(run.evidence)} notice={run.evidence.delayNotice} source={run.evidence.source} />
     </section>
@@ -1477,6 +1481,51 @@ function ReleaseButton({
       </button>
       {err !== null && <span className="text-xs text-rose-600 dark:text-rose-400">{err}</span>}
     </div>
+  );
+}
+
+/**
+ * 리포트 생성 (F11 · UI-S5-004 와 같은 조건).
+ *
+ * 종전에는 진입점이 전후 비교 화면에만 있어서 **수정안을 한 번도 반영하지 않은 상품은
+ * 리포트를 만들 수 없었다** (이슈 #349). 고칠 것이 없어 패치를 안 한 상품이야말로
+ * 리포트를 뽑고 싶은 대상이다.
+ *
+ * 조건은 화면 5 와 같다 — 차단 0건일 때만 연다. 리포트 대상은 **가장 최근 검수 실행**이라
+ * 화면이 보고 있는 그 실행이 곧 대상이다 (아니면 서버가 409 로 막는다).
+ */
+function ReportButton({ runId, releasable }: { runId: number; releasable: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function generate() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { reportId } = await reportApi.generate(runId);
+      // 다운로드는 브라우저 내비게이션으로 — 쿠키가 실려 PDF 를 그대로 받는다
+      window.location.href = reportApi.downloadUrl(reportId);
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "리포트를 만들지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!releasable) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={generate}
+        disabled={busy}
+        className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+      >
+        {busy ? "만드는 중…" : "리포트 생성"}
+      </button>
+      {err !== null && <span className="text-xs text-rose-600 dark:text-rose-400">{err}</span>}
+    </>
   );
 }
 
