@@ -78,7 +78,30 @@ export interface ProductDetail {
   startDate: string;
   nights: number;
   dayCount: number;
+  targetKey: string | null;
+  conceptKey: string | null;
+  headCount: number | null;
+  transport: string;
+  releasedAt: string | null;
   days: { day: number; items: ProductItem[] }[];
+}
+
+/** PATCH 가 받는 것만. 지역·박수는 못 바꾼다 — 확정된 contentid 와 일차 제약이 걸려 있다 */
+export interface ProductUpdate {
+  name?: string;
+  startDate?: string;
+  targetKey?: string | null;
+  conceptKey?: string | null;
+  headCount?: number | null;
+  transport?: string;
+}
+
+export interface ItemInput {
+  dayNo: number;
+  startTime: string;
+  endTime: string;
+  placeLabel: string;
+  itemType: string;
 }
 
 export interface ContentCandidate {
@@ -243,6 +266,20 @@ export interface AuditJob {
 
 export const productApi = {
   detail: (productId: number) => request<ProductDetail>(`/products/${productId}`),
+  update: (productId: number, body: ProductUpdate) =>
+    request<void>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  remove: (productId: number) => request<void>(`/products/${productId}`, { method: "DELETE" }),
+};
+
+/** 일정 항목 편집 (FR-IN-014). 등록 이후에도 추가·삭제·시간 변경·순서 변경을 한다 */
+export const itemApi = {
+  add: (productId: number, item: ItemInput) =>
+    request<ProductItem>(`/products/${productId}/items`, { method: "POST", body: JSON.stringify(item) }),
+  patch: (itemId: number, patch: Partial<Omit<ItemInput, "dayNo">>) =>
+    request<ProductItem>(`/items/${itemId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  remove: (itemId: number) => request<void>(`/items/${itemId}`, { method: "DELETE" }),
+  reorder: (productId: number, items: readonly { itemId: number; dayNo: number; seq: number }[]) =>
+    request<void>(`/products/${productId}/items/order`, { method: "PUT", body: JSON.stringify({ items }) }),
 };
 
 export const auditApi = {
