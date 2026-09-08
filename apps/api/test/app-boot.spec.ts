@@ -90,6 +90,39 @@ describe('앱 부팅', () => {
     expect(duplicated).toEqual([]);
   });
 
+  it('🔴 매개변수 경로가 정적 경로를 가리지 않는다', () => {
+    /*
+     * `contents/:contentId` 가 `contents/search` 앞에 등록되면 검색어를 콘텐츠 번호로
+     * 읽는다 (이슈 #341). 경로 문자열이 달라 중복 검사로는 안 잡힌다.
+     *
+     * 같은 메서드 · 같은 깊이에서 한 자리만 다르고 그 자리가 한쪽은 매개변수, 다른 쪽은
+     * 정적인 쌍을 찾아 **정적 쪽이 먼저인지** 본다.
+     */
+    const routes = registeredRoutes(app);
+    const shadowed: string[] = [];
+
+    routes.forEach((param, i) => {
+      const [method, path] = param.split(' ');
+      if (path === undefined || !path.includes('/:')) return;
+      const parts = path.split('/');
+
+      routes.slice(i + 1).forEach((later) => {
+        const [m2, p2] = later.split(' ');
+        if (m2 !== method || p2 === undefined) return;
+        const other = p2.split('/');
+        if (other.length !== parts.length) return;
+
+        const diff = parts.filter((seg, k) => seg !== other[k]);
+        // 딱 한 자리만 다르고, 매개변수 쪽이 앞서 있으면 뒤엣것은 영영 안 닿는다
+        if (diff.length === 1 && diff[0]?.startsWith(':') === true) {
+          shadowed.push(`${later} ← ${param}`);
+        }
+      });
+    });
+
+    expect(shadowed).toEqual([]);
+  });
+
   it('🔴 인증 없이 여는 것은 루트 · /health · /docs 뿐이다 (PM-AC-003 · 004)', () => {
     /*
      * `AuthGuard` 가 `APP_GUARD` 로 전역 등록돼 있어 기본이 차단이다. 여기 목록이 늘어나면
