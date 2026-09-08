@@ -1,4 +1,5 @@
 import type { Severity } from '@tourlint/shared';
+import type { ContentView } from '../external/kto';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 
 /**
@@ -16,22 +17,11 @@ import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.
  */
 
 /** 공사 원문 근거 한 콘텐츠 몫 (UI-S6-002). 못 읽었으면 `unavailableReason` 이 찬다 */
-export interface ContentEvidence {
-  readonly ktoContentId: string;
-  /** 공식 명칭. 못 읽었거나 비표출이면 `null` — 지어내지 않는다 */
-  readonly officialName: string | null;
-  /** 원본 이미지 URL. 임베드하지 않는다 (FR-PA-063) */
-  readonly imageUrl: string | null;
-  readonly homepageUrl: string | null;
-  /** 판정 필드 원문. `FINGERPRINT_FIELDS` 순서 그대로 */
-  readonly fields: readonly { readonly name: string; readonly value: string }[];
-  /** 원본 `YYYYMMDDHHmmss`. 변환하지 않는다 (DR-PR-008) */
-  readonly ktoModifiedTime: string | null;
-  /** 비표출(`show_flag = 0`). 참이면 명칭 · 주소 · 이미지를 싣지 않는다 (PM-NG-009) */
-  readonly hidden: boolean;
-  /** 조회 실패 사유코드. 성공이면 `null` */
-  readonly unavailableReason: string | null;
-}
+/**
+ * 리포트가 싣는 관광지 근거. 조달은 화면과 같은 `fetchContentView` 가 한다 —
+ * 두 벌로 두면 한쪽만 고쳐진다 (FR-AU-013 · 061 · 081).
+ */
+export type ContentEvidence = ContentView;
 
 export interface ReportProduct {
   readonly name: string;

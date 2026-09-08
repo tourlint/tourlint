@@ -52,7 +52,7 @@ function model(over: Partial<AssembleInput> = {}): ReturnType<typeof assembleRep
     }],
     evidence: new Map([['126508', {
       ktoContentId: '126508', officialName: '오죽헌', imageUrl: 'https://x/a.jpg',
-      homepageUrl: 'https://oj.kr',
+      homepageUrl: 'https://oj.kr', contact: { tel: '033-640-4457' },
       fields: [{ name: 'restdate', value: '매주 월요일 휴관' }, { name: 'usetime', value: '09:00~18:00' }],
       ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null,
     }]]),
