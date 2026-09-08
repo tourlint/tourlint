@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
-import { createKtoClient } from '../external/kto';
+import { createKtoClient, FixtureKtoTransport, KtoClient } from '../external/kto';
 import {
   AuditRunner, DEFAULT_AUDIT_CONCURRENCY, concurrencyFromEnv, departureStamp,
   uniqueContentIds, withConcurrency,
@@ -161,14 +161,15 @@ describe('AuditRunner — 관통', () => {
   });
 
   it('공사 호출을 한 곳당 한 번만 한다 — 같은 관광지가 두 번 나와도', async () => {
-    const logger = new InMemoryApiCallLogger();
-    const r = new AuditRunner({ kto: createKtoClient(logger, FIXTURE_ENV), clock });
+    // 리플레이는 호출 로그를 남기지 않으므로(FR-OP-007) transport 에서 센다
+    const transport = new FixtureKtoTransport(FIXTURE_ENV.KTO_FIXTURE_DIR);
+    const kto = new KtoClient({ transport, logger: new InMemoryApiCallLogger() });
+    const r = new AuditRunner({ kto, clock });
     await r.run(product, [
       item({ id: 1, dayNo: 1, seq: 1, ktoContentId: '2868839', contentTypeId: 39 }),
       item({ id: 2, dayNo: 2, seq: 1, ktoContentId: '2868839', contentTypeId: 39 }),
     ]);
-    const intro = logger.entries.filter((e) => e.operation === 'detailIntro2');
-    expect(intro).toHaveLength(1);
+    expect(transport.replayCounts.get('detailIntro2')).toBe(1);
   });
 
   describe('부분 성공 격리 (EX-CM 원칙 ①)', () => {

@@ -256,6 +256,9 @@ export class KmaClient {
     httpStatus: number | null,
     resultCode: string | null,
   ): void {
+    // 리플레이는 증빙도 예산도 아니다 (FR-OP-001 · 007)
+    if (this.transport.kind === 'fixture') return;
+
     const entry: ApiCallLogEntry = {
       provider: 'KMA',
       operation,

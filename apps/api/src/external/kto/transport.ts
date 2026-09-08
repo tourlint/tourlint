@@ -111,6 +111,12 @@ export class HttpKtoTransport implements KtoTransport {
 export class FixtureKtoTransport implements KtoTransport {
   readonly kind = 'fixture' as const;
 
+  /**
+   * 오퍼레이션별 리플레이 횟수. 중복 제거·캐시가 실제로 호출을 줄이는지 세는 자리다 —
+   * 리플레이는 호출 로그를 남기지 않으므로(FR-OP-007) 로그로는 셀 수 없다.
+   */
+  readonly replayCounts = new Map<KtoOperation, number>();
+
   /** `operation` 또는 `operation:contentId` → 파일 경로 */
   private readonly index = new Map<string, string>();
 
@@ -120,6 +126,7 @@ export class FixtureKtoTransport implements KtoTransport {
 
   // 파일 읽기는 동기지만 인터페이스는 실호출과 같아야 한다 — 호출자가 두 모드를 구분하지 않는다
   async request(operation: KtoOperation, params: KtoParams): Promise<KtoTransportResult> {
+    this.replayCounts.set(operation, (this.replayCounts.get(operation) ?? 0) + 1);
     const contentId = params.contentId ?? params.contentid;
     const key = fixtureKey(operation, params, contentId);
 
