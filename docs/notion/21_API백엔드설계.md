@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.1</td>
+<td>API · 백엔드 설계 v2.2</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -1325,9 +1325,9 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>2 상품 등록·일정 편집</td>
-<td>❌</td>
-<td>`place_label`</td>
-<td>**0**</td>
+<td>⚠️ 대체·추가된 항목만</td>
+<td>`place_label`. 패치로 콘텐츠가 바뀐 항목은 이름을 그 순간 조회</td>
+<td>0 \~ 대체·추가 건수</td>
 </tr>
 <tr>
 <td>2 관광지 검색·확정</td>
@@ -1337,9 +1337,9 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr color="blue_bg">
 <td>**3 검수 결과 목록**</td>
-<td>❌</td>
-<td>`finding.message`가 DB에 저장됨</td>
-<td>**0**</td>
+<td>⚠️ 대체·추가된 항목만</td>
+<td>`finding.message`가 DB에 저장됨. 일정 항목 라벨은 상품 상세를 그대로 따름</td>
+<td>0 \~ 대체·추가 건수</td>
 </tr>
 <tr color="blue_bg">
 <td>**3 ↳ "판단 근거 보기" 클릭**</td>
@@ -1361,9 +1361,9 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>5 전후 비교</td>
-<td>❌</td>
-<td>스냅샷 + `place_label`</td>
-<td>**0**</td>
+<td>⚠️ 대체된 항목만</td>
+<td>스냅샷 + `place_label`. 대체된 항목은 이름을 그 순간 조회</td>
+<td>0 \~ 대체 건수</td>
 </tr>
 <tr color="orange_bg">
 <td>**6 PDF 리포트**</td>
@@ -1395,6 +1395,12 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 	**응답에 싣는 것과 저장하는 것은 다릅니다.**
 	공사 원문(`ktoRaw`)과 `patches[].label`은 **근거 펼침 · 패치 화면 · 리포트 생성 등 필요한 시점의 응답에만** 실시간 조회 값으로 조립해 싣습니다. finding 목록 응답에는 포함하지 않으며(0콜 원칙), **DB에는 남지 않습니다.**
 	저장되는 것은 `type` · `payload` · `reasonCode` 같은 구조화된 값뿐입니다 (DB 명세서 4-3 · 4-5절).
+</callout>
+<callout icon="🏷" color="gray_bg">
+	**대체·추가된 항목의 이름은 0콜에서 빠집니다** (FR-PA-003 · DR-PR-001)
+	`itinerary_item.place_label`은 사용자가 입력한 장소명입니다. `REPLACE_CONTENT`는 자리를 두고 콘텐츠만 바꾸므로 저장된 라벨이 그대로 남고, `INSERT_ITEM`은 빈 라벨로 들어옵니다. 대체 후보의 명칭은 공사 원문이라 저장할 수 없기 때문입니다.
+	그래서 일정 항목을 그리는 화면(2 · 3 · 5)은 **콘텐츠가 바뀐 항목에 한해** 이름을 그 순간 조회해 응답에만 얹습니다. 저장은 그대로입니다. 패치한 적 없는 상품은 종전대로 0콜입니다.
+	못 읽으면 저장된 라벨을 그대로 둡니다 — 이름을 지어내지 않습니다.
 </callout>
 ---
 # 6. 검수 실행 파이프라인
@@ -2575,6 +2581,7 @@ quota_date는 반드시 KST 기준. UTC로 채우면 집계가 9시간 밀린다
 	v1.8 (2026.08.24) — 구현 실측 대조. ① 백엔드를 Spring Boot 3 → **NestJS 10 + TypeScript** 로 정정. 아키텍처 다이어그램과 기술 스택 표가 실제와 달랐고, 기획서는 기능설명서의 원본이라 그대로 두면 제출 서류와 구동 코드가 어긋난다. 선택 근거(상시 구동 · 공용 상수 단일 출처 · eslint 로 강제하는 결정론성)도 함께 적었다 ② LLM 허용 용도를 셋 → **둘**로 정정 — finding 설명문 생성은 결정론성 때문에 쓰지 않기로 확정했고 구현의 `LlmPurpose` 도 `STRUCTURE` · `NORMALIZE` 둘뿐이다 ③ 배치를 Spring Scheduler → Node 프로세스 내 스케줄러, 배포를 Railway 로 구체화.
 	v1.9 (2026.08.29) — F11 리포트 구현에서 확정. ① `reportId` 가 가리킬 행이 없다는 것을 4-7 콜아웃으로 명시 — DB 명세서 6-4 가 PDF 를 남기지 못하게 하고 `report` 테이블은 엔터티 18종에 없다. `POST` 가 렌더까지 끝내고 프로세스 메모리에 5분 들고, `GET .../download` 가 그것을 흘려보낸다 ② **가장 최근 검수 실행만** 리포트 대상이며 아니면 409 `REPORT_FAILED` — `audit_run` 에 일정 스냅샷이 없어 과거 실행으로 만들면 그때 판정과 지금 일정이 섞인다 ③ 5-12 리포트 호출 수를 8 → **콘텐츠 수 × 2** 로 정정(픽스처 실측). `detailIntro2` 에 `title` 이 없고 `detailCommon2` 에 판정 필드가 없어 둘 다 필요하다. 하루 예상 호출량 40 → 56콜 ④ 머리표 버전이 v1.5 인데 개정 이력은 v1.8 까지 있어 v1.9 로 맞췄다.
 	v2.0 (2026.08.30) — F13 · F14 레이더 구현에서 확정. ① **T1 · T2 를 배치가 미리 산출**하고 조회는 읽기만 한다 — 요청 시 조회하면 화면을 열 때마다 예산이 나간다. `demand_signal` 신설(DB 명세서 v1.9) ② `radar/signals` 에 **`productId` 를 필수**로 했다 — T2 조회 창이 그 상품의 여행일에서 나오므로 상품 없이는 어느 기간의 행사를 세야 하는지 정할 수 없다 ③ `radar/changes` 의 판독 결과 변화는 `content_fingerprint.normalized_json` 전후 비교이며 재검수가 돌아 지문이 두 번 이상 쌓인 콘텐츠에만 있다. 없으면 `hasReadableDiff: false` 로 그 사실을 말한다 ④ 알림 응답에 `dismissable` 을 넣었다 — 비표출 전환 알림은 무시할 수 없는데(FR-MO-037 · PM-NG-010) 눌러 보고 403 을 받는 것은 화면이 규정을 모른다는 뜻이다 ⑤ 알림 응답에 관광지명을 담지 않는다. 화면이 `ktoContentId` 로 자기 일정의 `placeLabel` 을 붙인다(FR-MO-002).
+	v2.2 (2026.09.08) — 5-12 표의 화면 2 · 3 · 5 를 0콜에서 **「대체·추가된 항목만 조회」**로 정정. `itinerary_item.place_label` 은 사용자 입력이라 `REPLACE_CONTENT` 가 건드리지 않고 `INSERT_ITEM` 은 빈 라벨로 들어오는데, 표는 세 화면 모두 `place_label` 로 0콜이라고 적어 뒀다. 전후 비교는 `withReplacedNames` 가 들어가면서 **이미 표와 달라져 있었고 표를 고치지 않았다** — 확정한 뒤 화면이 대체 전 이름을 보여준 것이 그 결과다(이슈 #322 · PR #324). 패치한 적 없는 상품은 종전대로 0콜이다. API 계약(엔드포인트 · 요청/응답 필드)은 변경 없다.
 	v2.1 (2026.08.31) — 4-7 콜아웃의 「`report` 테이블은 엔터티 19종에 없다」를 **20종**으로 정정. v1.9 가 18종으로 적은 뒤 `demand_signal`(DB v1.9) · `llm_parse_cache`(DB v2.0)가 들어오며 두 번 밀렸고, 같은 문장이 구현 주석 두 곳(`report-store.ts` · `report.service.ts`)에도 18종으로 남아 있어 함께 고쳤다. API 계약은 변경 없다. DB 명세서 v2.1 과 동시 개정.
 </callout>
 <callout icon="©️" color="gray_bg">
