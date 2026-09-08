@@ -66,6 +66,9 @@ describe('앱 부팅', () => {
       'GET /api/v1/radar/summary',
       'GET /api/v1/radar/changes',
       'GET /api/v1/radar/signals',
+      // 마지막 목업이던 둘 (NF-CO-002)
+      'POST /api/v1/products/:productId/release',
+      'GET /api/v1/products/:productId/items',
     ]) {
       expect(routes, r).toContain(r);
     }

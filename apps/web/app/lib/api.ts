@@ -269,6 +269,9 @@ export const productApi = {
   update: (productId: number, body: ProductUpdate) =>
     request<void>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(body) }),
   remove: (productId: number) => request<void>(`/products/${productId}`, { method: "DELETE" }),
+  /** 출시 승인. 차단이 1건이라도 있으면 서버가 403 으로 막는다 (PM-NG-002) */
+  release: (productId: number) =>
+    request<{ productId: number; releasedAt: string }>(`/products/${productId}/release`, { method: "POST" }),
 };
 
 /** 일정 항목 편집 (FR-IN-014). 등록 이후에도 추가·삭제·시간 변경·순서 변경을 한다 */

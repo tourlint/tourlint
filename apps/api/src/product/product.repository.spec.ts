@@ -135,6 +135,24 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     // 남의 상품은 못 바꾼다
     expect(await repo.reorderItems(accountB, p, order)).toBeNull();
   });
+
+  describe('출시 승인 (PM-NG-002 · EX-AU-008 · DR-IN-007)', () => {
+    it('검수한 적 없는 상품은 차단 건수가 null 이다 — 0 과 다르다', async () => {
+      const { productId } = await repo.create(accountA, sample());
+      expect(await repo.latestBlockerCount(accountA, productId)).toBeNull();
+    });
+
+    it('남의 상품은 undefined 다 — 없는 상품과 구분하지 않는다', async () => {
+      const { productId } = await repo.create(accountA, sample());
+      expect(await repo.latestBlockerCount(accountB, productId)).toBeUndefined();
+    });
+
+    it('🔴 검수 이력이 없으면 DB 가 출시를 막는다', async () => {
+      const { productId } = await repo.create(accountA, sample());
+      await expect(repo.markReleased(accountA, productId)).rejects.toThrow(/FORBIDDEN_ACTION/);
+    });
+  });
+
 });
 
 async function makeAccount(pool: Pool, email: string): Promise<number> {

@@ -43,7 +43,6 @@ import { RadarService } from './radar/radar.service';
 import { ReportController } from './report/report.controller';
 import { ReportService } from './report/report.service';
 import { UploadController } from './upload/upload.controller';
-import { MockController } from './mock/mock.controller';
 import { RootController } from './root/root.controller';
 import { UsageController } from './usage/usage.controller';
 import { UsageService } from './usage/usage.service';
@@ -55,9 +54,9 @@ import { SettingsTablesService } from './settings/settings-tables.service';
 import { SettingsTablesRepository } from './settings/settings-tables.repository';
 
 /**
- * `MockController` 는 아직 교체되지 않은 라우트를 담당한다. 실엔진으로 교체된 라우트는
- * 즉시 제거한다 — 공사 호출을 모의 응답으로 전면 대체한 채 제출하면 심사에서
- * 제외된다 (NF-CO-002 · FR-OP-009).
+ * 목업은 남아 있지 않다. 마지막 두 라우트(출시 승인 · 항목 목록)를 실엔진으로 옮기면서
+ * `src/mock` 을 통째로 지웠다 — 공사 호출을 모의 응답으로 전면 대체한 채 제출하면
+ * 심사에서 제외된다 (NF-CO-002 · FR-OP-009).
  *
  * DB 풀은 `DB_POOL` **심볼 토큰**으로 주입한다. `pg` 의 `Pool` 클래스를 토큰으로 쓰면
  * 타입 전용 import 한 곳에서 런타임 값이 지워져 주입이 깨진다.
@@ -75,7 +74,6 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
     AuthController, CatalogController, ContentController, UploadController,
     AuditController, UsageController, DemoController, ProductController, ItemController, PlaceMatchController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
-    MockController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },

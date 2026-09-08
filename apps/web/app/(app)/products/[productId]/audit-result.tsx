@@ -343,7 +343,7 @@ export function AuditResult({ productId }: { productId: number }) {
               }}
             />
           )}
-          <SummaryCard run={data.run} />
+          <SummaryCard run={data.run} releasedAt={product?.releasedAt ?? null} />
           <FindingsSection
             findings={data.findings}
             itemLabel={labelOf}
@@ -687,7 +687,7 @@ function ApplyResultBanner({
   );
 }
 
-function SummaryCard({ run }: { run: RunSummary }) {
+function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string | null }) {
   return (
     <section className="rounded-2xl border border-slate-200 p-6 dark:border-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -713,6 +713,13 @@ function SummaryCard({ run }: { run: RunSummary }) {
           출시 불가 — {run.releaseBlockedReason}
         </p>
       )}
+
+      <ReleaseButton
+        productId={run.productId}
+        releasable={run.releasable}
+        blockedReason={run.releaseBlockedReason}
+        releasedAt={releasedAt}
+      />
 
       <dl className="mt-4 grid gap-1 border-t border-slate-100 pt-4 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
         <div className="flex gap-2">
@@ -1419,6 +1426,64 @@ function Rows({ rows }: { rows: { label: string; value: string }[] }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * 출시 승인 (FR-AU-042 · PM-NG-002).
+ *
+ * 차단이 있으면 버튼을 비활성화한다. **그것만으로는 충족하지 않아서** 서버가 403 으로
+ * 한 번 더 막고 DB 트리거가 마지막으로 막는다 — 세 곳이 각각 막는다 (EX-AU-008).
+ */
+function ReleaseButton({
+  productId,
+  releasable,
+  blockedReason,
+  releasedAt,
+}: {
+  productId: number;
+  releasable: boolean;
+  blockedReason: string | null;
+  releasedAt: string | null;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(releasedAt);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function release() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await productApi.release(productId);
+      setDone(r.releasedAt);
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "출시 승인을 처리하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done !== null) {
+    return (
+      <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+        출시 승인됨 · {formatStamp(done)}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-4 flex items-center gap-3">
+      <button
+        type="button"
+        onClick={release}
+        disabled={!releasable || busy}
+        title={releasable ? undefined : (blockedReason ?? "차단을 해결해야 출시할 수 있습니다.")}
+        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {busy ? "처리 중…" : "출시 승인"}
+      </button>
+      {err !== null && <span className="text-xs text-rose-600 dark:text-rose-400">{err}</span>}
+    </div>
   );
 }
 

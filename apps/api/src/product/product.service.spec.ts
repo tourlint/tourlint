@@ -122,3 +122,44 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     expect(await patches.staleLabelItemIds(productId)).toEqual(new Set());
   });
 });
+
+/**
+ * 출시 승인의 거부 조건 (PM-NG-002 · EX-AU-008).
+ *
+ * DB 트리거가 마지막으로 막지만 그건 읽을 수 없는 오류다. 서버가 먼저 같은 판단을
+ * 해서 사유를 말하는지를 여기서 본다 — 저장소는 스텁이라 DB 없이 돈다.
+ */
+describe('출시 승인 거부 (PM-NG-002)', () => {
+  const svc = (blockers: number | null | undefined, released = '2026-09-09T00:00:00.000Z') =>
+    new ProductService(
+      {
+        latestBlockerCount: async () => blockers,
+        markReleased: async () => released,
+      } as unknown as ProductRepository,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+  it('🔴 차단이 1건이면 403 FORBIDDEN_ACTION 이다 — 화면 버튼만으로 충족하지 않는다', async () => {
+    await expect(svc(1).release(1, 1)).rejects.toMatchObject({
+      reasonCode: 'FORBIDDEN_ACTION',
+      status: 403,
+    });
+  });
+
+  it('검수한 적 없는 상품도 거부한다', async () => {
+    await expect(svc(null).release(1, 1)).rejects.toMatchObject({ reasonCode: 'FORBIDDEN_ACTION' });
+  });
+
+  it('남의 상품은 404 로 존재를 숨긴다 (EX-SY-003)', async () => {
+    await expect(svc(undefined).release(1, 1)).rejects.toMatchObject({ reasonCode: 'NOT_FOUND' });
+  });
+
+  it('차단 0건이면 승인 시각을 돌려준다', async () => {
+    await expect(svc(0).release(1, 7)).resolves.toEqual({
+      productId: 7,
+      releasedAt: '2026-09-09T00:00:00.000Z',
+    });
+  });
+});
