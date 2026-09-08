@@ -160,6 +160,31 @@ describe('AuditRunner — 관통', () => {
     expect(seen[seen.length - 1]).toBe('3/3');
   });
 
+  describe('검수 제외 (FR-IN-025 · 026)', () => {
+    const excluded = TP03_LIKE.map((i) => ({ ...i, matchStatus: 'EXCLUDED' as const, ktoContentId: null }));
+
+    it('🔴 전 규칙의 판정 대상에서 빠진다 — 감점도 없다', async () => {
+      const result = await runner().run(product, excluded);
+      expect(result.findings).toEqual([]);
+      expect(result.score.score).toBe(100);
+    });
+
+    it('🔴 이동 구간도 만들지 않는다 — 좌표가 없어 말할 근거가 없다', async () => {
+      // R08 이 제외 항목 사이에 확인 불가를 내고 3점을 깎았다 (이슈 #348)
+      const result = await runner().run(product, excluded);
+      expect(result.findings.filter((f) => f.ruleCode === 'R08')).toEqual([]);
+    });
+
+    it('섞여 있으면 남은 것만 판정한다', async () => {
+      const mixed = TP03_LIKE.map((i, idx) =>
+        idx === 0 ? { ...i, matchStatus: 'EXCLUDED' as const } : i);
+      const result = await runner().run(product, mixed);
+      const excludedId = TP03_LIKE[0]?.id;
+      expect(result.findings.some((f) => f.targetItemId === excludedId)).toBe(false);
+      expect(result.findings.length).toBeGreaterThan(0);
+    });
+  });
+
   it('공사 호출을 한 곳당 한 번만 한다 — 같은 관광지가 두 번 나와도', async () => {
     // 리플레이는 호출 로그를 남기지 않으므로(FR-OP-007) transport 에서 센다
     const transport = new FixtureKtoTransport(FIXTURE_ENV.KTO_FIXTURE_DIR);
