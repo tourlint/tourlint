@@ -120,8 +120,15 @@ export interface RunSummary {
   };
 }
 
+/** 판정 근거 2단. 공사 원문은 여기 없다 — 펼칠 때 contentApi 로 조달한다 (5-6 · 5-12) */
+export interface EvidenceView {
+  aiNormalized: Record<string, unknown> | null;
+  verdict: unknown;
+}
+
 export interface Finding {
   findingId: number;
+  evidenceView: EvidenceView;
   ruleCode: string;
   severity: Severity;
   reasonCode: string;
@@ -453,6 +460,24 @@ export const comparisonApi = {
 };
 
 // ── 리포트 (F11 · UI-S5-004 진입점) ───────────────────────────────────────────
+
+/** 관광지 1건 실시간 조회 (DR-PR-004). 저장하지 않으므로 볼 때 부른다 */
+export interface ContentDetail {
+  contentId: string;
+  fetchedAt: string;
+  hidden: boolean;
+  officialName: string | null;
+  homepageUrl: string | null;
+  contact: { tel: string | null };
+  /** 판정 필드 원문. 키는 공사 필드명 그대로다 */
+  ktoRaw: Record<string, string>;
+  ktoModifiedTime: string | null;
+  unavailableReason: string | null;
+}
+
+export const contentApi = {
+  detail: (contentId: string) => request<ContentDetail>(`/contents/${contentId}`),
+};
 
 export const reportApi = {
   // 렌더까지 끝내고 reportId 를 준다 (가장 최근 실행만, 아니면 409)
