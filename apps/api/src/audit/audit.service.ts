@@ -196,6 +196,31 @@ export class AuditService {
     return run;
   }
 
+  /**
+   * 판정 근거 3단 중 **AI 해석** (FR-AU-013 · 061).
+   *
+   * 해석은 콘텐츠 단위로 저장돼 있고 화면은 항목 단위로 그리므로 여기서 이어 붙인다.
+   * 자체 산출물이라 공사 호출이 없다 (5-12).
+   */
+  async normalizedByItem(run: StoredAuditRun): Promise<ReadonlyMap<number, Record<string, unknown>>> {
+    const [items, byContent] = await Promise.all([
+      this.products.findItems(run.productId),
+      this.results.normalizedOf(run.id),
+    ]);
+    const out = new Map<number, Record<string, unknown>>();
+    for (const item of items) {
+      if (item.ktoContentId === null) continue;
+      const view = byContent.get(item.ktoContentId);
+      if (view === undefined) continue;
+      const body = typeof view.normalized === 'object' && view.normalized !== null
+        ? (view.normalized as Record<string, unknown>)
+        : {};
+      // 해석하지 못한 조각도 신뢰도는 말해 준다 (FR-AU-006 · 007)
+      out.set(item.id, { ...body, confidence: view.confidence });
+    }
+    return out;
+  }
+
   /** 일정 항목. 확인 필요 목록이 관광지명·위치를 채우는 데 쓴다 — DB 만 읽는다 (0콜) */
   async itemsOf(productId: number): Promise<readonly ItineraryItemRow[]> {
     return this.products.findItems(productId);
@@ -783,6 +808,7 @@ export function toFindingsResponse(
   run: StoredAuditRun,
   severity?: string,
   names: ReadonlyMap<string, string> = new Map(),
+  normalized: ReadonlyMap<number, Record<string, unknown>> = new Map(),
 ): Record<string, unknown> {
   const wanted = SEVERITY.includes(severity as Severity) ? (severity as Severity) : null;
   const content = run.findings
@@ -803,7 +829,17 @@ export function toFindingsResponse(
       dismissed: f.dismissed,
       dismissReason: f.dismissReason,
       confirmed: f.confirmed,
-      evidence: f.evidence,
+      /*
+       * 판정 근거 2단 (API 설계 5-6). 공사 원문은 여기 없다 — 카드의 「판단 근거 보기」를
+       * 펼칠 때 `GET /contents/{contentId}` 로 그 1건만 조달해 3단을 완성한다 (5-12).
+       *
+       * 대상 콘텐츠가 없는 판정(R04 · R10 처럼 상품 전체)은 해석이 없다. 그 자리에
+       * 억지로 무언가를 넣지 않는다 — 모르는 건 모른다고 한다.
+       */
+      evidenceView: {
+        aiNormalized: f.targetItemId === null ? null : normalized.get(f.targetItemId) ?? null,
+        verdict: f.evidence,
+      },
       /*
        * 수정안 후보 (FR-PA-001 · finding 당 최대 3). 화면이 이걸로 미리보기·확정을 건다.
        *

@@ -865,6 +865,52 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       }
     });
 
+    it('판정마다 AI 해석과 판정을 2단으로 담는다 (FR-AU-013 · 061)', async () => {
+      const { runId } = await runOnce();
+      const run = await service.getRun(runId);
+      const body = toFindingsResponse(run, undefined, new Map(), await service.normalizedByItem(run));
+
+      type Card = {
+        targetItemId?: number | null;
+        target: { itemId: number | null };
+        evidenceView: { aiNormalized: Record<string, unknown> | null; verdict: unknown };
+      };
+      const cards = body.content as Card[];
+      expect(cards.length).toBeGreaterThan(0);
+
+      const withContent = cards.filter((c) => c.evidenceView.aiNormalized !== null);
+      expect(withContent.length, '콘텐츠 판정에는 해석이 붙어야 한다').toBeGreaterThan(0);
+      for (const c of withContent) {
+        expect(c.evidenceView.aiNormalized).toHaveProperty('confidence');
+        expect(c.evidenceView.verdict).toBeDefined();
+      }
+      // 상품 전체 판정(R04 · R10)은 대상 콘텐츠가 없어 해석이 없다
+      for (const c of cards) {
+        if (c.target.itemId === null) expect(c.evidenceView.aiNormalized).toBeNull();
+      }
+    });
+
+    it('목록에는 공사 원문을 싣지 않는다 — 3단째는 펼칠 때 온다 (5-6 · 5-12)', async () => {
+      const { runId } = await runOnce();
+      const run = await service.getRun(runId);
+      const body = toFindingsResponse(run, undefined, new Map(), await service.normalizedByItem(run));
+
+      /*
+       * `sourceFieldNames` 가 `restdate` 같은 **필드명**을 담으므로 문자열 검사로는
+       * 원문 유무를 가릴 수 없다. 계약이 정한 것은 「원문 그릇(`ktoRaw`)이 목록에 없을 것」이다.
+       */
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('ktoRaw');
+      expect(serialized).not.toContain('overview');
+
+      const cards = body.content as { evidenceView: { aiNormalized: Record<string, unknown> | null } }[];
+      for (const c of cards) {
+        if (c.evidenceView.aiNormalized === null) continue;
+        // 해석 스키마 밖의 키가 섞이면 원문이 새는 통로가 된다
+        expect(Object.keys(c.evidenceView.aiNormalized)).toContain('schemaVersion');
+      }
+    });
+
     it('항목마다 관광지명 · contentid · 일정 위치를 담는다 (FR-AU-081)', async () => {
       const { runId } = await runOnce();
       const run = await service.getRun(runId);
