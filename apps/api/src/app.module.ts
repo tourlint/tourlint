@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import type { Pool } from 'pg';
+import { PlaceNameResolver } from './audit/place-name';
 import { AuditController } from './audit/audit.controller';
 import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
@@ -18,6 +19,7 @@ import { evaluateBudget } from './external/budget-guard';
 import { createKtoClient, type KtoClient } from './external/kto';
 import type { ContentTypeId } from '@tourlint/shared';
 import { DB_POOL, getPool } from './persistence/db';
+import { PatchApplicationRepository } from './persistence/patch-application.repository';
 import { PgApiCallLogger } from './persistence/api-call-log.repository';
 import { AuditResultRepository } from './persistence/audit-result.repository';
 import { BatchStateRepository } from './persistence/batch-state.repository';
@@ -97,7 +99,13 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
     {
       // 상품 CRUD. 목록의 지역명 조회에 CatalogService 를 재사용한다 (fixture 리플레이라 예산 0)
       provide: ProductService,
-      useFactory: (pool: Pool, catalog: CatalogService) => new ProductService(new ProductRepository(pool), catalog),
+      useFactory: (pool: Pool, catalog: CatalogService) => new ProductService(
+        new ProductRepository(pool),
+        catalog,
+        new PatchApplicationRepository(pool),
+        // 대체·추가된 항목의 이름은 표시할 때 읽는다 (FR-PA-003 · DR-PR-001)
+        new PlaceNameResolver({ kto: () => createKtoClient(new PgApiCallLogger(pool)) }),
+      ),
       inject: [DB_POOL, CatalogService],
     },
     {

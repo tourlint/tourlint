@@ -26,18 +26,30 @@ interface Entry {
 }
 
 export interface PlaceNameOptions {
-  readonly kto: KtoClient;
+  /**
+   * **클라이언트를 만드는 함수를 받는다.** 인스턴스를 받으면 이 리졸버를 조립하는 자리에서
+   * `createKtoClient` 가 즉시 돌고, 인증키가 비어 있으면 거기서 던져 앱 전체가 못 뜬다.
+   * `CatalogService` · `PlaceMatchService` 가 같은 이유로 팩토리를 받는다.
+   */
+  readonly kto: () => KtoClient;
   readonly clock?: () => number;
 }
 
 export class PlaceNameResolver {
   private readonly cache = new Map<string, Entry>();
-  private readonly kto: KtoClient;
+  private readonly makeKto: () => KtoClient;
   private readonly clock: () => number;
+  /** 첫 조회 때 만든다. 이후에는 같은 것을 쓴다 */
+  private client: KtoClient | null = null;
 
   constructor(options: PlaceNameOptions) {
-    this.kto = options.kto;
+    this.makeKto = options.kto;
     this.clock = options.clock ?? ((): number => Date.now());
+  }
+
+  private get kto(): KtoClient {
+    this.client ??= this.makeKto();
+    return this.client;
   }
 
   /**

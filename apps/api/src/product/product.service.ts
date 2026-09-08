@@ -1,6 +1,8 @@
 import { BadRequestException, HttpStatus } from '@nestjs/common';
+import type { PlaceNameResolver } from '../audit/place-name';
 import type { CatalogService } from '../catalog/catalog.service';
 import { DomainException } from '../common/domain.exception';
+import type { PatchApplicationRepository } from '../persistence/patch-application.repository';
 import {
   validateAddItem,
   validateCreate,
@@ -13,6 +15,7 @@ import {
 import {
   ProductRepository,
   type CreatedProduct,
+  type ItemDetail,
   type ProductDetailRow,
   type ProductListRow,
 } from './product.repository';
@@ -27,6 +30,8 @@ export class ProductService {
   constructor(
     private readonly repo: ProductRepository,
     private readonly catalog: CatalogService,
+    private readonly patches: PatchApplicationRepository,
+    private readonly placeNames: PlaceNameResolver,
   ) {}
 
   async create(accountId: number, dto: CreateProductDto): Promise<CreatedProduct> {
@@ -75,8 +80,42 @@ export class ProductService {
       transport: row.transport,
       releasedAt: row.releasedAt,
       createdAt: row.createdAt,
-      days: toDays(row.items),
+      days: toDays(await this.withCurrentNames(productId, row.items)),
     };
+  }
+
+  /**
+   * 패치로 콘텐츠가 바뀐 항목의 이름을 **응답에만** 채운다 (FR-PA-003 · DR-PR-001).
+   *
+   * 저장된 `place_label` 은 그대로다 — 대체 후보의 명칭은 공사 원문이라 저장할 수 없다.
+   * 그래서 미리보기에서는 새 관광지로 보이다가 확정하면 옛 이름으로 돌아가 있었다.
+   *
+   * 조회는 대체·추가된 항목 수만큼이고, 패치한 적 없는 상품은 0콜이다. 실패는 지역명
+   * 조회와 같이 삼킨다 — 이름은 부가 정보이고 일정 조회가 여기서 실패하면 안 된다.
+   */
+  private async withCurrentNames(
+    productId: number,
+    items: readonly ItemDetail[],
+  ): Promise<readonly ItemDetail[]> {
+    try {
+      const stale = await this.patches.staleLabelItemIds(productId);
+      if (stale.size === 0) return items;
+
+      const wanted = items
+        .filter((it) => stale.has(it.itemId) && it.ktoContentId !== null)
+        .map((it) => it.ktoContentId as string);
+      if (wanted.length === 0) return items;
+
+      const names = await this.placeNames.resolve(wanted);
+      return items.map((it) => {
+        if (!stale.has(it.itemId) || it.ktoContentId === null) return it;
+        const name = names.get(it.ktoContentId);
+        // 못 읽으면 저장된 라벨을 둔다. 지어내지 않는다
+        return name === undefined ? it : { ...it, place: name };
+      });
+    } catch {
+      return items;
+    }
   }
 
   async update(accountId: number, productId: number, dto: UpdateProductDto): Promise<{ productId: number; updated: true }> {
