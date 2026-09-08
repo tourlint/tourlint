@@ -187,6 +187,11 @@ describe('KtoClient', () => {
       expect(logger.entries[0]).toMatchObject({ provider: 'KTO', operation: 'searchKeyword2', status: 'OK', resultCode: '0000', httpStatus: 200 });
     });
 
+    it('픽스처 리플레이는 남기지 않는다 — 안 한 호출이 증빙에 섞이면 안 된다 (FR-OP-007)', async () => {
+      await client(new FixtureKtoTransport(FIXTURES)).detailIntro('125769', 12);
+      expect(logger.entries).toEqual([]);
+    });
+
     it('재시도 1회마다 1행이다 — 실제 나간 호출 수로 세야 예산이 맞는다', async () => {
       const t = new StubTransport([new KtoFetchError('searchKeyword2', 'HTTP 503'), ok({ items: '' })]);
       await client(t).searchKeyword({ keyword: '강릉' });

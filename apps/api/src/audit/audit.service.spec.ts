@@ -203,20 +203,15 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(Number(rows[0]?.n)).toBe(3);
     });
 
-    it('호출 로그를 남긴다 — 공모전 활용 증빙이다 (FR-OP-001)', async () => {
+    it('리플레이 검수는 호출 로그를 남기지 않는다 — 증빙과 예산이 오염되지 않는다 (FR-OP-007)', async () => {
       await service.requestAudit(productId, 'INITIAL');
       await service.waitForIdle();
 
-      const { rows } = await pool.query<{ operation: string; n: string }>(
-        `SELECT operation, count(*)::text AS n FROM api_call_log
-          WHERE provider = 'KTO' AND called_at >= $1
-          GROUP BY operation ORDER BY operation`,
+      const { rows } = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM api_call_log WHERE provider = 'KTO' AND called_at >= $1`,
         [since],
       );
-      const ops = Object.fromEntries(rows.map((r) => [r.operation, Number(r.n)]));
-      expect(ops.detailIntro2).toBe(3);
-      // 리플레이도 로그를 남긴다. 실호출로 바꿔도 같은 자리에서 세어진다
-      expect(ops.detailCommon2).toBe(3);
+      expect(Number(rows[0]?.n)).toBe(0);
     });
   });
 

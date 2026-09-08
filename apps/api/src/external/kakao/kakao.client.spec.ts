@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../api-call-log';
-import { FixtureKakaoTransport, KakaoMobilityClient, readSummary } from './kakao.client';
+import {
+  FixtureKakaoTransport, KakaoMobilityClient, readSummary,
+  type KakaoTransport, type KakaoTransportResult,
+} from './kakao.client';
 import { RouteNotFoundError, RouteProviderError } from './kakao.errors';
 
 /**
@@ -11,6 +14,15 @@ import { RouteNotFoundError, RouteProviderError } from './kakao.errors';
  */
 const FIXTURES = join(__dirname, '../../../../../fixtures/kakao');
 const body = (file: string): string => readFileSync(join(FIXTURES, file), 'utf8');
+
+/** 실호출 자리를 대신한다. 리플레이와 달리 호출 로그를 남겨야 한다 */
+class StubTransport implements KakaoTransport {
+  readonly kind = 'http' as const;
+  constructor(private readonly file: string) {}
+  async request(): Promise<KakaoTransportResult> {
+    return { body: body(this.file), httpStatus: 200 };
+  }
+}
 
 describe('응답 해석 (EI-KM-004 · 005)', () => {
   it('실호출 스냅샷에서 거리·시간을 꺼낸다', () => {
@@ -43,9 +55,16 @@ describe('응답 해석 (EI-KM-004 · 005)', () => {
 
   it('호출 로그를 남긴다 (FR-OP-001)', async () => {
     const logger = new InMemoryApiCallLogger();
-    await new KakaoMobilityClient({ transport: new FixtureKakaoTransport(FIXTURES), logger })
+    await new KakaoMobilityClient({ transport: new StubTransport('directions.json'), logger })
       .route({ x: 1, y: 1 }, { x: 2, y: 2 }, null);
     expect(logger.entries[0]).toMatchObject({ provider: 'KAKAO_MOBILITY', operation: 'directions', status: 'OK' });
+  });
+
+  it('리플레이는 남기지 않는다 — 안 한 호출이 증빙에 섞이면 안 된다 (FR-OP-007)', async () => {
+    const logger = new InMemoryApiCallLogger();
+    await new KakaoMobilityClient({ transport: new FixtureKakaoTransport(FIXTURES), logger })
+      .route({ x: 1, y: 1 }, { x: 2, y: 2 }, null);
+    expect(logger.entries).toEqual([]);
   });
 });
 

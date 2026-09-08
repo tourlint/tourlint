@@ -21,9 +21,12 @@ const MID_0600: MidPublication = { tmFc: '202608260600', baseDate: '2026-08-26',
 const MID_1800: MidPublication = { tmFc: '202608261800', baseDate: '2026-08-26', hour: 18 };
 
 class StubTransport implements KmaTransport {
-  readonly kind = 'fixture' as const;
   readonly calls: { operation: KmaOperation; params: Record<string, string | number> }[] = [];
-  constructor(private readonly body: string | Error) {}
+  /*
+   * 기본은 리플레이다 — 단기예보 발표분 대조를 건너뛰어야 스냅샷 하나로 테스트가 선다.
+   * 로깅 테스트만 실호출로 세운다. 리플레이는 로그를 남기지 않기 때문이다.
+   */
+  constructor(private readonly body: string | Error, readonly kind: 'http' | 'fixture' = 'fixture') {}
   async request(operation: KmaOperation, params: Record<string, string | number>): Promise<{ body: string; httpStatus: null }> {
     this.calls.push({ operation, params });
     if (this.body instanceof Error) throw this.body;
@@ -170,7 +173,7 @@ describe('기상청 어댑터 (EI-WX-001 ~ 008)', () => {
   describe('클라이언트', () => {
     it('호출을 로그에 남긴다 (EI-CM-006 · FR-OP-001)', async () => {
       const logger = new InMemoryApiCallLogger();
-      const client = new KmaClient({ transport: new StubTransport(fixture('mid_land_0600.json')), logger, auditRunId: 7 });
+      const client = new KmaClient({ transport: new StubTransport(fixture('mid_land_0600.json'), 'http'), logger, auditRunId: 7 });
 
       await client.midLandRain('11D20000', MID_0600);
 
@@ -185,7 +188,7 @@ describe('기상청 어댑터 (EI-WX-001 ~ 008)', () => {
 
     it('실패한 호출도 로그에 남는다', async () => {
       const logger = new InMemoryApiCallLogger();
-      const client = new KmaClient({ transport: new StubTransport(fixture('mid_land_no_data.json')), logger });
+      const client = new KmaClient({ transport: new StubTransport(fixture('mid_land_no_data.json'), 'http'), logger });
 
       await expect(client.midLandRain('11D20000', MID_0600)).rejects.toThrow(ForecastMissingError);
       expect(logger.entries[0]?.status).toBe('FAIL');
@@ -194,10 +197,19 @@ describe('기상청 어댑터 (EI-WX-001 ~ 008)', () => {
 
     it('타임아웃은 FAIL 이 아니라 TIMEOUT 으로 남는다', async () => {
       const logger = new InMemoryApiCallLogger();
-      const client = new KmaClient({ transport: new StubTransport(new ForecastProviderError('TIMEOUT')), logger });
+      const client = new KmaClient({ transport: new StubTransport(new ForecastProviderError('TIMEOUT'), 'http'), logger });
 
       await expect(client.midLandRain('11D20000', MID_0600)).rejects.toThrow(ForecastProviderError);
       expect(logger.entries[0]?.status).toBe('TIMEOUT');
+    });
+
+    it('리플레이는 로그에 남기지 않는다 — 안 한 호출이 증빙에 섞이면 안 된다 (FR-OP-007)', async () => {
+      const logger = new InMemoryApiCallLogger();
+      const client = new KmaClient({ transport: new FixtureKmaTransport(FIXTURES), logger });
+
+      await client.midLandRain('11D20000', MID_0600);
+
+      expect(logger.entries).toEqual([]);
     });
 
     it('격자 하나로만 부른다 — 일정 항목마다 부르지 않는다 (EI-WX-002)', async () => {

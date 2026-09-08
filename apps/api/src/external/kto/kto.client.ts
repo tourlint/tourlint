@@ -313,6 +313,14 @@ export class KtoClient {
     httpStatus: number | null,
     resultCode: string | null,
   ): void {
+    /*
+     * 픽스처 리플레이는 남기지 않는다 (FR-OP-001 · 007).
+     *
+     * 이 표는 공모전 API 활용 증빙이다. 하지 않은 호출이 섞이면 증빙이 아니게 된다.
+     * 예산 카운트도 같은 행을 세므로 리플레이로 개발하다 FR-OP-003 자동 중지에 걸렸다.
+     */
+    if (this.transport.kind === 'fixture') return;
+
     const entry: ApiCallLogEntry = {
       provider: 'KTO',
       operation,
