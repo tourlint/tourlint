@@ -39,6 +39,7 @@ export const ITEM_TYPE_OPTIONS: { value: ItemType; label: string }[] = [
 
 export interface ScheduleItem {
   id: string; // 클라이언트 전용 키 (저장 시 제외)
+  itemId?: number; // 서버 항목 id. 편집 화면에서만 채워진다 (FR-IN-014)
   start: string; // "09:00" · 비우면 기본 체류시간 보완 대상 (FR-IN-011)
   end: string;
   place: string;

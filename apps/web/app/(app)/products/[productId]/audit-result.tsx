@@ -296,16 +296,24 @@ export function AuditResult({ productId }: { productId: number }) {
             </p>
           )}
         </div>
-        {data && (
-          <button
-            type="button"
-            onClick={runAudit}
-            disabled={running || patchBusy !== null}
-            className="shrink-0 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        <div className="flex shrink-0 gap-2">
+          <Link
+            href={`/products/${productId}/edit`}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            {running ? "검수 중…" : "지금 재검수"}
-          </button>
-        )}
+            편집
+          </Link>
+          {data && (
+            <button
+              type="button"
+              onClick={runAudit}
+              disabled={running || patchBusy !== null}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              {running ? "검수 중…" : "지금 재검수"}
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
