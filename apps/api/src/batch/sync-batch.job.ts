@@ -123,6 +123,23 @@ export interface SyncBatchOptions {
   readonly previousFingerprints?: (productId: number) => Promise<ReadonlyMap<string, FingerprintSnapshot>>;
   /** 영향받은 상품의 재검수를 건다 (FR-MO-013). 없으면 알림만 만든다 */
   readonly requestAudit?: (productId: number) => Promise<void>;
+  /** 감시 대상 상한. 안 주면 환경변수 (FR-MO-020) */
+  readonly watchLimit?: number;
+}
+
+/**
+ * 감시 대상 상품 수 상한 (FR-MO-020).
+ *
+ * **설정 화면 항목이 아니다.** FR-OP-021 이 설정을 10종으로 못박았고 FR-OP-024 는 전역 값을
+ * 「배치 실행 시각 · 일일 호출 예산」 둘로 한정한다. FR-MO-020 자체가 「개발 기간 중」으로
+ * 한정한 운영 가드라 환경변수로 둔다 — DB 도 설정 API 도 건드리지 않는다.
+ */
+export const DEFAULT_BATCH_WATCH_LIMIT = 10;
+
+export function readWatchLimit(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.BATCH_WATCH_LIMIT);
+  // 0 이나 음수는 「감시 안 함」이 아니라 설정 실수다. 기본값으로 돌린다
+  return Number.isInteger(raw) && raw > 0 ? raw : DEFAULT_BATCH_WATCH_LIMIT;
 }
 
 @Injectable()
@@ -136,6 +153,7 @@ export class SyncBatchJob {
   private readonly fetchDetail: SyncBatchOptions['fetchDetail'];
   private readonly previousFingerprints: SyncBatchOptions['previousFingerprints'];
   private readonly requestAudit: SyncBatchOptions['requestAudit'];
+  private readonly watchLimit: number;
 
   constructor(options: SyncBatchOptions) {
     this.kto = typeof options.kto === 'function' ? options.kto : (): KtoClient => options.kto as KtoClient;
@@ -146,6 +164,7 @@ export class SyncBatchJob {
     this.fetchDetail = options.fetchDetail;
     this.previousFingerprints = options.previousFingerprints;
     this.requestAudit = options.requestAudit;
+    this.watchLimit = options.watchLimit ?? readWatchLimit();
   }
 
   /**
@@ -254,7 +273,7 @@ export class SyncBatchJob {
       // 조건 1 — 한 번에 묻는다. 콘텐츠마다 물으면 하루 177번 왕복한다
       const direct = await this.notifications.productsWithContents(contents.map((c) => c.contentId), today);
       // 조건 2 · 3 — 출발일이 안 지난 상품 전부가 후보다 (FR-MO-018)
-      const watched = await this.notifications.watchedProducts(today);
+      const watched = await this.notifications.watchedProducts(today, this.watchLimit);
 
       if (direct.size === 0 && watched.length === 0) {
         this.logger.log(`변경 ${contents.length}건 · 감시 중인 상품이 없다`);

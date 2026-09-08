@@ -191,6 +191,22 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
       );
     });
 
+    it('🔴 상한을 주면 출발일이 임박한 것부터 그만큼만 준다 (FR-MO-020)', async () => {
+      // 상한에 걸려 잘려나가는 것은 가장 덜 급한 상품이어야 한다
+      const far = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+         VALUES ($1, '먼 미래 상품', '51', '2099-12-31', 1, 'CAR') RETURNING id`, [accountId]);
+      const farId = Number(far.rows[0]?.id);
+
+      const all = await repo.watchedProducts('2026-08-27');
+      expect(all.map((c) => c.productId)).toContain(farId);
+
+      const capped = await repo.watchedProducts('2026-08-27', all.length - 1);
+      expect(capped).toHaveLength(all.length - 1);
+      // 가장 늦게 출발하는 것이 잘린다
+      expect(capped.map((c) => c.productId)).not.toContain(farId);
+    });
+
     it('출발일 당일과 마지막 날은 아직 감시 대상이다', async () => {
       // 2박 3일이면 출발 + 2일까지다. 그날 아침에도 변경은 의미가 있다
       const found = await forContent(CONTENT, '2099-09-12');

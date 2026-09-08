@@ -6,7 +6,9 @@ import type { NotificationRepository, NotificationToSave } from '../persistence/
 import { FINGERPRINT_FIELDS } from '@tourlint/shared';
 import { buildContentFingerprint, type FingerprintSnapshot } from '../engine/fingerprint';
 import type { ImpactCandidate } from './impact-finder';
-import { SyncBatchJob, changeKeyOf, toEventPeriod, toSyncedContent } from './sync-batch.job';
+import {
+  DEFAULT_BATCH_WATCH_LIMIT, SyncBatchJob, changeKeyOf, readWatchLimit, toEventPeriod, toSyncedContent,
+} from './sync-batch.job';
 
 /** 한국 시간 문자열을 Date 로 */
 const kst = (iso: string): Date => new Date(`${iso}+09:00`);
@@ -756,5 +758,22 @@ describe('재노출 판정 키 (FR-MO-036 · DB 명세서 v1.7)', () => {
     // 접두어가 없으면 지문 문자열과 시각 문자열이 우연히 같아질 여지를 남긴다
     expect(changeKeyOf(content, { from: A, to: B }).startsWith('FP:')).toBe(true);
     expect(changeKeyOf(content, { from: null, to: null }).startsWith('MT:')).toBe(true);
+  });
+});
+
+describe('감시 대상 상한 (FR-MO-020)', () => {
+  it('환경변수가 없으면 10 이다', () => {
+    expect(readWatchLimit({})).toBe(DEFAULT_BATCH_WATCH_LIMIT);
+    expect(DEFAULT_BATCH_WATCH_LIMIT).toBe(10);
+  });
+
+  it('환경변수를 읽는다', () => {
+    expect(readWatchLimit({ BATCH_WATCH_LIMIT: '3' })).toBe(3);
+  });
+
+  it('🔴 0 · 음수 · 헛값은 설정 실수다 — 감시를 끄지 않는다', () => {
+    for (const v of ['0', '-1', 'many', '', '2.5']) {
+      expect(readWatchLimit({ BATCH_WATCH_LIMIT: v }), v).toBe(DEFAULT_BATCH_WATCH_LIMIT);
+    }
   });
 });
