@@ -1,7 +1,8 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import type { ExceptionReasonCode, ExceptionUnit } from '@tourlint/shared';
+import { EXTERNAL_UNAVAILABLE_MESSAGE, type ExceptionReasonCode, type ExceptionUnit } from '@tourlint/shared';
 import type { Request, Response } from 'express';
+import { isExternalError } from '../external/external.error';
 
 /**
  * 공통 예외 필터 — 오류 응답은 **이 한 곳에서만** 만든다 (API 설계 3-2).
@@ -21,11 +22,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const req = ctx.getRequest<Request>();
     const traceId = randomUUID().replace(/-/g, '').slice(0, 16);
 
-    const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
+    /*
+     * 외부 서비스 장애는 우리 버그가 아니다 (EX-MS-003). 500 INTERNAL_ERROR 로 뭉개면
+     * 원인이 어디인지 응답만 보고는 가릴 수 없고, 문구도 문서가 정한 것이 아니게 된다.
+     *
+     * **사유코드는 제공자를 특정해도 된다** — 그건 우리가 원인을 가르는 수단이다.
+     * 사용자가 읽는 메시지에서만 제공자를 지운다.
+     */
+    const external = isExternalError(exception) ? exception : null;
+
+    const status = external !== null
+      ? HttpStatus.SERVICE_UNAVAILABLE
+      : exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const payload = exception instanceof HttpException ? exception.getResponse() : null;
     const body = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>) : {};
 
-    const reasonCode = pickReasonCode(body, status);
+    const reasonCode = external?.reasonCode ?? pickReasonCode(body, status);
     const unit = typeof body.unit === 'string' ? (body.unit as ExceptionUnit) : defaultUnit(status);
 
     /*
@@ -39,7 +51,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     res.status(status).json({
       reasonCode,
-      message: pickMessage(body),
+      message: external !== null ? EXTERNAL_UNAVAILABLE_MESSAGE : pickMessage(body),
       unit,
       ...(Array.isArray(body.fieldErrors) && body.fieldErrors.length > 0
         ? { fieldErrors: body.fieldErrors }

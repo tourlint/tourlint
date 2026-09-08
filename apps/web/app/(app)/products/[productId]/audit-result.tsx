@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import {
   auditApi,
   contentApi,
+  EXTERNAL_UNAVAILABLE,
   isApiError,
   matchApi,
   patchApi,
@@ -455,7 +456,7 @@ function MatchItemRow({
       const res = await matchApi.search(kw, useRegion ? regnCd : null, useRegion ? signguCd : null);
       setCandidates(res.candidates);
     } catch (e) {
-      setErr(isApiError(e) ? e.message : "검색에 실패했습니다.");
+      setErr(isApiError(e) ? e.message : EXTERNAL_UNAVAILABLE);
     } finally {
       setSearching(false);
     }
@@ -1293,7 +1294,7 @@ function EvidencePanel({
       contentCache.set(contentId, got);
       setContent(got);
     } catch (e) {
-      setErr(isApiError(e) ? e.message : "일시적으로 조회할 수 없습니다.");
+      setErr(isApiError(e) ? e.message : EXTERNAL_UNAVAILABLE);
     } finally {
       setBusy(false);
     }

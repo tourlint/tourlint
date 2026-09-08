@@ -97,6 +97,16 @@ export const EXCEPTION_REASON_CODE = [
 ] as const;
 export type ExceptionReasonCode = (typeof EXCEPTION_REASON_CODE)[number];
 
+/**
+ * 외부 서비스 장애 안내 (EX-MS-003 · UI-ST-004).
+ *
+ * **제공자를 특정하지 않는다.** 사용자가 카카오모빌리티인지 기상청인지 알아야 할 이유가
+ * 없고, 알려 준다고 할 수 있는 일도 없다. 원인은 사유코드가 말한다.
+ *
+ * 판정 근거 영역의 외부 참고 출처 표기는 이것과 별개다 — 거기는 장애 안내가 아니라 근거다.
+ */
+export const EXTERNAL_UNAVAILABLE_MESSAGE = '일시적으로 조회할 수 없습니다.';
+
 /** 예외 처리 단위 8종 — 모든 예외는 이 중 하나를 가진다 (EX-CM-001) */
 export const EXCEPTION_UNIT = [
   'FRAGMENT', 'SEGMENT', 'CONTENT', 'RULE', 'ITEM', 'PRODUCT', 'REQUEST', 'BATCH',
