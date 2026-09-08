@@ -111,6 +111,35 @@ export class PatchApplicationRepository {
    *
    * 붙일 곳이 없으면 아무 일도 하지 않는다.
    */
+  /**
+   * 저장된 `place_label` 이 더 이상 그 항목을 가리키지 않는 항목 id (FR-PA-003 · DR-PR-001).
+   *
+   * 두 가지다 — `REPLACE_CONTENT` 는 자리를 두고 콘텐츠만 바꾸므로 옛 이름이 남고,
+   * `INSERT_ITEM` 은 빈 라벨로 들어온다. 대체 후보의 명칭은 공사 원문이라 저장할 수
+   * 없어서 생긴 구조이고, 이름은 표시할 때 읽는다.
+   *
+   * 되돌린 이력은 세지 않는다 — 되돌리면 원래 콘텐츠로 복원되므로 라벨이 다시 맞는다.
+   */
+  async staleLabelItemIds(productId: number): Promise<ReadonlySet<number>> {
+    const { rows } = await this.pool.query<Pick<PatchApplicationRow, 'before_snapshot' | 'after_snapshot'>>(
+      `SELECT before_snapshot, after_snapshot FROM patch_application
+        WHERE product_id = $1 AND reverted_at IS NULL
+        ORDER BY applied_at`,
+      [productId],
+    );
+
+    const out = new Set<number>();
+    for (const row of rows) {
+      const was = new Map(row.before_snapshot.items.map((i) => [i.id, i.ktoContentId]));
+      for (const item of row.after_snapshot.items) {
+        if (item.ktoContentId === null) continue;
+        // 없던 id 면 추가된 항목이고, 있었는데 다르면 대체된 항목이다
+        if (was.get(item.id) !== item.ktoContentId) out.add(item.id);
+      }
+    }
+    return out;
+  }
+
   async attachAfterRun(productId: number, auditRunId: number): Promise<void> {
     await this.pool.query(
       `UPDATE patch_application SET after_audit_run_id = $2
