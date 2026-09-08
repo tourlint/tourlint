@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { Field, SelectInput } from "./controls";
+import { EXTERNAL_UNAVAILABLE } from "../../../lib/api";
 import type { CodeItem } from "./types";
 
 export interface RegionValue {
@@ -145,7 +146,7 @@ export function RegionSelect({
 function RetryNotice({ onRetry }: { onRetry: () => void }) {
   return (
     <p className="mt-1 flex items-center gap-2 text-xs text-rose-600 dark:text-rose-400">
-      지역을 불러오지 못했습니다.
+      {EXTERNAL_UNAVAILABLE}
       <button
         type="button"
         onClick={onRetry}
