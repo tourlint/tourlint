@@ -79,12 +79,6 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
      * 순서에만 기대지 않도록 `app-boot` 이 가려짐을 검사한다.
      */
     ContentController,
-    /*
-     * `ContentController` 의 `contents/:contentId` 는 **정적 경로 뒤에 둔다.** 앞에 두면
-     * `contents/search` 를 삼켜 검색어가 콘텐츠 번호로 읽힌다 (이슈 #341).
-     * 순서에만 기대지 않도록 `app-boot` 이 가려짐을 검사한다.
-     */
-    ContentController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
   ],
   providers: [
