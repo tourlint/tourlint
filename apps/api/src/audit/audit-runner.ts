@@ -238,8 +238,19 @@ export class AuditRunner {
   async run(product: ProductRow, items: readonly ItineraryItemRow[]): Promise<AuditRunResult> {
     const executedAt = this.clock();
 
+    /*
+     * 검수 제외 항목은 **전 규칙의 판정 대상에서 뺀다** (FR-IN-025 · 026).
+     *
+     * 규칙마다 각자 거르게 두면 열 곳을 고쳐야 하고 새 규칙이 또 빠뜨린다 — 실제로
+     * R05 만 걸렀고 R08 이 제외 항목에 확인 불가를 내고 3점을 깎았다.
+     *
+     * **일정표에서 사라지는 것이 아니다.** 항목은 그대로 남고(FR-IN-025) 화면·리포트가
+     * 배지를 달아 보인다. 여기서 빠지는 것은 판정 · 이동 구간 · 조회 대상뿐이다.
+     */
+    const judged = items.filter((item) => item.matchStatus !== 'EXCLUDED');
+
     // ── 1) 대상 수집 — 같은 관광지가 여러 번 나와도 한 번만 조회한다 ──
-    const targets = uniqueContentIds(items);
+    const targets = uniqueContentIds(judged);
     await this.onProgress(0, targets.length);
 
     // ── 2) 공사 데이터 조회 (관광지 단위 병렬) ──
@@ -292,19 +303,19 @@ export class AuditRunner {
 
     // ── 4) 외부 데이터 조회 (구간 단위 병렬) ──
     const [travelTimes, rainOutlooks, targetProfile] = await Promise.all([
-      this.fetchTravelTimes(product, items),
-      this.fetchRainOutlooks(product, items, executedAt),
+      this.fetchTravelTimes(product, judged),
+      this.fetchRainOutlooks(product, judged, executedAt),
       this.fetchTargetProfile(product),
     ]);
 
     // ── 5) ItineraryContext 조립 (I/O 끝) ──
-    const ctx = this.buildContext(product, items, fetched, verdicts, travelTimes, rainOutlooks, targetProfile);
+    const ctx = this.buildContext(product, judged, fetched, verdicts, travelTimes, rainOutlooks, targetProfile);
 
     // ── 6) 규칙 평가 (메모리 전용) ──
     const { findings, failedRules } = evaluateAll(ctx);
 
     // 조회에 실패한 콘텐츠는 "정상" 이 아니라 "확인 불가" 다 (FR-AU-009 · FR-AU-027)
-    const isolated = isolationFindings(items, failures);
+    const isolated = isolationFindings(judged, failures);
 
     // ── 8) 수정안 생성 (판정 이후 별도 단계) ──
     const all = await this.attachPatches([...findings, ...isolated], ctx, fetched);
