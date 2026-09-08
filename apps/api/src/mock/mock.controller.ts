@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
+import { Controller, Get, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 /**
@@ -19,8 +19,8 @@ export class MockController {
   // 항목 추가·수정·삭제·순서변경은 ItemController(실엔진)로 교체됨 (FR-IN-013/014)
 
   // ── 관광지 매칭 (F02) ── 검색·확정·제외는 실엔진(PlaceMatchController)으로 교체됨. mock 제거 (NF-CO-002)
-  @Get('contents/:contentId') content(@Param('contentId') id: string) { return { contentId: id, fetchedAt: new Date().toISOString(), ktoRaw: {} }; }
-  // ldong-codes · lcls-codes 는 실엔진(CatalogController)으로 교체됨. mock 제거 (NF-CO-002)
+  // contents/:contentId 는 실엔진(ContentController)으로 교체됨. mock 제거 (NF-CO-002)
+  // ldong-codes · lcls-codes 도 마찬가지 (CatalogController)
 
   // ── 패치 (F10 전후 비교만 남았다. F08 미리보기 · F09 확정 · 되돌리기는 실엔진이 가져갔다) ──
 

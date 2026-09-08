@@ -13,6 +13,8 @@ import { SignalRunner } from './batch/signal-runner';
 import { SyncBatchJob } from './batch/sync-batch.job';
 import { SyncBatchScheduler } from './batch/sync-batch.scheduler';
 import { CatalogController } from './catalog/catalog.controller';
+import { ContentController } from './content/content.controller';
+import { ContentService } from './content/content.service';
 import { CatalogService } from './catalog/catalog.service';
 import { DemoController } from './demo/demo.controller';
 import { evaluateBudget } from './external/budget-guard';
@@ -70,7 +72,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
   imports: [ScheduleModule.forRoot()],
   controllers: [
     RootController, HealthController,
-    AuthController, CatalogController, UploadController,
+    AuthController, CatalogController, ContentController, UploadController,
     AuditController, UsageController, DemoController, ProductController, ItemController, PlaceMatchController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
     MockController,
@@ -78,6 +80,12 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
     { provide: APP_GUARD, useClass: AuthGuard },
+    {
+      // 관광지 1건 실시간 조회 (5-12 근거 펼침). 저장하지 않는다 (DR-PR-004)
+      provide: ContentService,
+      useFactory: (pool: Pool) => new ContentService(() => createKtoClient(new PgApiCallLogger(pool))),
+      inject: [DB_POOL],
+    },
     {
       // 관리자 설정 (F16). 계정 설정 조회·저장 + 전역 설정 조회 (PM-DA-005)
       provide: SettingsService,

@@ -3,3 +3,4 @@ export * from './kto.client';
 export * from './kto.errors';
 export * from './kto.factory';
 export * from './transport';
+export * from './content-view';

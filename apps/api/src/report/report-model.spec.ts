@@ -45,7 +45,8 @@ function item(over: Partial<AssembleInput['items'][number]> = {}): AssembleInput
 function evidence(over: Partial<ContentEvidence> = {}): ContentEvidence {
   return {
     ktoContentId: '126508', officialName: '오죽헌', imageUrl: 'https://x/a.jpg',
-    homepageUrl: null, fields: [{ name: 'restdate', value: '연중무휴' }],
+    homepageUrl: null, contact: { tel: '033-640-4457' },
+    fields: [{ name: 'restdate', value: '연중무휴' }],
     ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null, ...over,
   };
 }

@@ -48,6 +48,8 @@ describe('앱 부팅', () => {
       'GET /api/v1/audit-jobs/:jobId',
       'GET /api/v1/audit-runs/:runId',
       'GET /api/v1/audit-runs/:runId/findings',
+      // 근거 펼침 · 확인 필요 목록 펼침이 쓰는 실시간 조회 (5-12)
+      'GET /api/v1/contents/:contentId',
       // F08 · F09
       'POST /api/v1/products/:productId/patch-preview',
       'POST /api/v1/products/:productId/patch-applications',
