@@ -56,6 +56,13 @@ export const TRANSPORT = ['CHARTER_BUS', 'CAR', 'PUBLIC_TRANSIT'] as const;
 export type Transport = (typeof TRANSPORT)[number];
 
 /** 박수 0(당일) · 1(1박 2일) · 2(2박 3일)만 허용 — SC-PD-001 · ck_product_nights */
+/** 화면·리포트가 사람에게 보이는 표기. 저장·판정은 위 enum 값을 그대로 쓴다 */
+export const TRANSPORT_LABEL: Readonly<Record<Transport, string>> = {
+  CHARTER_BUS: '전세버스',
+  CAR: '자가용',
+  PUBLIC_TRANSIT: '대중교통',
+};
+
 export const NIGHTS_ALLOWED = [0, 1, 2] as const;
 
 // ─────────────────────────────────────────────────────────────

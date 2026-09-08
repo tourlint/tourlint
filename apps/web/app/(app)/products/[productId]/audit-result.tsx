@@ -30,6 +30,7 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
+import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
 import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
 
@@ -721,16 +722,7 @@ function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string 
         releasedAt={releasedAt}
       />
 
-      <dl className="mt-4 grid gap-1 border-t border-slate-100 pt-4 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-        <div className="flex gap-2">
-          <dt>규칙셋</dt>
-          <dd className="text-slate-600 dark:text-slate-300">{run.evidence.rulesetVersion}</dd>
-          <dt className="ml-3">조회 시각</dt>
-          <dd className="text-slate-600 dark:text-slate-300">{formatStamp(run.evidence.fetchedAt)}</dd>
-        </div>
-        <p className="mt-1">{run.evidence.delayNotice}</p>
-        <p>{run.evidence.source}</p>
-      </dl>
+      <AuditBasis rows={basisRows(run.evidence)} notice={run.evidence.delayNotice} source={run.evidence.source} />
     </section>
   );
 }

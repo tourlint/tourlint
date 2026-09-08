@@ -224,6 +224,20 @@ export class AuditResultRepository {
     ]));
   }
 
+  /**
+   * 그 실행이 본 콘텐츠들의 **공사 데이터 최종 수정일** (UI-CM-031).
+   *
+   * `kto_modified_time` 은 `YYYYMMDDHHmmss` 원문이라 사전순 최대가 곧 최신이다.
+   * 변환하지 않고 그대로 보관한다 (DR-PR-008).
+   */
+  async latestKtoModifiedOf(auditRunId: number): Promise<string | null> {
+    const { rows } = await this.pool.query<{ latest: string | null }>(
+      `SELECT max(kto_modified_time) AS latest FROM content_fingerprint WHERE audit_run_id = $1`,
+      [auditRunId],
+    );
+    return rows[0]?.latest ?? null;
+  }
+
   async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
     const { rows } = await this.pool.query<FindingRow>(
       `SELECT id, rule_code, severity, reason_code, target_item_id, target_item_id2,

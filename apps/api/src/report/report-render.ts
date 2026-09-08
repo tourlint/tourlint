@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import PDFDocument from 'pdfkit';
+import { TRANSPORT_LABEL, type Transport } from '@tourlint/shared';
 import type { ContentEvidence, ReportFinding, ReportModel } from './report-model';
 
 /**
@@ -235,7 +236,8 @@ function drawProduct(doc: Doc, m: ReportModel): void {
     ['지역', p.region],
     ['일정', `${p.startDate} 출발 · ${p.nights}박 ${p.dayCount}일`],
     ['인원', p.headCount === null ? '미지정' : `${p.headCount}명`],
-    ['이동수단', p.transport],
+    // 저장 값은 enum 이고 사람에게는 한글로 보인다 (공용 표기 · UI-CM-004)
+    ['이동수단', TRANSPORT_LABEL[p.transport as Transport] ?? p.transport],
     ['출시 상태', p.releasedAt === null ? '미출시' : `출시 ${stamp(p.releasedAt)}`],
   ]);
 }
@@ -419,6 +421,7 @@ function drawProvenance(doc: Doc, m: ReportModel): void {
     ['대상 콘텐츠', `${p.targetContentCount}곳`],
     ['데이터 지문', p.dataFingerprint ?? '산출하지 않음'],
     ['규칙셋 버전', p.rulesetVersion],
+    ['데이터 최종 수정일', ktoStamp(p.ktoModifiedAt)],
   ]);
   doc.moveDown(0.2);
   paragraph(doc, p.delayNotice, { color: GRAY, size: SMALL });
@@ -454,6 +457,12 @@ function drawFooters(doc: Doc, m: ReportModel): void {
 }
 
 /** ISO 를 화면 표기로. 시간대는 서버 기준을 그대로 쓴다 */
+/** 공사 원문 `YYYYMMDDHHmmss` 를 날짜까지만 읽는다. 변환하지 않고 잘라서 보인다 */
+function ktoStamp(raw: string | null): string {
+  if (raw === null || raw.length < 8) return '알 수 없음';
+  return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+}
+
 function stamp(iso: string): string {
   return iso.replace('T', ' ').slice(0, 16);
 }
