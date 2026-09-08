@@ -203,10 +203,17 @@ export interface PatchSelection {
 
 export interface UnverifiedItem {
   findingId: number;
+  /** 확정된 콘텐츠가 없으면 null (검수 제외 · 상품 전체 판정) */
+  contentid: string | null;
+  /** 사용자가 입력한 장소명. 공사 원문이 아니다 */
+  placeLabel: string | null;
   reason: string;
   reasonCode: string;
+  location: { dayNo: number; seq: number; startTime: string } | null;
   confirmedAt: true | null;
   excludedFromScore: boolean;
+  /** 출발 전 확인 항목에만 붙는 안내 */
+  note: string | null;
   targetItemId: number | null;
 }
 

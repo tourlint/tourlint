@@ -865,6 +865,39 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       }
     });
 
+    it('항목마다 관광지명 · contentid · 일정 위치를 담는다 (FR-AU-081)', async () => {
+      const { runId } = await runOnce();
+      const run = await service.getRun(runId);
+      const body = toUnverifiedResponse(run, await service.itemsOf(run.productId));
+
+      type Row = {
+        placeLabel: string | null;
+        contentid: string | null;
+        location: { dayNo: number; seq: number; startTime: string } | null;
+        excludedFromScore: boolean;
+        note: string | null;
+      };
+      const rows = body.items as Row[];
+      const targeted = rows.filter((r) => r.location !== null);
+      expect(targeted.length).toBeGreaterThan(0);
+
+      for (const r of targeted) {
+        expect(r.placeLabel, 'placeLabel').toBeTruthy();
+        expect(r.contentid, 'contentid').toBeTruthy();
+        expect(r.location?.dayNo).toBeGreaterThan(0);
+        expect(r.location?.startTime).toMatch(/^\d{2}:\d{2}/);
+      }
+      // 안내 문구는 출발 전 확인 항목에만 붙는다 (FR-AU-085)
+      for (const r of rows) expect(r.note === null).toBe(!r.excludedFromScore);
+    });
+
+    it('일정 항목을 못 넘겨도 빈 값으로 응답한다 — 목록이 깨지지 않는다', async () => {
+      const { runId } = await runOnce();
+      const rows = toUnverifiedResponse(await service.getRun(runId)).items as
+        { placeLabel: string | null; location: unknown }[];
+      expect(rows.every((r) => r.placeLabel === null && r.location === null)).toBe(true);
+    });
+
     it('검수 이력이 최신순이고 조회 시점 점수를 준다', async () => {
       await runOnce();
       await runOnce();
