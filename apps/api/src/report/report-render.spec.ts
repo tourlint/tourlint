@@ -57,6 +57,7 @@ function model(over: Partial<AssembleInput> = {}): ReturnType<typeof assembleRep
       ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null,
     }]]),
     dataFingerprint: 'ab12cd34',
+    ktoModifiedAt: '20260801120000',
     generatedAt: new Date('2026-08-29T02:00:00.000Z'),
     ...over,
   });

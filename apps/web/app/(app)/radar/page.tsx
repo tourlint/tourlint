@@ -19,6 +19,7 @@ import {
   type RadarSummary,
 } from "../../lib/api";
 import { StatusBadge } from "../../components/badges";
+import { AuditBasis } from "../../components/audit-basis";
 
 interface ProductLite {
   productId: number;
@@ -169,6 +170,19 @@ export default function RadarPage() {
       )}
 
       <DemandSignalSection products={products} onAuthError={onAuthError} />
+
+      {/*
+       * 화면 7 의 근거 영역 (UI-CM-030). 여기 표시되는 것은 검수 실행이 아니라 배치가
+       * 모은 변경이라, 규칙셋·지문·대상 건수 대신 그 배치가 무엇을 언제 봤는지를 적는다.
+       * 없는 값을 채워 넣지 않는다.
+       */}
+      <AuditBasis
+        rows={[
+          { label: "마지막 배치", value: batch?.runAt ? formatStamp(batch.runAt) : "실행 없음" },
+          { label: "처리 기준일", value: batch?.covered ?? "—" },
+          { label: "상태", value: batch?.status ?? "—" },
+        ]}
+      />
     </>
   );
 }

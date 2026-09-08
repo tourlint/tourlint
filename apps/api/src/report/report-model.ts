@@ -94,6 +94,8 @@ export interface ReportProvenance {
   /** 대표 지문 앞 8자리. 산출 못 했으면 `null` */
   readonly dataFingerprint: string | null;
   readonly rulesetVersion: string;
+  /** 공사 데이터 최종 수정일 원문 `YYYYMMDDHHmmss`. 없으면 `null` (UI-CM-031) */
+  readonly ktoModifiedAt: string | null;
   readonly delayNotice: string;
   /** `출처: ⓒ한국관광공사` (FR-PA-062). 문자 그대로 싣는다 */
   readonly source: string;
@@ -186,6 +188,8 @@ export interface AssembleInput {
   readonly patches: readonly ReportPatch[];
   readonly evidence: ReadonlyMap<string, ContentEvidence>;
   readonly dataFingerprint: string | null;
+  /** 공사 데이터 최종 수정일 원문. 지문 행에서 모은다 */
+  readonly ktoModifiedAt: string | null;
   readonly generatedAt: Date;
 }
 
@@ -268,6 +272,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
       targetContentCount: run.targetCount,
       dataFingerprint: input.dataFingerprint,
       rulesetVersion: run.rulesetVersion,
+      ktoModifiedAt: input.ktoModifiedAt,
       delayNotice:
         '공사 데이터는 당일 변경분이 익일 반영되므로 출발 임박 시 운영기관 최종 확인을 권장합니다',
       source: '출처: ⓒ한국관광공사',

@@ -62,6 +62,7 @@ function input(over: Partial<AssembleInput> = {}): AssembleInput {
     patches: [],
     evidence: new Map([['126508', evidence()]]),
     dataFingerprint: 'ab12cd34',
+    ktoModifiedAt: '20260801120000',
     generatedAt: new Date('2026-08-29T02:00:00.000Z'),
     ...over,
   };

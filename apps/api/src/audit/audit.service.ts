@@ -238,6 +238,19 @@ export class AuditService {
   }
 
   /**
+   * 검수 근거 영역에 실을 값 (UI-CM-030 · 031).
+   *
+   * 화면 3 · 4 · 5 와 PDF 가 같은 것을 보여야 해서 한 자리에서 모은다.
+   */
+  async runBasis(auditRunId: number): Promise<RunBasis> {
+    const [fingerprint, ktoModifiedAt] = await Promise.all([
+      this.runFingerprint(auditRunId),
+      this.results.latestKtoModifiedOf(auditRunId),
+    ]);
+    return { fingerprint, ktoModifiedAt };
+  }
+
+  /**
    * 고른 수정안을 반영하면 어떻게 되는지 미리 본다 (F08 · FR-PA-004 ~ 007).
    *
    * **아무것도 저장하지 않는다.** 확정은 별도 요청이고, 여기서는 충돌 여부와 반영 후
@@ -769,7 +782,16 @@ export function toJobResponse(job: AuditJob, includePollHint = false): Record<st
  * `readinessScore` 와 `counts` 는 **조회 시점 재계산 값**이다. `audit_run` 저장값은 실행 시점
  * 기록으로 불변이며, 무시 건수는 `counts.dismissed` 로 병기한다 (FR-AU-046).
  */
-export function toRunResponse(run: StoredAuditRun, runFingerprint?: string): Record<string, unknown> {
+/** 근거 영역 재료. 지문은 전체 값이고 축약은 응답에서 한다 (UI-CM-032) */
+export interface RunBasis {
+  readonly fingerprint: string | undefined;
+  readonly ktoModifiedAt: string | null;
+}
+
+/** 근거를 못 모은 경우. 없는 것을 지어내지 않고 빈 값으로 둔다 */
+const EMPTY_BASIS: RunBasis = { fingerprint: undefined, ktoModifiedAt: null };
+
+export function toRunResponse(run: StoredAuditRun, basis: RunBasis = EMPTY_BASIS): Record<string, unknown> {
   const c = run.current;
   return {
     auditRunId: run.id,
@@ -796,8 +818,11 @@ export function toRunResponse(run: StoredAuditRun, runFingerprint?: string): Rec
     evidence: {
       fetchedAt: run.executedAt.toISOString(),
       targetContentCount: run.targetCount,
-      dataFingerprint: runFingerprint === undefined ? null : shortFingerprint(runFingerprint),
+      dataFingerprint: basis.fingerprint === undefined ? null : shortFingerprint(basis.fingerprint),
+      /** 축약 표기 옆에서 전체 값을 확인할 수 있어야 한다 (UI-CM-032) */
+      dataFingerprintFull: basis.fingerprint ?? null,
       rulesetVersion: run.rulesetVersion,
+      ktoModifiedAt: basis.ktoModifiedAt,
       delayNotice: '공사 데이터는 당일 변경분이 익일 반영되므로 출발 임박 시 운영기관 최종 확인을 권장합니다',
       source: '출처: ⓒ한국관광공사',
     },
@@ -1044,6 +1069,7 @@ export function toComparisonResponse(
   application: StoredPatchApplication,
   before: StoredAuditRun,
   after: StoredAuditRun,
+  afterBasis: RunBasis = EMPTY_BASIS,
 ): Record<string, unknown> {
   const metrics: Record<string, unknown>[] = [
     countMetric('blocker', '차단', before, after, 'BLOCKER'),
@@ -1071,6 +1097,8 @@ export function toComparisonResponse(
     after: { auditRunId: after.id, executedAt: after.executedAt.toISOString() },
     metrics,
     warningBanner: warningBannerOf(before, after),
+    // 화면 5 도 검수 근거 영역을 고정 표시한다 (UI-CM-030). 반영 후 실행이 기준이다
+    evidence: (toRunResponse(after, afterBasis).evidence as Record<string, unknown>),
     // 되돌리기는 직전 1건까지다 (FR-PA-026). 이미 되돌린 이력은 여기 오지 않는다
     revertible: application.revertedAt === null,
   };

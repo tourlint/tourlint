@@ -134,19 +134,27 @@ export interface RunSummary {
   failedCount: number;
   releasable: boolean;
   releaseBlockedReason: string | null;
-  evidence: {
-    fetchedAt: string;
-    dataFingerprint: string | null;
-    rulesetVersion: string;
-    delayNotice: string;
-    source: string;
-  };
+  evidence: AuditEvidence;
 }
 
 /** 판정 근거 2단. 공사 원문은 여기 없다 — 펼칠 때 contentApi 로 조달한다 (5-6 · 5-12) */
 export interface EvidenceView {
   aiNormalized: Record<string, unknown> | null;
   verdict: unknown;
+}
+
+/** 검수 근거 영역 재료 (UI-CM-031). 화면 3 · 4 · 5 가 같은 것을 쓴다 */
+export interface AuditEvidence {
+  fetchedAt: string;
+  targetContentCount: number;
+  dataFingerprint: string | null;
+  /** 축약 옆에서 전체를 확인할 수 있어야 한다 (UI-CM-032) */
+  dataFingerprintFull: string | null;
+  rulesetVersion: string;
+  /** 공사 데이터 최종 수정일 원문 `YYYYMMDDHHmmss` */
+  ktoModifiedAt: string | null;
+  delayNotice: string;
+  source: string;
 }
 
 export interface Finding {
@@ -491,6 +499,8 @@ export interface ComparisonResult {
   after: { auditRunId: number; executedAt: string };
   metrics: ComparisonMetric[];
   warningBanner: string | null;
+  /** 화면 5 도 근거 영역을 고정 표시한다 (UI-CM-030). 반영 후 실행이 기준이다 */
+  evidence: AuditEvidence;
   revertible: boolean;
 }
 
