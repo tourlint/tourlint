@@ -61,6 +61,43 @@ export class ProductService {
     };
   }
 
+  /**
+   * 출시 승인 (PM-NG-002 · EX-AU-008 · DR-IN-007).
+   *
+   * **화면 버튼을 비활성화하는 것만으로는 충족하지 않는다.** API 를 직접 불러도 막혀야 한다.
+   * DB 트리거(`trg_check_release`)가 마지막으로 한 번 더 막지만, 거기까지 가면 사용자가
+   * 읽을 수 없는 오류를 본다. 같은 판단을 여기서 먼저 해서 사유를 말해 준다.
+   */
+  async release(accountId: number, productId: number): Promise<{ productId: number; releasedAt: string | null }> {
+    const blockers = await this.repo.latestBlockerCount(accountId, productId);
+    if (blockers === undefined) throw notFound(productId);
+
+    if (blockers === null) {
+      throw new DomainException(
+        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
+        '검수하지 않은 상품은 출시할 수 없습니다. 먼저 검수를 실행해 주세요.', 'REQUEST',
+      );
+    }
+
+    if (blockers > 0) {
+      throw new DomainException(
+        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
+        `차단 ${blockers}건을 해결해야 출시할 수 있습니다.`, 'REQUEST',
+      );
+    }
+
+    const releasedAt = await this.repo.markReleased(accountId, productId);
+    if (releasedAt === null) throw notFound(productId);
+    return { productId, releasedAt };
+  }
+
+  /** 일정 항목 목록 (FR-IN-009). 일차 · 순번 정렬은 저장소가 한다 */
+  async items(accountId: number, productId: number): Promise<Record<string, unknown>> {
+    const row = await this.repo.detail(accountId, productId);
+    if (row === null) throw notFound(productId);
+    return { totalCount: row.items.length, items: row.items };
+  }
+
   async detail(accountId: number, productId: number): Promise<Record<string, unknown>> {
     const row = await this.repo.detail(accountId, productId);
     if (row === null) throw notFound(productId);
