@@ -36,7 +36,7 @@ const toolResponse = (input: unknown): unknown => ({
 });
 
 describe('구조화 출력을 도구로 강제한다 (EI-LM-002)', () => {
-  it('temperature 0 과 tool_choice 를 보낸다', async () => {
+  it('tool_choice 를 보내고 temperature 는 보내지 않는다', async () => {
     const seen: { body?: string } = {};
     const fetchImpl = (async (_url: string, init: RequestInit) => {
       seen.body = init.body as string;
@@ -46,7 +46,11 @@ describe('구조화 출력을 도구로 강제한다 (EI-LM-002)', () => {
     await new AnthropicProvider(SECRET, { fetchImpl }).structured(REQ, 'claude-sonnet-4-6');
 
     const sent = JSON.parse(seen.body ?? '{}') as Record<string, unknown>;
-    expect(sent.temperature).toBe(0);
+    /*
+     * Claude 5 계열이 `temperature` 를 폐기해 실으면 400 이 난다 (이슈 #371). 결정론은
+     * 이 값이 아니라 `llm_parse_cache` 가 지킨다 — 되살리면 신형 모델이 통째로 막힌다.
+     */
+    expect(sent.temperature).toBeUndefined();
     expect(sent.tool_choice).toEqual({ type: 'tool', name: 'operating_info' });
     expect(sent.model).toBe('claude-sonnet-4-6');
   });
