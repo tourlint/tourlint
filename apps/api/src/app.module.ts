@@ -42,6 +42,7 @@ import { RadarRepository } from './radar/radar.repository';
 import { RadarService } from './radar/radar.service';
 import { ReportController } from './report/report.controller';
 import { ReportService } from './report/report.service';
+import { NlService } from './upload/nl.service';
 import { UploadController } from './upload/upload.controller';
 import { RootController } from './root/root.controller';
 import { UsageController } from './usage/usage.controller';
@@ -84,6 +85,12 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
     { provide: APP_GUARD, useClass: AuthGuard },
+    {
+      // 자연어 붙여넣기 정형화 (F01 · FR-IN-003). 저장하지 않는다 (UI-S2-010)
+      provide: NlService,
+      useFactory: (pool: Pool) => new NlService(new PgApiCallLogger(pool)),
+      inject: [DB_POOL],
+    },
     {
       // 관광지 1건 실시간 조회 (5-12 근거 펼침). 저장하지 않는다 (DR-PR-004)
       provide: ContentService,
