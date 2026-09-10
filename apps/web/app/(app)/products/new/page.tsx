@@ -2,7 +2,8 @@
 
 // 화면 2 · 상품 등록 · 편집 (UI-S2 · F01·F02). 1차 = 직접 입력.
 // A 기본정보 + B 상품 성격·이동 + C 일정 입력 + 저장 → 검수 결과(화면 전이 2→3).
-// 업로드·자연어(D)와 관광지 확정(E)은 후속 단계라 진입만 열어 둔다.
+// 등록 방식 3종(직접 입력 · 엑셀/CSV · 자연어)이 다 열려 있다 (UI-S2-001).
+// 어느 쪽으로 들어와도 결과는 같은 폼 상태로 모이고 저장 전에 여기서 편집한다 (UI-S2-010).
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
@@ -160,7 +161,7 @@ export default function ProductNewPage() {
         <Segmented value={method} options={METHODS} onChange={setMethod} ariaLabel="등록 방식" />
         {method === "direct" && (
           <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-            엑셀·CSV 업로드로 일정을 한 번에 채울 수도 있습니다. 자연어 붙여넣기는 다음 단계에서 제공됩니다.
+            엑셀·CSV 업로드나 자연어 붙여넣기로 일정을 한 번에 채울 수도 있습니다. 어느 쪽이든 저장 전에 여기서 편집합니다.
           </p>
         )}
       </div>
