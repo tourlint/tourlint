@@ -130,7 +130,11 @@ export class FixtureKtoTransport implements KtoTransport {
     const contentId = params.contentId ?? params.contentid;
     const key = fixtureKey(operation, params, contentId);
 
-    const file = this.index.get(key);
+    /*
+     * 키워드별 스냅샷이 없으면 **기본 스냅샷으로 물러난다.** 검색어마다 스냅샷을 뜨는 것은
+     * 예산이라, 아직 안 뜬 검색어도 후보 목록은 받아 볼 수 있어야 한다.
+     */
+    const file = this.index.get(key) ?? (key.startsWith('searchKeyword2:kw:') ? this.index.get('searchKeyword2') : undefined);
     if (file !== undefined) {
       return { body: readFileSync(file, 'utf8'), httpStatus: null };
     }
@@ -179,6 +183,14 @@ export class FixtureKtoTransport implements KtoTransport {
           continue;
         }
       }
+      // 검색 스냅샷은 `04_searchKeyword2_경포대.json` 처럼 키워드를 파일명에 담는다
+      if (operation === 'searchKeyword2') {
+        const kw = /_searchKeyword2_(.+)\.json$/.exec(name);
+        if (kw !== null) {
+          this.index.set(`searchKeyword2:kw:${kw[1] ?? ''}`, path);
+          continue;
+        }
+      }
       // 그 밖의 목록·코드 조회는 먼저 발견한 스냅샷 하나만 쓴다
       if (!this.index.has(operation)) this.index.set(operation, path);
     }
@@ -216,6 +228,13 @@ function fixtureKey(
   if (contentId !== undefined) return `${operation}:${contentId}`;
   if (operation === 'ldongCode2' && params.lDongRegnCd !== undefined) {
     return `ldongCode2:regn:${params.lDongRegnCd}`;
+  }
+  /*
+   * 검색은 **키워드까지 키에 넣는다.** 오퍼레이션만으로 색인하면 어떤 검색어를 넣어도 같은
+   * 후보가 나와, 관통 검증에서 후보 정확도를 볼 수 없다 (이슈 #350).
+   */
+  if (operation === 'searchKeyword2' && typeof params.keyword === 'string' && params.keyword !== '') {
+    return `searchKeyword2:kw:${params.keyword}`;
   }
   return operation;
 }

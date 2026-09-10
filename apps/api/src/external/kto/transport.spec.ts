@@ -11,6 +11,34 @@ const FIXTURES = join(__dirname, '../../../../../fixtures/kto');
 describe('FixtureKtoTransport — 픽스처 리플레이 (KTO_MODE=fixture)', () => {
   const transport = new FixtureKtoTransport(FIXTURES);
 
+  /**
+   * 픽스처만으로 **「등록 → 관광지 확정」을 끝까지 갈 수 있는가** (이슈 #350).
+   *
+   * 검색 후보와 상세 스냅샷이 안 겹치면 어느 후보를 골라도 확정에서 `FixtureMissingError` 가
+   * 난다. 시드 상품은 `contentid` 를 직접 넣어 이 경로를 건너뛰므로 여기서 안 보면 안 드러난다.
+   */
+  it('검색 후보 중 적어도 하나는 상세 스냅샷을 가진다', async () => {
+    const { body } = await transport.request('searchKeyword2', { keyword: '경포대' });
+    const candidates = parseKtoResponse('searchKeyword2', body).items
+      .map((i) => String((i as { contentid?: unknown }).contentid ?? ''));
+    expect(candidates.length).toBeGreaterThan(0);
+
+    const withDetail = candidates.filter((id) => transport.availableContentIds('detailCommon2').includes(id));
+    expect(withDetail.length).toBeGreaterThan(0);
+
+    // 그 후보로 확정까지 간다 — 좌표·분류는 detailCommon2 에서 온다
+    const picked = withDetail[0] as string;
+    const detail = await transport.request('detailCommon2', { contentId: picked });
+    expect(parseKtoResponse('detailCommon2', detail.body).items.length).toBe(1);
+  });
+
+  it('검색어가 다르면 다른 스냅샷을 돌려준다', async () => {
+    // 오퍼레이션만으로 색인하면 어떤 검색어를 넣어도 같은 후보가 나왔다 (이슈 #350)
+    const gyeongpo = await transport.request('searchKeyword2', { keyword: '경포대' });
+    const other = await transport.request('searchKeyword2', { keyword: '중앙시장' });
+    expect(gyeongpo.body).not.toBe(other.body);
+  });
+
   it('목록 조회는 오퍼레이션당 스냅샷 1개를 돌려준다', async () => {
     const { body, httpStatus } = await transport.request('searchKeyword2', { keyword: '강릉' });
     expect(httpStatus).toBeNull(); // HTTP 를 타지 않았다
