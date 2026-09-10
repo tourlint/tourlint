@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { Field, Section, Segmented, SelectInput, TextInput } from "./controls";
 import { RegionSelect } from "./region-select";
 import { ScheduleEditor } from "./schedule-editor";
+import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
 import {
   NIGHTS_OPTIONS,
@@ -25,7 +26,7 @@ type Method = "direct" | "upload" | "nl";
 const METHODS: { value: Method; label: string; disabled?: boolean }[] = [
   { value: "direct", label: "직접 입력" },
   { value: "upload", label: "엑셀·CSV 업로드" },
-  { value: "nl", label: "자연어 붙여넣기", disabled: true },
+  { value: "nl", label: "자연어 붙여넣기" },
 ];
 
 interface Region {
@@ -222,12 +223,14 @@ export default function ProductNewPage() {
           )}
         </Section>
 
-        {/* C. 일정 — 직접 입력이면 편집기, 업로드면 예시+파일 업로드 */}
-        {method === "direct" ? (
+        {/* C. 일정 — 직접 입력이면 편집기, 업로드·자연어면 각자의 입구. 결과는 셋 다 같은 폼 상태로 들어온다 */}
+        {method === "direct" && (
           <ScheduleEditor nights={nights} schedule={schedule} onChange={setSchedule} />
-        ) : (
+        )}
+        {method === "upload" && (
           <UploadPanel onApplied={applyUpload} onEdit={() => setMethod("direct")} />
         )}
+        {method === "nl" && <NlPanel onApplied={applyUpload} onEdit={() => setMethod("direct")} />}
 
         {/* 저장 검증 결과 (UI-S2-012 박수↔일정 불일치 포함) */}
         {submitted && errors.length > 0 && (
