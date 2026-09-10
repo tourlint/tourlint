@@ -97,6 +97,12 @@ function stripPermitted(raw: string): string {
   }
 }
 
+/*
+ * ⚠️ **출발일을 과거로 둔다.** 테스트 DB 는 스펙 파일들이 함께 쓰고, `watchedProducts` 는
+ *    계정을 가리지 않고 `start_date + nights >= 기준일` 인 상품을 **전역으로** 센다.
+ *    미래 날짜로 두면 이 스펙이 만든 상품이 남의 개수 단언에 끼어든다
+ *    (`notification.repository.spec.ts` FR-MO-020). 검수는 날짜와 무관하게 돈다.
+ */
 describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서 6-4)', () => {
   let pool: Pool;
   let service: AuditService;
@@ -124,7 +130,7 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
     accountId = Number(acc.rows[0]?.id);
     const prod = await pool.query<{ id: string }>(
       `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-       VALUES ($1,'무저장 검증 1박 2일','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+       VALUES ($1,'무저장 검증 1박 2일','51', DATE '2026-01-15', 1, 'CAR') RETURNING id`,
       [accountId],
     );
     productId = Number(prod.rows[0]?.id);
@@ -159,7 +165,7 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
      */
     const failProd = await pool.query<{ id: string }>(
       `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-       VALUES ($1,'조회 실패 검증 1박 2일','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+       VALUES ($1,'조회 실패 검증 1박 2일','51', DATE '2026-01-15', 1, 'CAR') RETURNING id`,
       [accountId],
     );
     failProductId = Number(failProd.rows[0]?.id);

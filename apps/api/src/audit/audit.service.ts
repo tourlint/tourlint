@@ -44,6 +44,9 @@ import { ProductRepository } from './product.repository';
 
 /** 동시에 도는 검수 수. 초과분은 큐에서 기다린다 (API 설계 6-1) */
 const MAX_RUNNING = 3;
+/** `waitForIdle` 이 큐가 비기를 기다리는 간격과 횟수 — 30초까지 본다 */
+const IDLE_POLL_MS = 25;
+const IDLE_POLL_MAX = 1_200;
 /** 폴링 간격 안내값 */
 const POLL_INTERVAL_MS = 2000;
 
@@ -100,6 +103,8 @@ export class AuditService {
    */
   private nameResolver: PlaceNameResolver | null = null;
   private running = 0;
+  /** 상한에 걸려 돌아간 요청이 있었는가. 슬롯이 나면 대신 집는다 */
+  private pendingDrain = false;
   /** 돌고 있는 검수들. 테스트가 완료를 기다릴 수 있게 붙잡아 둔다 */
   private readonly inFlight = new Set<Promise<void>>();
 
@@ -620,6 +625,19 @@ export class AuditService {
     while (this.inFlight.size > 0) {
       await Promise.all([...this.inFlight]);
     }
+    /*
+     * 약속이 다 끝나도 **내 작업이 끝났다는 뜻은 아니다.** 상한에 걸려 돌아간 요청의
+     * 작업은 다른 소비자가 집어 가는데, 그쪽 약속은 이 인스턴스의 `inFlight` 에 없다.
+     * 테스트 DB 를 스펙 파일들이 함께 쓰면 실제로 갈린다 — 큐가 빌 때까지 본다.
+     */
+    for (let i = 0; i < IDLE_POLL_MAX; i += 1) {
+      const { rows } = await this.pool.query<{ n: string }>(
+        `SELECT count(*)::text n FROM audit_job WHERE status IN ('QUEUED','RUNNING')`,
+      );
+      if (Number(rows[0]?.n ?? '0') === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_MS));
+      while (this.inFlight.size > 0) await Promise.all([...this.inFlight]);
+    }
   }
 
   /**
@@ -703,7 +721,15 @@ export class AuditService {
    * 루프는 그대로 다음 건으로 간다.
    */
   private async drain(): Promise<void> {
-    if (this.running >= MAX_RUNNING) return;
+    if (this.running >= MAX_RUNNING) {
+      /*
+       * 상한에 걸려 돌아간다. **돌아갔다는 사실을 남긴다** — 지금 도는 소비자가 큐를
+       * 다 비우고 나가는 순간과 이 검사 사이에 틈이 있어서, 그 틈에 들어온 요청은
+       * 아무도 집지 않은 채 남는다. #353 을 고치고도 좁게 남아 있던 자리다.
+       */
+      this.pendingDrain = true;
+      return;
+    }
     this.running++;
     try {
       for (;;) {
@@ -716,6 +742,11 @@ export class AuditService {
       this.logger.error('검수 큐 소비 실패', e);
     } finally {
       this.running--;
+      // 슬롯을 놓는 사이에 돌아간 요청이 있었으면 그것을 대신 집는다
+      if (this.pendingDrain) {
+        this.pendingDrain = false;
+        this.track(this.drain());
+      }
     }
   }
 
