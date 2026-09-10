@@ -556,6 +556,30 @@ export const reportApi = {
   // 다운로드는 브라우저 내비게이션으로 — 세션 쿠키가 실려 PDF 를 그대로 받는다.
   // 공통 fetch 래퍼는 .json() 이라 바이너리에 못 쓴다.
   downloadUrl: (reportId: string) => `/api/v1/reports/${reportId}/download`,
+  /**
+   * PDF 를 바이트로 받는다 — 화면 안 미리보기(UI-S6-007)에 쓴다.
+   *
+   * 공통 래퍼를 못 쓴다. 그쪽은 무조건 `.json()` 이라 바이너리에서 터진다.
+   * 오류 응답은 JSON 이므로 그때만 읽어 사유를 꺼낸다.
+   */
+  async fetchPdf(reportId: string): Promise<Blob> {
+    const res = await fetch(`/api/v1/reports/${reportId}/download`, { credentials: "include" });
+    if (!res.ok) {
+      let body: { reasonCode?: string; message?: string } = {};
+      try {
+        body = (await res.json()) as { reasonCode?: string; message?: string };
+      } catch {
+        body = {};
+      }
+      const err: ApiError = {
+        status: res.status,
+        reasonCode: body.reasonCode,
+        message: body.message ?? "리포트를 불러오지 못했습니다. 다시 만들어 주세요.",
+      };
+      throw err;
+    }
+    return res.blob();
+  },
 };
 
 // ── 관리자 설정 (F16 · UI-S8 · FR-OP-020~027) ────────────────────────────────

@@ -1499,14 +1499,25 @@ function ReleaseButton({
 function ReportButton({ runId, releasable }: { runId: number; releasable: boolean }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; reportId: string } | null>(null);
+
+  /*
+   * blob URL 은 이 문서가 들고 있는 동안만 유효하다. 다시 만들거나 화면을 뜨면 놓아준다 —
+   * 안 놓으면 탭이 살아 있는 내내 PDF 가 메모리에 남는다.
+   */
+  useEffect(() => {
+    if (preview === null) return undefined;
+    return () => URL.revokeObjectURL(preview.url);
+  }, [preview]);
 
   async function generate() {
     setBusy(true);
     setErr(null);
     try {
       const { reportId } = await reportApi.generate(runId);
-      // 다운로드는 브라우저 내비게이션으로 — 쿠키가 실려 PDF 를 그대로 받는다
-      window.location.href = reportApi.downloadUrl(reportId);
+      // 화면 안에서 보여주려면 바이트가 필요하다. 내려받기는 아래에서 별도 링크로 건다
+      const blob = await reportApi.fetchPdf(reportId);
+      setPreview({ url: URL.createObjectURL(blob), reportId });
     } catch (e) {
       setErr(isApiError(e) ? e.message : "리포트를 만들지 못했습니다.");
     } finally {
@@ -1522,11 +1533,55 @@ function ReportButton({ runId, releasable }: { runId: number; releasable: boolea
         type="button"
         onClick={generate}
         disabled={busy}
+        aria-busy={busy}
         className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
       >
-        {busy ? "만드는 중…" : "리포트 생성"}
+        {busy ? "만드는 중…" : preview === null ? "리포트 생성" : "다시 만들기"}
       </button>
+      {/*
+        진행 상태는 부정형이다 (UI-S6-007). 몇 퍼센트인지는 만들 수 없다 — PDF 를 서버에
+        못 두니(DB 명세서 6-4) 작업 행이 없고, 생성이 1초 안쪽이라 단계를 쪼개도 연출이다.
+      */}
+      {busy && (
+        <span role="status" className="text-xs text-slate-500 dark:text-slate-400">
+          리포트를 만들고 있습니다…
+        </span>
+      )}
       {err !== null && <span className="text-xs text-rose-600 dark:text-rose-400">{err}</span>}
+
+      {preview !== null && (
+        <div className="mt-2 w-full">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-slate-700 dark:text-slate-200">리포트 미리보기</h3>
+            <div className="flex items-center gap-2">
+              {/* 내려받기는 브라우저 내비게이션으로 — 서버가 준 한글 파일명이 그대로 붙는다 */}
+              <a
+                href={reportApi.downloadUrl(preview.reportId)}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                내려받기
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+          <object
+            data={preview.url}
+            type="application/pdf"
+            aria-label="리포트 미리보기"
+            className="mt-2 h-[70vh] w-full rounded-lg border border-slate-200 dark:border-slate-800"
+          >
+            <p className="p-4 text-sm text-slate-600 dark:text-slate-300">
+              이 브라우저는 PDF 미리보기를 지원하지 않습니다. 내려받아 확인해 주세요.
+            </p>
+          </object>
+        </div>
+      )}
     </>
   );
 }
