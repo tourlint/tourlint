@@ -16,7 +16,8 @@ import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
  *   · 정규화 결과 없이 변경만 감지 — 내용을 설명할 수 없으므로 확인 불가 (DR-FP-012)
  */
 
-export const R06_VERSION = '1.0.0';
+/** `1.0.1` — 비표출 메시지에서 명칭을 뺐다 (FR-AU-071). 메시지가 달라지면 되짚을 수 있어야 한다 */
+export const R06_VERSION = '1.0.1';
 
 export class R06ChangeRule implements AuditRule {
   readonly code = 'R06';
@@ -66,8 +67,16 @@ function evaluateItem(item: AuditItem): Finding | null {
       severity: 'BLOCKER',
       reasonCode: 'CONTENT_HIDDEN',
       targetItemId: item.id,
+      /*
+       * **명칭을 넣지 않는다** (FR-AU-071). 비표출로 전환된 콘텐츠는 finding 메시지와
+       * 리포트 어디에도 명칭·주소를 재출력하지 않고 `contentid` 와 감지 시각만 남긴다.
+       * 리포트는 이 문자열을 그대로 싣기 때문에(`report-render.ts`) 여기서 빼면 함께 지켜진다.
+       *
+       * 어느 항목인지는 `targetItemId` 가 말한다 — 화면은 일차·순서·시각으로 짚는다
+       * (API 설계 5-6 `target`).
+       */
       message:
-        `${item.placeLabel} — 공사 데이터에서 비표출로 전환됐습니다. ` +
+        `공사 데이터에서 비표출로 전환된 관광지입니다. ` +
         `사유는 알 수 없으며 그대로 둘 수 없습니다. 반경 20km 안 같은 유형 관광지로 교체하거나 일정에서 빼 주세요.`,
       evidence: {
         verdict: verdict.kind,
