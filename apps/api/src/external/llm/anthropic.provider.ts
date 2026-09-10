@@ -13,8 +13,16 @@ const MAX_TOKENS = 2_048;
  * 묶으면, "네, 알겠습니다" 같은 산문이 섞이지 않고 JSON 만 온다. 프롬프트로 부탁하는
  * 방식은 대부분 되지만 대부분으로는 파서를 못 만든다.
  *
- * **temperature 0 을 보낸다** (EI-LM-002). 이 값을 받지 않는 모델이 있어 400 이 나면
- * 그건 모델 선택이 잘못된 것이지 조용히 넘길 일이 아니다 — 결정론성 요구가 걸려 있다.
+ * **`temperature` 를 보내지 않는다** (EI-LM-002 v1.6 · 이슈 #371).
+ *
+ * 종전에는 `temperature: 0` 을 실었고, 받지 않는 모델이 나오면 그건 모델 선택이 잘못된
+ * 것이라고 보았다. Claude 5 계열이 이 값을 폐기하면서 그 전제가 깨졌다 — 신형 모델을
+ * 쓰려면 보내지 않아야 한다.
+ *
+ * **결정론은 이 값이 지키던 것이 아니다.** `normalize-fallback` 이 적어 둔 대로
+ * `temperature 0` 도 매번 같은 답을 보장하지 않으며, NF-MT-001 은 `llm_parse_cache` 가
+ * 조각 단위로 답을 붙잡아 지킨다. 정답셋 13조각으로 재 봤을 때 이 값 없이도 지어내는
+ * 일은 없었고, 분량 강제(`MAX_FIXED_CLOSED`)도 그대로 남아 있다.
  */
 export class AnthropicProvider implements LlmProvider {
   readonly name = 'anthropic';
@@ -41,7 +49,6 @@ export class AnthropicProvider implements LlmProvider {
         body: JSON.stringify({
           model,
           max_tokens: MAX_TOKENS,
-          temperature: 0,
           system: req.system,
           tools: [{ name: req.schemaName, description: '해석 결과를 이 모양으로 채운다', input_schema: req.schema }],
           tool_choice: { type: 'tool', name: req.schemaName },
