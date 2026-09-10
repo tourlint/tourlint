@@ -44,6 +44,9 @@ import { ProductRepository } from './product.repository';
 
 /** 동시에 도는 검수 수. 초과분은 큐에서 기다린다 (API 설계 6-1) */
 const MAX_RUNNING = 3;
+/** `waitForIdle` 이 큐가 비기를 기다리는 간격과 횟수 — 30초까지 본다 */
+const IDLE_POLL_MS = 25;
+const IDLE_POLL_MAX = 1_200;
 /** 폴링 간격 안내값 */
 const POLL_INTERVAL_MS = 2000;
 
@@ -100,6 +103,8 @@ export class AuditService {
    */
   private nameResolver: PlaceNameResolver | null = null;
   private running = 0;
+  /** 상한에 걸려 돌아간 요청이 있었는가. 슬롯이 나면 대신 집는다 */
+  private pendingDrain = false;
   /** 돌고 있는 검수들. 테스트가 완료를 기다릴 수 있게 붙잡아 둔다 */
   private readonly inFlight = new Set<Promise<void>>();
 
@@ -197,6 +202,59 @@ export class AuditService {
   }
 
   /**
+   * finding 이 가리키는 항목의 표시 정보 (API 설계 5-6 `target`).
+   *
+   * 화면은 「2일차 3번째 · 14:00 · 오죽헌」처럼 어디를 말하는지 보여줘야 하는데 finding 은
+   * `target_item_id` 만 들고 있다. 그래서 항목을 한 번 읽어 얹는다.
+   *
+   * `placeLabel` 은 **사용자 입력**이라 응답에 담아도 무저장 원칙과 무관하다 — DB 명세서
+   * 6-4 검증 ① 이 명시적으로 제외한 값이다.
+   */
+  async targetsByItem(run: StoredAuditRun): Promise<ReadonlyMap<number, FindingTarget>> {
+    const items = await this.products.findItems(run.productId);
+    const out = new Map<number, FindingTarget>();
+    for (const item of items) {
+      out.set(item.id, {
+        dayNo: item.dayNo,
+        seq: item.seq,
+        startTime: item.startTime,
+        placeLabel: item.placeLabel,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 판정 근거 3단 중 **AI 해석** (FR-AU-013 · 061).
+   *
+   * 해석은 콘텐츠 단위로 저장돼 있고 화면은 항목 단위로 그리므로 여기서 이어 붙인다.
+   * 자체 산출물이라 공사 호출이 없다 (5-12).
+   */
+  async normalizedByItem(run: StoredAuditRun): Promise<ReadonlyMap<number, Record<string, unknown>>> {
+    const [items, byContent] = await Promise.all([
+      this.products.findItems(run.productId),
+      this.results.normalizedOf(run.id),
+    ]);
+    const out = new Map<number, Record<string, unknown>>();
+    for (const item of items) {
+      if (item.ktoContentId === null) continue;
+      const view = byContent.get(item.ktoContentId);
+      if (view === undefined) continue;
+      const body = typeof view.normalized === 'object' && view.normalized !== null
+        ? (view.normalized as Record<string, unknown>)
+        : {};
+      // 해석하지 못한 조각도 신뢰도는 말해 준다 (FR-AU-006 · 007)
+      out.set(item.id, { ...body, confidence: view.confidence });
+    }
+    return out;
+  }
+
+  /** 일정 항목. 확인 필요 목록이 관광지명·위치를 채우는 데 쓴다 — DB 만 읽는다 (0콜) */
+  async itemsOf(productId: number): Promise<readonly ItineraryItemRow[]> {
+    return this.products.findItems(productId);
+  }
+
+  /**
    * 검수 근거 영역에 실을 대표 지문 (DR-FP-008 · FR-PA-062).
    *
    * `toRunResponse` 가 인자로 받도록 돼 있었는데 아무도 넘기지 않아 `dataFingerprint` 가
@@ -205,6 +263,19 @@ export class AuditService {
   async runFingerprint(auditRunId: number): Promise<string | undefined> {
     const parts = await this.results.fingerprintHashesOf(auditRunId);
     return parts.length === 0 ? undefined : buildRunFingerprint([...parts]);
+  }
+
+  /**
+   * 검수 근거 영역에 실을 값 (UI-CM-030 · 031).
+   *
+   * 화면 3 · 4 · 5 와 PDF 가 같은 것을 보여야 해서 한 자리에서 모은다.
+   */
+  async runBasis(auditRunId: number): Promise<RunBasis> {
+    const [fingerprint, ktoModifiedAt] = await Promise.all([
+      this.runFingerprint(auditRunId),
+      this.results.latestKtoModifiedOf(auditRunId),
+    ]);
+    return { fingerprint, ktoModifiedAt };
   }
 
   /**
@@ -251,7 +322,7 @@ export class AuditService {
 
   /** 첫 조회 때 만든다. 캐시를 살리려고 한 번 만든 것을 계속 쓴다 */
   private placeNames(): PlaceNameResolver {
-    this.nameResolver ??= new PlaceNameResolver({ kto: createKtoClient(this.callLogger) });
+    this.nameResolver ??= new PlaceNameResolver({ kto: () => createKtoClient(this.callLogger) });
     return this.nameResolver;
   }
 
@@ -554,6 +625,19 @@ export class AuditService {
     while (this.inFlight.size > 0) {
       await Promise.all([...this.inFlight]);
     }
+    /*
+     * 약속이 다 끝나도 **내 작업이 끝났다는 뜻은 아니다.** 상한에 걸려 돌아간 요청의
+     * 작업은 다른 소비자가 집어 가는데, 그쪽 약속은 이 인스턴스의 `inFlight` 에 없다.
+     * 테스트 DB 를 스펙 파일들이 함께 쓰면 실제로 갈린다 — 큐가 빌 때까지 본다.
+     */
+    for (let i = 0; i < IDLE_POLL_MAX; i += 1) {
+      const { rows } = await this.pool.query<{ n: string }>(
+        `SELECT count(*)::text n FROM audit_job WHERE status IN ('QUEUED','RUNNING')`,
+      );
+      if (Number(rows[0]?.n ?? '0') === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, IDLE_POLL_MS));
+      while (this.inFlight.size > 0) await Promise.all([...this.inFlight]);
+    }
   }
 
   /**
@@ -625,22 +709,44 @@ export class AuditService {
     }
   }
 
-  /** 큐를 비운다. 동시 실행 상한을 넘지 않는다 */
+  /**
+   * 큐를 **빌 때까지** 비운다. 동시 실행 상한은 넘지 않는다 (NF-CP-004).
+   *
+   * 한 건만 집고 끝내면 상한에 걸려 돌아간 요청이 영영 안 풀린다. 호출처가 검수 요청과
+   * 수정안 반영 두 곳뿐이고 주기 실행이 없어서, 앞의 작업이 끝나도 **다시 집으러 오는
+   * 코드가 없었다** — 4건을 연속으로 넣으면 3건만 돌고 4번째가 `QUEUED` 로 남았다
+   * (이슈 #353). 슬롯을 잡은 쪽이 큐가 빌 때까지 계속 집는다.
+   *
+   * `execute` 는 자기 예외를 스스로 삼키고 작업을 `FAILED` 로 남긴다. 한 건이 실패해도
+   * 루프는 그대로 다음 건으로 간다.
+   */
   private async drain(): Promise<void> {
-    if (this.running >= MAX_RUNNING) return;
+    if (this.running >= MAX_RUNNING) {
+      /*
+       * 상한에 걸려 돌아간다. **돌아갔다는 사실을 남긴다** — 지금 도는 소비자가 큐를
+       * 다 비우고 나가는 순간과 이 검사 사이에 틈이 있어서, 그 틈에 들어온 요청은
+       * 아무도 집지 않은 채 남는다. #353 을 고치고도 좁게 남아 있던 자리다.
+       */
+      this.pendingDrain = true;
+      return;
+    }
     this.running++;
     try {
-      const { rows } = await this.pool.query<{ id: string; product_id: string }>(
-        `SELECT id, product_id FROM audit_job WHERE status = 'QUEUED' ORDER BY id LIMIT 1`,
-      );
-      const row = rows[0];
-      if (row === undefined) return;
-      await this.execute(Number(row.id), Number(row.product_id));
+      for (;;) {
+        const job = await this.jobs.claimNext();
+        if (job === null) return;
+        await this.execute(job.id, job.productId);
+      }
     } catch (e) {
       // 큐 소비 실패가 요청 경로로 새어 나가면 안 된다. 202 는 이미 나갔다
       this.logger.error('검수 큐 소비 실패', e);
     } finally {
       this.running--;
+      // 슬롯을 놓는 사이에 돌아간 요청이 있었으면 그것을 대신 집는다
+      if (this.pendingDrain) {
+        this.pendingDrain = false;
+        this.track(this.drain());
+      }
     }
   }
 
@@ -739,7 +845,16 @@ export function toJobResponse(job: AuditJob, includePollHint = false): Record<st
  * `readinessScore` 와 `counts` 는 **조회 시점 재계산 값**이다. `audit_run` 저장값은 실행 시점
  * 기록으로 불변이며, 무시 건수는 `counts.dismissed` 로 병기한다 (FR-AU-046).
  */
-export function toRunResponse(run: StoredAuditRun, runFingerprint?: string): Record<string, unknown> {
+/** 근거 영역 재료. 지문은 전체 값이고 축약은 응답에서 한다 (UI-CM-032) */
+export interface RunBasis {
+  readonly fingerprint: string | undefined;
+  readonly ktoModifiedAt: string | null;
+}
+
+/** 근거를 못 모은 경우. 없는 것을 지어내지 않고 빈 값으로 둔다 */
+const EMPTY_BASIS: RunBasis = { fingerprint: undefined, ktoModifiedAt: null };
+
+export function toRunResponse(run: StoredAuditRun, basis: RunBasis = EMPTY_BASIS): Record<string, unknown> {
   const c = run.current;
   return {
     auditRunId: run.id,
@@ -766,18 +881,51 @@ export function toRunResponse(run: StoredAuditRun, runFingerprint?: string): Rec
     evidence: {
       fetchedAt: run.executedAt.toISOString(),
       targetContentCount: run.targetCount,
-      dataFingerprint: runFingerprint === undefined ? null : shortFingerprint(runFingerprint),
+      dataFingerprint: basis.fingerprint === undefined ? null : shortFingerprint(basis.fingerprint),
+      /** 축약 표기 옆에서 전체 값을 확인할 수 있어야 한다 (UI-CM-032) */
+      dataFingerprintFull: basis.fingerprint ?? null,
       rulesetVersion: run.rulesetVersion,
+      ktoModifiedAt: basis.ktoModifiedAt,
       delayNotice: '공사 데이터는 당일 변경분이 익일 반영되므로 출발 임박 시 운영기관 최종 확인을 권장합니다',
       source: '출처: ⓒ한국관광공사',
     },
   };
 }
 
+/** finding 이 가리키는 일정 항목의 표시 정보 (API 설계 5-6 `target`) */
+export interface FindingTarget {
+  readonly dayNo: number;
+  readonly seq: number;
+  readonly startTime: string;
+  readonly placeLabel: string;
+}
+
+/**
+ * `itemId` 에 항목 정보를 얹는다.
+ *
+ * 항목이 사라졌거나(수정안 반영으로 삭제) 대상이 없는 판정(R04 · R10 처럼 상품 전체)이면
+ * **id 만 준다.** 없는 값을 지어내지 않는다.
+ *
+ * `hidden` 이면 `placeLabel` 을 뺀다 — 비표출로 전환된 콘텐츠는 명칭을 재출력하지 않고
+ * `contentid` 와 감지 시각만 남긴다 (FR-AU-071 · API 설계 5-6).
+ */
+function targetOf(
+  itemId: number | null,
+  targets: ReadonlyMap<number, FindingTarget>,
+  hidden = false,
+): Record<string, unknown> {
+  const found = itemId === null ? undefined : targets.get(itemId);
+  if (found === undefined) return { itemId };
+  const { placeLabel, ...rest } = found;
+  return hidden ? { itemId, ...rest } : { itemId, ...rest, placeLabel };
+}
+
 export function toFindingsResponse(
   run: StoredAuditRun,
   severity?: string,
   names: ReadonlyMap<string, string> = new Map(),
+  normalized: ReadonlyMap<number, Record<string, unknown>> = new Map(),
+  targets: ReadonlyMap<number, FindingTarget> = new Map(),
 ): Record<string, unknown> {
   const wanted = SEVERITY.includes(severity as Severity) ? (severity as Severity) : null;
   const content = run.findings
@@ -785,20 +933,45 @@ export function toFindingsResponse(
     .map((f) => ({
       findingId: f.id,
       ruleCode: f.ruleCode,
+      ruleVersion: f.ruleVersion,
       severity: f.severity,
       reasonCode: f.reasonCode,
       message: f.message,
-      target: { itemId: f.targetItemId },
-      targetSecondary: f.targetItemId2 === null ? null : { itemId: f.targetItemId2 },
+      target: targetOf(f.targetItemId, targets, f.reasonCode === 'CONTENT_HIDDEN'),
+      targetSecondary: f.targetItemId2 === null ? null : targetOf(f.targetItemId2, targets),
+      /*
+       * 비표출 콘텐츠는 **명칭·주소를 다시 내보내지 않는다** — `contentid` 와 감지 시각만
+       * 준다 (FR-AU-071 · PM-NG-009 · API 설계 5-6). 감지 시각은 그 전환을 발견한 검수의
+       * 실행 시각이다.
+       */
+      hiddenContent:
+        f.reasonCode === 'CONTENT_HIDDEN'
+          ? { contentid: String(f.evidence.ktoContentId ?? ''), detectedAt: run.executedAt.toISOString() }
+          : null,
       requiresExternal: f.requiresExternal,
       externalSource: f.externalSource,
       // 외부 참고가 아니면 자체 판정이다 (FR-AU-033 · UI-CM-011)
       sourceBadge: f.requiresExternal ? 'EXTERNAL_REFERENCE' : 'TOURLINT_VERDICT',
       needsConfirmation: f.needsConfirmation,
-      dismissed: f.dismissed,
+      /*
+       * 차단은 무시할 수 없다 (API 설계 5-6). 화면 버튼 제어용이며 API · DB 가 각각
+       * 독립적으로 다시 막는다 — 여기 값이 틀려도 무시가 통과되지는 않는다.
+       */
+      dismissible: f.severity !== 'BLOCKER',
+      dismissedAt: f.dismissedAt?.toISOString() ?? null,
       dismissReason: f.dismissReason,
-      confirmed: f.confirmed,
-      evidence: f.evidence,
+      confirmedAt: f.confirmedAt?.toISOString() ?? null,
+      /*
+       * 판정 근거 2단 (API 설계 5-6). 공사 원문은 여기 없다 — 카드의 「판단 근거 보기」를
+       * 펼칠 때 `GET /contents/{contentId}` 로 그 1건만 조달해 3단을 완성한다 (5-12).
+       *
+       * 대상 콘텐츠가 없는 판정(R04 · R10 처럼 상품 전체)은 해석이 없다. 그 자리에
+       * 억지로 무언가를 넣지 않는다 — 모르는 건 모른다고 한다.
+       */
+      evidenceView: {
+        aiNormalized: f.targetItemId === null ? null : normalized.get(f.targetItemId) ?? null,
+        verdict: f.evidence,
+      },
       /*
        * 수정안 후보 (FR-PA-001 · finding 당 최대 3). 화면이 이걸로 미리보기·확정을 건다.
        *
@@ -909,23 +1082,50 @@ export function toRevertResponse(application: StoredPatchApplication, revertedAt
  * ⚠️ **관광지명은 `place_label`(사용자 입력)만 쓴다.** 공사 원문은 담지 않는다
  * (DR-PR-001 · API 설계 5-7). 원문이 필요하면 화면이 펼칠 때 1콜로 조달한다.
  */
-export function toUnverifiedResponse(run: StoredAuditRun): Record<string, unknown> {
+/**
+ * 확인 필요 목록 (API 설계 5-7 · FR-AU-081).
+ *
+ * 관광지명은 `place_label`, 위치는 `itinerary_item` 에서 온다. 둘 다 저장된 값이라
+ * **공사 호출이 0건이다** (5-12 「사용자 입력 · 자체 산출물」).
+ *
+ * 공사 원문 · 문의처 · 홈페이지는 여기 없다. 항목을 펼칠 때 `GET /contents/{contentId}`
+ * 로 그 1건만 조달한다 (5-12 · FR-AU-082).
+ */
+export function toUnverifiedResponse(
+  run: StoredAuditRun,
+  itinerary: readonly ItineraryItemRow[] = [],
+): Record<string, unknown> {
+  const byId = new Map(itinerary.map((i) => [i.id, i]));
   const items = run.findings
     .filter((f) => f.severity === 'UNVERIFIED' || f.needsConfirmation)
-    .map((f) => ({
-      findingId: f.id,
-      reason: f.message,
-      reasonCode: f.reasonCode,
-      confirmedAt: f.confirmed ? true : null,
+    .map((f) => {
+      const item = f.targetItemId === null ? undefined : byId.get(f.targetItemId);
       /*
        * 출발 전 확인 항목은 공사 데이터의 D+1 구조적 시차로 자동 생성된 것이라
        * 감점 대상이 아니다 (FR-AU-016). 화면이 그 사실을 표기해야 한다.
        */
-      excludedFromScore: f.reasonCode === 'PRE_DEPARTURE_CHECK',
-      targetItemId: f.targetItemId,
-    }));
+      const excluded = f.reasonCode === 'PRE_DEPARTURE_CHECK';
+      return {
+        findingId: f.id,
+        contentid: item?.ktoContentId ?? null,
+        placeLabel: item?.placeLabel ?? null,
+        reason: f.message,
+        reasonCode: f.reasonCode,
+        location: item === undefined
+          ? null
+          : { dayNo: item.dayNo, seq: item.seq, startTime: item.startTime },
+        confirmedAt: f.confirmed ? true : null,
+        excludedFromScore: excluded,
+        note: excluded ? PRE_DEPARTURE_NOTE : null,
+        targetItemId: f.targetItemId,
+      };
+    });
   return { totalCount: items.length, items };
 }
+
+/** 출발 전 확인 항목에만 붙는 안내 (API 설계 5-7 · FR-AU-085 · 086) */
+export const PRE_DEPARTURE_NOTE =
+  '공사 데이터의 D+1 구조적 시차로 자동 생성된 항목이며 감점 대상이 아닙니다';
 
 /** 검수 이력 (F13 · API 설계 5-9) */
 export function toRunListResponse(runs: readonly StoredAuditRun[]): Record<string, unknown> {
@@ -976,6 +1176,7 @@ export function toComparisonResponse(
   application: StoredPatchApplication,
   before: StoredAuditRun,
   after: StoredAuditRun,
+  afterBasis: RunBasis = EMPTY_BASIS,
 ): Record<string, unknown> {
   const metrics: Record<string, unknown>[] = [
     countMetric('blocker', '차단', before, after, 'BLOCKER'),
@@ -1003,6 +1204,8 @@ export function toComparisonResponse(
     after: { auditRunId: after.id, executedAt: after.executedAt.toISOString() },
     metrics,
     warningBanner: warningBannerOf(before, after),
+    // 화면 5 도 검수 근거 영역을 고정 표시한다 (UI-CM-030). 반영 후 실행이 기준이다
+    evidence: (toRunResponse(after, afterBasis).evidence as Record<string, unknown>),
     // 되돌리기는 직전 1건까지다 (FR-PA-026). 이미 되돌린 이력은 여기 오지 않는다
     revertible: application.revertedAt === null,
   };

@@ -5,6 +5,15 @@
  * `credentials: "include"` 로 세션 쿠키를 함께 보낸다. 외부 API 를 브라우저에서 직접
  * 부르지 않는다 — 인증키는 서버에만 있다 (PM-SC-002).
  */
+/**
+ * 외부 서비스 장애 안내 (EX-MS-003 · UI-ST-004).
+ *
+ * 서버가 같은 문구를 내려주므로 보통은 그것을 쓴다. 여기 것은 응답 자체가 못 온 경우의
+ * 기본값이다. 정본은 `@tourlint/shared` 의 `EXTERNAL_UNAVAILABLE_MESSAGE` — 웹은 그
+ * 패키지를 의존하지 않아 문자열만 옮겨 둔다 (ITEM_TYPE · TRANSPORT 와 같은 방식).
+ */
+export const EXTERNAL_UNAVAILABLE = "일시적으로 조회할 수 없습니다.";
+
 export interface ApiError {
   status: number;
   reasonCode?: string;
@@ -78,7 +87,30 @@ export interface ProductDetail {
   startDate: string;
   nights: number;
   dayCount: number;
+  targetKey: string | null;
+  conceptKey: string | null;
+  headCount: number | null;
+  transport: string;
+  releasedAt: string | null;
   days: { day: number; items: ProductItem[] }[];
+}
+
+/** PATCH 가 받는 것만. 지역·박수는 못 바꾼다 — 확정된 contentid 와 일차 제약이 걸려 있다 */
+export interface ProductUpdate {
+  name?: string;
+  startDate?: string;
+  targetKey?: string | null;
+  conceptKey?: string | null;
+  headCount?: number | null;
+  transport?: string;
+}
+
+export interface ItemInput {
+  dayNo: number;
+  startTime: string;
+  endTime: string;
+  placeLabel: string;
+  itemType: string;
 }
 
 export interface ContentCandidate {
@@ -111,31 +143,58 @@ export interface RunSummary {
   failedCount: number;
   releasable: boolean;
   releaseBlockedReason: string | null;
-  evidence: {
-    fetchedAt: string;
-    dataFingerprint: string | null;
-    rulesetVersion: string;
-    delayNotice: string;
-    source: string;
-  };
+  evidence: AuditEvidence;
+}
+
+/** 판정 근거 2단. 공사 원문은 여기 없다 — 펼칠 때 contentApi 로 조달한다 (5-6 · 5-12) */
+export interface EvidenceView {
+  aiNormalized: Record<string, unknown> | null;
+  verdict: unknown;
+}
+
+/** 검수 근거 영역 재료 (UI-CM-031). 화면 3 · 4 · 5 가 같은 것을 쓴다 */
+export interface AuditEvidence {
+  fetchedAt: string;
+  targetContentCount: number;
+  dataFingerprint: string | null;
+  /** 축약 옆에서 전체를 확인할 수 있어야 한다 (UI-CM-032) */
+  dataFingerprintFull: string | null;
+  rulesetVersion: string;
+  /** 공사 데이터 최종 수정일 원문 `YYYYMMDDHHmmss` */
+  ktoModifiedAt: string | null;
+  delayNotice: string;
+  source: string;
 }
 
 export interface Finding {
   findingId: number;
+  evidenceView: EvidenceView;
   ruleCode: string;
+  ruleVersion: string;
   severity: Severity;
   reasonCode: string;
   message: string;
-  target: { itemId: number | null };
-  targetSecondary: { itemId: number } | null;
+  target: FindingTarget;
+  targetSecondary: FindingTarget | null;
   requiresExternal: boolean;
   externalSource: string | null;
   sourceBadge: "TOURLINT_VERDICT" | "EXTERNAL_REFERENCE";
   needsConfirmation: boolean;
-  dismissed: boolean;
+  /** 차단은 무시할 수 없다. 버튼 제어용이며 API · DB 가 각각 다시 막는다 */
+  dismissible: boolean;
+  dismissedAt: string | null;
   dismissReason: string | null;
-  confirmed: boolean;
+  confirmedAt: string | null;
   patches: Patch[];
+}
+
+/** 항목이 사라졌거나 상품 전체 판정이면 `itemId` 만 온다 (API 설계 5-6) */
+export interface FindingTarget {
+  itemId: number | null;
+  dayNo?: number;
+  seq?: number;
+  startTime?: string;
+  placeLabel?: string;
 }
 
 export type PatchType = "TIME_SHIFT" | "REORDER" | "REPLACE_CONTENT" | "INSERT_ITEM" | "REMOVE_ITEM";
@@ -203,10 +262,17 @@ export interface PatchSelection {
 
 export interface UnverifiedItem {
   findingId: number;
+  /** 확정된 콘텐츠가 없으면 null (검수 제외 · 상품 전체 판정) */
+  contentid: string | null;
+  /** 사용자가 입력한 장소명. 공사 원문이 아니다 */
+  placeLabel: string | null;
   reason: string;
   reasonCode: string;
+  location: { dayNo: number; seq: number; startTime: string } | null;
   confirmedAt: true | null;
   excludedFromScore: boolean;
+  /** 출발 전 확인 항목에만 붙는 안내 */
+  note: string | null;
   targetItemId: number | null;
 }
 
@@ -229,6 +295,23 @@ export interface AuditJob {
 
 export const productApi = {
   detail: (productId: number) => request<ProductDetail>(`/products/${productId}`),
+  update: (productId: number, body: ProductUpdate) =>
+    request<void>(`/products/${productId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  remove: (productId: number) => request<void>(`/products/${productId}`, { method: "DELETE" }),
+  /** 출시 승인. 차단이 1건이라도 있으면 서버가 403 으로 막는다 (PM-NG-002) */
+  release: (productId: number) =>
+    request<{ productId: number; releasedAt: string }>(`/products/${productId}/release`, { method: "POST" }),
+};
+
+/** 일정 항목 편집 (FR-IN-014). 등록 이후에도 추가·삭제·시간 변경·순서 변경을 한다 */
+export const itemApi = {
+  add: (productId: number, item: ItemInput) =>
+    request<ProductItem>(`/products/${productId}/items`, { method: "POST", body: JSON.stringify(item) }),
+  patch: (itemId: number, patch: Partial<Omit<ItemInput, "dayNo">>) =>
+    request<ProductItem>(`/items/${itemId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  remove: (itemId: number) => request<void>(`/items/${itemId}`, { method: "DELETE" }),
+  reorder: (productId: number, items: readonly { itemId: number; dayNo: number; seq: number }[]) =>
+    request<void>(`/products/${productId}/items/order`, { method: "PUT", body: JSON.stringify({ items }) }),
 };
 
 export const auditApi = {
@@ -437,6 +520,8 @@ export interface ComparisonResult {
   after: { auditRunId: number; executedAt: string };
   metrics: ComparisonMetric[];
   warningBanner: string | null;
+  /** 화면 5 도 근거 영역을 고정 표시한다 (UI-CM-030). 반영 후 실행이 기준이다 */
+  evidence: AuditEvidence;
   revertible: boolean;
 }
 
@@ -447,12 +532,54 @@ export const comparisonApi = {
 
 // ── 리포트 (F11 · UI-S5-004 진입점) ───────────────────────────────────────────
 
+/** 관광지 1건 실시간 조회 (DR-PR-004). 저장하지 않으므로 볼 때 부른다 */
+export interface ContentDetail {
+  contentId: string;
+  fetchedAt: string;
+  hidden: boolean;
+  officialName: string | null;
+  homepageUrl: string | null;
+  contact: { tel: string | null };
+  /** 판정 필드 원문. 키는 공사 필드명 그대로다 */
+  ktoRaw: Record<string, string>;
+  ktoModifiedTime: string | null;
+  unavailableReason: string | null;
+}
+
+export const contentApi = {
+  detail: (contentId: string) => request<ContentDetail>(`/contents/${contentId}`),
+};
+
 export const reportApi = {
   // 렌더까지 끝내고 reportId 를 준다 (가장 최근 실행만, 아니면 409)
   generate: (runId: number) => request<{ reportId: string }>(`/audit-runs/${runId}/reports`, { method: "POST" }),
   // 다운로드는 브라우저 내비게이션으로 — 세션 쿠키가 실려 PDF 를 그대로 받는다.
   // 공통 fetch 래퍼는 .json() 이라 바이너리에 못 쓴다.
   downloadUrl: (reportId: string) => `/api/v1/reports/${reportId}/download`,
+  /**
+   * PDF 를 바이트로 받는다 — 화면 안 미리보기(UI-S6-007)에 쓴다.
+   *
+   * 공통 래퍼를 못 쓴다. 그쪽은 무조건 `.json()` 이라 바이너리에서 터진다.
+   * 오류 응답은 JSON 이므로 그때만 읽어 사유를 꺼낸다.
+   */
+  async fetchPdf(reportId: string): Promise<Blob> {
+    const res = await fetch(`/api/v1/reports/${reportId}/download`, { credentials: "include" });
+    if (!res.ok) {
+      let body: { reasonCode?: string; message?: string } = {};
+      try {
+        body = (await res.json()) as { reasonCode?: string; message?: string };
+      } catch {
+        body = {};
+      }
+      const err: ApiError = {
+        status: res.status,
+        reasonCode: body.reasonCode,
+        message: body.message ?? "리포트를 불러오지 못했습니다. 다시 만들어 주세요.",
+      };
+      throw err;
+    }
+    return res.blob();
+  },
 };
 
 // ── 관리자 설정 (F16 · UI-S8 · FR-OP-020~027) ────────────────────────────────

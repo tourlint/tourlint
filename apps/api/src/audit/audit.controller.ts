@@ -62,11 +62,11 @@ export class AuditController {
     @Param('runId', ParseIntPipe) runId: number,
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('run', runId, account.accountId);
-    const [run, fingerprint] = await Promise.all([
+    const [run, basis] = await Promise.all([
       this.service.getRun(runId),
-      this.service.runFingerprint(runId),
+      this.service.runBasis(runId),
     ]);
-    return toRunResponse(run, fingerprint);
+    return toRunResponse(run, basis);
   }
 
   /**
@@ -149,7 +149,12 @@ export class AuditController {
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('run', runId, account.accountId);
     const run = await this.service.getRun(runId);
-    return toFindingsResponse(run, severity, await this.service.replacementNames(run));
+    const [names, normalized, targets] = await Promise.all([
+      this.service.replacementNames(run),
+      this.service.normalizedByItem(run),
+      this.service.targetsByItem(run),
+    ]);
+    return toFindingsResponse(run, severity, names, normalized, targets);
   }
 
   /** 확인 필요 목록 (FR-AU-008 · API 설계 5-7) */
@@ -159,7 +164,8 @@ export class AuditController {
     @Param('runId', ParseIntPipe) runId: number,
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('run', runId, account.accountId);
-    return toUnverifiedResponse(await this.service.getRun(runId));
+    const run = await this.service.getRun(runId);
+    return toUnverifiedResponse(run, await this.service.itemsOf(run.productId));
   }
 
   /**
@@ -224,7 +230,7 @@ export class AuditController {
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('product', productId, account.accountId);
     const { application, before, after } = await this.service.getComparison(productId);
-    return toComparisonResponse(application, before, after);
+    return toComparisonResponse(application, before, after, await this.service.runBasis(after.id));
   }
 
   /** 규칙 목록 (API 설계 5-10). 레지스트리가 정본이다 */

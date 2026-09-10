@@ -1,4 +1,4 @@
-import type { ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
+import type { ExceptionReasonCode, ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
 import type { Pool } from 'pg';
 import type { FingerprintSnapshot } from '../engine/fingerprint/types';
 import type { Finding } from '../engine/rules/types';
@@ -54,7 +54,13 @@ export interface AuditResultToSave {
 export interface StoredFinding extends ScorableFinding {
   readonly id: number;
   readonly ruleCode: string;
-  readonly reasonCode: ReasonCode;
+  /** 판정을 낸 규칙셋 버전. 같은 상품이라도 규칙이 바뀌면 결과가 달라진다 (API 설계 5-6) */
+  readonly ruleVersion: string;
+  /**
+   * 규칙 사유코드 15종이 기본이지만 R06 비표출은 `CONTENT_HIDDEN` 을 쓴다 — 예외 코드
+   * 쪽에 있는 값이다 (EX-CM-022). 좁게 잡아 두면 저장된 값을 못 읽는다.
+   */
+  readonly reasonCode: ReasonCode | ExceptionReasonCode;
   readonly targetItemId: number | null;
   readonly targetItemId2: number | null;
   readonly message: string;
@@ -63,7 +69,19 @@ export interface StoredFinding extends ScorableFinding {
   readonly externalSource: string | null;
   readonly dismissReason: string | null;
   readonly confirmed: boolean;
+  /**
+   * 무시 · 확인한 **시각**. 불리언(`dismissed` · `confirmed`)은 이것에서 파생된 편의값이며
+   * 응답에는 시각이 나간다 (API 설계 5-6). 리포트는 「무시됨」 표시만 하므로 불리언을 쓴다.
+   */
+  readonly dismissedAt: Date | null;
+  readonly confirmedAt: Date | null;
   readonly patches: readonly Patch[];
+}
+
+/** 콘텐츠 1건의 해석 결과. `normalized` 는 해석하지 못했으면 `null` 이다 */
+export interface NormalizedView {
+  readonly normalized: unknown | null;
+  readonly confidence: string;
 }
 
 export interface StoredAuditRun {
@@ -199,9 +217,42 @@ export class AuditResultRepository {
     return rows.map((r) => ({ ktoContentId: r.kto_content_id, fieldHash: r.field_hash }));
   }
 
+  /**
+   * 그 실행이 남긴 **AI 해석** — 콘텐츠별 정규화 결과와 신뢰도 (FR-AU-007 · DR-NM).
+   *
+   * 판정 근거 3단 중 가운데 단이다. 자체 산출물이라 공사 호출 없이 DB 에서 온다 (5-12).
+   */
+  async normalizedOf(auditRunId: number): Promise<ReadonlyMap<string, NormalizedView>> {
+    const { rows } = await this.pool.query<{
+      kto_content_id: string; normalized_json: unknown | null; parse_confidence: string;
+    }>(
+      `SELECT kto_content_id, normalized_json, parse_confidence
+         FROM content_fingerprint WHERE audit_run_id = $1`,
+      [auditRunId],
+    );
+    return new Map(rows.map((r) => [
+      r.kto_content_id,
+      { normalized: r.normalized_json, confidence: r.parse_confidence },
+    ]));
+  }
+
+  /**
+   * 그 실행이 본 콘텐츠들의 **공사 데이터 최종 수정일** (UI-CM-031).
+   *
+   * `kto_modified_time` 은 `YYYYMMDDHHmmss` 원문이라 사전순 최대가 곧 최신이다.
+   * 변환하지 않고 그대로 보관한다 (DR-PR-008).
+   */
+  async latestKtoModifiedOf(auditRunId: number): Promise<string | null> {
+    const { rows } = await this.pool.query<{ latest: string | null }>(
+      `SELECT max(kto_modified_time) AS latest FROM content_fingerprint WHERE audit_run_id = $1`,
+      [auditRunId],
+    );
+    return rows[0]?.latest ?? null;
+  }
+
   async findingsOf(auditRunId: number): Promise<readonly StoredFinding[]> {
     const { rows } = await this.pool.query<FindingRow>(
-      `SELECT id, rule_code, severity, reason_code, target_item_id, target_item_id2,
+      `SELECT id, rule_code, rule_version, severity, reason_code, target_item_id, target_item_id2,
               message, evidence, requires_external, external_source, patches,
               dismissed_at, dismiss_reason, confirmed_at
          FROM finding WHERE audit_run_id = $1 ORDER BY id`,
@@ -398,6 +449,7 @@ interface FindingRow {
   target_item_id: string | null;
   target_item_id2: string | null;
   message: string;
+  rule_version: string;
   evidence: Record<string, unknown>;
   requires_external: boolean;
   external_source: string | null;
@@ -420,9 +472,12 @@ function toStoredFinding(row: FindingRow): StoredFinding {
     requiresExternal: row.requires_external,
     externalSource: row.external_source,
     patches: (row.patches ?? []) as StoredFinding['patches'],
+    ruleVersion: row.rule_version,
     dismissed: row.dismissed_at !== null,
+    dismissedAt: row.dismissed_at,
     dismissReason: row.dismiss_reason,
     confirmed: row.confirmed_at !== null,
+    confirmedAt: row.confirmed_at,
     needsConfirmation: row.evidence.needsConfirmation === true,
   };
 }

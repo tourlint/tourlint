@@ -37,9 +37,8 @@ describe('픽스처 리플레이 → 검수 지문', () => {
     }
 
     expect(buildRunFingerprint(entries)).toMatch(/^[0-9a-f]{64}$/);
-    // 리플레이도 호출 로그를 남긴다 — 다만 HTTP 를 타지 않았으므로 상태 코드가 없다
-    expect(logger.entries).toHaveLength(CASES.length);
-    expect(logger.entries.every((e) => e.httpStatus === null)).toBe(true);
+    // 리플레이는 증빙 로그를 남기지 않는다 (FR-OP-007). 예산도 그대로다
+    expect(logger.entries).toEqual([]);
   });
 
   it('같은 리플레이는 같은 대표 지문을 낸다 (NF-MT-001)', async () => {

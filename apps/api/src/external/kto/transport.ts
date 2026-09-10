@@ -111,6 +111,12 @@ export class HttpKtoTransport implements KtoTransport {
 export class FixtureKtoTransport implements KtoTransport {
   readonly kind = 'fixture' as const;
 
+  /**
+   * 오퍼레이션별 리플레이 횟수. 중복 제거·캐시가 실제로 호출을 줄이는지 세는 자리다 —
+   * 리플레이는 호출 로그를 남기지 않으므로(FR-OP-007) 로그로는 셀 수 없다.
+   */
+  readonly replayCounts = new Map<KtoOperation, number>();
+
   /** `operation` 또는 `operation:contentId` → 파일 경로 */
   private readonly index = new Map<string, string>();
 
@@ -120,10 +126,15 @@ export class FixtureKtoTransport implements KtoTransport {
 
   // 파일 읽기는 동기지만 인터페이스는 실호출과 같아야 한다 — 호출자가 두 모드를 구분하지 않는다
   async request(operation: KtoOperation, params: KtoParams): Promise<KtoTransportResult> {
+    this.replayCounts.set(operation, (this.replayCounts.get(operation) ?? 0) + 1);
     const contentId = params.contentId ?? params.contentid;
     const key = fixtureKey(operation, params, contentId);
 
-    const file = this.index.get(key);
+    /*
+     * 키워드별 스냅샷이 없으면 **기본 스냅샷으로 물러난다.** 검색어마다 스냅샷을 뜨는 것은
+     * 예산이라, 아직 안 뜬 검색어도 후보 목록은 받아 볼 수 있어야 한다.
+     */
+    const file = this.index.get(key) ?? (key.startsWith('searchKeyword2:kw:') ? this.index.get('searchKeyword2') : undefined);
     if (file !== undefined) {
       return { body: readFileSync(file, 'utf8'), httpStatus: null };
     }
@@ -172,6 +183,14 @@ export class FixtureKtoTransport implements KtoTransport {
           continue;
         }
       }
+      // 검색 스냅샷은 `04_searchKeyword2_경포대.json` 처럼 키워드를 파일명에 담는다
+      if (operation === 'searchKeyword2') {
+        const kw = /_searchKeyword2_(.+)\.json$/.exec(name);
+        if (kw !== null) {
+          this.index.set(`searchKeyword2:kw:${kw[1] ?? ''}`, path);
+          continue;
+        }
+      }
       // 그 밖의 목록·코드 조회는 먼저 발견한 스냅샷 하나만 쓴다
       if (!this.index.has(operation)) this.index.set(operation, path);
     }
@@ -209,6 +228,13 @@ function fixtureKey(
   if (contentId !== undefined) return `${operation}:${contentId}`;
   if (operation === 'ldongCode2' && params.lDongRegnCd !== undefined) {
     return `ldongCode2:regn:${params.lDongRegnCd}`;
+  }
+  /*
+   * 검색은 **키워드까지 키에 넣는다.** 오퍼레이션만으로 색인하면 어떤 검색어를 넣어도 같은
+   * 후보가 나와, 관통 검증에서 후보 정확도를 볼 수 없다 (이슈 #350).
+   */
+  if (operation === 'searchKeyword2' && typeof params.keyword === 'string' && params.keyword !== '') {
+    return `searchKeyword2:kw:${params.keyword}`;
   }
   return operation;
 }

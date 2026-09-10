@@ -91,14 +91,20 @@ export class NotificationRepository {
     return out;
   }
 
-  /** 조건 2 · 3 후보 — 감시 대상인 상품 전부. 날짜 · 지역 판정은 `ImpactFinder` 가 한다 */
-  async watchedProducts(today: IsoDate): Promise<readonly ImpactCandidate[]> {
+  /**
+   * 조건 2 · 3 후보 — 감시 대상 상품. 날짜 · 지역 판정은 `ImpactFinder` 가 한다.
+   *
+   * **출발일 임박순이다** (FR-MO-020). 상한에 걸려 잘려나가는 것은 가장 덜 급한 상품이어야
+   * 하고, 같은 날 출발이면 id 로 갈라 실행마다 같은 결과를 낸다 (NF-MT-001).
+   */
+  async watchedProducts(today: IsoDate, limit?: number): Promise<readonly ImpactCandidate[]> {
     const { rows } = await this.pool.query<CandidateRow>(
       `SELECT p.id, p.start_date, p.nights, p.ldong_signgu_cd
          FROM product p
         WHERE p.start_date + p.nights >= $1::date
-        ORDER BY p.id`,
-      [today],
+        ORDER BY p.start_date, p.id
+        LIMIT $2`,
+      [today, limit ?? null],
     );
     return rows.map(toCandidate);
   }

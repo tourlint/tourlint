@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KtoFetchError } from '../external/kto/kto.errors';
 import type { KtoClient } from '../external/kto';
@@ -8,18 +10,29 @@ import {
 /** 부른 횟수를 셀 수 있는 공사 스텁 */
 function stubKto(byId: Record<string, unknown> = {}) {
   const calls: string[] = [];
+  let made = 0;
   const kto = {
     detailCommon: async (contentId: string) => {
+      made ||= 1;
       calls.push(contentId);
       const found = byId[contentId];
       if (found instanceof Error) throw found;
       return (found ?? { title: `이름-${contentId}` }) as Record<string, unknown>;
     },
   } as unknown as KtoClient;
-  return { kto, calls };
+  // 리졸버는 클라이언트가 아니라 만드는 함수를 받는다 — 조립 시점에 만들면 키가 없을 때 던진다
+  return { kto: () => kto, calls, made: () => made };
 }
 
 describe('대체 관광지 이름 (DR-PR-001)', () => {
+  it('🔴 만들 때 공사 클라이언트를 세우지 않는다 — 인증키가 없으면 앱이 못 뜬다', () => {
+    const { kto, made } = stubKto();
+    let built = 0;
+    new PlaceNameResolver({ kto: () => { built += 1; return kto(); } });
+    expect(built).toBe(0);
+    expect(made()).toBe(0);
+  });
+
   it('콘텐츠 이름을 모아 온다', async () => {
     const { kto, calls } = stubKto();
     const names = await new PlaceNameResolver({ kto }).resolve(['1', '2']);
@@ -156,5 +169,30 @@ describe('수정안에 이름을 얹는다 (FR-PA-003)', () => {
   it('콘텐츠가 없는 추가(식사 자리)는 묻지 않는다', () => {
     // R07 식사 삽입은 자리만 만든다. 물어볼 콘텐츠가 없다
     expect(collectPatchContentIds(run as never)).toEqual(['111', '222']);
+  });
+});
+
+/**
+ * 6-4 는 「검수 실행 내 캐시는 요청 스코프 Map으로만」이고 이 캐시가 그 **예외**다
+ * (DB 명세서 v2.2 · 이슈 #364).
+ *
+ * 예외를 문서에 적어 두고 코드만 바꾸면 다시 어긋난다. 문서에서 숫자를 직접 읽어 맞춘다 —
+ * 둘 중 하나만 고치면 여기서 걸린다.
+ */
+describe('캐시 예외가 문서와 맞는가 (DB 명세서 6-4)', () => {
+  const spec = readFileSync(join(__dirname, '../../../../docs/notion/20_DB명세서.md'), 'utf8');
+  const row = /캐시 계층[\s\S]{0,1600}?<\/tr>/.exec(spec)?.[0] ?? '';
+
+  it('6-4 캐시 계층 행이 예외를 적고 있다', () => {
+    expect(row).toContain('PlaceNameResolver');
+  });
+
+  it('문서가 적은 TTL · 상한이 코드와 같다', () => {
+    const ttlMinutes = /TTL\s*(\d+)\s*분/.exec(row)?.[1];
+    const max = /최대\s*(\d+)\s*건/.exec(row)?.[1];
+    expect(ttlMinutes).toBeDefined();
+    expect(max).toBeDefined();
+    expect(NAME_TTL_MS).toBe(Number(ttlMinutes) * 60_000);
+    expect(NAME_CACHE_MAX).toBe(Number(max));
   });
 });

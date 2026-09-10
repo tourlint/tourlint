@@ -24,6 +24,25 @@ export class ProductController {
     return { ...(await this.service.create(account.accountId, body)) };
   }
 
+  /** 출시 승인. 차단이 1건이라도 있으면 403 (PM-NG-002 · EX-AU-008) */
+  @Post(':productId/release')
+  @HttpCode(200)
+  async release(
+    @CurrentAccount() account: SessionAccount,
+    @Param('productId', ParseIntPipe) productId: number,
+  ): Promise<Record<string, unknown>> {
+    return { ...(await this.service.release(account.accountId, productId)) };
+  }
+
+  /** 일정 항목 목록 (FR-IN-009) */
+  @Get(':productId/items')
+  async items(
+    @CurrentAccount() account: SessionAccount,
+    @Param('productId', ParseIntPipe) productId: number,
+  ): Promise<Record<string, unknown>> {
+    return this.service.items(account.accountId, productId);
+  }
+
   @Get()
   async list(
     @CurrentAccount() account: SessionAccount,

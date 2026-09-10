@@ -56,6 +56,13 @@ export const TRANSPORT = ['CHARTER_BUS', 'CAR', 'PUBLIC_TRANSIT'] as const;
 export type Transport = (typeof TRANSPORT)[number];
 
 /** 박수 0(당일) · 1(1박 2일) · 2(2박 3일)만 허용 — SC-PD-001 · ck_product_nights */
+/** 화면·리포트가 사람에게 보이는 표기. 저장·판정은 위 enum 값을 그대로 쓴다 */
+export const TRANSPORT_LABEL: Readonly<Record<Transport, string>> = {
+  CHARTER_BUS: '전세버스',
+  CAR: '자가용',
+  PUBLIC_TRANSIT: '대중교통',
+};
+
 export const NIGHTS_ALLOWED = [0, 1, 2] as const;
 
 // ─────────────────────────────────────────────────────────────
@@ -89,6 +96,16 @@ export const EXCEPTION_REASON_CODE = [
   'FORBIDDEN_ACTION', 'NOT_AUTHENTICATED', 'NOT_FOUND', 'REPORT_FAILED', 'INTERNAL_ERROR',
 ] as const;
 export type ExceptionReasonCode = (typeof EXCEPTION_REASON_CODE)[number];
+
+/**
+ * 외부 서비스 장애 안내 (EX-MS-003 · UI-ST-004).
+ *
+ * **제공자를 특정하지 않는다.** 사용자가 카카오모빌리티인지 기상청인지 알아야 할 이유가
+ * 없고, 알려 준다고 할 수 있는 일도 없다. 원인은 사유코드가 말한다.
+ *
+ * 판정 근거 영역의 외부 참고 출처 표기는 이것과 별개다 — 거기는 장애 안내가 아니라 근거다.
+ */
+export const EXTERNAL_UNAVAILABLE_MESSAGE = '일시적으로 조회할 수 없습니다.';
 
 /** 예외 처리 단위 8종 — 모든 예외는 이 중 하나를 가진다 (EX-CM-001) */
 export const EXCEPTION_UNIT = [

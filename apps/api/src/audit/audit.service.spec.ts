@@ -57,6 +57,24 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
     [2, 1, '09:00', '10:00', 'SIGHT', '경포벚꽃축제', '695592', 15, 'EV01'],
   ];
 
+  /** 큐 소비 테스트용 최소 상품 — 항목 1개. 파이프라인을 짧게 유지한다 */
+  async function makeProduct(): Promise<number> {
+    const prod = await pool.query<{ id: string }>(
+      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+       VALUES ($1,'큐 소비 검증 1박 2일','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+      [accountId],
+    );
+    const id = Number(prod.rows[0]?.id);
+    await pool.query(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label,
+          item_type, kto_content_id, content_type_id, lcls_systm2, mapx, mapy, match_status)
+       VALUES ($1,1,1,'12:00'::time,'13:00'::time,'INPUT','가람집옹심이','MEAL','2868839',39,'FD01',128.8961,37.7952,'CONFIRMED')`,
+      [id],
+    );
+    return id;
+  }
+
   afterEach(async () => {
     /*
      * 위쪽 경계를 같이 건다. 이 테스트가 만든 행만 지우려는 것인데 아래 경계만 두면
@@ -182,6 +200,38 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect((body.evidence as Record<string, unknown>).source).toBe('출처: ⓒ한국관광공사');
     });
 
+    it('finding 응답이 API 설계 5-6 형식이다', async () => {
+      const { job } = await service.requestAudit(productId, 'INITIAL');
+      await service.waitForIdle();
+      const run = await service.getRun((await service.getJob(job.id)).auditRunId as number);
+
+      const body = toFindingsResponse(run, undefined, new Map(), new Map(), await service.targetsByItem(run));
+      const content = body.content as Record<string, unknown>[];
+
+      // 판정을 낸 규칙 버전이 실려야 재현을 따질 수 있다 (NF-MT-001)
+      expect(String(content[0]?.ruleVersion)).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(content[0]).toMatchObject({ dismissedAt: null, confirmedAt: null });
+
+      // 차단만 무시할 수 없다. 등급별로 하나씩 찾으면 그 등급이 없는 상품에서 헛돈다
+      for (const f of content) {
+        expect(f.dismissible).toBe(f.severity !== 'BLOCKER');
+      }
+      expect(content.some((f) => f.severity === 'BLOCKER')).toBe(true);
+
+      // target 이 어디를 말하는지 담는다 — itemId 만으로는 화면이 못 그린다
+      const withItem = content.find((f) => (f.target as { itemId: number | null }).itemId !== null);
+      expect(withItem?.target).toMatchObject({
+        dayNo: expect.any(Number),
+        seq: expect.any(Number),
+        startTime: expect.any(String),
+        placeLabel: expect.any(String),
+      });
+
+      // 대상이 없는 판정(R04 · R10 처럼 상품 전체)은 id 만 준다. 없는 값을 지어내지 않는다
+      const noItem = content.find((f) => (f.target as { itemId: number | null }).itemId === null);
+      if (noItem !== undefined) expect(Object.keys(noItem.target as object)).toEqual(['itemId']);
+    });
+
     it('등급으로 거를 수 있다', async () => {
       const { job } = await service.requestAudit(productId, 'INITIAL');
       await service.waitForIdle();
@@ -203,20 +253,15 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(Number(rows[0]?.n)).toBe(3);
     });
 
-    it('호출 로그를 남긴다 — 공모전 활용 증빙이다 (FR-OP-001)', async () => {
+    it('리플레이 검수는 호출 로그를 남기지 않는다 — 증빙과 예산이 오염되지 않는다 (FR-OP-007)', async () => {
       await service.requestAudit(productId, 'INITIAL');
       await service.waitForIdle();
 
-      const { rows } = await pool.query<{ operation: string; n: string }>(
-        `SELECT operation, count(*)::text AS n FROM api_call_log
-          WHERE provider = 'KTO' AND called_at >= $1
-          GROUP BY operation ORDER BY operation`,
+      const { rows } = await pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM api_call_log WHERE provider = 'KTO' AND called_at >= $1`,
         [since],
       );
-      const ops = Object.fromEntries(rows.map((r) => [r.operation, Number(r.n)]));
-      expect(ops.detailIntro2).toBe(3);
-      // 리플레이도 로그를 남긴다. 실호출로 바꿔도 같은 자리에서 세어진다
-      expect(ops.detailCommon2).toBe(3);
+      expect(Number(rows[0]?.n)).toBe(0);
     });
   });
 
@@ -232,6 +277,32 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
 
   const pick = (picks: { findingId: number; patchId: string }[], i = 0): { findingId: number; patchId: string } =>
     picks[i] as { findingId: number; patchId: string };
+
+  /**
+   * 동시 실행 상한을 넘겨 쌓인 작업이 **남김없이 소비되는가** (NF-CP-004 · 이슈 #353).
+   *
+   * `drain()` 이 한 건만 집고 끝나던 때는 상한(3)에 걸려 돌아간 요청이 영영 `QUEUED` 로
+   * 남았다 — 앞의 작업이 끝나도 다시 집으러 오는 코드가 없었다. 상한보다 많이 넣어야
+   * 그 자리가 드러나므로 5건을 한 번에 건다.
+   */
+  describe('큐 소비 (NF-CP-004)', () => {
+    it('동시 실행 상한을 넘겨 쌓아도 전부 DONE 이 된다', async () => {
+      const ids = [productId];
+      for (let i = 0; i < 4; i += 1) ids.push(await makeProduct());
+
+      const queued = await Promise.all(ids.map((id) => service.requestAudit(id, 'INITIAL')));
+      expect(queued.every((q) => q.created)).toBe(true);
+
+      await service.waitForIdle();
+
+      const { rows } = await pool.query<{ n: string }>(
+        `SELECT count(*)::text n FROM audit_job
+          WHERE product_id = ANY($1::bigint[]) AND status <> 'DONE'`,
+        [ids],
+      );
+      expect(Number(rows[0]?.n)).toBe(0);
+    });
+  });
 
   describe('수정안 미리보기 (F08 · FR-PA-004 ~ 007)', () => {
     it('🔴 대체 관광지 수정안은 이름을 채워 돌려준다 (DR-PR-001)', async () => {
@@ -868,6 +939,85 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       for (const leak of ['ktoRaw', 'overview', 'usetime', 'restdate', 'homepage']) {
         expect(serialized, leak).not.toContain(leak);
       }
+    });
+
+    it('판정마다 AI 해석과 판정을 2단으로 담는다 (FR-AU-013 · 061)', async () => {
+      const { runId } = await runOnce();
+      const run = await service.getRun(runId);
+      const body = toFindingsResponse(run, undefined, new Map(), await service.normalizedByItem(run));
+
+      type Card = {
+        targetItemId?: number | null;
+        target: { itemId: number | null };
+        evidenceView: { aiNormalized: Record<string, unknown> | null; verdict: unknown };
+      };
+      const cards = body.content as Card[];
+      expect(cards.length).toBeGreaterThan(0);
+
+      const withContent = cards.filter((c) => c.evidenceView.aiNormalized !== null);
+      expect(withContent.length, '콘텐츠 판정에는 해석이 붙어야 한다').toBeGreaterThan(0);
+      for (const c of withContent) {
+        expect(c.evidenceView.aiNormalized).toHaveProperty('confidence');
+        expect(c.evidenceView.verdict).toBeDefined();
+      }
+      // 상품 전체 판정(R04 · R10)은 대상 콘텐츠가 없어 해석이 없다
+      for (const c of cards) {
+        if (c.target.itemId === null) expect(c.evidenceView.aiNormalized).toBeNull();
+      }
+    });
+
+    it('목록에는 공사 원문을 싣지 않는다 — 3단째는 펼칠 때 온다 (5-6 · 5-12)', async () => {
+      const { runId } = await runOnce();
+      const run = await service.getRun(runId);
+      const body = toFindingsResponse(run, undefined, new Map(), await service.normalizedByItem(run));
+
+      /*
+       * `sourceFieldNames` 가 `restdate` 같은 **필드명**을 담으므로 문자열 검사로는
+       * 원문 유무를 가릴 수 없다. 계약이 정한 것은 「원문 그릇(`ktoRaw`)이 목록에 없을 것」이다.
+       */
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('ktoRaw');
+      expect(serialized).not.toContain('overview');
+
+      const cards = body.content as { evidenceView: { aiNormalized: Record<string, unknown> | null } }[];
+      for (const c of cards) {
+        if (c.evidenceView.aiNormalized === null) continue;
+        // 해석 스키마 밖의 키가 섞이면 원문이 새는 통로가 된다
+        expect(Object.keys(c.evidenceView.aiNormalized)).toContain('schemaVersion');
+      }
+    });
+
+    it('항목마다 관광지명 · contentid · 일정 위치를 담는다 (FR-AU-081)', async () => {
+      const { runId } = await runOnce();
+      const run = await service.getRun(runId);
+      const body = toUnverifiedResponse(run, await service.itemsOf(run.productId));
+
+      type Row = {
+        placeLabel: string | null;
+        contentid: string | null;
+        location: { dayNo: number; seq: number; startTime: string } | null;
+        excludedFromScore: boolean;
+        note: string | null;
+      };
+      const rows = body.items as Row[];
+      const targeted = rows.filter((r) => r.location !== null);
+      expect(targeted.length).toBeGreaterThan(0);
+
+      for (const r of targeted) {
+        expect(r.placeLabel, 'placeLabel').toBeTruthy();
+        expect(r.contentid, 'contentid').toBeTruthy();
+        expect(r.location?.dayNo).toBeGreaterThan(0);
+        expect(r.location?.startTime).toMatch(/^\d{2}:\d{2}/);
+      }
+      // 안내 문구는 출발 전 확인 항목에만 붙는다 (FR-AU-085)
+      for (const r of rows) expect(r.note === null).toBe(!r.excludedFromScore);
+    });
+
+    it('일정 항목을 못 넘겨도 빈 값으로 응답한다 — 목록이 깨지지 않는다', async () => {
+      const { runId } = await runOnce();
+      const rows = toUnverifiedResponse(await service.getRun(runId)).items as
+        { placeLabel: string | null; location: unknown }[];
+      expect(rows.every((r) => r.placeLabel === null && r.location === null)).toBe(true);
     });
 
     it('검수 이력이 최신순이고 조회 시점 점수를 준다', async () => {

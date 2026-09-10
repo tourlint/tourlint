@@ -89,6 +89,27 @@ export class AuditJobRepository {
     return rows[0] === undefined ? null : toJob(rows[0]);
   }
 
+  /**
+   * 큐에서 다음 작업 한 건을 **집어 오면서 동시에 `RUNNING` 으로 바꾼다.**
+   *
+   * 고르기와 표시가 두 문장으로 갈려 있으면 그 사이에 다른 소비자가 같은 행을 고른다 —
+   * 상품이 다른 두 요청이 동시에 들어오면 각자 `drain()` 을 돌리므로 실제로 겹칠 수 있다.
+   * 한 문장으로 묶고 `SKIP LOCKED` 로 남이 잡은 행을 건너뛴다.
+   *
+   * `progress_total` 은 여기서 건드리지 않는다. 항목 수는 아직 안 셌고, 기본값 0 이라
+   * `ck_job_progress` 도 만족한다 — 세고 나서 `markRunning` 이 채운다.
+   */
+  async claimNext(): Promise<{ id: number; productId: number } | null> {
+    const { rows } = await this.pool.query<{ id: string; product_id: string }>(
+      `UPDATE audit_job SET status = 'RUNNING'
+        WHERE id = (SELECT id FROM audit_job WHERE status = 'QUEUED'
+                     ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1)
+        RETURNING id, product_id`,
+    );
+    const row = rows[0];
+    return row === undefined ? null : { id: Number(row.id), productId: Number(row.product_id) };
+  }
+
   async markRunning(jobId: number, total: number): Promise<void> {
     await this.pool.query(
       `UPDATE audit_job SET status = 'RUNNING', progress_total = $2, progress_done = 0 WHERE id = $1`,

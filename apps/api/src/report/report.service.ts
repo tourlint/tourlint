@@ -119,6 +119,11 @@ export class ReportService {
       patches: await this.toPatchHistory(patchRows),
       evidence,
       dataFingerprint: runFingerprintOf(fingerprints),
+      // 원문이 YYYYMMDDHHmmss 라 사전순 최대가 곧 최신이다 (DR-PR-008)
+      ktoModifiedAt: fingerprints.reduce<string | null>(
+        (latest, f) => (latest === null || f.ktoModifiedTime > latest ? f.ktoModifiedTime : latest),
+        null,
+      ),
       generatedAt: new Date(),
     });
   }

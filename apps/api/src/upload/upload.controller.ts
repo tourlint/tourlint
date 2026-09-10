@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Post,
@@ -12,6 +13,7 @@ import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { createReadStream } from 'node:fs';
 import { resolve } from 'node:path';
+import { NlService } from './nl.service';
 import { readSheetRows } from './read-sheet';
 import { parseSchedule, type ParseResult } from './schedule-parse';
 
@@ -37,6 +39,8 @@ const TEMPLATE_PATH = resolve(process.cwd(), '../../fixtures/excel/sample_3days_
 @ApiTags('실엔진')
 @Controller('api/v1/uploads')
 export class UploadController {
+  constructor(private readonly nl: NlService) {}
+
   /** 지정 양식 내려받기 (UI-S2-002) */
   @Get('template')
   template(@Res() res: Response): void {
@@ -69,5 +73,19 @@ export class UploadController {
     }
     const rows = await readSheetRows(file.buffer, file.originalname);
     return parseSchedule(rows);
+  }
+
+  /**
+   * 자연어 붙여넣기 정형화 (UI-S2-001③ · FR-IN-003).
+   *
+   * 업로드와 같은 모양을 돌려준다 — 화면이 같은 편집 경로를 쓴다 (UI-S2-010).
+   * 여기서도 **저장하지 않는다.**
+   */
+  @Post('schedule-text')
+  async scheduleText(@Body() body: { text?: unknown }): Promise<ParseResult> {
+    if (typeof body.text !== 'string') {
+      throw new BadRequestException('일정 텍스트를 붙여넣어 주세요.');
+    }
+    return this.nl.structure(body.text);
   }
 }

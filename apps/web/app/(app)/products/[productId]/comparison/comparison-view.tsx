@@ -16,6 +16,7 @@ import {
   type ComparisonResult,
 } from "../../../../lib/api";
 import { SourceBadge } from "../../../../components/badges";
+import { AuditBasis, basisRows } from "../../../../components/audit-basis";
 
 // 대부분의 지표는 낮을수록 좋다. 출시 준비도만 반대다.
 const HIGHER_BETTER = new Set(["readinessScore"]);
@@ -182,6 +183,12 @@ export function ComparisonView({ productId }: { productId: number }) {
           )}
 
           <MetricTable metrics={data.metrics} />
+
+          <AuditBasis
+            rows={basisRows(data.evidence)}
+            notice={data.evidence.delayNotice}
+            source={data.evidence.source}
+          />
         </div>
       )}
     </>

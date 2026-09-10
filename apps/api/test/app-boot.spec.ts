@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { NestFactory } from '@nestjs/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { RootController } from '../src/root/root.controller';
@@ -16,18 +16,36 @@ import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
  * 실행해 보는 테스트가 하나도 없었기 때문이다.
  *
  * DI 배선은 컴파일 타임에 검증되지 않는다. 모듈을 실제로 조립해 봐야만 드러난다.
+ *
+ * ## `NestFactory` 로 띄운다
+ *
+ * 종전에는 `Test.createTestingModule` 을 썼는데 **그건 `main.ts` 와 다른 경로다.** 테스트
+ * 모듈은 컨트롤러를 providers 쪽에서 풀어 주고 `NestFactory` 는 그러지 않아서, 컨트롤러를
+ * provider 로 잘못 등록한 상태가 여기서는 초록불이고 실행하면 죽었다 (이슈 #329).
+ * 같은 사고를 한 번 더 통과시키지 않으려면 조립 경로가 같아야 한다.
  */
 describe('앱 부팅', () => {
   let app: INestApplication;
+  let bootError: unknown = null;
 
   beforeAll(async () => {
     // Pool 은 생성 시점에 접속하지 않는다. 실제 DB 없이도 배선을 확인할 수 있다
     process.env.DATABASE_URL ??= 'postgres://boot-check@127.0.0.1:1/none';
 
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication();
-    app.useGlobalFilters(new AllExceptionsFilter());
-    await app.init();
+    /*
+     * main.ts 와 같은 경로로 조립한다. 로그는 끈다 — 부팅 성공 여부만 보면 된다.
+     *
+     * `abortOnError: false` 가 중요하다. 기본값이면 Nest 가 배선 실패에 프로세스를 죽여서
+     * vitest 워커가 통째로 사라지고 「Worker exited unexpectedly」만 남는다. 무엇이
+     * 안 풀렸는지는 안 나온다.
+     */
+    try {
+      app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
+      app.useGlobalFilters(new AllExceptionsFilter());
+      await app.init();
+    } catch (e) {
+      bootError = e;
+    }
   }, 30_000);
 
   afterAll(async () => {
@@ -35,6 +53,7 @@ describe('앱 부팅', () => {
   });
 
   it('모듈이 조립된다 — 주입이 전부 풀린다', () => {
+    expect(bootError, `부팅 실패: ${String(bootError)}`).toBeNull();
     expect(app).toBeDefined();
   });
 
@@ -48,6 +67,8 @@ describe('앱 부팅', () => {
       'GET /api/v1/audit-jobs/:jobId',
       'GET /api/v1/audit-runs/:runId',
       'GET /api/v1/audit-runs/:runId/findings',
+      // 근거 펼침 · 확인 필요 목록 펼침이 쓰는 실시간 조회 (5-12)
+      'GET /api/v1/contents/:contentId',
       // F08 · F09
       'POST /api/v1/products/:productId/patch-preview',
       'POST /api/v1/products/:productId/patch-applications',
@@ -64,6 +85,9 @@ describe('앱 부팅', () => {
       'GET /api/v1/radar/summary',
       'GET /api/v1/radar/changes',
       'GET /api/v1/radar/signals',
+      // 마지막 목업이던 둘 (NF-CO-002)
+      'POST /api/v1/products/:productId/release',
+      'GET /api/v1/products/:productId/items',
     ]) {
       expect(routes, r).toContain(r);
     }
@@ -83,6 +107,39 @@ describe('앱 부팅', () => {
     const seen = new Set<string>();
     const duplicated = routes.filter((r) => (seen.has(r) ? true : (seen.add(r), false)));
     expect(duplicated).toEqual([]);
+  });
+
+  it('🔴 매개변수 경로가 정적 경로를 가리지 않는다', () => {
+    /*
+     * `contents/:contentId` 가 `contents/search` 앞에 등록되면 검색어를 콘텐츠 번호로
+     * 읽는다 (이슈 #341). 경로 문자열이 달라 중복 검사로는 안 잡힌다.
+     *
+     * 같은 메서드 · 같은 깊이에서 한 자리만 다르고 그 자리가 한쪽은 매개변수, 다른 쪽은
+     * 정적인 쌍을 찾아 **정적 쪽이 먼저인지** 본다.
+     */
+    const routes = registeredRoutes(app);
+    const shadowed: string[] = [];
+
+    routes.forEach((param, i) => {
+      const [method, path] = param.split(' ');
+      if (path === undefined || !path.includes('/:')) return;
+      const parts = path.split('/');
+
+      routes.slice(i + 1).forEach((later) => {
+        const [m2, p2] = later.split(' ');
+        if (m2 !== method || p2 === undefined) return;
+        const other = p2.split('/');
+        if (other.length !== parts.length) return;
+
+        const diff = parts.filter((seg, k) => seg !== other[k]);
+        // 딱 한 자리만 다르고, 매개변수 쪽이 앞서 있으면 뒤엣것은 영영 안 닿는다
+        if (diff.length === 1 && diff[0]?.startsWith(':') === true) {
+          shadowed.push(`${later} ← ${param}`);
+        }
+      });
+    });
+
+    expect(shadowed).toEqual([]);
   });
 
   it('🔴 인증 없이 여는 것은 루트 · /health · /docs 뿐이다 (PM-AC-003 · 004)', () => {
@@ -135,8 +192,9 @@ describe('앱 부팅', () => {
     const saved = process.env.KTO_SERVICE_KEY;
     delete process.env.KTO_SERVICE_KEY;
     try {
-      const ref = await Test.createTestingModule({ imports: [AppModule] }).compile();
-      await ref.close();
+      const boot = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
+      await boot.init();
+      await boot.close();
     } finally {
       if (saved !== undefined) process.env.KTO_SERVICE_KEY = saved;
     }

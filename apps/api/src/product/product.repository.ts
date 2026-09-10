@@ -220,6 +220,33 @@ export class ProductRepository {
     return (rowCount ?? 0) > 0;
   }
 
+  /** 최신 검수의 차단 건수. 검수한 적이 없으면 `null` — 0 과 다르다 (DR-IN-007) */
+  async latestBlockerCount(accountId: number, productId: number): Promise<number | null | undefined> {
+    const { rows } = await this.pool.query<{ blocker_cnt: number | null }>(
+      `SELECT r.blocker_cnt
+         FROM product p
+         LEFT JOIN audit_run r ON r.product_id = p.id
+        WHERE p.id = $1 AND p.account_id = $2
+        ORDER BY r.executed_at DESC NULLS LAST
+        LIMIT 1`,
+      [productId, accountId],
+    );
+    // 행이 없으면 남의 상품이거나 없는 상품이다 (undefined). 있는데 검수가 없으면 null
+    if (rows.length === 0) return undefined;
+    return rows[0]?.blocker_cnt ?? null;
+  }
+
+  /** 출시 승인 시각을 기록한다. `trg_check_release` 가 마지막으로 한 번 더 막는다 */
+  async markReleased(accountId: number, productId: number): Promise<string | null> {
+    const { rows } = await this.pool.query<{ released_at: Date }>(
+      `UPDATE product SET released_at = now(), updated_at = now()
+        WHERE id = $1 AND account_id = $2
+        RETURNING released_at`,
+      [productId, accountId],
+    );
+    return rows.length === 0 ? null : isoStamp(rows[0]?.released_at ?? null);
+  }
+
   // ── 일정 항목 개별 CRUD (FR-IN-013/014) ──────────────────────────────────
   // 소유권은 item -> product -> account 로 스코프한다. 남의 항목은 0건이라 NOT_FOUND 가 된다.
 

@@ -1,6 +1,8 @@
 import { BadRequestException, HttpStatus } from '@nestjs/common';
+import type { PlaceNameResolver } from '../audit/place-name';
 import type { CatalogService } from '../catalog/catalog.service';
 import { DomainException } from '../common/domain.exception';
+import type { PatchApplicationRepository } from '../persistence/patch-application.repository';
 import {
   validateAddItem,
   validateCreate,
@@ -13,6 +15,7 @@ import {
 import {
   ProductRepository,
   type CreatedProduct,
+  type ItemDetail,
   type ProductDetailRow,
   type ProductListRow,
 } from './product.repository';
@@ -27,6 +30,8 @@ export class ProductService {
   constructor(
     private readonly repo: ProductRepository,
     private readonly catalog: CatalogService,
+    private readonly patches: PatchApplicationRepository,
+    private readonly placeNames: PlaceNameResolver,
   ) {}
 
   async create(accountId: number, dto: CreateProductDto): Promise<CreatedProduct> {
@@ -56,6 +61,43 @@ export class ProductService {
     };
   }
 
+  /**
+   * 출시 승인 (PM-NG-002 · EX-AU-008 · DR-IN-007).
+   *
+   * **화면 버튼을 비활성화하는 것만으로는 충족하지 않는다.** API 를 직접 불러도 막혀야 한다.
+   * DB 트리거(`trg_check_release`)가 마지막으로 한 번 더 막지만, 거기까지 가면 사용자가
+   * 읽을 수 없는 오류를 본다. 같은 판단을 여기서 먼저 해서 사유를 말해 준다.
+   */
+  async release(accountId: number, productId: number): Promise<{ productId: number; releasedAt: string | null }> {
+    const blockers = await this.repo.latestBlockerCount(accountId, productId);
+    if (blockers === undefined) throw notFound(productId);
+
+    if (blockers === null) {
+      throw new DomainException(
+        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
+        '검수하지 않은 상품은 출시할 수 없습니다. 먼저 검수를 실행해 주세요.', 'REQUEST',
+      );
+    }
+
+    if (blockers > 0) {
+      throw new DomainException(
+        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
+        `차단 ${blockers}건을 해결해야 출시할 수 있습니다.`, 'REQUEST',
+      );
+    }
+
+    const releasedAt = await this.repo.markReleased(accountId, productId);
+    if (releasedAt === null) throw notFound(productId);
+    return { productId, releasedAt };
+  }
+
+  /** 일정 항목 목록 (FR-IN-009). 일차 · 순번 정렬은 저장소가 한다 */
+  async items(accountId: number, productId: number): Promise<Record<string, unknown>> {
+    const row = await this.repo.detail(accountId, productId);
+    if (row === null) throw notFound(productId);
+    return { totalCount: row.items.length, items: row.items };
+  }
+
   async detail(accountId: number, productId: number): Promise<Record<string, unknown>> {
     const row = await this.repo.detail(accountId, productId);
     if (row === null) throw notFound(productId);
@@ -75,8 +117,42 @@ export class ProductService {
       transport: row.transport,
       releasedAt: row.releasedAt,
       createdAt: row.createdAt,
-      days: toDays(row.items),
+      days: toDays(await this.withCurrentNames(productId, row.items)),
     };
+  }
+
+  /**
+   * 패치로 콘텐츠가 바뀐 항목의 이름을 **응답에만** 채운다 (FR-PA-003 · DR-PR-001).
+   *
+   * 저장된 `place_label` 은 그대로다 — 대체 후보의 명칭은 공사 원문이라 저장할 수 없다.
+   * 그래서 미리보기에서는 새 관광지로 보이다가 확정하면 옛 이름으로 돌아가 있었다.
+   *
+   * 조회는 대체·추가된 항목 수만큼이고, 패치한 적 없는 상품은 0콜이다. 실패는 지역명
+   * 조회와 같이 삼킨다 — 이름은 부가 정보이고 일정 조회가 여기서 실패하면 안 된다.
+   */
+  private async withCurrentNames(
+    productId: number,
+    items: readonly ItemDetail[],
+  ): Promise<readonly ItemDetail[]> {
+    try {
+      const stale = await this.patches.staleLabelItemIds(productId);
+      if (stale.size === 0) return items;
+
+      const wanted = items
+        .filter((it) => stale.has(it.itemId) && it.ktoContentId !== null)
+        .map((it) => it.ktoContentId as string);
+      if (wanted.length === 0) return items;
+
+      const names = await this.placeNames.resolve(wanted);
+      return items.map((it) => {
+        if (!stale.has(it.itemId) || it.ktoContentId === null) return it;
+        const name = names.get(it.ktoContentId);
+        // 못 읽으면 저장된 라벨을 둔다. 지어내지 않는다
+        return name === undefined ? it : { ...it, place: name };
+      });
+    } catch {
+      return items;
+    }
   }
 
   async update(accountId: number, productId: number, dto: UpdateProductDto): Promise<{ productId: number; updated: true }> {

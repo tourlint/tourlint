@@ -45,7 +45,8 @@ function item(over: Partial<AssembleInput['items'][number]> = {}): AssembleInput
 function evidence(over: Partial<ContentEvidence> = {}): ContentEvidence {
   return {
     ktoContentId: '126508', officialName: '오죽헌', imageUrl: 'https://x/a.jpg',
-    homepageUrl: null, fields: [{ name: 'restdate', value: '연중무휴' }],
+    homepageUrl: null, contact: { tel: '033-640-4457' },
+    fields: [{ name: 'restdate', value: '연중무휴' }],
     ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null, ...over,
   };
 }
@@ -61,6 +62,7 @@ function input(over: Partial<AssembleInput> = {}): AssembleInput {
     patches: [],
     evidence: new Map([['126508', evidence()]]),
     dataFingerprint: 'ab12cd34',
+    ktoModifiedAt: '20260801120000',
     generatedAt: new Date('2026-08-29T02:00:00.000Z'),
     ...over,
   };

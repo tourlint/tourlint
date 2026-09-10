@@ -11,7 +11,7 @@ import { ITEM_TYPE, type ItemType } from '@tourlint/shared';
  */
 
 /** 양식 유형(한글) → 엔진 항목 유형 코드. 양식은 이 6종만 허용한다 */
-const TYPE_MAP: Record<string, ItemType> = {
+export const TYPE_MAP: Record<string, ItemType> = {
   관광: 'SIGHT',
   식사: 'MEAL',
   숙박: 'LODGING',
@@ -21,11 +21,11 @@ const TYPE_MAP: Record<string, ItemType> = {
 };
 
 /** 당일(0) ~ 2박 3일(2) → 최대 3일차 (SC-PD-001) */
-const MAX_DAY = 3;
+export const MAX_DAY = 3;
 /** 업로드 상한. 행은 파싱 전, 유효 항목은 파싱 후에 본다 (EX-IN-003 · 004 · NF-CP-003) */
 const MAX_ROWS = 500;
-const MAX_ITEMS = 45;
-const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const MAX_ITEMS = 45;
+export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const HEADER_TOKENS = ['일차', '시작시간', '종료시간', '장소명', '유형'];
 
 export interface ParsedItem {

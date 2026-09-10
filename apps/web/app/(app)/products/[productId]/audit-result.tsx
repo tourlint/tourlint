@@ -10,11 +10,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   auditApi,
+  contentApi,
+  EXTERNAL_UNAVAILABLE,
   isApiError,
   matchApi,
   patchApi,
   productApi,
+  reportApi,
   type ContentCandidate,
+  type ContentDetail,
+  type EvidenceView,
   type Finding,
   type Patch,
   type PatchApplicationDetail,
@@ -27,7 +32,9 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
-import { GradeBadge, GradeCounts, SourceBadge, StatusBadge } from "../../../components/badges";
+import { AuditBasis, basisRows } from "../../../components/audit-basis";
+import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
+import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
 
 const CONTENT_TYPE_LABEL: Record<number, string> = {
   12: "관광지",
@@ -266,6 +273,7 @@ export function AuditResult({ productId }: { productId: number }) {
   }
 
   const labelOf = itemLabeler(product);
+  const contentOf = contentIdOf(product);
   const selectedCount = Object.keys(selected).length;
   const pendingItems: ProductItem[] = product
     ? product.days.flatMap((d) => d.items).filter((it) => it.matchStatus === "PENDING")
@@ -291,16 +299,24 @@ export function AuditResult({ productId }: { productId: number }) {
             </p>
           )}
         </div>
-        {data && (
-          <button
-            type="button"
-            onClick={runAudit}
-            disabled={running || patchBusy !== null}
-            className="shrink-0 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        <div className="flex shrink-0 gap-2">
+          <Link
+            href={`/products/${productId}/edit`}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            {running ? "검수 중…" : "지금 재검수"}
-          </button>
-        )}
+            편집
+          </Link>
+          {data && (
+            <button
+              type="button"
+              onClick={runAudit}
+              disabled={running || patchBusy !== null}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              {running ? "검수 중…" : "지금 재검수"}
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -330,10 +346,11 @@ export function AuditResult({ productId }: { productId: number }) {
               }}
             />
           )}
-          <SummaryCard run={data.run} />
+          <SummaryCard run={data.run} releasedAt={product?.releasedAt ?? null} />
           <FindingsSection
             findings={data.findings}
             itemLabel={labelOf}
+            contentOf={contentOf}
             selected={selected}
             onSelectPatch={selectPatch}
             onChanged={refresh}
@@ -440,7 +457,7 @@ function MatchItemRow({
       const res = await matchApi.search(kw, useRegion ? regnCd : null, useRegion ? signguCd : null);
       setCandidates(res.candidates);
     } catch (e) {
-      setErr(isApiError(e) ? e.message : "검색에 실패했습니다.");
+      setErr(isApiError(e) ? e.message : EXTERNAL_UNAVAILABLE);
     } finally {
       setSearching(false);
     }
@@ -673,7 +690,7 @@ function ApplyResultBanner({
   );
 }
 
-function SummaryCard({ run }: { run: RunSummary }) {
+function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string | null }) {
   return (
     <section className="rounded-2xl border border-slate-200 p-6 dark:border-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -700,16 +717,17 @@ function SummaryCard({ run }: { run: RunSummary }) {
         </p>
       )}
 
-      <dl className="mt-4 grid gap-1 border-t border-slate-100 pt-4 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-        <div className="flex gap-2">
-          <dt>규칙셋</dt>
-          <dd className="text-slate-600 dark:text-slate-300">{run.evidence.rulesetVersion}</dd>
-          <dt className="ml-3">조회 시각</dt>
-          <dd className="text-slate-600 dark:text-slate-300">{formatStamp(run.evidence.fetchedAt)}</dd>
-        </div>
-        <p className="mt-1">{run.evidence.delayNotice}</p>
-        <p>{run.evidence.source}</p>
-      </dl>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <ReleaseButton
+          productId={run.productId}
+          releasable={run.releasable}
+          blockedReason={run.releaseBlockedReason}
+          releasedAt={releasedAt}
+        />
+        <ReportButton runId={run.auditRunId} releasable={run.releasable} />
+      </div>
+
+      <AuditBasis rows={basisRows(run.evidence)} notice={run.evidence.delayNotice} source={run.evidence.source} />
     </section>
   );
 }
@@ -717,6 +735,7 @@ function SummaryCard({ run }: { run: RunSummary }) {
 function FindingsSection({
   findings,
   itemLabel,
+  contentOf,
   selected,
   onSelectPatch,
   onChanged,
@@ -724,6 +743,7 @@ function FindingsSection({
 }: {
   findings: Finding[];
   itemLabel: (itemId: number | null) => string;
+  contentOf: (itemId: number | null) => string | null;
   selected: Record<number, string>;
   onSelectPatch: (findingId: number, patchId: string | null) => void;
   onChanged: () => Promise<void>;
@@ -746,6 +766,7 @@ function FindingsSection({
               key={f.findingId}
               finding={f}
               itemLabel={itemLabel}
+              contentId={contentOf(f.target.itemId)}
               selectedPatchId={selected[f.findingId] ?? null}
               onSelectPatch={onSelectPatch}
               onChanged={onChanged}
@@ -761,6 +782,7 @@ function FindingsSection({
 function FindingCard({
   finding,
   itemLabel,
+  contentId,
   selectedPatchId,
   onSelectPatch,
   onChanged,
@@ -768,6 +790,7 @@ function FindingCard({
 }: {
   finding: Finding;
   itemLabel: (itemId: number | null) => string;
+  contentId: string | null;
   selectedPatchId: string | null;
   onSelectPatch: (findingId: number, patchId: string | null) => void;
   onChanged: () => Promise<void>;
@@ -776,14 +799,16 @@ function FindingCard({
   const [dismissBusy, setDismissBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const meta = SEVERITY_META[finding.severity];
-  const canDismiss = finding.severity !== "BLOCKER";
-  const hasPatches = finding.patches.length > 0 && !finding.dismissed;
+  // 차단은 무시할 수 없다 — 서버가 판단해 `dismissible` 로 준다 (API 설계 5-6)
+  const canDismiss = finding.dismissible;
+  const dismissed = finding.dismissedAt !== null;
+  const hasPatches = finding.patches.length > 0 && !dismissed;
 
   async function toggleDismiss() {
     setDismissBusy(true);
     setErr(null);
     try {
-      if (finding.dismissed) await auditApi.undismissFinding(finding.findingId);
+      if (dismissed) await auditApi.undismissFinding(finding.findingId);
       else await auditApi.dismissFinding(finding.findingId);
       await onChanged();
     } catch (e) {
@@ -796,7 +821,7 @@ function FindingCard({
   return (
     <li
       className={`rounded-xl border border-l-4 border-slate-200 p-4 dark:border-slate-800 ${meta.bar} ${
-        finding.dismissed ? "opacity-60" : ""
+        dismissed ? "opacity-60" : ""
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -805,7 +830,7 @@ function FindingCard({
             <GradeBadge grade={finding.severity} />
             <span className="text-xs text-slate-400">{finding.ruleCode}</span>
             <SourceBadge source={finding.sourceBadge} externalName={finding.externalSource} />
-            {finding.dismissed && <StatusBadge status="DISMISSED" />}
+            {dismissed && <StatusBadge status="DISMISSED" />}
           </div>
           <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{finding.message}</p>
           <p className="mt-1 text-xs text-slate-400">
@@ -815,6 +840,7 @@ function FindingCard({
           {finding.requiresExternal && finding.externalSource && (
             <p className="mt-1 text-xs text-slate-400">외부 참고: {finding.externalSource}</p>
           )}
+          <EvidencePanel contentId={contentId} view={finding.evidenceView} />
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
         </div>
         {canDismiss && (
@@ -824,7 +850,7 @@ function FindingCard({
             disabled={dismissBusy}
             className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            {finding.dismissed ? "무시 해제" : "무시"}
+            {dismissed ? "무시 해제" : "무시"}
           </button>
         )}
       </div>
@@ -1033,9 +1059,14 @@ function UnverifiedRow({
       <div className="min-w-0">
         <p className="text-sm text-slate-800 dark:text-slate-200">{item.reason}</p>
         <p className="mt-1 text-xs text-slate-400">
-          대상: {itemLabel(item.targetItemId)}
-          {item.excludedFromScore && " · 감점 제외(출발 전 확인)"}
+          대상: {item.placeLabel ?? itemLabel(item.targetItemId)}
+          {item.location !== null && ` · ${item.location.dayNo}일차 ${item.location.startTime}`}
+          {item.excludedFromScore && " · 감점 제외"}
         </p>
+        {item.note !== null && (
+          <p className="mt-1 text-xs text-slate-400">{item.note}</p>
+        )}
+        <EvidencePanel contentId={item.contentid} extra />
       </div>
       <button
         type="button"
@@ -1212,6 +1243,349 @@ function ScheduleColumn({
 }
 
 /** itemId 를 "1일차 · 강릉 경포대" 형태로. 대상이 없으면 상품 전체 판정이다 */
+/**
+ * 한 번 펼친 콘텐츠는 다시 부르지 않는다 (5-12). 새로고침하면 비는 것이 맞다 —
+ * 오래 들고 있으면 그건 저장이다 (DR-PR-004).
+ */
+const contentCache = new Map<string, ContentDetail>();
+
+/** 항목 id → 확정된 콘텐츠 번호. 없으면 검수 제외이거나 상품 전체 판정이다 */
+function contentIdOf(product: ProductDetail | null): (itemId: number | null) => string | null {
+  const map = new Map<number, string | null>();
+  if (product) {
+    for (const day of product.days) {
+      for (const it of day.items) map.set(it.itemId, it.ktoContentId);
+    }
+  }
+  return (itemId) => (itemId === null ? null : (map.get(itemId) ?? null));
+}
+
+/**
+ * 판단 근거 — 공사 원문 · AI 해석 · 판정 3단 병기 (FR-AU-013 · 061).
+ *
+ * **기본은 접힘이다** (UI-S3-011). 8건을 한꺼번에 펼치면 화면에 들어올 때마다 공사 호출이
+ * 그만큼 나간다. 펼친 그 1건만 부른다 (5-12).
+ *
+ * 원문은 한 글자도 고치지 않는다. 관광지 개요는 요약·재작성하지 않으므로 애초에 받지 않는다
+ * (FR-AU-062).
+ */
+function EvidencePanel({
+  contentId,
+  view,
+  extra,
+}: {
+  contentId: string | null;
+  view?: EvidenceView;
+  /** 확인 필요 목록은 문의처·홈페이지를 함께 보인다 (FR-AU-081 · 082) */
+  extra?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [content, setContent] = useState<ContentDetail | null>(
+    contentId === null ? null : (contentCache.get(contentId) ?? null),
+  );
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const ai = readNormalized(view?.aiNormalized);
+  const verdict = readVerdict(view?.verdict);
+
+  async function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (!next || contentId === null || content !== null || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const got = await contentApi.detail(contentId);
+      contentCache.set(contentId, got);
+      setContent(got);
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : EXTERNAL_UNAVAILABLE);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={toggle}
+        className="text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
+      >
+        {open ? "판단 근거 접기" : "판단 근거 보기"}
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-3 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900/60">
+          <EvidenceBlock label="공사 원문" badge="KTO_ORIGINAL">
+            {busy && <p className="text-slate-400">불러오는 중…</p>}
+            {err !== null && <p className="text-slate-500 dark:text-slate-400">{err}</p>}
+            {!busy && err === null && content === null && (
+              <p className="text-slate-400">{contentId === null ? "대상 콘텐츠가 없습니다." : "정보 없음"}</p>
+            )}
+            {content !== null && content.hidden && (
+              <p className="text-slate-500 dark:text-slate-400">
+                공사에서 표출이 중단된 콘텐츠입니다 ({content.contentId})
+              </p>
+            )}
+            {content !== null && !content.hidden && (
+              <dl className="grid gap-1">
+                {Object.entries(content.ktoRaw).map(([name, value]) => (
+                  <div key={name} className="flex gap-2">
+                    <dt className="shrink-0 text-slate-400">{name}</dt>
+                    {/* 원문 그대로 — 다듬지 않는다 */}
+                    <dd className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{value || "—"}</dd>
+                  </div>
+                ))}
+                {content.unavailableReason !== null && (
+                  <p className="text-slate-400">조회하지 못했습니다 ({content.unavailableReason})</p>
+                )}
+              </dl>
+            )}
+          </EvidenceBlock>
+
+          {/* 확인 필요 목록은 판정이 없어서 온 항목이라 2단을 그리지 않는다 */}
+          {view !== undefined && (
+            <>
+              <EvidenceBlock label="AI 해석" badge="AI_NORMALIZED">
+                {ai.length === 0 ? <p className="text-slate-400">해석 결과가 없습니다.</p> : <Rows rows={ai} />}
+              </EvidenceBlock>
+
+              <EvidenceBlock label="판정" badge="TOURLINT_VERDICT">
+                {verdict.length === 0 ? <p className="text-slate-400">판정 입력값이 없습니다.</p> : <Rows rows={verdict} />}
+              </EvidenceBlock>
+            </>
+          )}
+
+          {extra === true && (
+            <EvidenceBlock label="확인처" badge="KTO_ORIGINAL">
+              <div className="grid gap-1">
+                <div className="flex gap-2">
+                  <span className="shrink-0 text-slate-400">문의처</span>
+                  {content?.contact.tel != null && content.contact.tel !== "" ? (
+                    <a className="text-indigo-600 hover:underline dark:text-indigo-400" href={`tel:${content.contact.tel}`}>
+                      {content.contact.tel}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400">{contactText(content?.contact.tel)}</span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <span className="shrink-0 text-slate-400">홈페이지</span>
+                  {content?.homepageUrl != null && content.homepageUrl !== "" ? (
+                    <a
+                      className="truncate text-indigo-600 hover:underline dark:text-indigo-400"
+                      href={content.homepageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {content.homepageUrl}
+                    </a>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400">정보 없음</span>
+                  )}
+                </div>
+              </div>
+            </EvidenceBlock>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceBlock({
+  label,
+  badge,
+  children,
+}: {
+  label: string;
+  badge: SourceKind;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="font-medium text-slate-600 dark:text-slate-300">{label}</span>
+        <SourceBadge source={badge} externalName={null} />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Rows({ rows }: { rows: { label: string; value: string }[] }) {
+  return (
+    <dl className="grid gap-1">
+      {rows.map((r) => (
+        <div key={r.label} className="flex gap-2">
+          <dt className="shrink-0 text-slate-400">{r.label}</dt>
+          <dd className="text-slate-700 dark:text-slate-200">{r.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * 출시 승인 (FR-AU-042 · PM-NG-002).
+ *
+ * 차단이 있으면 버튼을 비활성화한다. **그것만으로는 충족하지 않아서** 서버가 403 으로
+ * 한 번 더 막고 DB 트리거가 마지막으로 막는다 — 세 곳이 각각 막는다 (EX-AU-008).
+ */
+function ReleaseButton({
+  productId,
+  releasable,
+  blockedReason,
+  releasedAt,
+}: {
+  productId: number;
+  releasable: boolean;
+  blockedReason: string | null;
+  releasedAt: string | null;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(releasedAt);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function release() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await productApi.release(productId);
+      setDone(r.releasedAt);
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "출시 승인을 처리하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done !== null) {
+    return (
+      <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+        출시 승인됨 · {formatStamp(done)}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-4 flex items-center gap-3">
+      <button
+        type="button"
+        onClick={release}
+        disabled={!releasable || busy}
+        title={releasable ? undefined : (blockedReason ?? "차단을 해결해야 출시할 수 있습니다.")}
+        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {busy ? "처리 중…" : "출시 승인"}
+      </button>
+      {err !== null && <span className="text-xs text-rose-600 dark:text-rose-400">{err}</span>}
+    </div>
+  );
+}
+
+/**
+ * 리포트 생성 (F11 · UI-S5-004 와 같은 조건).
+ *
+ * 종전에는 진입점이 전후 비교 화면에만 있어서 **수정안을 한 번도 반영하지 않은 상품은
+ * 리포트를 만들 수 없었다** (이슈 #349). 고칠 것이 없어 패치를 안 한 상품이야말로
+ * 리포트를 뽑고 싶은 대상이다.
+ *
+ * 조건은 화면 5 와 같다 — 차단 0건일 때만 연다. 리포트 대상은 **가장 최근 검수 실행**이라
+ * 화면이 보고 있는 그 실행이 곧 대상이다 (아니면 서버가 409 로 막는다).
+ */
+function ReportButton({ runId, releasable }: { runId: number; releasable: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ url: string; reportId: string } | null>(null);
+
+  /*
+   * blob URL 은 이 문서가 들고 있는 동안만 유효하다. 다시 만들거나 화면을 뜨면 놓아준다 —
+   * 안 놓으면 탭이 살아 있는 내내 PDF 가 메모리에 남는다.
+   */
+  useEffect(() => {
+    if (preview === null) return undefined;
+    return () => URL.revokeObjectURL(preview.url);
+  }, [preview]);
+
+  async function generate() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { reportId } = await reportApi.generate(runId);
+      // 화면 안에서 보여주려면 바이트가 필요하다. 내려받기는 아래에서 별도 링크로 건다
+      const blob = await reportApi.fetchPdf(reportId);
+      setPreview({ url: URL.createObjectURL(blob), reportId });
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "리포트를 만들지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!releasable) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={generate}
+        disabled={busy}
+        aria-busy={busy}
+        className="rounded-lg border border-emerald-300 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+      >
+        {busy ? "만드는 중…" : preview === null ? "리포트 생성" : "다시 만들기"}
+      </button>
+      {/*
+        진행 상태는 부정형이다 (UI-S6-007). 몇 퍼센트인지는 만들 수 없다 — PDF 를 서버에
+        못 두니(DB 명세서 6-4) 작업 행이 없고, 생성이 1초 안쪽이라 단계를 쪼개도 연출이다.
+      */}
+      {busy && (
+        <span role="status" className="text-xs text-slate-500 dark:text-slate-400">
+          리포트를 만들고 있습니다…
+        </span>
+      )}
+      {err !== null && <span className="text-xs text-rose-600 dark:text-rose-400">{err}</span>}
+
+      {preview !== null && (
+        <div className="mt-2 w-full">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-slate-700 dark:text-slate-200">리포트 미리보기</h3>
+            <div className="flex items-center gap-2">
+              {/* 내려받기는 브라우저 내비게이션으로 — 서버가 준 한글 파일명이 그대로 붙는다 */}
+              <a
+                href={reportApi.downloadUrl(preview.reportId)}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                내려받기
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+          <object
+            data={preview.url}
+            type="application/pdf"
+            aria-label="리포트 미리보기"
+            className="mt-2 h-[70vh] w-full rounded-lg border border-slate-200 dark:border-slate-800"
+          >
+            <p className="p-4 text-sm text-slate-600 dark:text-slate-300">
+              이 브라우저는 PDF 미리보기를 지원하지 않습니다. 내려받아 확인해 주세요.
+            </p>
+          </object>
+        </div>
+      )}
+    </>
+  );
+}
+
 function itemLabeler(product: ProductDetail | null): (itemId: number | null) => string {
   const map = new Map<number, string>();
   if (product) {

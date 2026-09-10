@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import type { Pool } from 'pg';
+import { PlaceNameResolver } from './audit/place-name';
 import { AuditController } from './audit/audit.controller';
 import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
@@ -12,12 +13,15 @@ import { SignalRunner } from './batch/signal-runner';
 import { SyncBatchJob } from './batch/sync-batch.job';
 import { SyncBatchScheduler } from './batch/sync-batch.scheduler';
 import { CatalogController } from './catalog/catalog.controller';
+import { ContentController } from './content/content.controller';
+import { ContentService } from './content/content.service';
 import { CatalogService } from './catalog/catalog.service';
 import { DemoController } from './demo/demo.controller';
 import { evaluateBudget } from './external/budget-guard';
 import { createKtoClient, type KtoClient } from './external/kto';
 import type { ContentTypeId } from '@tourlint/shared';
 import { DB_POOL, getPool } from './persistence/db';
+import { PatchApplicationRepository } from './persistence/patch-application.repository';
 import { PgApiCallLogger } from './persistence/api-call-log.repository';
 import { AuditResultRepository } from './persistence/audit-result.repository';
 import { BatchStateRepository } from './persistence/batch-state.repository';
@@ -38,8 +42,8 @@ import { RadarRepository } from './radar/radar.repository';
 import { RadarService } from './radar/radar.service';
 import { ReportController } from './report/report.controller';
 import { ReportService } from './report/report.service';
+import { NlService } from './upload/nl.service';
 import { UploadController } from './upload/upload.controller';
-import { MockController } from './mock/mock.controller';
 import { RootController } from './root/root.controller';
 import { UsageController } from './usage/usage.controller';
 import { UsageService } from './usage/usage.service';
@@ -51,9 +55,9 @@ import { SettingsTablesService } from './settings/settings-tables.service';
 import { SettingsTablesRepository } from './settings/settings-tables.repository';
 
 /**
- * `MockController` 는 아직 교체되지 않은 라우트를 담당한다. 실엔진으로 교체된 라우트는
- * 즉시 제거한다 — 공사 호출을 모의 응답으로 전면 대체한 채 제출하면 심사에서
- * 제외된다 (NF-CO-002 · FR-OP-009).
+ * 목업은 남아 있지 않다. 마지막 두 라우트(출시 승인 · 항목 목록)를 실엔진으로 옮기면서
+ * `src/mock` 을 통째로 지웠다 — 공사 호출을 모의 응답으로 전면 대체한 채 제출하면
+ * 심사에서 제외된다 (NF-CO-002 · FR-OP-009).
  *
  * DB 풀은 `DB_POOL` **심볼 토큰**으로 주입한다. `pg` 의 `Pool` 클래스를 토큰으로 쓰면
  * 타입 전용 import 한 곳에서 런타임 값이 지워져 주입이 깨진다.
@@ -70,12 +74,29 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
     RootController, HealthController,
     AuthController, CatalogController, UploadController,
     AuditController, UsageController, DemoController, ProductController, ItemController, PlaceMatchController,
+    /*
+     * `ContentController` 의 `contents/:contentId` 는 **정적 경로 뒤에 둔다.** 앞에 두면
+     * `contents/search` 를 삼켜 검색어가 콘텐츠 번호로 읽힌다 (이슈 #341).
+     * 순서에만 기대지 않도록 `app-boot` 이 가려짐을 검사한다.
+     */
+    ContentController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
-    MockController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
     { provide: APP_GUARD, useClass: AuthGuard },
+    {
+      // 자연어 붙여넣기 정형화 (F01 · FR-IN-003). 저장하지 않는다 (UI-S2-010)
+      provide: NlService,
+      useFactory: (pool: Pool) => new NlService(new PgApiCallLogger(pool)),
+      inject: [DB_POOL],
+    },
+    {
+      // 관광지 1건 실시간 조회 (5-12 근거 펼침). 저장하지 않는다 (DR-PR-004)
+      provide: ContentService,
+      useFactory: (pool: Pool) => new ContentService(() => createKtoClient(new PgApiCallLogger(pool))),
+      inject: [DB_POOL],
+    },
     {
       // 관리자 설정 (F16). 계정 설정 조회·저장 + 전역 설정 조회 (PM-DA-005)
       provide: SettingsService,
@@ -97,7 +118,13 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
     {
       // 상품 CRUD. 목록의 지역명 조회에 CatalogService 를 재사용한다 (fixture 리플레이라 예산 0)
       provide: ProductService,
-      useFactory: (pool: Pool, catalog: CatalogService) => new ProductService(new ProductRepository(pool), catalog),
+      useFactory: (pool: Pool, catalog: CatalogService) => new ProductService(
+        new ProductRepository(pool),
+        catalog,
+        new PatchApplicationRepository(pool),
+        // 대체·추가된 항목의 이름은 표시할 때 읽는다 (FR-PA-003 · DR-PR-001)
+        new PlaceNameResolver({ kto: () => createKtoClient(new PgApiCallLogger(pool)) }),
+      ),
       inject: [DB_POOL, CatalogService],
     },
     {

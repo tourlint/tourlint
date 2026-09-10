@@ -8,10 +8,12 @@ import { CatalogService } from './catalog.service';
 // fixtures/kto 의 실호출 스냅샷을 리플레이한다 (kto.factory 의 기본 경로와 동일).
 const FIXTURE_DIR = resolve(process.cwd(), '../../fixtures/kto');
 
-function factory(logger = new InMemoryApiCallLogger()): { make: () => KtoClient; logger: InMemoryApiCallLogger } {
+function factory(): { make: () => KtoClient; transport: FixtureKtoTransport } {
+  // 리플레이는 호출 로그를 남기지 않으므로(FR-OP-007) 호출 수는 transport 가 센다
+  const transport = new FixtureKtoTransport(FIXTURE_DIR);
   return {
-    make: () => new KtoClient({ transport: new FixtureKtoTransport(FIXTURE_DIR), logger }),
-    logger,
+    make: () => new KtoClient({ transport, logger: new InMemoryApiCallLogger() }),
+    transport,
   };
 }
 
@@ -40,11 +42,10 @@ describe('CatalogService', () => {
   });
 
   it('두 번 불러도 공사 호출은 한 번뿐이다 — 캐시로 예산을 아낀다', async () => {
-    const { make, logger } = factory();
+    const { make, transport } = factory();
     const svc = new CatalogService(make);
     await svc.regions();
     await svc.regions();
-    const ldongCalls = logger.entries.filter((e) => e.operation === 'ldongCode2');
-    expect(ldongCalls).toHaveLength(1);
+    expect(transport.replayCounts.get('ldongCode2')).toBe(1);
   });
 });
