@@ -668,17 +668,26 @@ export class AuditService {
     }
   }
 
-  /** 큐를 비운다. 동시 실행 상한을 넘지 않는다 */
+  /**
+   * 큐를 **빌 때까지** 비운다. 동시 실행 상한은 넘지 않는다 (NF-CP-004).
+   *
+   * 한 건만 집고 끝내면 상한에 걸려 돌아간 요청이 영영 안 풀린다. 호출처가 검수 요청과
+   * 수정안 반영 두 곳뿐이고 주기 실행이 없어서, 앞의 작업이 끝나도 **다시 집으러 오는
+   * 코드가 없었다** — 4건을 연속으로 넣으면 3건만 돌고 4번째가 `QUEUED` 로 남았다
+   * (이슈 #353). 슬롯을 잡은 쪽이 큐가 빌 때까지 계속 집는다.
+   *
+   * `execute` 는 자기 예외를 스스로 삼키고 작업을 `FAILED` 로 남긴다. 한 건이 실패해도
+   * 루프는 그대로 다음 건으로 간다.
+   */
   private async drain(): Promise<void> {
     if (this.running >= MAX_RUNNING) return;
     this.running++;
     try {
-      const { rows } = await this.pool.query<{ id: string; product_id: string }>(
-        `SELECT id, product_id FROM audit_job WHERE status = 'QUEUED' ORDER BY id LIMIT 1`,
-      );
-      const row = rows[0];
-      if (row === undefined) return;
-      await this.execute(Number(row.id), Number(row.product_id));
+      for (;;) {
+        const job = await this.jobs.claimNext();
+        if (job === null) return;
+        await this.execute(job.id, job.productId);
+      }
     } catch (e) {
       // 큐 소비 실패가 요청 경로로 새어 나가면 안 된다. 202 는 이미 나갔다
       this.logger.error('검수 큐 소비 실패', e);
