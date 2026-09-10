@@ -57,6 +57,24 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
     [2, 1, '09:00', '10:00', 'SIGHT', '경포벚꽃축제', '695592', 15, 'EV01'],
   ];
 
+  /** 큐 소비 테스트용 최소 상품 — 항목 1개. 파이프라인을 짧게 유지한다 */
+  async function makeProduct(): Promise<number> {
+    const prod = await pool.query<{ id: string }>(
+      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+       VALUES ($1,'큐 소비 검증 1박 2일','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+      [accountId],
+    );
+    const id = Number(prod.rows[0]?.id);
+    await pool.query(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label,
+          item_type, kto_content_id, content_type_id, lcls_systm2, mapx, mapy, match_status)
+       VALUES ($1,1,1,'12:00'::time,'13:00'::time,'INPUT','가람집옹심이','MEAL','2868839',39,'FD01',128.8961,37.7952,'CONFIRMED')`,
+      [id],
+    );
+    return id;
+  }
+
   afterEach(async () => {
     /*
      * 위쪽 경계를 같이 건다. 이 테스트가 만든 행만 지우려는 것인데 아래 경계만 두면
@@ -227,6 +245,32 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
 
   const pick = (picks: { findingId: number; patchId: string }[], i = 0): { findingId: number; patchId: string } =>
     picks[i] as { findingId: number; patchId: string };
+
+  /**
+   * 동시 실행 상한을 넘겨 쌓인 작업이 **남김없이 소비되는가** (NF-CP-004 · 이슈 #353).
+   *
+   * `drain()` 이 한 건만 집고 끝나던 때는 상한(3)에 걸려 돌아간 요청이 영영 `QUEUED` 로
+   * 남았다 — 앞의 작업이 끝나도 다시 집으러 오는 코드가 없었다. 상한보다 많이 넣어야
+   * 그 자리가 드러나므로 5건을 한 번에 건다.
+   */
+  describe('큐 소비 (NF-CP-004)', () => {
+    it('동시 실행 상한을 넘겨 쌓아도 전부 DONE 이 된다', async () => {
+      const ids = [productId];
+      for (let i = 0; i < 4; i += 1) ids.push(await makeProduct());
+
+      const queued = await Promise.all(ids.map((id) => service.requestAudit(id, 'INITIAL')));
+      expect(queued.every((q) => q.created)).toBe(true);
+
+      await service.waitForIdle();
+
+      const { rows } = await pool.query<{ n: string }>(
+        `SELECT count(*)::text n FROM audit_job
+          WHERE product_id = ANY($1::bigint[]) AND status <> 'DONE'`,
+        [ids],
+      );
+      expect(Number(rows[0]?.n)).toBe(0);
+    });
+  });
 
   describe('수정안 미리보기 (F08 · FR-PA-004 ~ 007)', () => {
     it('🔴 대체 관광지 수정안은 이름을 채워 돌려준다 (DR-PR-001)', async () => {
