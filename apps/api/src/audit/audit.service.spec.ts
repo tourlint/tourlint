@@ -200,6 +200,38 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect((body.evidence as Record<string, unknown>).source).toBe('출처: ⓒ한국관광공사');
     });
 
+    it('finding 응답이 API 설계 5-6 형식이다', async () => {
+      const { job } = await service.requestAudit(productId, 'INITIAL');
+      await service.waitForIdle();
+      const run = await service.getRun((await service.getJob(job.id)).auditRunId as number);
+
+      const body = toFindingsResponse(run, undefined, new Map(), new Map(), await service.targetsByItem(run));
+      const content = body.content as Record<string, unknown>[];
+
+      // 판정을 낸 규칙 버전이 실려야 재현을 따질 수 있다 (NF-MT-001)
+      expect(String(content[0]?.ruleVersion)).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(content[0]).toMatchObject({ dismissedAt: null, confirmedAt: null });
+
+      // 차단만 무시할 수 없다. 등급별로 하나씩 찾으면 그 등급이 없는 상품에서 헛돈다
+      for (const f of content) {
+        expect(f.dismissible).toBe(f.severity !== 'BLOCKER');
+      }
+      expect(content.some((f) => f.severity === 'BLOCKER')).toBe(true);
+
+      // target 이 어디를 말하는지 담는다 — itemId 만으로는 화면이 못 그린다
+      const withItem = content.find((f) => (f.target as { itemId: number | null }).itemId !== null);
+      expect(withItem?.target).toMatchObject({
+        dayNo: expect.any(Number),
+        seq: expect.any(Number),
+        startTime: expect.any(String),
+        placeLabel: expect.any(String),
+      });
+
+      // 대상이 없는 판정(R04 · R10 처럼 상품 전체)은 id 만 준다. 없는 값을 지어내지 않는다
+      const noItem = content.find((f) => (f.target as { itemId: number | null }).itemId === null);
+      if (noItem !== undefined) expect(Object.keys(noItem.target as object)).toEqual(['itemId']);
+    });
+
     it('등급으로 거를 수 있다', async () => {
       const { job } = await service.requestAudit(productId, 'INITIAL');
       await service.waitForIdle();

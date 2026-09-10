@@ -197,6 +197,29 @@ export class AuditService {
   }
 
   /**
+   * finding 이 가리키는 항목의 표시 정보 (API 설계 5-6 `target`).
+   *
+   * 화면은 「2일차 3번째 · 14:00 · 오죽헌」처럼 어디를 말하는지 보여줘야 하는데 finding 은
+   * `target_item_id` 만 들고 있다. 그래서 항목을 한 번 읽어 얹는다.
+   *
+   * `placeLabel` 은 **사용자 입력**이라 응답에 담아도 무저장 원칙과 무관하다 — DB 명세서
+   * 6-4 검증 ① 이 명시적으로 제외한 값이다.
+   */
+  async targetsByItem(run: StoredAuditRun): Promise<ReadonlyMap<number, FindingTarget>> {
+    const items = await this.products.findItems(run.productId);
+    const out = new Map<number, FindingTarget>();
+    for (const item of items) {
+      out.set(item.id, {
+        dayNo: item.dayNo,
+        seq: item.seq,
+        startTime: item.startTime,
+        placeLabel: item.placeLabel,
+      });
+    }
+    return out;
+  }
+
+  /**
    * 판정 근거 3단 중 **AI 해석** (FR-AU-013 · 061).
    *
    * 해석은 콘텐츠 단위로 저장돼 있고 화면은 항목 단위로 그리므로 여기서 이어 붙인다.
@@ -838,11 +861,40 @@ export function toRunResponse(run: StoredAuditRun, basis: RunBasis = EMPTY_BASIS
   };
 }
 
+/** finding 이 가리키는 일정 항목의 표시 정보 (API 설계 5-6 `target`) */
+export interface FindingTarget {
+  readonly dayNo: number;
+  readonly seq: number;
+  readonly startTime: string;
+  readonly placeLabel: string;
+}
+
+/**
+ * `itemId` 에 항목 정보를 얹는다.
+ *
+ * 항목이 사라졌거나(수정안 반영으로 삭제) 대상이 없는 판정(R04 · R10 처럼 상품 전체)이면
+ * **id 만 준다.** 없는 값을 지어내지 않는다.
+ *
+ * `hidden` 이면 `placeLabel` 을 뺀다 — 비표출로 전환된 콘텐츠는 명칭을 재출력하지 않고
+ * `contentid` 와 감지 시각만 남긴다 (FR-AU-071 · API 설계 5-6).
+ */
+function targetOf(
+  itemId: number | null,
+  targets: ReadonlyMap<number, FindingTarget>,
+  hidden = false,
+): Record<string, unknown> {
+  const found = itemId === null ? undefined : targets.get(itemId);
+  if (found === undefined) return { itemId };
+  const { placeLabel, ...rest } = found;
+  return hidden ? { itemId, ...rest } : { itemId, ...rest, placeLabel };
+}
+
 export function toFindingsResponse(
   run: StoredAuditRun,
   severity?: string,
   names: ReadonlyMap<string, string> = new Map(),
   normalized: ReadonlyMap<number, Record<string, unknown>> = new Map(),
+  targets: ReadonlyMap<number, FindingTarget> = new Map(),
 ): Record<string, unknown> {
   const wanted = SEVERITY.includes(severity as Severity) ? (severity as Severity) : null;
   const content = run.findings
@@ -850,19 +902,34 @@ export function toFindingsResponse(
     .map((f) => ({
       findingId: f.id,
       ruleCode: f.ruleCode,
+      ruleVersion: f.ruleVersion,
       severity: f.severity,
       reasonCode: f.reasonCode,
       message: f.message,
-      target: { itemId: f.targetItemId },
-      targetSecondary: f.targetItemId2 === null ? null : { itemId: f.targetItemId2 },
+      target: targetOf(f.targetItemId, targets, f.reasonCode === 'CONTENT_HIDDEN'),
+      targetSecondary: f.targetItemId2 === null ? null : targetOf(f.targetItemId2, targets),
+      /*
+       * 비표출 콘텐츠는 **명칭·주소를 다시 내보내지 않는다** — `contentid` 와 감지 시각만
+       * 준다 (FR-AU-071 · PM-NG-009 · API 설계 5-6). 감지 시각은 그 전환을 발견한 검수의
+       * 실행 시각이다.
+       */
+      hiddenContent:
+        f.reasonCode === 'CONTENT_HIDDEN'
+          ? { contentid: String(f.evidence.ktoContentId ?? ''), detectedAt: run.executedAt.toISOString() }
+          : null,
       requiresExternal: f.requiresExternal,
       externalSource: f.externalSource,
       // 외부 참고가 아니면 자체 판정이다 (FR-AU-033 · UI-CM-011)
       sourceBadge: f.requiresExternal ? 'EXTERNAL_REFERENCE' : 'TOURLINT_VERDICT',
       needsConfirmation: f.needsConfirmation,
-      dismissed: f.dismissed,
+      /*
+       * 차단은 무시할 수 없다 (API 설계 5-6). 화면 버튼 제어용이며 API · DB 가 각각
+       * 독립적으로 다시 막는다 — 여기 값이 틀려도 무시가 통과되지는 않는다.
+       */
+      dismissible: f.severity !== 'BLOCKER',
+      dismissedAt: f.dismissedAt?.toISOString() ?? null,
       dismissReason: f.dismissReason,
-      confirmed: f.confirmed,
+      confirmedAt: f.confirmedAt?.toISOString() ?? null,
       /*
        * 판정 근거 2단 (API 설계 5-6). 공사 원문은 여기 없다 — 카드의 「판단 근거 보기」를
        * 펼칠 때 `GET /contents/{contentId}` 로 그 1건만 조달해 3단을 완성한다 (5-12).

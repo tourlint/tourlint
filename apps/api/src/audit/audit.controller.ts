@@ -149,11 +149,12 @@ export class AuditController {
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('run', runId, account.accountId);
     const run = await this.service.getRun(runId);
-    const [names, normalized] = await Promise.all([
+    const [names, normalized, targets] = await Promise.all([
       this.service.replacementNames(run),
       this.service.normalizedByItem(run),
+      this.service.targetsByItem(run),
     ]);
-    return toFindingsResponse(run, severity, names, normalized);
+    return toFindingsResponse(run, severity, names, normalized, targets);
   }
 
   /** 확인 필요 목록 (FR-AU-008 · API 설계 5-7) */
