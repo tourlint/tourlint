@@ -57,13 +57,26 @@ export interface NthWeekday {
   readonly day: DayOfWeek;
 }
 
+/**
+ * 조건부 휴무. **원문 문구를 담지 않는다** (DR-NM-014 · 이슈 #361).
+ *
+ * 종전에는 `note` 에 `restdate` 의 절을 그대로 넣었고 R01 이 그것을 `finding.message` 로
+ * 옮겨 DB 에 영구히 남겼다. DR-NM-014 는 원문 인용을 `unparsed` 조각으로만 허용한다.
+ *
+ * 문구가 필요하면 `kind` 로 만든다. 그것으로 안 되는 뉘앙스는 **저장하지 않고 화면이
+ * 실시간으로 보여준다** — 3단 병기가 그 자리다 (FR-AU-013 · 061).
+ */
 export interface ConditionalRule {
   readonly kind: 'HOLIDAY_NEXT_DAY' | 'OTHER';
   readonly appliesTo: readonly DayOfWeek[];
-  readonly note: string;
 }
 
-/** 시설 **일부만** 휴관. 전체 휴무로 판정하지 않는다 (DR-NM-012) */
+/**
+ * 시설 **일부만** 휴관. 전체 휴무로 판정하지 않는다 (DR-NM-012).
+ *
+ * `scope` 는 파서가 뽑아낸 **대상어**다 (`실내 전시실`). 원문 문장이 아니라 판독 산출물이며
+ * `MAX_SCOPE_LENGTH` 로 길이를 묶는다 — DR-NM-014 가 금지하는 것은 문장 복사다.
+ */
 export interface PartialClosed {
   readonly scope: string;
   readonly on: readonly (MonthDay | HolidayRule)[];

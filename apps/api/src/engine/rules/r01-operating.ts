@@ -23,7 +23,8 @@ import { confidenceOfPaths, type AuditItem, type AuditRule, type Finding, type I
  *   5단계 신뢰도 게이트   4단계 결과에 덮어쓴다
  */
 
-export const R01_VERSION = '1.0.0';
+/** `1.0.1` — 조건부 휴무 문구에서 원문을 뺐다 (FR-AU-071 계열 · DR-NM-014 · 이슈 #361) */
+export const R01_VERSION = '1.0.1';
 
 /**
  * 1단계 결과.
@@ -88,7 +89,11 @@ export function evaluateClosed(
   // 1-5 조건부 — 적용될 **여지**가 있으면 확정하지 않고 추정으로 남긴다
   for (const rule of n.conditionalRule) {
     if (conditionalApplies(rule, dow, date, holidays)) {
-      return { kind: 'CLOSED_UNCERTAIN', step: '1-5', path: 'conditionalRule', detail: rule.note };
+      /*
+       * **원문 문구를 쓰지 않는다** (DR-NM-014 · 이슈 #361). `kind` 로 만든다 —
+       * 그것으로 안 되는 뉘앙스는 저장하지 않고 3단 병기가 실시간으로 보여준다.
+       */
+      return { kind: 'CLOSED_UNCERTAIN', step: '1-5', path: 'conditionalRule', detail: conditionalDetail(rule.kind) };
     }
   }
 
@@ -135,6 +140,13 @@ export interface SelectedHours {
   readonly source: 'dayOfWeekHours' | 'seasonalHours' | 'openHours';
   /** 2-1 과 2-2 가 동시에 매칭되고 상충했는가 (신뢰도를 낮춘다) */
   readonly conflicted: boolean;
+}
+
+/** 조건부 휴무 문구. 저장되는 문장이므로 원문이 아니라 `kind` 에서 만든다 (DR-NM-014) */
+function conditionalDetail(kind: ConditionalRule['kind']): string {
+  return kind === 'HOLIDAY_NEXT_DAY'
+    ? '공휴일과 겹치면 다음 날 휴무인 규칙이 있습니다. 방문 전 확인이 필요합니다'
+    : '조건부 휴무 규칙이 있습니다. 방문 전 확인이 필요합니다';
 }
 
 /**

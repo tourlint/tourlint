@@ -100,7 +100,7 @@ export function parseClosedFragment(fragment: string): ClosedHit | null {
   // 조건부 휴무는 "모른다" 가 아니라 "조건이 있다" 이다. 구조로 남기고 신뢰도를 추정으로 둔다.
   // 추정 경로는 차단 근거가 될 수 없으므로(FR-AU-008) 잘못 잡아도 과탐으로 번지지 않는다.
   if (BARE_CONDITION_RE.test(text)) {
-    return { kind: 'CONDITIONAL', rule: { kind: 'OTHER', appliesTo: [], note: text } };
+    return { kind: 'CONDITIONAL', rule: { kind: 'OTHER', appliesTo: [] } };
   }
 
   return { kind: 'UNPARSED', reason: 'CONDITIONAL' };
@@ -175,7 +175,7 @@ export function parseParenthetical(inner: string, contextDays: readonly DayOfWee
     const kind = /공휴일|연휴/.test(inner) && /익일|다음\s*날|휴관|휴무|휴원/.test(inner)
       ? 'HOLIDAY_NEXT_DAY'
       : 'OTHER';
-    return { kind: 'CONDITIONAL', rule: { kind, appliesTo: contextDays, note: inner } };
+    return { kind: 'CONDITIONAL', rule: { kind, appliesTo: contextDays } };
   }
 
   return { kind: 'UNPARSED', reason: 'CONDITIONAL' };
@@ -187,6 +187,13 @@ export function parseParenthetical(inner: string, contextDays: readonly DayOfWee
  * 시설 전체가 아니므로 `partialClosed` 에 담고 휴무 필드에는 넣지 않는다.
  * `partialClosed` 만으로는 R01 차단이 나지 않는다.
  */
+/**
+ * 휴관 대상어의 길이 상한. **원문 문장이 통째로 들어오는 것을 여기서 막는다** —
+ * DR-NM-014 가 금지하는 것은 문장 복사이고, 대상어는 파서의 산출물이다 (이슈 #361).
+ */
+export const MAX_SCOPE_LENGTH = 30;
+const SCOPE_RE = new RegExp(`^(.{1,${String(MAX_SCOPE_LENGTH)}}?)\\s*(?:만\\s*)?(?:휴관|휴무|휴점|미운영)$`);
+
 function parsePartialClosed(inner: string): PartialClosed | null {
   /*
    * 휴관 대상은 **마지막 절**에 온다. 그 앞은 시점절이다.
@@ -197,7 +204,7 @@ function parsePartialClosed(inner: string): PartialClosed | null {
    */
   const clauses = inner.split(/[,·、]|(?<=[은는])\s+/);
   const last = stripFormatting(clauses[clauses.length - 1] ?? '');
-  const scopeMatch = /^(.{1,30}?)\s*(?:만\s*)?(?:휴관|휴무|휴점|미운영)$/.exec(last);
+  const scopeMatch = SCOPE_RE.exec(last);
   if (scopeMatch === null) return null;
 
   const scope = stripFormatting(scopeMatch[1] ?? '');

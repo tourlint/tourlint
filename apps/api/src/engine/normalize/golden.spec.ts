@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_SCOPE_LENGTH } from './closed';
 import { parseOperatingInfo } from './parse';
 
 /**
@@ -116,7 +117,9 @@ describe('명세 본문에 실린 실측 예시', () => {
     expect(out.fixedClosed).toEqual(['01-01']);
     expect(out.holidayRule).toEqual(['CHUSEOK', 'LUNAR_NEW_YEAR']);
     expect(out.conditionalRule).toEqual([
-      { kind: 'HOLIDAY_NEXT_DAY', appliesTo: ['MON'], note: '단, 월요일이 공휴일인 경우 그 다음날 휴관' },
+      // 원문 절을 담던 `note` 는 없앴다 — R01 이 그것을 finding.message 로 옮겨 불변 기록에
+      // 남겼다 (DR-NM-014 · 이슈 #361). 뜻은 `kind` 가 들고 있다
+      { kind: 'HOLIDAY_NEXT_DAY', appliesTo: ['MON'] },
     ]);
     // 조건부 경로는 추정 고정이다 (DR-NM-031) — 차단 근거가 될 수 없다 (FR-AU-008)
     expect(out.confidence.byPath.conditionalRule).toBe('ESTIMATED');
@@ -132,5 +135,44 @@ describe('명세 본문에 실린 실측 예시', () => {
     // 점포별로 다르면 운영시간을 단정할 수 없다
     expect(out.confidence.byPath.openHours).not.toBe('CONFIRMED');
     expect(out.unparsed.some((u) => u.reason === 'TARGET_VARIES')).toBe(true);
+  });
+});
+
+/**
+ * 정규화 결과에 **원문 절이 남지 않는가** (DR-NM-014 · 이슈 #361).
+ *
+ * `conditionalRule.note` 가 `restdate` 의 절을 그대로 담았고 R01 이 그것을 `finding.message`
+ * 로 옮겨 **불변 기록에 영구히 남겼다.** 조각 인용은 `unparsed` 자리에서만 허용된다.
+ */
+describe('원문 절이 정규화 결과에 남지 않는다 (DR-NM-014)', () => {
+  const CLAUSE = '단, 월요일이 공휴일인 경우 그 다음날 휴관';
+
+  it('조건부 휴무를 구조로만 남긴다 — 절을 담지 않는다', () => {
+    const out = parseOperatingInfo({
+      contentTypeId: 14,
+      raw: { restdateculture: `매주 월요일(${CLAUSE})`, usetimeculture: '09:00~18:00' },
+    });
+
+    expect(out.conditionalRule.length).toBeGreaterThan(0);
+    // `unparsed` 는 조각 인용이 허용된 자리라 빼고 본다
+    const structured = JSON.stringify({ ...out, unparsed: [] });
+    expect(structured).not.toContain(CLAUSE);
+    expect(structured).not.toContain('공휴일인 경우');
+  });
+
+  it('시설 일부 휴관 대상어는 상한 안에 있다', () => {
+    const out = parseOperatingInfo({
+      contentTypeId: 14,
+      raw: {
+        restdateculture: '연중무휴(1월 1일/설날/추석 당일은 오죽헌만 개방, 실내 전시실 휴관)',
+        usetimeculture: '09:00~18:00',
+      },
+    });
+
+    expect(out.partialClosed.length).toBeGreaterThan(0);
+    for (const p of out.partialClosed) {
+      // 대상어는 판독 산출물이라 담을 수 있다. 문장이 통째로 들어오는 것만 막는다
+      expect(p.scope.length).toBeLessThanOrEqual(MAX_SCOPE_LENGTH);
+    }
   });
 });
