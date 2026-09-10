@@ -71,15 +71,21 @@ function collectFromFixtures(): { sourceOnly: string[]; titles: string[] } {
   return { sourceOnly: [...sourceOnly], titles: [...titles] };
 }
 
-/** `place_label` 은 사용자 입력이라 제외한다. 스냅샷 JSON 안의 것도 같다 (6-4 검증 ①) */
-function stripUserLabels(raw: string): string {
+/**
+ * 문서가 **명시적으로 허용한 자리**를 뺀다. 나머지는 전부 훑는다.
+ *
+ *   - `placeLabel` · `place_label` — 사용자 입력 (6-4 검증 ① 이 제외를 명시)
+ *   - `unparsed[].fragment` — DR-NM-014 가 조각 보관을 허용한다. 대신 200자 상한을
+ *     아래 별도 테스트가 건다. 여기서 안 빼면 허용된 동작에 빨간불이 켜진다
+ */
+function stripPermitted(raw: string): string {
   if (!raw.startsWith('{') && !raw.startsWith('[')) return raw;
   const drop = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(drop);
     if (v === null || typeof v !== 'object') return v;
     const out: Record<string, unknown> = {};
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-      if (k === 'placeLabel' || k === 'place_label') continue;
+      if (k === 'placeLabel' || k === 'place_label' || k === 'fragment') continue;
       out[k] = drop(val);
     }
     return out;
@@ -96,6 +102,8 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
   let service: AuditService;
   let accountId: number;
   let productId: number;
+  /** 조회가 실패하는 상품. 예외 경로가 로그에 무엇을 남기는지 보려는 것이다 (6-4 경로 2) */
+  let failProductId: number;
   let logs: string[];
   /** 훑은 값의 개수. 0 이면 검사가 데이터를 못 읽은 것이므로 통과로 보면 안 된다 */
   let scanned = 0;
@@ -129,6 +137,9 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
       [1, 1, '10:00', '11:30', 'SIGHT', '경복궁', '126508', 12, 'HS01'],
       [1, 2, '12:00', '13:00', 'MEAL', '가람집옹심이', '2868839', 39, 'FD01'],
       [2, 1, '09:00', '10:00', 'SIGHT', '오죽헌', '129784', 14, 'VE07'],
+      // 운영정보가 해석되지 않아 `unparsed` 조각이 생기는 콘텐츠. 아래 200자 상한 검사가
+      // 검사할 것이 없어 헛도는 것을 막는다
+      [2, 2, '11:00', '12:00', 'SIGHT', '해석 불가 검증소', '3539725', 14, 'VE07'],
     ];
     for (const [day, seq, start, end, type, label, contentId, ctid, lcls] of items) {
       await pool.query(
@@ -141,6 +152,25 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
     }
 
     // ── 검수 1회. 그동안 나온 로그를 전부 모은다 (검증 ②) ──────────────────
+    /*
+     * 조회가 실패하는 상품. 픽스처가 없는 `contentId` 를 넣으면 `FixtureMissingError` 가
+     * 나고 검수는 그 한 건만 격리한다 — 6-4 가 두 번째로 꼽은 「예외 스택트레이스」 경로가
+     * 이때 돈다. 정상 검수만 돌리면 이 자리는 한 번도 안 밟힌다.
+     */
+    const failProd = await pool.query<{ id: string }>(
+      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+       VALUES ($1,'조회 실패 검증 1박 2일','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+      [accountId],
+    );
+    failProductId = Number(failProd.rows[0]?.id);
+    await pool.query(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label,
+          item_type, kto_content_id, content_type_id, lcls_systm2, mapx, mapy, match_status)
+       VALUES ($1,1,1,'10:00'::time,'11:00'::time,'INPUT','픽스처 없는 곳','SIGHT','9999999',12,'HS01',128.8961,37.7952,'CONFIRMED')`,
+      [failProductId],
+    );
+
     logs = [];
     /*
      * **`console` 을 직접 가로챈다.** `process.stdout.write` 만 감싸면 아무것도 못 잡는다 —
@@ -168,6 +198,8 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
     process.stderr.write = tapStream(errWrite);
     try {
       await service.requestAudit(productId, 'INITIAL');
+      await service.waitForIdle();
+      await service.requestAudit(failProductId, 'INITIAL');
       await service.waitForIdle();
     } finally {
       for (const m of methods) {
@@ -217,7 +249,7 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
       for (const row of rows) {
         if (row.v === null) continue;
         scanned += 1;
-        const value = stripUserLabels(row.v);
+        const value = stripPermitted(row.v);
         for (const n of needles) {
           if (value.includes(n)) {
             hits.push(`${t}.${c} ← ${n.slice(0, 40)}`);
@@ -231,6 +263,38 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
     expect(scanned).toBeGreaterThan(0);
     expect(hits).toEqual([]);
   }, 60_000);
+
+  it('조회 실패 경로가 실제로 돌았다 — 빈 검사를 통과로 보지 않는다', async () => {
+    const { rows } = await pool.query<{ failed: number }>(
+      `SELECT failed_count AS failed FROM audit_run WHERE product_id = $1 ORDER BY id DESC LIMIT 1`,
+      [failProductId],
+    );
+    expect(rows[0]?.failed).toBeGreaterThan(0);
+  });
+
+  it('unparsed 조각이 200자 상한 안에 있다 (DR-NM-014)', async () => {
+    const { rows } = await pool.query<{ fragment: string }>(
+      `SELECT jsonb_array_elements(f.normalized_json->'unparsed')->>'fragment' AS fragment
+         FROM content_fingerprint f
+         JOIN audit_run r ON r.id = f.audit_run_id
+        WHERE r.product_id = $1
+          AND jsonb_array_length(coalesce(f.normalized_json->'unparsed','[]'::jsonb)) > 0`,
+      [productId],
+    );
+
+    /*
+     * DR-NM-014 는 `unparsed.fragment` 에 **원문 조각 보관을 허용한다.** 그래서 위 전수
+     * 검사에서는 이 자리를 뺀다 — 안 빼면 허용된 동작에 빨간불이 켜진다. 대신 문서가
+     * 함께 건 조건을 여기서 본다.
+     *
+     * 조각이 하나도 없으면 검사가 아무것도 안 지킨 것이다. 3539725 를 상품에 넣어 둔
+     * 이유가 이것이다.
+     */
+    expect(rows.length).toBeGreaterThan(0);
+    for (const { fragment } of rows) {
+      expect(fragment.length).toBeLessThanOrEqual(200);
+    }
+  });
 
   it('② 검수 중 로그에 공사 원문이 없다', () => {
     const text = logs.join('');
