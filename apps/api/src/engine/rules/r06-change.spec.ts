@@ -51,6 +51,15 @@ describe('R06-b 비표출 전환 — 무조건 차단 (FR-RU-065 · 068)', () =>
     expect(f?.needsConfirmation).toBe(false);
   });
 
+  it('메시지에 관광지 명칭을 재출력하지 않는다 (FR-AU-071)', () => {
+    // 이름이 우연히 안 걸리는 것을 통과로 보지 않도록 눈에 띄는 라벨을 넣는다
+    const [f] = evaluate(hidden, { label: '강릉 비표출 검증소' });
+    expect(f?.reasonCode).toBe('CONTENT_HIDDEN');
+    expect(f?.message).not.toContain('강릉 비표출 검증소');
+    // contentid 는 evidence 가 들고 있어야 어느 콘텐츠인지 짚을 수 있다
+    expect(f?.evidence.ktoContentId).toBeDefined();
+  });
+
   it('일정 항목을 지우라고 하지 않는다 — 교체 또는 제외를 안내한다 (FR-RU-066)', () => {
     const [f] = evaluate(hidden);
     expect(f?.message).toContain('교체');
