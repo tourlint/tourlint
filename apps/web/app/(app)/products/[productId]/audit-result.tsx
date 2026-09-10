@@ -799,14 +799,16 @@ function FindingCard({
   const [dismissBusy, setDismissBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const meta = SEVERITY_META[finding.severity];
-  const canDismiss = finding.severity !== "BLOCKER";
-  const hasPatches = finding.patches.length > 0 && !finding.dismissed;
+  // 차단은 무시할 수 없다 — 서버가 판단해 `dismissible` 로 준다 (API 설계 5-6)
+  const canDismiss = finding.dismissible;
+  const dismissed = finding.dismissedAt !== null;
+  const hasPatches = finding.patches.length > 0 && !dismissed;
 
   async function toggleDismiss() {
     setDismissBusy(true);
     setErr(null);
     try {
-      if (finding.dismissed) await auditApi.undismissFinding(finding.findingId);
+      if (dismissed) await auditApi.undismissFinding(finding.findingId);
       else await auditApi.dismissFinding(finding.findingId);
       await onChanged();
     } catch (e) {
@@ -819,7 +821,7 @@ function FindingCard({
   return (
     <li
       className={`rounded-xl border border-l-4 border-slate-200 p-4 dark:border-slate-800 ${meta.bar} ${
-        finding.dismissed ? "opacity-60" : ""
+        dismissed ? "opacity-60" : ""
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -828,7 +830,7 @@ function FindingCard({
             <GradeBadge grade={finding.severity} />
             <span className="text-xs text-slate-400">{finding.ruleCode}</span>
             <SourceBadge source={finding.sourceBadge} externalName={finding.externalSource} />
-            {finding.dismissed && <StatusBadge status="DISMISSED" />}
+            {dismissed && <StatusBadge status="DISMISSED" />}
           </div>
           <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{finding.message}</p>
           <p className="mt-1 text-xs text-slate-400">
@@ -848,7 +850,7 @@ function FindingCard({
             disabled={dismissBusy}
             className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            {finding.dismissed ? "무시 해제" : "무시"}
+            {dismissed ? "무시 해제" : "무시"}
           </button>
         )}
       </div>

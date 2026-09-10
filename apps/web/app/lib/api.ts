@@ -170,19 +170,31 @@ export interface Finding {
   findingId: number;
   evidenceView: EvidenceView;
   ruleCode: string;
+  ruleVersion: string;
   severity: Severity;
   reasonCode: string;
   message: string;
-  target: { itemId: number | null };
-  targetSecondary: { itemId: number } | null;
+  target: FindingTarget;
+  targetSecondary: FindingTarget | null;
   requiresExternal: boolean;
   externalSource: string | null;
   sourceBadge: "TOURLINT_VERDICT" | "EXTERNAL_REFERENCE";
   needsConfirmation: boolean;
-  dismissed: boolean;
+  /** 차단은 무시할 수 없다. 버튼 제어용이며 API · DB 가 각각 다시 막는다 */
+  dismissible: boolean;
+  dismissedAt: string | null;
   dismissReason: string | null;
-  confirmed: boolean;
+  confirmedAt: string | null;
   patches: Patch[];
+}
+
+/** 항목이 사라졌거나 상품 전체 판정이면 `itemId` 만 온다 (API 설계 5-6) */
+export interface FindingTarget {
+  itemId: number | null;
+  dayNo?: number;
+  seq?: number;
+  startTime?: string;
+  placeLabel?: string;
 }
 
 export type PatchType = "TIME_SHIFT" | "REORDER" | "REPLACE_CONTENT" | "INSERT_ITEM" | "REMOVE_ITEM";
