@@ -54,10 +54,13 @@ CREATE TABLE product (
     ldong_signgu_cd  TEXT,
     start_date       DATE        NOT NULL,
     nights           SMALLINT    NOT NULL DEFAULT 0,
+    -- DR-IN-015 : target_key · concept_key 는 표준 키 목록 값만 (앱 검증)
     target_key       TEXT,
     concept_key      TEXT,
     head_count       INT,
     transport        TEXT        NOT NULL,
+    planned_at       TIMESTAMPTZ,
+    plan_origin      JSONB,
     released_at      TIMESTAMPTZ,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -67,6 +70,8 @@ CREATE TABLE product (
     CONSTRAINT ck_product_headcount CHECK (head_count IS NULL OR head_count > 0)
 );
 COMMENT ON COLUMN product.ldong_regn_cd IS '법정동 시도 코드. 길이 가정 금지 (세종 36110) - DR-IN-010';
+COMMENT ON COLUMN product.planned_at    IS '검수 시작을 누른 시각. NULL = 기획 중 - DR-IN-014';
+COMMENT ON COLUMN product.plan_origin   IS '기획 출처. 시작 방식 · 신호 종류 · 지역 코드 · 기간 · contentid 만. 원문 없음 - DR-PR-009';
 COMMENT ON COLUMN product.released_at   IS '출시 승인 시각. 차단 1건 이상이면 설정 불가 - DR-IN-007';
 
 -- ---------------------------------------------------------------------
@@ -80,7 +85,7 @@ CREATE TABLE itinerary_item (
     start_time       TIME        NOT NULL,
     end_time         TIME,
     end_time_source  TEXT        NOT NULL,
-    place_label      TEXT        NOT NULL,
+    place_label      TEXT,
     item_type        TEXT        NOT NULL,
     kto_content_id   TEXT,
     content_type_id  SMALLINT,
@@ -90,6 +95,9 @@ CREATE TABLE itinerary_item (
     mapx             NUMERIC(12,8),
     mapy             NUMERIC(12,8),
     match_status     TEXT        NOT NULL,
+    matched_by       TEXT,
+    origin           TEXT,
+    walk_id          TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -103,10 +111,20 @@ CREATE TABLE itinerary_item (
         (match_status = 'CONFIRMED' AND kto_content_id IS NOT NULL)
      OR (match_status = 'EXCLUDED'  AND kto_content_id IS NULL)
      OR (match_status = 'PENDING')
-    )
+    ),
+    -- DR-IN-013 : 장소명이 비어도 되는 것은 CONFIRMED 와 걷기 길 뿐 (표시명은 실시간 조회)
+    CONSTRAINT ck_item_label_required CHECK (match_status = 'CONFIRMED' OR place_label IS NOT NULL OR walk_id IS NOT NULL),
+    -- DR-MD-005 : 걷기 길 식별자는 직접 정한 곳(EXCLUDED)에만. 코스 이름은 저장하지 않는다
+    CONSTRAINT ck_item_walk       CHECK (walk_id IS NULL OR match_status = 'EXCLUDED'),
+    -- 고른 방식 — 화면 "AI가 찾음" 표시의 출처
+    CONSTRAINT ck_item_matched_by CHECK (matched_by IS NULL OR matched_by IN ('AUTO','USER','AGENT')),
+    -- 항목이 들어온 경로
+    CONSTRAINT ck_item_origin     CHECK (origin IS NULL OR origin IN
+        ('MANUAL','UPLOAD','TEXT','PICKER','SIGNAL','PATCH'))
 );
 COMMENT ON COLUMN itinerary_item.place_label    IS '사용자가 입력한 장소명. 공사 원문이 아님 - DR-PR-001';
 COMMENT ON COLUMN itinerary_item.kto_content_id IS '확정된 contentid. FK를 걸지 않음 - DR-IN-001';
+COMMENT ON COLUMN itinerary_item.walk_id        IS '두루누비 걷기 길 식별자. 코스 이름은 저장하지 않음 - DR-MD-005';
 
 -- ---------------------------------------------------------------------
 -- 5. audit_run : 검수 실행 (불변) - audit_job보다 먼저 생성
@@ -125,6 +143,8 @@ CREATE TABLE audit_run (
     warn_cnt         SMALLINT    NOT NULL DEFAULT 0,
     unverified_cnt   SMALLINT    NOT NULL DEFAULT 0,
     weight_snapshot  JSONB       NOT NULL,
+    -- 표준 버전 · 회사 기준 두 값 (4-7). NULL = 이 컬럼이 생기기 전 실행
+    setting_snapshot JSONB,
     -- 상품 단위 총 이동시간·거리 (FR-RU-084 · F10 전후 비교의 입력).
     -- 외부 호출로만 얻는 값이라 나중에 다시 계산할 수 없어 실행 시점에 남긴다.
     -- NULL = 산출하지 않음 / 0 = 산출했으나 합이 0 (대중교통·조회 실패)
@@ -142,6 +162,7 @@ CREATE TABLE audit_run (
 );
 COMMENT ON TABLE  audit_run IS '검수 실행. 불변 기록이며 수정 API를 제공하지 않는다 (PM-NG-004)';
 COMMENT ON COLUMN audit_run.weight_snapshot IS '산출 시점 가중치. 설정 변경의 소급 적용 차단 - DR-CF-006';
+COMMENT ON COLUMN audit_run.setting_snapshot IS '{standardVersion, r07SpanHours, r07MealMinutes}. 소급 변경 금지 - DR-CF-009';
 
 -- ---------------------------------------------------------------------
 -- 4. audit_job : 검수 작업 큐
@@ -292,14 +313,21 @@ COMMENT ON COLUMN notification.change_hash_from IS
 CREATE TABLE user_setting (
     id               BIGSERIAL PRIMARY KEY,
     account_id       BIGINT      NOT NULL UNIQUE REFERENCES account(id) ON DELETE CASCADE,
+    -- weights · r04_threshold : 표준 고정 — 엔진이 읽지 않음. 삭제 예정(릴리즈 2)
     weights          JSONB       NOT NULL
         DEFAULT '{"BLOCKER":25,"ERROR":10,"WARNING":4,"UNVERIFIED":3}'::jsonb,
     r07_span_hours   SMALLINT    NOT NULL DEFAULT 6,
     r07_meal_minutes SMALLINT    NOT NULL DEFAULT 60,
     r04_threshold    SMALLINT    NOT NULL DEFAULT 3,
     watch_keywords   TEXT[]      NOT NULL DEFAULT '{}',
+    watch_regions    JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    r07_history      JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
 
+    -- DR-CF-008 : 회사 기준은 표준(6시간 · 60분)보다 엄격하게만 — 설정 API 가 거부한다.
+    --   CHECK 를 1–6 · 60–240 으로 조이는 것은 릴리즈 2 다. 구 설정 API 가 1–24 · 1–240 을
+    --   받는 동안 조이면 그 저장이 실패한다
     CONSTRAINT ck_set_span   CHECK (r07_span_hours   BETWEEN 1 AND 24),
     CONSTRAINT ck_set_meal   CHECK (r07_meal_minutes BETWEEN 1 AND 240),
     CONSTRAINT ck_set_r04    CHECK (r04_threshold    BETWEEN 2 AND 10)
@@ -388,7 +416,10 @@ CREATE TABLE api_call_log (
     audit_run_id BIGINT      REFERENCES audit_run(id) ON DELETE SET NULL,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT ck_log_provider CHECK (provider IN ('KTO','KAKAO_MOBILITY','KMA','LLM')),
+    -- 공사 서비스는 활용신청 · 하루 한도가 서비스마다 따로라 따로 센다
+    -- (반려동물 동반여행정보도 국문 관광정보와 다른 서비스라 KTO_PET)
+    CONSTRAINT ck_log_provider CHECK (provider IN
+        ('KTO','KTO_WITH','KTO_PET','KTO_RELATED','KTO_DURUNUBI','KTO_VISITOR','KAKAO_MOBILITY','KMA','LLM')),
     CONSTRAINT ck_log_status   CHECK (status   IN ('OK','FAIL','TIMEOUT')),
     CONSTRAINT ck_log_latency  CHECK (latency_ms >= 0)
 );
@@ -429,7 +460,7 @@ COMMENT ON TABLE  system_setting IS
     '전역 운영 설정. 배치 시각·활성화·일일 호출 예산은 전 계정 공통 - PM-DA-006 · DR-CF-007';
 
 -- ---------------------------------------------------------------------
--- 19. demand_signal : 수요 신호 T1 · T2 (배치 산출)
+-- 19. demand_signal : 수요 신호 T1 · T2 · T3 (배치 산출)
 -- ---------------------------------------------------------------------
 CREATE TABLE demand_signal (
     id              BIGSERIAL PRIMARY KEY,
@@ -443,19 +474,22 @@ CREATE TABLE demand_signal (
     window_to       DATE        NOT NULL,
     total_count     INT         NOT NULL,
     by_type         JSONB       NOT NULL,
+    by_keyword      JSONB       NOT NULL DEFAULT '{}'::jsonb,
     computed_at     TIMESTAMPTZ NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT ck_signal_type   CHECK (signal_type IN ('T1','T2')),
+    CONSTRAINT ck_signal_type   CHECK (signal_type IN ('T1','T2','T3')),
     CONSTRAINT ck_signal_count  CHECK (total_count >= 0),
     CONSTRAINT ck_signal_window CHECK (window_from <= window_to),
     CONSTRAINT uq_signal UNIQUE (signal_type, region_key, window_from, window_to)
 );
 
 COMMENT ON TABLE  demand_signal IS
-    'T1 신규 콘텐츠 · T2 행사 밀도. 배치 산출값이며 강도 점수를 담지 않는다 - FR-RU-121';
+    'T1 신규 콘텐츠 · T2 행사 밀도 · T3 지난해 같은 달 방문자 수. 배치 산출값이며 강도 점수를 담지 않는다 - FR-RU-121';
 COMMENT ON COLUMN demand_signal.by_type IS
     'contentTypeId → 건수. 공사 원문 미포함 - DR-PR-001';
+COMMENT ON COLUMN demand_signal.by_keyword IS
+    '키워드 → contentid 배열. 제목 미포함 - DR-PR-009';
 COMMENT ON COLUMN demand_signal.region_key IS
     'regn 또는 regn:signgu. NULL 이 UNIQUE 를 무력화하는 것을 피한다';
 
