@@ -146,7 +146,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 │       └── seed               데모 계정 · 시연 상품 시드 CLI (PM-TA-008)
 │
 ├── apps/web                   Next.js 16 + React 19
-└── packages/shared            사유코드 41종 · 등급 · 표준 시드(R10 63행 · 체류시간 · 실내외) · 기획 · 에이전트 응답 타입
+└── packages/shared            사유코드 42종 · 등급 · 표준 시드(R10 63행 · 체류시간 · 실내외) · 기획 · 에이전트 응답 타입
 ```
 <callout icon="⚖️" color="blue_bg">
 	**판정 엔진이 `audit` 밑이 아니라 `engine` 으로 분리돼 있습니다.**
@@ -227,7 +227,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>`reasonCode`</td>
-<td>사유 코드 41종 중 하나. **화면에 그대로 노출하지 않는다** (G-015 · EX-MS-002)</td>
+<td>사유 코드 42종 중 하나. **화면에 그대로 노출하지 않는다** (G-015 · EX-MS-002)</td>
 </tr>
 <tr>
 <td>`message`</td>
@@ -259,7 +259,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>200 OK</td>
-<td>조회 · 갱신 성공. **외부 호출 실패로 확인 불가가 생긴 경우도 200**</td>
+<td>조회 · 갱신 성공. **외부 호출 실패로 확인 불가가 생긴 경우도 200**. 에이전트가 일부만 끝냈거나 하나도 못 끝낸 경우도 200 에 `incomplete` 를 채운다(4-11)</td>
 <td>–</td>
 </tr>
 <tr>
@@ -309,8 +309,8 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>429 Too Many Requests</td>
-<td>호출 빈도 제한 · 예산 소진</td>
-<td>`BUDGET_EXHAUSTED` `KTO_QUOTA_EXCEEDED`</td>
+<td>호출 빈도 제한 · 같은 에이전트 동시 실행 · 예산 소진</td>
+<td>`RATE_LIMIT_EXCEEDED` `BUDGET_EXHAUSTED` `KTO_QUOTA_EXCEEDED`</td>
 </tr>
 <tr>
 <td>500 Internal</td>
@@ -355,7 +355,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>에이전트 실행 (`place-suggestions` · `check-questions` · `radar/today`)</td>
-<td>계정당 분당 상한 · **같은 에이전트는 계정당 동시 1회**. 예산 100% 에서 검수와 같은 게이트 — 429 `BUDGET_EXHAUSTED`</td>
+<td>계정당 분당 상한 · **같은 에이전트는 계정당 동시 1회** — 도는 중에 온 요청은 새로 돌리지 않고 429 `RATE_LIMIT_EXCEEDED`. 예산 100% 에서 검수와 같은 게이트 — 429 `BUDGET_EXHAUSTED`</td>
 <td>NF-SC-010 · FR-AG-002</td>
 </tr>
 <tr>
@@ -364,6 +364,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <td>NF-PF-003</td>
 </tr>
 </table>
+상한을 넘은 요청은 429 `RATE_LIMIT_EXCEEDED` 로 거절하고 `Retry-After`(초)를 붙인다. 상태는 바뀌지 않는다 (EX-SY-008 · EX-AG-004).
 ---
 # 4. 엔드포인트 전체 목록
 ## 4-1. 인증 · 계정
@@ -481,7 +482,7 @@ GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" 
 <tr>
 <td>POST</td>
 <td>`/api/v1/products/{productId}/items`</td>
-<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{label}` 면 EXCLUDED(직접 정한 곳) · `origin`. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움)</td>
+<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움)</td>
 <td>FR-IN-014 · FR-PL-013 · PM-NG-011</td>
 </tr>
 <tr>
@@ -534,8 +535,8 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
     "placeLabel": null,
     "content": { "contentId": "125769", "contentTypeId": 12, "lcls1": "VE", "lcls2": "VE01", "lcls3": "VE0101", "mapx": 128.89, "mapy": 37.79 } }
   → CONFIRMED 항목. start = 앞 항목 end + 이동시간(잴 수 있으면, 카카오 1콜) 아니면 앞 항목 end, end = start + 표준 체류시간(DWELL_MINUTES_SEED). 식당 · 카페 · 숙소는 itemType MEAL · REST · LODGING(숙박은 end 비움)
-  { "dayNo": 1, "afterItemId": 17, "itemType": "SIGHT", "origin": "PICKER", "excluded": { "label": "바다부채길" } }
-  → EXCLUDED 항목 (걷기 길 · 직접 정한 곳)
+  { "dayNo": 1, "afterItemId": 17, "itemType": "SIGHT", "origin": "PICKER", "excluded": { "walkId": "…" } }
+  → EXCLUDED 항목 (걷기 길 · 직접 정한 곳). place_label 은 비우고 walk_id 만 저장한다 — 코스 이름은 보내지도 저장하지도 않는다 (DR-MD-005). 이름은 표시할 때 찾는다 (5-12 콜아웃)
 ```
 <callout icon="📥" color="yellow_bg">
 	**업로드 상한과 거부 규칙**
@@ -759,7 +760,7 @@ R07 finding.message 예: "12:00 점심 60분은 회사 기준 90분보다 짧습
 <callout icon="📄" color="gray_bg">
 	**가장 최근 검수 실행만 리포트로 만듭니다** (2026.08.29 · F11 구현)
 	`audit_run` 에는 일정 스냅샷이 없어 일정표(FR-PA-061 ③)와 검수 제외 항목 건수(FR-PA-064)는 조회 시점의 `itinerary_item` 을 읽어야 나옵니다. 과거 실행으로 리포트를 만들면 **그때의 판정과 지금의 일정**이 한 문서에 섞입니다.
-	거절은 409 `REPORT_FAILED` 이며 다시 검수한 뒤 내려받도록 안내합니다. 사유코드 41종에 "최신이 아님" 이 없어 재시도 유도가 붙은 리포트 생성 거절(EX-AU-011)로 묶었습니다.
+	거절은 409 `REPORT_FAILED` 이며 다시 검수한 뒤 내려받도록 안내합니다. 사유코드 42종에 "최신이 아님" 이 없어 재시도 유도가 붙은 리포트 생성 거절(EX-AU-011)로 묶었습니다.
 </callout>
 ## 4-8. 수요·변경 레이더 (F12 \~ F14)
 <table fit-page-width="true" header-row="true">
@@ -945,7 +946,7 @@ GET /api/v1/rules             기존 응답에 규칙마다 추가
 <tr>
 <td>GET</td>
 <td>`/api/v1/plan/walks`</td>
-<td>두루누비 걷기 길 목록(길이 · 소요 · 난이도 · 좌표). 넣으면 직접 정한 곳</td>
+<td>두루누비 걷기 길 목록(식별자 · 이름 · 길이 · 소요 · 난이도 · 좌표). 넣으면 직접 정한 곳 — 넣을 때는 `walkId` 만 보내고 이름은 저장하지 않는다(4-3)</td>
 <td>FR-PL-015 · 1콜</td>
 </tr>
 <tr>
@@ -963,7 +964,7 @@ GET /api/v1/rules             기존 응답에 규칙마다 추가
 <tr>
 <td>POST</td>
 <td>`/api/v1/products/{productId}/items`</td>
-<td>본문 확장(4-3 참조): `content{…}` 면 CONFIRMED 로 생성, `excluded{label}` 면 EXCLUDED, `afterItemId` 로 자리 지정, 시각 자동 채움, 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형</td>
+<td>본문 확장(4-3 참조): `content{…}` 면 CONFIRMED 로 생성, `excluded{walkId}` 면 EXCLUDED(걷기 길), `afterItemId` 로 자리 지정, 시각 자동 채움, 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형</td>
 <td>FR-PL-013 · 0\~1콜(카카오)</td>
 </tr>
 <tr>
@@ -1027,24 +1028,27 @@ POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "item
 <td>FR-AG-030 · 031 · 0콜 + LLM 1회</td>
 </tr>
 </table>
-셋 다 실패 · 시간 초과면 `LLM_UNAVAILABLE`, 예산 소진이면 429 `BUDGET_EXHAUSTED`(EX-AG-001). 같은 계정의 같은 에이전트는 동시에 하나만 돈다(FR-AG-002).
+**실행 전에 막히면 요청을 거절한다** — 예산 100% 는 429 `BUDGET_EXHAUSTED`, 같은 계정의 같은 에이전트가 이미 돌고 있으면 429 `RATE_LIMIT_EXCEEDED`(새로 돌리지 않는다, FR-AG-002 · EX-AG-004). **실행한 뒤에는 거절하지 않는다** — LLM 실패 · 시간 초과(30초) · 도구 호출의 예산 소진이면 200 으로 끝난 항목만 돌려주고 `incomplete: { reasonCode, itemIds }` 를 채운다. 하나도 못 끝냈으면 결과 배열이 비어 있다(EX-AG-001 · 002). 화면은 `incomplete` 가 있으면 "지금은 AI로 정리할 수 없어요"를 보이고 끝난 항목만 카드로 보인다.
 **요청 · 응답 모양**
 ```json
 POST /api/v1/products/{id}/place-suggestions   본문 { "itemIds"?: [21, 22] }   (없으면 PENDING 전체)
-  → { "items": PlaceSuggestion[], "summary": { "found": 5, "notFound": 1, "noName": 2 } }
+  → { "items": PlaceSuggestion[], "summary": { "found": 5, "notFound": 1, "noName": 2 }, "incomplete": null }
     예: { "itemId": 22, "kind": "FOUND", "place": { "contentId": "…", "contentTypeId": 39, "title": "식당 A", "kindName": "음식점", "addr": "강릉시 초당동" },
           "alternatives": [ { "contentId": "…", "title": "식당 C", "kindName": "음식점", "distanceM": 2300 } ],
           "reason": "초당순두부 음식점 3곳 중 앞 일정과 가장 가까운 곳이에요 (1.4km)" }
     도구: searchKeyword2(상품 지역) · detailCommon2. 줄마다 0 – 2콜 + LLM 1회. 도구 결과에 없던 contentId 는 버린다. 저장 · 로깅 없음
 POST /api/v1/audit-runs/{runId}/check-questions
-  → { "places": CheckQuestionPlace[] }
+  → { "places": CheckQuestionPlace[], "incomplete": null }
     예: { "findingIds": [301], "itemId": 25, "visit": { "dayNo": 1, "date": "2026-10-23", "start": "19:30" }, "tel": null, "questions": ["그날 문을 여나요?", "몇 시까지 운영하나요?"] }
     도구: audit-runs/{id}/unverified · findings · 상품 항목 · content-view 연락처(공통정보 tel → 소개정보 infocenter). 곳마다 최대 1콜(10분 캐시) + LLM 1회. 도구 결과에 없던 전화번호는 null
 POST /api/v1/radar/today
-  → { "basisAt": "2026-09-11T05:00:00+09:00", "todos": TodayItem[], "quiet": [ { "productId": 9, "text": "태백 당일 산행은 바뀐 정보가 없어요." } ] }
+  → { "basisAt": "2026-09-11T05:00:00+09:00", "todos": TodayItem[], "quiet": [ { "productId": 9, "text": "태백 당일 산행은 바뀐 정보가 없어요." } ], "incomplete": null }
     도구: radar/summary · radar/changes · notifications · 관심 지역 새 소식 · 상품 목록. 공사 0콜 + LLM 1회. 순서는 서버가 정한다(출발일이 가까운 상품의 바뀐 정보 → 새 소식)
-모든 에이전트: 사람이 누를 때만 · 계정당 같은 에이전트 동시 1회 · 30초 · 실패 · 시간 초과는 LLM_UNAVAILABLE, 예산 소진은 429 BUDGET_EXHAUSTED. 필드는 더해도 되지만 도구 결과 밖 값은 넣지 않는다
-타입 PlaceSuggestion · CheckQuestionPlace · TodayItem 은 packages/shared agent.ts. TodayItem.region 은 { regnCd, signguCd, month } — 시군구 코드(3자리)는 시도 코드와 함께여야 한 곳으로 정해진다
+모든 에이전트: 사람이 누를 때만 · 계정당 같은 에이전트 동시 1회 · 30초.
+  실행 전 거절 — 429 BUDGET_EXHAUSTED(예산 100%) · 429 RATE_LIMIT_EXCEEDED(같은 에이전트가 도는 중 · 분당 상한)
+  실행 뒤 실패 — 200 + 끝난 항목만 + "incomplete": { "reasonCode": "LLM_UNAVAILABLE" | "BUDGET_EXHAUSTED", "itemIds": [23, 24] }  (레이더 에이전트는 itemIds 가 빈 배열)
+  필드는 더해도 되지만 도구 결과 밖 값은 넣지 않는다
+타입 PlaceSuggestion · CheckQuestionPlace · TodayItem · AgentIncomplete 는 packages/shared agent.ts. TodayItem.region 은 { regnCd, signguCd, month } — 시군구 코드(3자리)는 시도 코드와 함께여야 한 곳으로 정해진다
 ```
 <callout icon="🤖" color="blue_bg">
 	**에이전트는 제안만 하고 아무것도 바꾸지 않습니다** (FR-AG-001 · 003 · 004).
@@ -1685,6 +1689,7 @@ POST /api/v1/radar/today
 	`itinerary_item.place_label`은 사용자가 입력한 장소명입니다. `REPLACE_CONTENT`는 자리를 두고 콘텐츠만 바꾸므로 저장된 라벨이 그대로 남고, `INSERT_ITEM`은 빈 라벨로 들어옵니다. 대체 후보의 명칭은 공사 원문이라 저장할 수 없기 때문입니다. 장소 담기로 넣은 항목도 같습니다 — 공식 명칭을 칸에 복사하면 원문을 저장하게 되므로 `place_label` 을 비워 두고(CONFIRMED 항목만 허용, DR-IN-013) 표시할 때 조회합니다.
 	그래서 일정 항목을 그리는 화면(2 · 3 · 5)은 **콘텐츠가 바뀌었거나 라벨이 빈 항목에 한해** 이름을 그 순간 조회해 응답에만 얹습니다. 저장은 그대로입니다. 패치하거나 장소 담기로 넣은 적 없는 상품은 종전대로 0콜입니다.
 	못 읽으면 저장된 라벨을 그대로 둡니다 — 이름을 지어내지 않습니다.
+	걷기 길 항목은 라벨 없이 `walk_id` 만 저장되므로, 상품 지역의 두루누비 걷기 길 목록(1콜 · 10분 메모리 캐시)에서 식별자로 이름을 찾아 얹고 못 찾으면 "걷기 길"로 둡니다 (DR-MD-005 · EX-PL-011).
 </callout>
 ---
 # 6. 검수 실행 파이프라인
@@ -2313,7 +2318,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 </callout>
 ---
 # 9. 오류 코드 체계
-## 9-1. 사유 코드 41종과 HTTP 매핑
+## 9-1. 사유 코드 42종과 HTTP 매핑
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>코드</td>
@@ -2397,7 +2402,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <td>`LLM_UNAVAILABLE`</td>
 <td>FRAGMENT</td>
 <td>200</td>
-<td>확인 불가. 검수는 계속. 에이전트(4-11)의 실패 · 시간 초과는 새 코드 없이 이 코드를 요청 단위로 쓰고 사람이 하는 길을 둔다 (EX-AG-001)</td>
+<td>확인 불가. 검수는 계속. 에이전트(4-11)의 실패 · 시간 초과도 새 코드 없이 이 코드를 쓴다 — 거절하지 않고 200 응답의 `incomplete.reasonCode` 로 알리며 끝난 항목만 돌려준다 (EX-AG-001 · 002)</td>
 </tr>
 <tr>
 <td>`KTO_FETCH_FAILED`</td>
@@ -2535,7 +2540,13 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <td>`BUDGET_EXHAUSTED`</td>
 <td>REQUEST</td>
 <td>429</td>
-<td>신규 검수 · 기획 조회 · 에이전트 차단. 기획 화면 안내에는 입력 · 저장은 계속된다는 문구를 더한다</td>
+<td>신규 검수 · 기획 조회 · 에이전트 차단. 기획 화면 안내에는 입력 · 저장은 계속된다는 문구를 더한다. 에이전트가 실행 중에 막히면 거절 대신 200 `incomplete`</td>
+</tr>
+<tr>
+<td>`RATE_LIMIT_EXCEEDED`</td>
+<td>REQUEST</td>
+<td>429</td>
+<td>거부 + `Retry-After`. 분당 상한 초과(3-4 · EX-SY-008)와 같은 계정의 같은 에이전트가 도는 중에 온 요청(EX-AG-004). 새로 실행하지 않는다</td>
 </tr>
 <tr color="red_bg">
 <td>`FORBIDDEN_ACTION`</td>
@@ -2571,7 +2582,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <callout icon="🔀" color="yellow_bg">
 	**`finding.reason_code`****에는 두 네임스페이스가 함께 기록됩니다.**
 	규칙 판정 사유코드 — **15종** (R01: `REST_DAY_CONFLICT` `OPEN_HOUR_CONFLICT` `ADMISSION_CUTOFF` `IN_BREAK_TIME` `REST_DAY_UNCERTAIN` · R02: `EVENT_ENDED` `EVENT_NOT_STARTED` · R03: `TIME_OVERLAP` · R04: `CONTENT_IMBALANCE` · R07: `MEAL_REST_MISSING` `MEAL_TIME_SHORT` · R08: `TRAVEL_TIME_SHORT` · R09: `RAIN_RISK` · R10: `TARGET_MISMATCH` · F07: `PRE_DEPARTURE_CHECK`) — 전체 정의는 예외처리 4장 「규칙 판정 사유코드 목록」(EX-CM-022)
-	예외 사유코드 — 위 41종
+	예외 사유코드 — 위 42종
 	정규화 결과의 `unparsed[].reason`은 접두어 없는 열거값(`MISSING` `TARGET_VARIES` …)이고, 로그와 finding에 기록하는 것이 `PARSE_*` 코드입니다. 둘을 혼동하지 않도록 상수 클래스를 분리합니다.
 </callout>
 ## 9-2. 재시도 정책
@@ -2937,7 +2948,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v1.8 (2026.08.24) — 구현 실측 대조. ① 백엔드를 Spring Boot 3 → **NestJS 10 + TypeScript** 로 정정. 아키텍처 다이어그램과 기술 스택 표가 실제와 달랐고, 기획서는 기능설명서의 원본이라 그대로 두면 제출 서류와 구동 코드가 어긋난다. 선택 근거(상시 구동 · 공용 상수 단일 출처 · eslint 로 강제하는 결정론성)도 함께 적었다 ② LLM 허용 용도를 셋 → **둘**로 정정 — finding 설명문 생성은 결정론성 때문에 쓰지 않기로 확정했고 구현의 `LlmPurpose` 도 `STRUCTURE` · `NORMALIZE` 둘뿐이다 ③ 배치를 Spring Scheduler → Node 프로세스 내 스케줄러, 배포를 Railway 로 구체화.
 	v1.9 (2026.08.29) — F11 리포트 구현에서 확정. ① `reportId` 가 가리킬 행이 없다는 것을 4-7 콜아웃으로 명시 — DB 명세서 6-4 가 PDF 를 남기지 못하게 하고 `report` 테이블은 엔터티 18종에 없다. `POST` 가 렌더까지 끝내고 프로세스 메모리에 5분 들고, `GET .../download` 가 그것을 흘려보낸다 ② **가장 최근 검수 실행만** 리포트 대상이며 아니면 409 `REPORT_FAILED` — `audit_run` 에 일정 스냅샷이 없어 과거 실행으로 만들면 그때 판정과 지금 일정이 섞인다 ③ 5-12 리포트 호출 수를 8 → **콘텐츠 수 × 2** 로 정정(픽스처 실측). `detailIntro2` 에 `title` 이 없고 `detailCommon2` 에 판정 필드가 없어 둘 다 필요하다. 하루 예상 호출량 40 → 56콜 ④ 머리표 버전이 v1.5 인데 개정 이력은 v1.8 까지 있어 v1.9 로 맞췄다.
 	v2.0 (2026.08.30) — F13 · F14 레이더 구현에서 확정. ① **T1 · T2 를 배치가 미리 산출**하고 조회는 읽기만 한다 — 요청 시 조회하면 화면을 열 때마다 예산이 나간다. `demand_signal` 신설(DB 명세서 v1.9) ② `radar/signals` 에 **`productId` 를 필수**로 했다 — T2 조회 창이 그 상품의 여행일에서 나오므로 상품 없이는 어느 기간의 행사를 세야 하는지 정할 수 없다 ③ `radar/changes` 의 판독 결과 변화는 `content_fingerprint.normalized_json` 전후 비교이며 재검수가 돌아 지문이 두 번 이상 쌓인 콘텐츠에만 있다. 없으면 `hasReadableDiff: false` 로 그 사실을 말한다 ④ 알림 응답에 `dismissable` 을 넣었다 — 비표출 전환 알림은 무시할 수 없는데(FR-MO-037 · PM-NG-010) 눌러 보고 403 을 받는 것은 화면이 규정을 모른다는 뜻이다 ⑤ 알림 응답에 관광지명을 담지 않는다. 화면이 `ktoContentId` 로 자기 일정의 `placeLabel` 을 붙인다(FR-MO-002).
-	v2.4 (2026.09.15) — 설정 탭 개편안(검수 기준)과 기획 · 검수 · 레이더 개편안 v7.1 반영. 명세 사본 개정 계획 1-6 의 행과 개발 분담 계획 3-3 의 계약을 옮겼다. ① 4-10 기획(F17) · 4-11 에이전트(F18) 절 신설 — `plan/briefing` · `plan/places`(시군구 · 근처 3km) · `plan/events` · `plan/walks` · `place-facts`, `place-suggestions` · `check-questions` · `radar/today`. 기획 조회는 규칙엔진을 부르지 않고 `audit_run` 을 만들지 않으며, 에이전트는 읽기 도구만 쓰고 결과를 저장 · 로깅하지 않는다 ② 4-2 `POST /products/{id}/handoff`(검수 시작 · `excludePending` · 422 `PLACE_UNRESOLVED` 와 `pendingCount`)와 `plannedAt` · `planOrigin`, 4-3 항목 추가 본문 확장(`afterItemId` · `content` · `excluded` · `origin` · 시각 자동 채움), 4-4 `matchedBy` · `with=accessible,pet`, 5-3 확정 시점을 장소를 입력하는 순간으로 ③ 검수 기준 — 설정 10종을 표준 5 · 회사 기준 2 · 관심 2 · 운영 3 으로 나누고, `GET · PUT /settings` 를 표준 요약 · 회사 기준(엄격하게만, 400 `SETTING_NOT_STRICTER`) · 관심 키워드 · 관심 지역으로 바꾸고 표 3종 엔드포인트를 뺐다. 배치 시각 · 예산 · 배치 자동 실행은 운영자 전용이다. 무시 사유 필수(400 `DISMISS_REASON_REQUIRED`), `settingSnapshot`(5-5), 규칙 설명 필드(5-10) ④ 레이더 — `nextBatchAt` · `t1.keywordHits` · `region-signals`(T3 포함) · `region-signals/refresh` ⑤ 3-4 호출 빈도 제한 2행, 5-12 기획 화면 · 에이전트 조달 행과 호출량, 7-2 서비스별 transport · 픽스처 규칙, 8-2 의도 `PLAN`(경계는 검수와 같은 100%) · provider 별 예산(국문 `daily_quota`, 새 서비스 4종은 각 800) ⑥ 9-1 사유코드 38 → 41종 — 새 코드 2개와 함께, 예외처리 v1.3 에서 신설됐는데 이 표에 빠져 있던 `CONTENT_NOT_FOUND` 를 넣었다(코드는 이미 39종이었다) ⑦ 정합 — 2-2 패키지 구조를 실제 모듈로 현행화(`mock` 삭제 · `plan` · `agent` 신설), 1장 ② · 7-5 LLM 사용을 다섯 가지로(EI-LM-001, 표에 남아 있던 「finding 설명 문장 생성」 삭제), 「지금 재검수」 → 「다시 검수」, 호출량 표시를 계정 메뉴의 오늘 사용량으로, 기능 요구사항의 FR-OP-020\~027 교체로 뜻이 바뀐 인용 정리(lcls-codes 의 FR-OP-023 제거 · 운영자 전용 문단에 PM-FN-008), 6-1 · 4-7 에 `setting_snapshot` 기록과 리포트 머리글, 10-1 테스트 계정 행(배치 3값은 모든 계정 변경 불가, PM-TA-006), 5-2 · 5-12 화면 이름 「대시보드」 → 「홈 · 내 상품」, 12 추적표에 FR-OP-020\~026 · FR-PL · FR-AG 행. 연쇄 개정: 13 기능 · 14 화면 · 15 권한 · 16 데이터 · 18 외부 연동 · 19 예외처리 · 20 DB 명세서와 동시 개정. 통합 점검 — `handoff` 를 검수 요청과 같은 202 로(3-3) 하고 예산 거절 시 기획 중 유지를 적었다. 상품 목록의 중복 필드(`latestBlockerCount` · `unreadNotificationCount`)는 기존 `latestAudit.counts.blocker` · `unreadNotifications` 로 대신하고, 시군구 코드 예시를 공사 형식(3자리)으로, TodayItem.region 에 `regnCd` 를 더했다. 5-10 R03 `basis` 를 코드와 같은 `ITINERARY_ONLY` 로, 6-4 · 7-5 의 temperature 0 을 지웠다(EI-LM-002 v1.7 연쇄 누락). 4-6 확인 체크 문구 "확인했어요", 12 추적표 FR-MO-017 "다시 검수".
+	v2.4 (2026.09.15) — 설정 탭 개편안(검수 기준)과 기획 · 검수 · 레이더 개편안 v7.1 반영. 명세 사본 개정 계획 1-6 의 행과 개발 분담 계획 3-3 의 계약을 옮겼다. ① 4-10 기획(F17) · 4-11 에이전트(F18) 절 신설 — `plan/briefing` · `plan/places`(시군구 · 근처 3km) · `plan/events` · `plan/walks` · `place-facts`, `place-suggestions` · `check-questions` · `radar/today`. 기획 조회는 규칙엔진을 부르지 않고 `audit_run` 을 만들지 않으며, 에이전트는 읽기 도구만 쓰고 결과를 저장 · 로깅하지 않는다 ② 4-2 `POST /products/{id}/handoff`(검수 시작 · `excludePending` · 422 `PLACE_UNRESOLVED` 와 `pendingCount`)와 `plannedAt` · `planOrigin`, 4-3 항목 추가 본문 확장(`afterItemId` · `content` · `excluded` · `origin` · 시각 자동 채움), 4-4 `matchedBy` · `with=accessible,pet`, 5-3 확정 시점을 장소를 입력하는 순간으로 ③ 검수 기준 — 설정 10종을 표준 5 · 회사 기준 2 · 관심 2 · 운영 3 으로 나누고, `GET · PUT /settings` 를 표준 요약 · 회사 기준(엄격하게만, 400 `SETTING_NOT_STRICTER`) · 관심 키워드 · 관심 지역으로 바꾸고 표 3종 엔드포인트를 뺐다. 배치 시각 · 예산 · 배치 자동 실행은 운영자 전용이다. 무시 사유 필수(400 `DISMISS_REASON_REQUIRED`), `settingSnapshot`(5-5), 규칙 설명 필드(5-10) ④ 레이더 — `nextBatchAt` · `t1.keywordHits` · `region-signals`(T3 포함) · `region-signals/refresh` ⑤ 3-4 호출 빈도 제한 2행, 5-12 기획 화면 · 에이전트 조달 행과 호출량, 7-2 서비스별 transport · 픽스처 규칙, 8-2 의도 `PLAN`(경계는 검수와 같은 100%) · provider 별 예산(국문 `daily_quota`, 새 서비스 4종은 각 800) ⑥ 9-1 사유코드 38 → 41종 — 새 코드 2개와 함께, 예외처리 v1.3 에서 신설됐는데 이 표에 빠져 있던 `CONTENT_NOT_FOUND` 를 넣었다(코드는 이미 39종이었다) ⑦ 정합 — 2-2 패키지 구조를 실제 모듈로 현행화(`mock` 삭제 · `plan` · `agent` 신설), 1장 ② · 7-5 LLM 사용을 다섯 가지로(EI-LM-001, 표에 남아 있던 「finding 설명 문장 생성」 삭제), 「지금 재검수」 → 「다시 검수」, 호출량 표시를 계정 메뉴의 오늘 사용량으로, 기능 요구사항의 FR-OP-020\~027 교체로 뜻이 바뀐 인용 정리(lcls-codes 의 FR-OP-023 제거 · 운영자 전용 문단에 PM-FN-008), 6-1 · 4-7 에 `setting_snapshot` 기록과 리포트 머리글, 10-1 테스트 계정 행(배치 3값은 모든 계정 변경 불가, PM-TA-006), 5-2 · 5-12 화면 이름 「대시보드」 → 「홈 · 내 상품」, 12 추적표에 FR-OP-020\~026 · FR-PL · FR-AG 행. 연쇄 개정: 13 기능 · 14 화면 · 15 권한 · 16 데이터 · 18 외부 연동 · 19 예외처리 · 20 DB 명세서와 동시 개정. 통합 점검 — `handoff` 를 검수 요청과 같은 202 로(3-3) 하고 예산 거절 시 기획 중 유지를 적었다. 상품 목록의 중복 필드(`latestBlockerCount` · `unreadNotificationCount`)는 기존 `latestAudit.counts.blocker` · `unreadNotifications` 로 대신하고, 시군구 코드 예시를 공사 형식(3자리)으로, TodayItem.region 에 `regnCd` 를 더했다. 5-10 R03 `basis` 를 코드와 같은 `ITINERARY_ONLY` 로, 6-4 · 7-5 의 temperature 0 을 지웠다(EI-LM-002 v1.7 연쇄 누락). 4-6 확인 체크 문구 "확인했어요", 12 추적표 FR-MO-017 "다시 검수". 결정 반영(2026.09.15) — ① 걷기 길은 `excluded{walkId}` 로 넣고 코스 이름을 보내지도 저장하지도 않는다(4-3 · 4-10 · 5-12 이름 조회 콜아웃). ② 에이전트 오류 응답 — 실행 전 거절만 429(`BUDGET_EXHAUSTED` · 신설 `RATE_LIMIT_EXCEEDED`)이고, 실행 뒤 실패 · 시간 초과 · 예산 소진은 200 + `incomplete` 로 끝난 항목만 돌려준다. `RATE_LIMIT_EXCEEDED` 는 3-4 빈도 제한에도 쓴다(3-3 · 3-4 · 4-11 · 9-1, 사유 코드 42종).
 	v2.3 (2026.09.10) — 5-6 finding 응답을 구현과 대조해 정정. ① `summary` 를 뺐다 — `message` 와 내용이 겹치고 코드에 한 번도 없었다 ② `dismissReason` · `needsConfirmation` · `patches[].placeName` 을 예시에 넣었다. 화면이 실제로 쓰는 값인데 표에 없어서 계약 밖에 있었다 ③ `target` 이 항목 상세를 담는 조건과 `placeLabel` 이 사용자 입력이라는 근거를 콜아웃에 적었다 — 비표출 finding 에서만 빠진다(FR-AU-071) ④ 비표출 예시의 `summary` 도 함께 뺐다. 코드 쪽은 `ruleVersion` · `dismissible` · `dismissedAt` · `confirmedAt` · `target` 상세 · `hiddenContent` 가 응답에서 빠져 있던 것을 채웠다(이슈 #355). 엔드포인트는 변경 없다.
 	v2.2 (2026.09.08) — 5-12 표의 화면 2 · 3 · 5 를 0콜에서 **「대체·추가된 항목만 조회」**로 정정. `itinerary_item.place_label` 은 사용자 입력이라 `REPLACE_CONTENT` 가 건드리지 않고 `INSERT_ITEM` 은 빈 라벨로 들어오는데, 표는 세 화면 모두 `place_label` 로 0콜이라고 적어 뒀다. 전후 비교는 `withReplacedNames` 가 들어가면서 **이미 표와 달라져 있었고 표를 고치지 않았다** — 확정한 뒤 화면이 대체 전 이름을 보여준 것이 그 결과다(이슈 #322 · PR #324). 패치한 적 없는 상품은 종전대로 0콜이다. API 계약(엔드포인트 · 요청/응답 필드)은 변경 없다.
 	v2.1 (2026.08.31) — 4-7 콜아웃의 「`report` 테이블은 엔터티 19종에 없다」를 **20종**으로 정정. v1.9 가 18종으로 적은 뒤 `demand_signal`(DB v1.9) · `llm_parse_cache`(DB v2.0)가 들어오며 두 번 밀렸고, 같은 문장이 구현 주석 두 곳(`report-store.ts` · `report.service.ts`)에도 18종으로 남아 있어 함께 고쳤다. API 계약은 변경 없다. DB 명세서 v2.1 과 동시 개정.
