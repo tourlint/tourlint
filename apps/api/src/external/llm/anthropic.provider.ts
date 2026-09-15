@@ -1,10 +1,17 @@
 import { createHttpFetch, isTimeoutError } from '../http-client';
 import { LlmSchemaInvalidError, LlmUnavailableError } from './llm.errors';
-import type { LlmProvider, LlmStructuredRequest, LlmStructuredResult } from './llm.types';
+import type {
+  LlmAssistantBlock, LlmProvider, LlmStructuredRequest, LlmStructuredResult, LlmToolTurnRequest,
+  LlmToolTurnResult, LlmTurn,
+} from './llm.types';
 
 const BASE_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 const MAX_TOKENS = 2_048;
+/** 에이전트 한 턴. 곳마다 이유 · 질문을 적은 최종 답이 들어갈 만큼이다 */
+const AGENT_MAX_TOKENS = 4_096;
+/** 에이전트 요청 하나의 응답 타임아웃. 실행 전체 30초 상한은 러너가 따로 건다 */
+const AGENT_RESPONSE_TIMEOUT_MS = 30_000;
 
 /**
  * Anthropic Messages API 어댑터.
@@ -28,17 +35,66 @@ export class AnthropicProvider implements LlmProvider {
   readonly name = 'anthropic';
   private readonly apiKey: string;
   private readonly fetchImpl: typeof globalThis.fetch;
+  private readonly agentFetchImpl: typeof globalThis.fetch;
 
-  constructor(apiKey: string, options: { fetchImpl?: typeof globalThis.fetch } = {}) {
+  constructor(
+    apiKey: string,
+    options: { fetchImpl?: typeof globalThis.fetch; agentFetchImpl?: typeof globalThis.fetch } = {},
+  ) {
     if (apiKey.trim() === '') throw new Error('LLM 인증키가 비어 있습니다');
     this.apiKey = apiKey;
     this.fetchImpl = options.fetchImpl ?? createHttpFetch();
+    this.agentFetchImpl = options.agentFetchImpl
+      ?? options.fetchImpl
+      ?? createHttpFetch({ responseTimeoutMs: AGENT_RESPONSE_TIMEOUT_MS });
   }
 
   async structured(req: LlmStructuredRequest, model: string): Promise<LlmStructuredResult> {
+    const response = await this.post(this.fetchImpl, {
+      model,
+      max_tokens: MAX_TOKENS,
+      system: req.system,
+      tools: [{ name: req.schemaName, description: '해석 결과를 이 모양으로 채운다', input_schema: req.schema }],
+      tool_choice: { type: 'tool', name: req.schemaName },
+      messages: [{ role: 'user', content: req.input }],
+    });
+    const body: unknown = await response.json();
+    return { value: readToolInput(body, req.schemaName), model: readModel(body, model) };
+  }
+
+  /**
+   * 도구 호출 대화의 다음 턴 (EI-LM-007).
+   *
+   * **도구를 강제하지 않는다(`tool_choice: auto`).** 강제 호출을 400 으로 거절하는 모델이 있어
+   * 강제하면 모델 교체(EI-LM-006)가 막힌다. 끝낼 때 어느 도구로 답하는지는 지시문이 정하고,
+   * 답의 값은 서버가 도구 결과와 대조해 거른다 (EI-LM-008).
+   */
+  async toolTurn(req: LlmToolTurnRequest, model: string): Promise<LlmToolTurnResult> {
+    const response = await this.post(this.agentFetchImpl, {
+      model,
+      max_tokens: AGENT_MAX_TOKENS,
+      system: req.system,
+      tools: req.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema })),
+      tool_choice: { type: 'auto' },
+      messages: req.turns.map(toApiMessage),
+    }, req.signal);
+    const body: unknown = await response.json();
+    const stop = (body as { stop_reason?: unknown }).stop_reason;
+    return {
+      blocks: readBlocks(body),
+      stopReason: typeof stop === 'string' ? stop : null,
+      model: readModel(body, model),
+    };
+  }
+
+  private async post(
+    fetchImpl: typeof globalThis.fetch,
+    payload: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     let response: Response;
     try {
-      response = await this.fetchImpl(BASE_URL, {
+      response = await fetchImpl(BASE_URL, {
         method: 'POST',
         headers: {
           // 인증키는 헤더에만 실린다. URL 에도 로그에도 담지 않는다
@@ -46,14 +102,8 @@ export class AnthropicProvider implements LlmProvider {
           'anthropic-version': API_VERSION,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({
-          model,
-          max_tokens: MAX_TOKENS,
-          system: req.system,
-          tools: [{ name: req.schemaName, description: '해석 결과를 이 모양으로 채운다', input_schema: req.schema }],
-          tool_choice: { type: 'tool', name: req.schemaName },
-          messages: [{ role: 'user', content: req.input }],
-        }),
+        body: JSON.stringify(payload),
+        ...(signal === undefined ? {} : { signal }),
       });
     } catch (e) {
       // 메시지에 본문이나 키가 섞이지 않게 이름만 옮긴다
@@ -69,10 +119,51 @@ export class AnthropicProvider implements LlmProvider {
       const retryable = response.status === 429 || response.status >= 500;
       throw new LlmUnavailableError(`HTTP ${response.status}`, retryable);
     }
-
-    const body: unknown = await response.json();
-    return { value: readToolInput(body, req.schemaName), model: readModel(body, model) };
+    return response;
   }
+}
+
+/** 대화 한 턴을 Messages API 모양으로. 도구 결과는 한 사용자 메시지에 모두 담고 안내는 뒤에 붙인다 */
+function toApiMessage(turn: LlmTurn): Record<string, unknown> {
+  switch (turn.role) {
+    case 'user':
+      return { role: 'user', content: turn.text };
+    case 'assistant':
+      return {
+        role: 'assistant',
+        content: turn.blocks.map((b) => (b.type === 'text'
+          ? { type: 'text', text: b.text }
+          : { type: 'tool_use', id: b.id, name: b.name, input: b.input })),
+      };
+    case 'tool_results':
+      return {
+        role: 'user',
+        content: [
+          ...turn.results.map((r) => ({
+            type: 'tool_result',
+            tool_use_id: r.toolUseId,
+            content: r.content,
+            ...(r.isError ? { is_error: true } : {}),
+          })),
+          ...(turn.note === undefined ? [] : [{ type: 'text', text: turn.note }]),
+        ],
+      };
+  }
+}
+
+/** 응답 블록 중 산문 · 도구 호출만 꺼낸다. 모르는 블록은 버린다 */
+function readBlocks(body: unknown): readonly LlmAssistantBlock[] {
+  const content = (body as { content?: unknown }).content;
+  if (!Array.isArray(content)) throw new LlmSchemaInvalidError('content 가 배열이 아닙니다');
+  const blocks: LlmAssistantBlock[] = [];
+  for (const block of content) {
+    const b = block as { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown };
+    if (b.type === 'text' && typeof b.text === 'string') blocks.push({ type: 'text', text: b.text });
+    if (b.type === 'tool_use' && typeof b.id === 'string' && typeof b.name === 'string') {
+      blocks.push({ type: 'tool_use', id: b.id, name: b.name, input: b.input });
+    }
+  }
+  return blocks;
 }
 
 /** 도구 호출 블록에서 입력만 꺼낸다. 산문 블록은 버린다 */

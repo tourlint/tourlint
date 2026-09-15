@@ -6,7 +6,7 @@ import {
   applyNormalizeFallback, FALLBACK_REASONS, MAX_FIXED_CLOSED, MAX_FRAGMENTS_PER_CONTENT,
 } from './normalize-fallback';
 
-const CONFIG = { provider: 'anthropic', modelStructure: 'm-s', modelNormalize: 'm-n', apiKey: 'k' };
+const CONFIG = { provider: 'anthropic', modelStructure: 'm-s', modelNormalize: 'm-n', modelAgent: 'm-a', apiKey: 'k' };
 
 function frag(fragment: string): UnparsedFragment {
   // 기본을 CONDITIONAL 로 둔다 — 실측에서 LLM 이 읽을 값이 실제로 있는 유일한 사유다
@@ -35,6 +35,7 @@ function fakeLlm(answer: unknown | (() => never)): { llm: LlmClient; calls: () =
       if (typeof answer === 'function') (answer as () => never)();
       return { value: answer, model: 'm-n' };
     },
+    toolTurn: async () => { throw new Error('도구 호출은 이 테스트에서 쓰지 않는다'); },
   };
   return { llm: new LlmClient({ provider, config: CONFIG }), calls: () => n };
 }
