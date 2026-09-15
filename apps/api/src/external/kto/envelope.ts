@@ -1,12 +1,12 @@
 import type { KtoOperation } from '@tourlint/shared';
-import { KtoAuthError, KtoFetchError, KtoQuotaExceededError } from './kto.errors';
+import { KtoAuthError, KtoFetchError, KtoInvalidRequestError, KtoQuotaExceededError } from './kto.errors';
 
 /**
  * 공사 응답 봉투 해석 — **실측으로 확정된 동작만** 담는다.
  *
  * 이 파일이 처리하는 함정 5가지 (EI-KT-002 ~ 006 · 018)
  *   ① 인증 실패·쿼터 초과는 JSON 이 아니라 **XML** 로 온다
- *   ② `resultCode` 가 `0000` 이 아닌 응답은 HTTP 200 이어도 실패다
+ *   ② `resultCode` 가 `0000` 이 아닌 응답은 HTTP 200 이어도 실패다 — 두루누비는 봉투 없이 최상위에 준다
  *   ③ 0건일 때 `items` 는 빈 배열이 아니라 **빈 문자열** `""` 이다
  *   ④ `items.item` 은 1건이면 **객체**, 2건 이상이면 **배열**이다
  *   ⑤ 구 코드체계 필드는 값이 있어도 읽으면 안 되고, 상세 조회에서는 아예 비어 온다
@@ -36,6 +36,8 @@ export interface KtoEnvelope {
 /** 공사 XML 오류의 `returnReasonCode`. 실측·공식 문서 기준 */
 const XML_QUOTA_CODES = new Set(['22']);
 const XML_AUTH_CODES = new Set(['20', '30', '31', '32', '33']);
+/** 잘못된 파라미터 · 필수 파라미터 누락 · 없는 서비스 — 다시 보내도 같다 */
+const XML_REQUEST_CODES = new Set(['10', '11', '12']);
 
 /**
  * 응답 본문 문자열 하나를 봉투로 바꾼다. 실패는 전부 `KtoError` 로 던진다.
@@ -64,6 +66,13 @@ export function parseKtoResponse(
 
   const response = pick(parsed, 'response');
   if (!isRecord(response)) {
+    /*
+     * 두루누비는 파라미터 오류를 `response` 없이 최상위 `resultCode` · `resultMsg` 로 준다
+     * (2026.09.15 실호출). 봉투가 없다고만 하면 무엇이 틀렸는지가 사라진다.
+     */
+    if (isRecord(parsed) && parsed.resultCode !== undefined && String(parsed.resultCode) !== '0000') {
+      throw resultCodeToKtoError(operation, String(parsed.resultCode), String(parsed.resultMsg ?? ''), httpStatus);
+    }
     throw new KtoFetchError(operation, '응답에 response 봉투가 없다', httpStatus);
   }
 
@@ -144,6 +153,9 @@ function xmlErrorToKtoError(operation: KtoOperation, xml: string): KtoFetchError
   if (code !== null && XML_AUTH_CODES.has(code)) {
     return new KtoAuthError(operation, code, detail);
   }
+  if (code !== null && XML_REQUEST_CODES.has(code)) {
+    return new KtoInvalidRequestError(operation, `XML 오류 응답 (${code}): ${detail}`, null, code);
+  }
   // 한도·인증 메시지가 코드 없이 오는 경우까지 잡는다
   if (/LIMITED_NUMBER_OF_SERVICE_REQUESTS/i.test(detail)) {
     return new KtoQuotaExceededError(operation, code, detail);
@@ -164,6 +176,9 @@ function resultCodeToKtoError(
   const bare = resultCode.replace(/^0+/, '') || resultCode;
   if (XML_QUOTA_CODES.has(bare)) return new KtoQuotaExceededError(operation, resultCode, resultMsg);
   if (XML_AUTH_CODES.has(bare)) return new KtoAuthError(operation, resultCode, resultMsg);
+  if (XML_REQUEST_CODES.has(bare)) {
+    return new KtoInvalidRequestError(operation, `resultCode ${resultCode}: ${resultMsg}`, httpStatus, resultCode);
+  }
   return new KtoFetchError(operation, `resultCode ${resultCode}: ${resultMsg}`, httpStatus, resultCode);
 }
 

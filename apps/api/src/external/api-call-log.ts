@@ -1,3 +1,5 @@
+import type { CallProvider } from '@tourlint/shared';
+
 /**
  * 외부 호출 로그 — `api_call_log` 에 그대로 대응한다 (DB 명세서 3-16 · EI-CM-006 · FR-OP-001).
  *
@@ -9,8 +11,11 @@
  * (PM-SC-005 · NF-OB-006 · DB 명세서 6-4 누출 경로 ①).
  */
 
-export const CALL_PROVIDER = ['KTO', 'KAKAO_MOBILITY', 'KMA', 'LLM'] as const;
-export type CallProvider = (typeof CALL_PROVIDER)[number];
+/**
+ * 제공자 목록은 DB CHECK(`ck_log_provider`)와 같은 공용 상수를 쓴다. 공사 서비스는 활용신청 ·
+ * 한도가 서비스마다 따로라 `KTO` · `KTO_PET` · `KTO_WITH` … 로 나눠 센다 (외부 연동 3-1).
+ */
+export { CALL_PROVIDER, type CallProvider } from '@tourlint/shared';
 
 export const CALL_STATUS = ['OK', 'FAIL', 'TIMEOUT'] as const;
 export type CallStatus = (typeof CALL_STATUS)[number];

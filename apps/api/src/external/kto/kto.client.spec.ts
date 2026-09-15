@@ -1,11 +1,12 @@
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../api-call-log';
-import { KTO_MAX_ROWS, KtoClient } from './kto.client';
+import { KTO_MAX_ROWS, KTO_VISITOR_ROWS, KtoClient } from './kto.client';
 import {
   ContentNotFoundError,
   KtoAuthError,
   KtoFetchError,
+  KtoInvalidRequestError,
   KtoQuotaExceededError,
   KtoTimeoutError,
 } from './kto.errors';
@@ -76,6 +77,134 @@ describe('KtoClient', () => {
     it('locationBasedList — 좌표 기반 목록을 돌려준다', async () => {
       const page = await client(fixture).locationBasedList({ mapX: 128.8, mapY: 37.79, radius: 5000 });
       expect(page.items.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('새 서비스 5종 — 픽스처 (EI-KT-022 ~ 026)', () => {
+    const fixture = new FixtureKtoTransport(FIXTURES);
+    const GANGNEUNG = { lDongRegnCd: '51', lDongSignguCd: '150' };
+
+    it('withAreaBasedList — 목록의 contentid 가 국문 관광정보와 같다', async () => {
+      const page = await client(fixture).withAreaBasedList(GANGNEUNG);
+      // 오죽헌(129784)은 데모 상품의 국문 contentid 다
+      expect(page.items.map((i) => i.contentid)).toContain('129784');
+      expect(page.totalCount).toBe(page.items.length);
+    });
+
+    it('detailWithTour — 무장애 항목을 돌려준다', async () => {
+      const item = await client(fixture).detailWithTour('129784');
+      expect(item).toHaveProperty('wheelchair');
+      expect(item).toHaveProperty('restroom');
+    });
+
+    it('petAreaBasedList · detailPetTour — 동반 조건을 돌려준다', async () => {
+      const page = await client(fixture).petAreaBasedList(GANGNEUNG);
+      expect(page.items.length).toBeGreaterThan(0);
+      const item = await client(fixture).detailPetTour('2628994');
+      expect(item).toHaveProperty('acmpyTypeCd');
+      expect(item).toHaveProperty('acmpyPsblCpam');
+    });
+
+    it('relatedSearchKeyword — 순위는 오지만 국문 contentid 는 없다 (3-4)', async () => {
+      const page = await client(fixture).relatedSearchKeyword({ keyword: '경포대', baseYm: '202608', areaCd: '51', signguCd: '51150' });
+      expect(page.items.length).toBeGreaterThan(0);
+      for (const i of page.items) {
+        expect(i).toHaveProperty('rlteRank');
+        expect(i).not.toHaveProperty('contentid');
+      }
+    });
+
+    it('courseList — 전국 목록이고 좌표가 없다', async () => {
+      const page = await client(fixture).courseList();
+      expect(page.items.every((i) => /^T_CRS_MNG\d{10}$/.test(String(i.crsIdx)))).toBe(true);
+      expect(page.items.some((i) => 'mapx' in i)).toBe(false);
+    });
+
+    it('locgoRegnVisitrDDList — 지역 코드는 법정동 시도 + 시군구 5자리다', async () => {
+      const page = await client(fixture).locgoRegnVisitrDDList({ startYmd: '20250901', endYmd: '20250901' });
+      expect(page.items.every((i) => /^\d{5}$/.test(String(i.signguCode)))).toBe(true);
+      expect(page.items.filter((i) => i.signguCode === '51150')).toHaveLength(3); // 현지인 · 외지인 · 외국인
+    });
+
+    it('locationBasedList — 근처 3km 식당 · 숙소를 분류로 거른다', async () => {
+      const near = { mapX: 128.8947280147, mapY: 37.7517436388, radius: 3000 };
+      const food = await client(fixture).locationBasedList({ ...near, lclsSystm1: 'FD' });
+      const lodging = await client(fixture).locationBasedList({ ...near, lclsSystm1: 'AC' });
+      expect(food.items.every((i) => Number(i.dist) <= 3000)).toBe(true);
+      expect(lodging.items.every((i) => i.lclsSystm1 === 'AC')).toBe(true);
+    });
+  });
+
+  describe('새 서비스 파라미터 계약', () => {
+    const region = { lDongRegnCd: '51', lDongSignguCd: '150' };
+
+    it('무장애 · 반려동물 지역 목록은 시군구 조건과 1000행으로 부른다', async () => {
+      const t = new StubTransport([ok({ items: '' })]);
+      await client(t).withAreaBasedList(region);
+      await client(t).petAreaBasedList({ ...region, numOfRows: 5000 });
+      expect(t.calls.map((c) => c.operation)).toEqual(['withAreaBasedList2', 'petAreaBasedList2']);
+      for (const c of t.calls) expect(c.params).toEqual({ ...region, numOfRows: KTO_MAX_ROWS, pageNo: 1 });
+    });
+
+    it.each([
+      [{ keyword: ' ' }, /이름이 비어/],
+      [{ baseYm: '2026-08' }, /baseYm/],
+      [{ areaCd: '5' }, /areaCd/],
+      [{ signguCd: '150' }, /signguCd/],
+      [{ signguCd: '11110' }, /signguCd/],
+    ])('🔴 연관 관광지 조건 모양이 틀리면 부르기 전에 막는다 — 0건으로 순위가 사라진다 %o', async (override, message) => {
+      const t = new StubTransport([ok({ items: '' })]);
+      const params = { keyword: '경포대', baseYm: '202608', areaCd: '51', signguCd: '51150', ...override };
+      const e = await client(t).relatedSearchKeyword(params).catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(KtoInvalidRequestError);
+      expect((e as Error).message).toMatch(message);
+      expect(t.calls).toHaveLength(0);
+    });
+
+    it('방문자수는 한 달치 전국을 30000행 1콜로 부른다', async () => {
+      const t = new StubTransport([ok({ items: '', totalCount: 0 })]);
+      await client(t).locgoRegnVisitrDDList({ startYmd: '20250901', endYmd: '20250930' });
+      expect(t.calls[0]?.params).toEqual({ startYmd: '20250901', endYmd: '20250930', numOfRows: KTO_VISITOR_ROWS, pageNo: 1 });
+    });
+
+    it.each([
+      ['20250801', '20250901'], // 32일 — 1콜에 다 오지 않는다
+      ['20250930', '20250901'], // 끝이 앞선다
+      ['20250231', '20250301'], // 없는 날짜
+      ['2025-09-01', '2025-09-30'],
+    ])('🔴 방문자수 기간 %s – %s 는 부르기 전에 막는다', async (startYmd, endYmd) => {
+      const t = new StubTransport([ok({ items: '' })]);
+      await expect(client(t).locgoRegnVisitrDDList({ startYmd, endYmd })).rejects.toBeInstanceOf(KtoInvalidRequestError);
+      expect(t.calls).toHaveLength(0);
+    });
+
+    it('31일은 받는다', async () => {
+      const t = new StubTransport([ok({ items: '', totalCount: 0 })]);
+      await expect(client(t).locgoRegnVisitrDDList({ startYmd: '20251001', endYmd: '20251031' })).resolves.toBeDefined();
+    });
+
+    it('🔴 한 번에 온다고 본 전국 목록이 잘려 오면 던진다 — 있는 걷기 길이 없다고 나온다', async () => {
+      const t = new StubTransport([ok({ items: { item: [{ crsIdx: 'T_CRS_MNG0000000001' }] }, totalCount: 142 })]);
+      await expect(client(t).courseList()).rejects.toThrow(/한 번에 다 오지 않았다: 1 \/ 142건/);
+    });
+
+    it('위치기반 · 지역기반 목록의 분류 조건은 값이 있을 때만 보낸다', async () => {
+      const t = new StubTransport([ok({ items: '' })]);
+      await client(t).locationBasedList({ mapX: 1, mapY: 1, radius: 3000, lclsSystm1: 'FD' });
+      await client(t).areaBasedList({ ...region, lclsSystm2: 'VE01', numOfRows: 1 });
+      expect(t.calls[0]?.params).toMatchObject({ lclsSystm1: 'FD' });
+      expect(t.calls[0]?.params).not.toHaveProperty('lclsSystm2');
+      expect(t.calls[1]?.params).toMatchObject({ lclsSystm2: 'VE01', numOfRows: 1 });
+      expect(t.calls[1]?.params).not.toHaveProperty('lclsSystm1');
+    });
+
+    it('🔴 파라미터 오류는 다시 보내지 않는다 — 두루누비는 봉투 없이 최상위에 준다', async () => {
+      const t = new StubTransport([JSON.stringify({ resultCode: '10', resultMsg: 'INVALID_REQUEST_PARAMETER_ERROR(crsIdx)' })]);
+      const e = await client(t).courseList().catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(KtoInvalidRequestError);
+      expect(t.calls).toHaveLength(1);
+      expect(logger.entries).toHaveLength(1);
+      expect(logger.entries[0]).toMatchObject({ provider: 'KTO_DURUNUBI', status: 'FAIL', resultCode: '10' });
     });
   });
 
@@ -185,6 +314,29 @@ describe('KtoClient', () => {
       await client(new StubTransport([ok({ items: '' })])).searchKeyword({ keyword: '강릉' });
       expect(logger.entries).toHaveLength(1);
       expect(logger.entries[0]).toMatchObject({ provider: 'KTO', operation: 'searchKeyword2', status: 'OK', resultCode: '0000', httpStatus: 200 });
+    });
+
+    it('🔴 제공자를 서비스마다 따로 적는다 — 새 서비스 호출이 국문 예산에 섞이지 않는다 (API 8-2)', async () => {
+      const c = client(new StubTransport([ok({ items: { item: { contentid: '1' } }, totalCount: 1 })]));
+      const region = { lDongRegnCd: '51', lDongSignguCd: '150' };
+      await c.searchKeyword({ keyword: '강릉' });
+      await c.withAreaBasedList(region);
+      await c.detailWithTour('1');
+      await c.petAreaBasedList(region);
+      await c.detailPetTour('1');
+      await c.relatedSearchKeyword({ keyword: '경포대', baseYm: '202608', areaCd: '51', signguCd: '51150' });
+      await c.courseList();
+      await c.locgoRegnVisitrDDList({ startYmd: '20250901', endYmd: '20250930' });
+      expect(logger.entries.map((e) => [e.provider, e.operation])).toEqual([
+        ['KTO', 'searchKeyword2'],
+        ['KTO_WITH', 'withAreaBasedList2'],
+        ['KTO_WITH', 'detailWithTour2'],
+        ['KTO_PET', 'petAreaBasedList2'],
+        ['KTO_PET', 'detailPetTour2'],
+        ['KTO_RELATED', 'searchKeyword1'],
+        ['KTO_DURUNUBI', 'courseList'],
+        ['KTO_VISITOR', 'locgoRegnVisitrDDList'],
+      ]);
     });
 
     it('픽스처 리플레이는 남기지 않는다 — 안 한 호출이 증빙에 섞이면 안 된다 (FR-OP-007)', async () => {
