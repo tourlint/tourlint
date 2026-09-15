@@ -1,4 +1,4 @@
-import { type Severity } from '@tourlint/shared';
+import { SETTING_DEFAULTS, type Severity } from '@tourlint/shared';
 import { toMinutes } from '../normalize/primitives';
 import type { AuditItem, AuditRule, AuditSettings, Finding, ItineraryContext } from './types';
 
@@ -9,9 +9,13 @@ import type { AuditItem, AuditRule, AuditSettings, Finding, ItineraryContext } f
  * 것이라 잡아준다. 다만 못 가는 일정이 되는 건 아니므로 주의 등급이다.
  *
  * 외부 호출도 공사 데이터도 필요 없다. 일정표만 보면 판정된다.
+ *
+ * 두 기준값은 계정의 회사 기준이다 — 표준보다 엄격하게만 바꿀 수 있고, 표준과 다르면 문장에
+ * 두 값을 함께 적는다 (FR-RU-072 · 074).
  */
 
-export const R07_VERSION = '1.0.0';
+/** `1.1.0` — 회사 기준이 표준과 다를 때 두 기준을 함께 적는 문장 (FR-RU-074) */
+export const R07_VERSION = '1.1.0';
 
 export type MealRestVerdict = 'OK' | 'SHORT_SPAN' | 'MEAL_TIME_SHORT' | 'MEAL_REST_MISSING';
 
@@ -119,7 +123,7 @@ export class R07MealRestRule implements AuditRule {
         severity: 'WARNING',
         reasonCode: verdict,
         targetItemId: verdict === 'MEAL_TIME_SHORT' ? (longest?.id ?? null) : null,
-        message: message(verdict, dayNo, span, longest, ctx.settings),
+        message: message(verdict, dayNo, span, longest, items, ctx.settings),
         evidence: {
           dayNo,
           span: { from: span.from, to: span.to, minutes: span.minutes },
@@ -137,23 +141,50 @@ export class R07MealRestRule implements AuditRule {
   }
 }
 
+/** TourLint 표준 — 회사 기준과 비교해 문장을 가르는 기준이다 */
+const STANDARD = { spanHours: SETTING_DEFAULTS.r07SpanHours, mealMinutes: SETTING_DEFAULTS.r07MealMinutes } as const;
+
 function message(
   verdict: MealRestVerdict,
   dayNo: number,
   span: DaySpan,
   longest: AuditItem | null,
+  items: readonly AuditItem[],
   settings: AuditSettings,
 ): string {
   const hours = (span.minutes / 60).toFixed(1).replace(/\.0$/, '');
   const head = `${dayNo}일차 ${span.from}~${span.to} 연속 ${hours}시간`;
 
+  /*
+   * 회사 기준이 표준보다 엄격할 때만 두 기준을 함께 적는다 (FR-RU-074). 표준과 같으면 지금
+   * 문장 그대로다 — 회귀 정답셋과 저장된 finding 의 문장이 흔들리지 않는다.
+   *
+   * 「표준으로 봤다면 이 날이 걸리는가」로 문장을 가른다. 걸리지 않으면 사용자는 왜 표준 검수에
+   * 없던 지적이 나왔는지 알아야 하고, 걸리면 회사 기준을 적는 것만으로 충분하다.
+   */
+  const spanStricter = settings.r07SpanHours < STANDARD.spanHours;
+  const mealStricter = settings.r07MealMinutes > STANDARD.mealMinutes;
+  const underStandard = spanStricter || mealStricter
+    ? evaluateDay(items, { ...settings, r07SpanHours: STANDARD.spanHours, r07MealMinutes: STANDARD.mealMinutes })
+    : verdict;
+  const spanBasis =
+    `회사 기준은 연속 ${settings.r07SpanHours}시간부터, TourLint 표준은 연속 ${STANDARD.spanHours}시간부터 식사·휴식을 봅니다.`;
+
   if (verdict === 'MEAL_REST_MISSING') {
-    return `${head} 일정에 식사·휴식 항목이 없습니다. 공백 구간에 식사를 넣어 주세요.`;
+    const basis = spanStricter && underStandard === 'SHORT_SPAN' ? ` ${spanBasis}` : '';
+    return `${head} 일정에 식사·휴식 항목이 없습니다.${basis} 공백 구간에 식사를 넣어 주세요.`;
   }
   const kind = longest?.itemType === 'REST' ? '휴식' : '식사';
   const label = longest?.placeLabel ?? '식사';
   const minutes = longest === null ? 0 : durationMinutes(longest);
-  return `${head} 중 ${kind}(${label})가 ${minutes}분으로 최소 ${settings.r07MealMinutes}분보다 짧습니다. 시간을 늘리거나 뒤 일정을 미뤄 주세요.`;
+  const threshold = mealStricter ? `회사 기준 ${settings.r07MealMinutes}분` : `최소 ${settings.r07MealMinutes}분`;
+
+  let basis = '';
+  if (underStandard === 'SHORT_SPAN') basis = ` ${spanBasis}`;
+  else if (underStandard === 'OK') basis = ` TourLint 표준 ${STANDARD.mealMinutes}분은 충족합니다.`;
+  else if (mealStricter) basis = ` TourLint 표준 ${STANDARD.mealMinutes}분에도 못 미칩니다.`;
+
+  return `${head} 중 ${kind}(${label})가 ${minutes}분으로 ${threshold}보다 짧습니다.${basis} 시간을 늘리거나 뒤 일정을 미뤄 주세요.`;
 }
 
 function groupByDay(items: readonly AuditItem[]): Map<number, AuditItem[]> {

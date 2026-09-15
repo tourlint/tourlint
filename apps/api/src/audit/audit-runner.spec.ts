@@ -1,13 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { STANDARD_VERSION, type TargetProfileSeed } from '@tourlint/shared';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
+import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
 import { createKtoClient, FixtureKtoTransport, KtoClient } from '../external/kto';
 import {
   AuditRunner, DEFAULT_AUDIT_CONCURRENCY, concurrencyFromEnv, departureStamp,
   uniqueContentIds, withConcurrency,
   type ClimateNormalLookup, type ItineraryItemRow, type ProductRow,
-  type TargetProfileLookup, type TargetProfileRow,
+  type TargetProfileLookup,
 } from './audit-runner';
 import { FixtureKmaTransport, KmaClient } from '../external/kma';
 import { RULESET_VERSION } from './rule-registry';
@@ -35,9 +37,9 @@ function makeRunner(opts: {
   kma?: KmaClient;
   climate?: ClimateNormalLookup;
   clock?: () => Date;
-  profiles?: TargetProfileLookup;
-  accountId?: number;
+  profileOf?: TargetProfileLookup;
   maxReplacementCalls?: number;
+  settings?: typeof DEFAULT_AUDIT_SETTINGS;
 }): AuditRunner {
   return new AuditRunner({
     kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
@@ -46,9 +48,9 @@ function makeRunner(opts: {
     onProgress: opts.onProgress,
     kma: opts.kma,
     climate: opts.climate,
-    profiles: opts.profiles,
-    accountId: opts.accountId,
+    profileOf: opts.profileOf,
     maxReplacementCalls: opts.maxReplacementCalls,
+    settings: opts.settings,
   });
 }
 
@@ -122,6 +124,14 @@ describe('AuditRunner — 관통', () => {
     expect(result.targetCount).toBe(3);
     expect(result.failedCount).toBe(0);
     expect(result.rulesetVersion).toBe(RULESET_VERSION);
+  });
+
+  it('🔴 적용한 기준을 실행 결과에 남긴다 — 표준 버전과 회사 기준 두 값 (DR-CF-009)', async () => {
+    const standard = await runner().run(product, TP03_LIKE);
+    expect(standard.settingSnapshot).toEqual({ standardVersion: STANDARD_VERSION, r07SpanHours: 6, r07MealMinutes: 60 });
+
+    const company = await runner({ settings: { ...DEFAULT_AUDIT_SETTINGS, r07MealMinutes: 90 } }).run(product, TP03_LIKE);
+    expect(company.settingSnapshot).toEqual({ standardVersion: STANDARD_VERSION, r07SpanHours: 6, r07MealMinutes: 90 });
   });
 
   it('일차별 방문일을 출발일에서 계산한다', async () => {
@@ -472,27 +482,29 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
            contentTypeId: 14, lclsSystm2: lcls2 });
 
   const found = (expectedLcls2: string[], expectsNight = false): TargetProfileLookup =>
-    ({ find: async (): Promise<TargetProfileRow> => ({ expectedLcls2, expectsNight }) });
+    (targetKey, conceptKey): TargetProfileSeed =>
+      ({ targetKey, conceptKey, expectedLcls2, expectsNight } as TargetProfileSeed);
 
   it('🔴 타깃 · 콘셉트를 안 적은 상품은 R10 이 물러난다', async () => {
     // 선택 입력이다. 조회 자체를 하지 않는다
     let called = 0;
-    const spy: TargetProfileLookup = { find: async () => { called++; return null; } };
-    const result = await runner({ profiles: spy, accountId: 7 }).run(product, [sight(1, 'VE07')]);
+    const spy: TargetProfileLookup = () => { called++; return null; };
+    const result = await runner({ profileOf: spy }).run(product, [sight(1, 'VE07')]);
 
     expect(called).toBe(0);
     expect(result.findings.filter((f) => f.ruleCode === 'R10')).toEqual([]);
   });
 
-  it('프로파일을 찾으면 그것으로 판정한다', async () => {
-    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
-    const result = await runner({ profiles: found(['VE07', 'FD05']), accountId: 7 })
-      .run(withTarget, [sight(1, 'VE07')]);
+  it('🔴 조회기를 주지 않으면 표준 63행으로 판정한다 — 계정 표를 읽지 않는다', async () => {
+    // 커플 · 감성 표준 = 카페/ 찻집(FD05) · 랜드마크(VE01) · 바다 · 강 풍경(NA02) · 저녁 일정
+    const withTarget: ProductRow = { ...product, targetKey: 'COUPLE', conceptKey: 'EMOTIONAL', accountId: 7 };
+    const result = await runner().run(withTarget, [sight(1, 'VE07')]);
 
     const f = result.findings.find((x) => x.ruleCode === 'R10');
     expect(f?.severity).toBe('WARNING');
-    // 카페/찻집(FD05)이 0건이다
-    expect(f?.evidence).toMatchObject({ missingLcls2: ['FD05'] });
+    expect(f?.evidence).toMatchObject({
+      expectedLcls2: ['FD05', 'VE01', 'NA02'], missingLcls2: ['FD05', 'VE01', 'NA02'], expectsNight: true,
+    });
   });
 
   it('🔴 결손 유형을 빈 시간대에 넣는 수정안이 붙는다 (FR-RU-103)', async () => {
@@ -511,7 +523,7 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
 
     // 픽스처 위치기반 목록에 실제로 있는 중분류를 결손으로 둔다
     const lcls2 = fixtureLcls2();
-    const result = await runner({ profiles: found(['VE07', lcls2]), accountId: 7 })
+    const result = await runner({ profileOf: found(['VE07', lcls2]) })
       .run(withTarget, [morning, evening]);
 
     const r10 = result.findings.find((f) => f.ruleCode === 'R10');
@@ -525,30 +537,23 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     expect(payload.startTime).toBe('10:30');
   });
 
-  it('🔴 그 조합의 프로파일이 없으면 확인 불가다', async () => {
-    const withTarget: ProductRow = { ...product, targetKey: 'SOLO', conceptKey: 'SHOPPING', accountId: 7 };
-    const empty: TargetProfileLookup = { find: async () => null };
-    const result = await runner({ profiles: empty, accountId: 7 }).run(withTarget, [sight(1, 'VE07')]);
+  it('🔴 표준 목록에 없는 타깃 · 콘셉트(옛 자유 입력)면 확인 불가다', async () => {
+    const withTarget: ProductRow = { ...product, targetKey: '20대 커플', conceptKey: '감성', accountId: 7 };
+    const result = await runner().run(withTarget, [sight(1, 'VE07')]);
 
     const f = result.findings.find((x) => x.ruleCode === 'R10');
     expect(f?.severity).toBe('UNVERIFIED');
-    expect(f?.evidence).toMatchObject({ targetKey: 'SOLO', conceptKey: 'SHOPPING' });
+    expect(f?.evidence).toMatchObject({ targetKey: '20대 커플', conceptKey: '감성' });
   });
 
   it('🔴 조회가 깨져도 검수를 세우지 않는다 — 그 규칙만 확인 불가다', async () => {
     const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
-    const broken: TargetProfileLookup = { find: async () => { throw new Error('DB 끊김'); } };
-    const result = await runner({ profiles: broken, accountId: 7 }).run(withTarget, [sight(1, 'VE07')]);
+    const broken: TargetProfileLookup = () => { throw new Error('표를 못 읽음'); };
+    const result = await runner({ profileOf: broken }).run(withTarget, [sight(1, 'VE07')]);
 
     expect(result.findings.find((x) => x.ruleCode === 'R10')?.severity).toBe('UNVERIFIED');
     // 나머지 규칙은 그대로 돈다
     expect(result.score.score).toBeGreaterThan(0);
-  });
-
-  it('조회기를 안 붙이면 확인 불가로 남는다', async () => {
-    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
-    const result = await runner().run(withTarget, [sight(1, 'VE07')]);
-    expect(result.findings.find((x) => x.ruleCode === 'R10')?.severity).toBe('UNVERIFIED');
   });
 });
 
@@ -740,11 +745,10 @@ describe('외부 조회 상한을 굶는 finding 에 먼저 준다 (NF-PF-014)',
      */
     const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
     const lcls2 = fixtureLcls2();
-    const profiles: TargetProfileLookup = {
-      find: async (): Promise<TargetProfileRow> => ({ expectedLcls2: ['FD01', lcls2], expectsNight: false }),
-    };
+    const profileOf: TargetProfileLookup = (targetKey, conceptKey) =>
+      ({ targetKey, conceptKey, expectedLcls2: ['FD01', lcls2], expectsNight: false } as TargetProfileSeed);
 
-    const result = await runner({ profiles, accountId: 7, maxReplacementCalls: 1 }).run(withTarget, [
+    const result = await runner({ profileOf, maxReplacementCalls: 1 }).run(withTarget, [
       // 10/13 은 화요일 — 가람집옹심이가 매주 화요일 휴무다
       item({ id: 1, dayNo: 1, seq: 1, startTime: '10:00', endTime: '11:00', placeLabel: '가람집옹심이',
              ktoContentId: '2868839', contentTypeId: 39, lclsSystm2: 'FD01',

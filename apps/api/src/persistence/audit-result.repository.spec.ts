@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
+import { SEVERITY_WEIGHT_DEFAULT, STANDARD_VERSION } from '@tourlint/shared';
 import type { Finding } from '../engine/rules/types';
 import { calculateReadiness } from '../engine/score';
 import { AuditResultRepository, type AuditResultToSave, type FingerprintToSave } from './audit-result.repository';
@@ -100,6 +100,7 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
       targetCount, failedCount, findings, fingerprints: over.fingerprints ?? [fingerprint()],
       weights: SEVERITY_WEIGHT_DEFAULT,
       travelTotals: over.travelTotals ?? { durationSeconds: 5_400, distanceMeters: 42_000 },
+      settingSnapshot: over.settingSnapshot ?? { standardVersion: STANDARD_VERSION, r07SpanHours: 6, r07MealMinutes: 60 },
       score: calculateReadiness({
         findings: findings.map((f) => ({ ...f, dismissed: false })),
         targetCount, failedCount,
@@ -128,6 +129,30 @@ describe.skipIf(URL === undefined)('AuditResultRepository — 실 DB', () => {
         'SELECT weight_snapshot FROM audit_run WHERE id = $1', [runId],
       );
       expect(rows[0]?.weight_snapshot).toEqual({ BLOCKER: 30, ERROR: 12, WARNING: 5, UNVERIFIED: 2 });
+    });
+
+    it('🔴 적용 기준을 스냅샷하고 조회에 돌려준다 — 회사 기준을 나중에 바꿔도 그대로다 (DR-CF-009)', async () => {
+      const snapshot = { standardVersion: STANDARD_VERSION, r07SpanHours: 5, r07MealMinutes: 90 };
+      const runId = await repo.save(build({ settingSnapshot: snapshot }));
+      const { rows } = await pool.query<{ setting_snapshot: unknown }>(
+        'SELECT setting_snapshot FROM audit_run WHERE id = $1', [runId],
+      );
+      expect(rows[0]?.setting_snapshot).toEqual(snapshot);
+      expect((await repo.findById(runId))?.settingSnapshot).toEqual(snapshot);
+    });
+
+    it('컬럼이 생기기 전 실행은 null 이다 — 표준으로 지어내지 않는다', async () => {
+      const runId = await repo.save(build());
+      // 실행 기록은 불변 트리거가 막으므로, 옛 실행을 흉내 내려고 컬럼 없이 넣은 행을 따로 만든다
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO audit_run (product_id, executed_at, ruleset_version, readiness_score, is_partial,
+                                target_count, failed_count, weight_snapshot)
+         SELECT product_id, executed_at, ruleset_version, readiness_score, is_partial,
+                target_count, failed_count, weight_snapshot FROM audit_run WHERE id = $1
+         RETURNING id`,
+        [runId],
+      );
+      expect((await repo.findById(Number(rows[0]?.id)))?.settingSnapshot).toBeNull();
     });
 
     it('확인 필요 여부를 evidence 에 담는다 — 전용 컬럼이 없다', async () => {

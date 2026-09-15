@@ -1,4 +1,4 @@
-import type { ExceptionReasonCode, ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
+import type { ExceptionReasonCode, ParseConfidence, ReasonCode, SettingSnapshot, Severity } from '@tourlint/shared';
 import type { Pool } from 'pg';
 import type { FingerprintSnapshot } from '../engine/fingerprint/types';
 import type { Finding } from '../engine/rules/types';
@@ -49,6 +49,8 @@ export interface AuditResultToSave {
    * `finding` 에는 부족한 구간만 남으며, 재계산하면 그때의 교통 상황으로 다른 값이 온다.
    */
   readonly travelTotals: { readonly durationSeconds: number; readonly distanceMeters: number };
+  /** 적용한 기준 — 표준 버전과 회사 기준 두 값. 소급 변경 금지 (DR-CF-009) */
+  readonly settingSnapshot: SettingSnapshot;
 }
 
 export interface StoredFinding extends ScorableFinding {
@@ -97,6 +99,11 @@ export interface StoredAuditRun {
   readonly weights: Readonly<Record<Severity, number>>;
   /** 산출하지 않은 실행은 `null` 이다. 0 과 다르다 — 0 은 「합이 0」이다 */
   readonly travelTotals: { readonly durationSeconds: number; readonly distanceMeters: number } | null;
+  /**
+   * 적용한 기준. 컬럼이 생기기 전 실행은 `null` 이다 (API 5-5).
+   * 이 저장소는 늘 채운다 — 선택 필드로 둔 것은 이 모양을 직접 만드는 리포트 테스트가 그대로 돌게 하려는 것이다.
+   */
+  readonly settingSnapshot?: SettingSnapshot | null;
   readonly findings: readonly StoredFinding[];
   /** **조회 시점** 재계산 결과. 화면·리포트는 이 값을 쓴다 (FR-AU-046) */
   readonly current: ScoreResult;
@@ -125,7 +132,7 @@ export class AuditResultRepository {
   async findById(auditRunId: number): Promise<StoredAuditRun | null> {
     const run = await this.pool.query<AuditRunRow>(
       `SELECT id, product_id, executed_at, ruleset_version, readiness_score, is_partial,
-              target_count, failed_count, weight_snapshot, travel_seconds, travel_meters
+              target_count, failed_count, weight_snapshot, travel_seconds, travel_meters, setting_snapshot
          FROM audit_run WHERE id = $1`,
       [auditRunId],
     );
@@ -149,6 +156,7 @@ export class AuditResultRepository {
       travelTotals: row.travel_seconds === null || row.travel_meters === null
         ? null
         : { durationSeconds: Number(row.travel_seconds), distanceMeters: Number(row.travel_meters) },
+      settingSnapshot: row.setting_snapshot,
       findings,
       // 저장값을 그대로 쓰지 않는다. 무시 상태가 바뀌었을 수 있다
       current: calculateReadiness({
@@ -355,8 +363,8 @@ async function insertAuditRun(client: Queryable, r: AuditResultToSave): Promise<
     `INSERT INTO audit_run
        (product_id, executed_at, ruleset_version, readiness_score, is_partial,
         target_count, failed_count, blocker_cnt, error_cnt, warn_cnt, unverified_cnt, weight_snapshot,
-        travel_seconds, travel_meters)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        travel_seconds, travel_meters, setting_snapshot)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
      RETURNING id`,
     [
       r.productId, r.executedAt, r.rulesetVersion,
@@ -366,6 +374,7 @@ async function insertAuditRun(client: Queryable, r: AuditResultToSave): Promise<
       r.score.counts.BLOCKER, r.score.counts.ERROR, r.score.counts.WARNING, r.score.counts.UNVERIFIED,
       JSON.stringify(r.weights),
       r.travelTotals.durationSeconds, r.travelTotals.distanceMeters,
+      JSON.stringify(r.settingSnapshot),
     ],
   );
   const id = rows[0]?.id;
@@ -431,6 +440,7 @@ interface AuditRunRow {
   weight_snapshot: Record<Severity, number>;
   travel_seconds: number | null;
   travel_meters: number | null;
+  setting_snapshot: SettingSnapshot | null;
 }
 
 interface PreviousFingerprintRow {

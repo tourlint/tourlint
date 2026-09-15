@@ -16,7 +16,6 @@ import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
 import { ClimateNormalRepository } from '../persistence/climate-normal.repository';
-import { TargetProfileRepository } from '../persistence/target-profile.repository';
 import { UserSettingRepository } from '../persistence/user-setting.repository';
 import {
   PatchApplicationRepository,
@@ -26,7 +25,7 @@ import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job
 import { AuditRunner, type ItineraryItemRow } from './audit-runner';
 import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
 import { PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds } from './place-name';
-import { RULES, RULESET_VERSION } from './rule-registry';
+import { RULES, RULESET_VERSION, RULE_EXPLANATIONS } from './rule-registry';
 import type { AuditSettings } from '../engine/rules/types';
 import type { NormalizedOperatingInfo } from '../engine/normalize/types';
 import { applyPatches } from './patch-apply';
@@ -770,11 +769,8 @@ export class AuditService {
         // 우천 리스크. 평년 표가 비어 있으면 D+11 이상만 확인 불가로 남는다 (이슈 #7)
         kma: this.buildKmaClient(),
         climate: new ClimateNormalRepository(this.pool),
-        // 타깃 적합성. 상품에 타깃 · 콘셉트가 없으면 R10 이 조용히 물러난다 (FR-RU-100)
-        profiles: new TargetProfileRepository(this.pool),
         // 사전 파서가 못 읽은 조각의 LLM 해석. 캐시가 먼저다 (F03 · NF-MT-001)
         normalizeFallback: this.normalizeFallback(),
-        accountId: product.accountId,
         // 계정 설정. 못 읽으면 기본값으로 돌아간다 — 설정 조회 실패가 검수를 멈추면 안 된다
         settings: await this.loadSettings(product.accountId),
       });
@@ -792,6 +788,8 @@ export class AuditService {
         fingerprints: result.fingerprints,
         weights: result.weights,
         score: result.score,
+        // 적용 기준. 회사 기준을 나중에 바꿔도 이 실행의 리포트 머리글은 그대로다 (DR-CF-009)
+        settingSnapshot: result.settingSnapshot,
       });
 
       /*
@@ -868,6 +866,8 @@ export function toRunResponse(run: StoredAuditRun, basis: RunBasis = EMPTY_BASIS
       deduction: c.score === null ? null : 100 - c.score,
       weights: run.weights,
     },
+    // 컬럼이 생기기 전 실행은 null 이다 (API 5-5)
+    settingSnapshot: run.settingSnapshot ?? null,
     counts: {
       blocker: c.counts.BLOCKER, error: c.counts.ERROR,
       warning: c.counts.WARNING, unverified: c.counts.UNVERIFIED,
@@ -1156,6 +1156,8 @@ export function toRulesResponse(): Record<string, unknown> {
       defaultSeverity: r.defaultSeverity,
       requiresExternal: r.requiresExternal,
       basis: r.basis,
+      // 검수 기준 탭의 규칙 설명 (FR-OP-025 · API 5-10)
+      ...RULE_EXPLANATIONS[r.code],
     })),
   };
 }

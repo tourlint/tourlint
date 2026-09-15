@@ -347,6 +347,20 @@ export const COMPANY_SETTING_LIMITS = {
   r07MealMinutesMin: SETTING_DEFAULTS.r07MealMinutes,
 } as const;
 
+/**
+ * 검수 실행에 적용한 기준 (`audit_run.setting_snapshot` · API 5-5 `settingSnapshot`).
+ * 회사 기준을 나중에 바꿔도 이 값은 그대로다 — 리포트 머리글이 이 값을 쓴다 (DR-CF-009 · FR-OP-023).
+ */
+export interface SettingSnapshot {
+  readonly standardVersion: string;
+  readonly r07SpanHours: number;
+  readonly r07MealMinutes: number;
+}
+
+/** 규칙 설명의 쓰는 데이터 — 관광정보 · 일정 · 이동 시간 · 날씨 예보 (API 5-10 · FR-OP-025). 화면은 코드 대신 사용자 말로 적는다 */
+export const RULE_DATA_SOURCE = ['KTO', 'ITINERARY', 'KAKAO', 'KMA'] as const;
+export type RuleDataSource = (typeof RULE_DATA_SOURCE)[number];
+
 /** 무시 사유 중 자주 쓰는 3개. 그 밖은 기타(내용 필수) — 사유 없는 무시는 400 `DISMISS_REASON_REQUIRED` (FR-AU-068) */
 export const DISMISS_REASON_PRESET = ['고객 요청 사항', '계약 업체 · 확정 일정', '전화로 직접 확인함'] as const;
 
