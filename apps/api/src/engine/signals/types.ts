@@ -1,7 +1,7 @@
 import type { IsoDate } from '../calendar/dates';
 
 /**
- * 수요 신호 T1 · T2 (FR-RU-110 ~ 122 · F14).
+ * 수요 신호 T1 · T2 · T3 (FR-RU-110 ~ 122 · FR-MO-059 · 060 · F14).
  *
  * ## 신호가 아닌 것
  *
@@ -46,6 +46,19 @@ export interface SignalWindow {
   readonly ldongSignguCd: string | null;
   readonly from: IsoDate;
   readonly to: IsoDate;
+}
+
+/**
+ * 방문자수 응답 한 줄 (T3 · EI-KT-026). 지역 이름 · 요일 이름은 버리고 코드와 숫자만 둔다.
+ */
+export interface VisitorRow {
+  /** 5자리 = `lDongRegnCd` + `lDongSignguCd`. 세종은 시도 코드 `36110` 그대로다 */
+  readonly signguCode: string;
+  readonly baseYmd: IsoDate | null;
+  /** 1 현지인 · 2 외지인 · 3 외국인 */
+  readonly touDivCd: string;
+  /** 추정 방문자 수. 소수로 온다. 숫자가 아니면 null */
+  readonly touNum: number | null;
 }
 
 /** T1 · T2 산출에 넣는 콘텐츠 한 줄. 목록 응답에서 이 필드만 쓴다 */

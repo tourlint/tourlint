@@ -17,7 +17,7 @@ import { ContentController } from './content/content.controller';
 import { ContentService } from './content/content.service';
 import { CatalogService } from './catalog/catalog.service';
 import { DemoController } from './demo/demo.controller';
-import { evaluateBudget } from './external/budget-guard';
+import { evaluateBudget, ktoBudgetGuard } from './external/budget-guard';
 import { createKtoClient, type KtoClient } from './external/kto';
 import type { ContentTypeId } from '@tourlint/shared';
 import { DB_POOL, getPool } from './persistence/db';
@@ -188,10 +188,10 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
           runner: new SignalRunner({ kto: () => (client ??= createKtoClient(logs)) }),
           signals: new DemandSignalRepository(pool),
           radar: new RadarRepository(pool),
-          hasBudget: async () => {
+          // 서비스마다 따로 센다 — T1 · T2 는 국문 관광정보, T3 는 방문자수 예산 (API 8-2)
+          hasBudget: async (service) => {
             const { dailyQuota } = await state.setting();
-            const usedToday = await logs.countToday('KTO', new Date());
-            return evaluateBudget({ dailyBudget: dailyQuota, usedToday }, 'BATCH').allowed;
+            return (await ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('BATCH')).allowed;
           },
         });
       },

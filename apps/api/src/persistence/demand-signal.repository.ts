@@ -11,7 +11,7 @@ import type { KeywordHits, Signal, SignalWindow, TypeBreakdown } from '../engine
  *    관심 키워드 → `contentid` 일 뿐이고 관광지명 · 주소는 어디에도 없다 (DR-PR-001 · 009).
  */
 
-export type SignalType = 'T1' | 'T2';
+export type SignalType = 'T1' | 'T2' | 'T3';
 
 export interface StoredSignal {
   readonly type: SignalType;
@@ -75,10 +75,43 @@ export class DemandSignalRepository {
     return row === undefined ? null : toStored(row);
   }
 
-  /** 오래된 산출값을 지운다. 배치가 매일 새 구간을 만들어 무한히 쌓이는 것을 막는다 */
+  /**
+   * 그 지역의 가장 최근 T1 (창 끝이 `onOrBefore` 이하).
+   *
+   * T1 창은 산출한 날에서 나오므로 오늘 배치 전(자정 ~ 배치 시각)에는 오늘 창이 없다. 그때
+   * `null` 로 두면 매일 새벽 「아직 안 세어 봤다」가 된다 — 어제 센 값을 창 · 산출 시각과
+   * 함께 돌려주고 화면이 기준 기간을 적는다 (FR-MO-056).
+   */
+  async findLatestT1(
+    region: { ldongRegnCd: string | null; ldongSignguCd: string | null },
+    onOrBefore: string,
+  ): Promise<StoredSignal | null> {
+    if (region.ldongRegnCd === null) return null;
+    const { rows } = await this.pool.query<SignalRow>(
+      `SELECT signal_type, ldong_regn_cd, ldong_signgu_cd, window_from, window_to,
+              total_count, by_type, by_keyword, computed_at
+         FROM demand_signal
+        WHERE signal_type = 'T1' AND region_key = $1 AND window_to <= $2::date
+        ORDER BY window_to DESC
+        LIMIT 1`,
+      [regionKey(region.ldongRegnCd, region.ldongSignguCd), onOrBefore],
+    );
+    const row = rows[0];
+    return row === undefined ? null : toStored(row);
+  }
+
+  /**
+   * 오래된 산출값을 지운다. 배치가 매일 새 구간을 만들어 무한히 쌓이는 것을 막는다.
+   *
+   * **T3 는 창이 지난해라 창 끝으로 지우면 넣자마자 지워진다.** 그 달 여행이 지난 뒤(창 끝 +
+   * 1년이 기준일 전)에 지운다 — 안 그러면 날마다 지우고 다시 불러 방문자수 콜이 매일 나간다.
+   */
   async pruneBefore(cutoff: string): Promise<number> {
     const { rowCount } = await this.pool.query(
-      `DELETE FROM demand_signal WHERE window_to < $1::date`, [cutoff],
+      `DELETE FROM demand_signal
+        WHERE (signal_type <> 'T3' AND window_to < $1::date)
+           OR (signal_type = 'T3' AND window_to + interval '1 year' < $1::date)`,
+      [cutoff],
     );
     return rowCount ?? 0;
   }
