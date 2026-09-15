@@ -7,7 +7,7 @@ import {
 
 const content = (over: Partial<SignalContent> = {}): SignalContent => ({
   contentId: '1', contentTypeId: '12', ldongRegnCd: '51', ldongSignguCd: '150',
-  createdTime: '20260820103000', eventStart: null, eventEnd: null, matchesKeyword: false,
+  createdTime: '20260820103000', eventStart: null, eventEnd: null, matchedKeywords: [],
   ...over,
 });
 
@@ -59,10 +59,34 @@ describe('T1 — 최근 신규 등록 (FR-RU-110)', () => {
     expect(s.count).toBe(1);
   });
 
-  it('관심 키워드가 걸리면 맞는 것만 센다 (FR-RU-112)', () => {
-    const items = [content({ contentId: 'a', matchesKeyword: true }), content({ contentId: 'b' })];
-    expect(summarizeNewContents(items, window()).count).toBe(2);
-    expect(summarizeNewContents(items, window(), { keywordFiltered: true }).count).toBe(1);
+  it('🔴 관심 키워드는 건수를 거르지 않고 키워드별 곳 목록으로 남긴다 (FR-RU-112)', () => {
+    /*
+     * 같은 창을 여러 계정이 나눠 쓴다. 거른 건수를 저장하면 키워드가 없는 계정의 T1 까지
+     * 줄어든다 — 계정별로 거르는 것은 조회다.
+     */
+    const s = summarizeNewContents([
+      content({ contentId: 'a', matchedKeywords: ['온천'] }),
+      content({ contentId: 'b', matchedKeywords: ['온천', '야행'] }),
+      content({ contentId: 'c' }),
+      // 창 밖(구간 전)은 일치해도 넣지 않는다
+      content({ contentId: 'd', createdTime: '20260101000000', matchedKeywords: ['온천'] }),
+    ], window(), ['온천', '야행', '커피']);
+    expect(s.count).toBe(3);
+    expect(s.byKeyword).toEqual({ '온천': ['a', 'b'], '야행': ['b'], '커피': [] });
+  });
+
+  it('🔴 넘겨받은 키워드는 맞는 곳이 없어도 빈 배열로 남는다 — 조회가 「안 봤다」와 가른다', () => {
+    const s = summarizeNewContents([content()], window(), ['커피']);
+    expect(Object.hasOwn(s.byKeyword, '커피')).toBe(true);
+    expect(s.byKeyword['커피']).toEqual([]);
+    expect(summarizeNewContents([content()], window()).byKeyword).toEqual({});
+  });
+
+  it('키워드가 constructor 여도 프로토타입 값을 건드리지 않는다', () => {
+    const hit = content({ matchedKeywords: ['constructor'] });
+    expect(summarizeNewContents([hit], window(), ['constructor']).byKeyword).toEqual({ constructor: ['1'] });
+    // 넘기지 않은 키워드의 일치는 버린다. 객체로 모았다면 여기서 함수에 push 하다 던진다
+    expect(summarizeNewContents([hit], window(), []).byKeyword).toEqual({});
   });
 });
 
@@ -99,7 +123,7 @@ describe('건수와 분포뿐이다 (FR-RU-121 · 122)', () => {
      * 필드 목록으로 못 박는다 — 나중에 점수를 더하면 여기가 걸린다.
      */
     const s = summarizeNewContents([content()], window());
-    expect(Object.keys(s).sort()).toEqual(['byType', 'count', 'window']);
+    expect(Object.keys(s).sort()).toEqual(['byKeyword', 'byType', 'count', 'window']);
     for (const forbidden of ['score', 'strength', 'intensity', 'trend', 'rank', 'prediction']) {
       expect(JSON.stringify(s), forbidden).not.toContain(forbidden);
     }

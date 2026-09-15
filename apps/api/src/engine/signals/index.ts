@@ -1,5 +1,5 @@
 import { addDays, formatIsoDate, parseIsoDate, type IsoDate } from '../calendar/dates';
-import type { Signal, SignalContent, SignalWindow, TypeBreakdown } from './types';
+import type { KeywordHits, Signal, SignalContent, SignalWindow, TypeBreakdown } from './types';
 
 export * from './types';
 export * from './fetch';
@@ -15,13 +15,14 @@ export const T2_MARGIN_DAYS = 3;
  * 근거 필드는 `createdtime` 과 `contentTypeId` 다. 수정된 것이 아니라 새로 올라온 것만
  * 센다 — `modifiedtime` 을 쓰면 오래된 콘텐츠의 사진 교체가 신규로 잡힌다.
  *
- * 관심 키워드가 걸려 있으면 그것에 맞는 것만 센다 (FR-RU-112). 걸러낸 뒤의 건수를
- * 돌려주므로 화면이 다시 세지 않는다.
+ * 관심 키워드는 **건수를 거르지 않고** 키워드별 곳 목록(`byKeyword`)으로 따로 둔다
+ * (FR-RU-112). 같은 창을 여러 계정이 나눠 쓰므로, 거른 건수를 저장하면 키워드가 없는
+ * 계정의 T1 까지 줄어든다. 계정별로 거르는 것은 조회다.
  */
 export function summarizeNewContents(
   contents: readonly SignalContent[],
   window: SignalWindow,
-  options: { readonly keywordFiltered?: boolean } = {},
+  keywords: readonly string[] = [],
 ): Signal {
   const from = `${window.from.replace(/-/g, '')}000000`;
   // 마지막 날을 통째로 포함한다. `YYYYMMDD` 뒤에 시각이 붙어 오기 때문이다
@@ -29,13 +30,17 @@ export function summarizeNewContents(
 
   const matched = contents.filter((c) => {
     if (!inRegion(c, window)) return false;
-    if (options.keywordFiltered === true && !c.matchesKeyword) return false;
     // 14자리가 아니면 비교할 수 없다. 모르는 것을 신규로 세지 않는다
     if (!/^\d{14}$/.test(c.createdTime)) return false;
     return c.createdTime >= from && c.createdTime <= to;
   });
 
-  return { count: matched.length, byType: countByType(matched), window };
+  return {
+    count: matched.length,
+    byType: countByType(matched),
+    byKeyword: hitsByKeyword(matched, keywords),
+    window,
+  };
 }
 
 /**
@@ -55,7 +60,7 @@ export function summarizeFestivals(
     return c.eventStart <= window.to && c.eventEnd >= window.from;
   });
 
-  return { count: matched.length, byType: countByType(matched), window };
+  return { count: matched.length, byType: countByType(matched), byKeyword: {}, window };
 }
 
 /**
@@ -99,6 +104,20 @@ function inRegion(content: SignalContent, window: SignalWindow): boolean {
   if (window.ldongSignguCd !== null) return content.ldongSignguCd === window.ldongSignguCd;
   if (window.ldongRegnCd !== null) return content.ldongRegnCd === window.ldongRegnCd;
   return true;
+}
+
+/**
+ * 키워드별로 창 안에서 맞는 곳. 넘겨받은 키워드는 맞는 곳이 없어도 빈 배열로 남긴다 —
+ * 키가 없으면 조회가 「배치가 아직 안 본 키워드」로 읽는다.
+ */
+function hitsByKeyword(contents: readonly SignalContent[], keywords: readonly string[]): KeywordHits {
+  // 객체 대신 Map 이다 — 키워드가 `constructor` 여도 프로토타입 값을 건드리지 않는다
+  const hits = new Map<string, Set<string>>();
+  for (const k of [...new Set(keywords)].filter((k) => k !== '').sort()) hits.set(k, new Set());
+  for (const c of contents) {
+    for (const k of c.matchedKeywords) hits.get(k)?.add(c.contentId);
+  }
+  return Object.fromEntries([...hits].map(([k, ids]) => [k, [...ids]]));
 }
 
 /**

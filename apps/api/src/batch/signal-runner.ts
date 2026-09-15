@@ -31,21 +31,22 @@ export const ROWS_PER_PAGE = 100;
 
 export interface SignalRunnerOptions {
   readonly kto: () => KtoClient;
-  /** 관심 키워드 (FR-RU-112). 비어 있으면 거르지 않는다 */
-  readonly keywords?: readonly string[];
 }
 
 export class SignalRunner {
   private readonly kto: () => KtoClient;
-  private readonly keywords: readonly string[];
 
   constructor(options: SignalRunnerOptions) {
     this.kto = options.kto;
-    this.keywords = options.keywords ?? [];
   }
 
-  /** T1 — 그 지역에 최근 등록된 콘텐츠 (FR-RU-110). 실패하면 `null` */
-  async t1(window: SignalWindow): Promise<Signal | null> {
+  /**
+   * T1 — 그 지역에 최근 등록된 콘텐츠 (FR-RU-110). 실패하면 `null`.
+   *
+   * `keywords` 는 그 창을 쓰는 계정들의 관심 키워드 합집합이다 (FR-RU-112). 제목 일치만
+   * 판정해 `byKeyword` 에 곳 목록으로 남기고 건수는 거르지 않는다.
+   */
+  async t1(window: SignalWindow, keywords: readonly string[] = []): Promise<Signal | null> {
     if (window.ldongRegnCd === null) return null;
     const collected: SignalContent[] = [];
     try {
@@ -58,7 +59,7 @@ export class SignalRunner {
           numOfRows: ROWS_PER_PAGE,
           pageNo: page,
         });
-        const rows = res.items.map((i) => toSignalContent(i, this.keywords));
+        const rows = res.items.map((i) => toSignalContent(i, keywords));
         collected.push(...rows);
         if (rows.length === 0 || reachedOlderThan(rows, window.from)) break;
       }
@@ -66,7 +67,7 @@ export class SignalRunner {
       if (!isKtoError(e)) throw e;
       return null;
     }
-    return summarizeNewContents(collected, window, { keywordFiltered: this.keywords.length > 0 });
+    return summarizeNewContents(collected, window, keywords);
   }
 
   /** T2 — 여행기간 ±3일에 열리는 행사 (FR-RU-120). 실패하면 `null` */
@@ -83,7 +84,7 @@ export class SignalRunner {
           numOfRows: ROWS_PER_PAGE,
           pageNo: page,
         });
-        const rows = res.items.map((i) => toSignalContent(i, this.keywords));
+        const rows = res.items.map((i) => toSignalContent(i));
         collected.push(...rows);
         if (rows.length < ROWS_PER_PAGE) break;
       }

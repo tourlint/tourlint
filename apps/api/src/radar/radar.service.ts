@@ -1,7 +1,9 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { DomainException } from '../common/domain.exception';
+import { nextBatchAt } from '../batch/sync-window';
 import { t1Window, t2Window, T1_DEFAULT_DAYS } from '../engine/signals';
+import { BatchStateRepository } from '../persistence/batch-state.repository';
 import { DemandSignalRepository, type StoredSignal } from '../persistence/demand-signal.repository';
 import { DB_POOL } from '../persistence/db';
 import { diffNormalized } from './change-diff';
@@ -18,17 +20,25 @@ import { RadarRepository, type ChangeRow } from './radar.repository';
 export class RadarService {
   private readonly radar: RadarRepository;
   private readonly signals: DemandSignalRepository;
+  private readonly state: BatchStateRepository;
 
   constructor(@Inject(DB_POOL) pool: Pool) {
     this.radar = new RadarRepository(pool);
     this.signals = new DemandSignalRepository(pool);
+    this.state = new BatchStateRepository(pool);
   }
 
-  /** 요약 (FR-MO-050 · NF-OB-004) */
-  async summary(accountId: number): Promise<Record<string, unknown>> {
-    const [counts, batch] = await Promise.all([
+  /**
+   * 요약 (FR-MO-050 · NF-OB-004).
+   *
+   * `nextBatchAt` 은 새 소식 · 신호가 언제 다시 세어지는지다(API 4-8). 배치가 꺼져 있으면
+   * `null` 이다.
+   */
+  async summary(accountId: number, now: Date = new Date()): Promise<Record<string, unknown>> {
+    const [counts, batch, setting] = await Promise.all([
       this.radar.counts(accountId),
       this.radar.batchState(),
+      this.state.setting(),
     ]);
     return {
       risk: counts.risk,
@@ -36,6 +46,8 @@ export class RadarService {
       unread: counts.unread,
       affectedProducts: counts.affectedProducts,
       changedContents: counts.changedContents,
+      lastBatchAt: batch?.lastRunAt?.toISOString() ?? null,
+      nextBatchAt: nextBatchAt(now, setting.batchTime, setting.batchEnabled),
       lastBatch: batch === null ? null : {
         runAt: batch.lastRunAt === null ? null : batch.lastRunAt.toISOString(),
         covered: batch.lastCovered,
@@ -59,6 +71,9 @@ export class RadarService {
    *
    * 배치가 산출해 둔 값을 읽는다. **없으면 `null` 이고 0 이 아니다** — 0 은 「세어 보니
    * 없었다」이고 `null` 은 「아직 안 세어 봤다」다. 화면이 그 둘을 구분해야 한다.
+   *
+   * `t1.keywordHits` 는 요청 계정의 관심 키워드만이다 (FR-RU-112). 배치가 아직 안 본
+   * 키워드(등록한 뒤 첫 배치 전)는 `contentIds: null` 이고 빈 배열이 아니다.
    */
   async signalsOf(accountId: number, productId: number): Promise<Record<string, unknown>> {
     const product = await this.radar.product(accountId, productId);
@@ -76,14 +91,16 @@ export class RadarService {
     const w1 = t1Window(today, region, T1_DEFAULT_DAYS);
     const w2 = t2Window(product.startDate, product.nights, region);
 
-    const [t1, t2] = await Promise.all([
+    const [t1, t2, keywords] = await Promise.all([
       w1 === null ? Promise.resolve(null) : this.signals.find('T1', w1),
       w2 === null ? Promise.resolve(null) : this.signals.find('T2', w2),
+      this.radar.watchKeywords(accountId),
     ]);
 
+    const t1Response = toSignalResponse(t1);
     return {
       productId: product.productId,
-      t1: toSignalResponse(t1),
+      t1: t1 === null || t1Response === null ? null : { ...t1Response, keywordHits: keywordHits(t1, keywords) },
       t2: toSignalResponse(t2),
       /*
        * FR-RU-121 — 강도 점수를 만들지 않는다. 건수와 유형 분포뿐이다.
@@ -108,6 +125,23 @@ function toSignalResponse(s: StoredSignal | null): Record<string, unknown> | nul
     window: { from: s.window.from, to: s.window.to },
     computedAt: s.computedAt.toISOString(),
   };
+}
+
+/**
+ * 요청 계정의 관심 키워드별 일치 곳 (FR-RU-112 · DR-PR-009).
+ *
+ * 저장값은 그 지역 상품을 가진 계정들의 키워드 합집합이라, **요청 계정 것만** 골라 낸다 —
+ * 남의 키워드와 그 일치 곳이 드러나면 안 된다. 이름은 싣지 않는다(화면이 조회한다).
+ */
+function keywordHits(
+  signal: StoredSignal,
+  keywords: readonly string[],
+): readonly { keyword: string; contentIds: readonly string[] | null }[] {
+  const mine = [...new Set(keywords.map((k) => k.trim()).filter((k) => k !== ''))];
+  return mine.map((keyword) => ({
+    keyword,
+    contentIds: Object.hasOwn(signal.byKeyword, keyword) ? (signal.byKeyword[keyword] ?? null) : null,
+  }));
 }
 
 /**

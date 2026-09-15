@@ -1,4 +1,4 @@
-import { addDays, formatIsoDate, parseIsoDate, type IsoDate } from '../engine/calendar/dates';
+import { addDays, dayOfWeek, formatIsoDate, parseIsoDate, type IsoDate } from '../engine/calendar/dates';
 
 /**
  * 배치가 도는 시각과 조회할 날짜 창 (FR-MO-010 · 011 · 015).
@@ -97,6 +97,29 @@ export function pendingDates(lastCovered: IsoDate | null, now: Date, maxDays = M
 function nextDayOf(iso: IsoDate) {
   const d = parseIsoDate(iso);
   return d === null ? null : addDays(d, 1);
+}
+
+/**
+ * 다음 배치 시각 (API 4-8 `nextBatchAt`) — 한국 시간 `YYYY-MM-DDTHH:MM:00+09:00`.
+ *
+ * 평일의 `batch_time` 가운데 지금보다 뒤인 첫 시각이다. 그 분이 된 순간 스케줄러가 걸기
+ * 때문에 같은 분은 이미 지난 것으로 본다. **꺼져 있거나 시각을 못 읽으면 `null`** — 돌지
+ * 않을 배치의 시각을 적으면 화면이 「다음 배치 때 셉니다」라고 틀린 약속을 한다.
+ */
+export function nextBatchAt(now: Date, batchTime: string, enabled: boolean): string | null {
+  const at = minutesOfDay(batchTime);
+  const today = parseIsoDate(kstToday(now));
+  if (!enabled || at === null || today === null) return null;
+
+  for (let offset = 0; offset <= 7; offset += 1) {
+    if (offset === 0 && kstMinutesOfDay(now) >= at) continue;
+    const day = addDays(today, offset);
+    // 토 · 일은 배치가 쉰다 (FR-MO-010)
+    if (['SAT', 'SUN'].includes(dayOfWeek(day))) continue;
+    return `${formatIsoDate(day)}T${batchTime}:00+09:00`;
+  }
+  /* c8 ignore next -- 이레 안에 평일이 반드시 있다 */
+  return null;
 }
 
 /** 공사가 받는 형식은 `YYYYMMDD` 다 */

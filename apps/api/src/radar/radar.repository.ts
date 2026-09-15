@@ -50,6 +50,11 @@ export interface ProductRegion {
   readonly nights: number;
 }
 
+/** 신호 배치의 대상 상품. 그 상품 계정의 관심 키워드를 함께 싣는다 (FR-RU-112) */
+export interface WatchedProduct extends ProductRegion {
+  readonly keywords: readonly string[];
+}
+
 export class RadarRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -185,14 +190,22 @@ export class RadarRepository {
     };
   }
 
-  /** 배치가 신호를 산출할 대상. 여행이 끝나지 않은 상품의 지역·일정이다 */
-  async watchedRegions(today: string): Promise<readonly ProductRegion[]> {
+  /**
+   * 배치가 신호를 산출할 대상. 여행이 끝나지 않은 상품의 지역·일정과 그 계정의 관심 키워드다.
+   *
+   * 키워드는 배치가 창마다 합쳐서 한 번에 판정한다 — 저장은 지역 단위라 계정이 드러나지 않는다.
+   */
+  async watchedRegions(today: string): Promise<readonly WatchedProduct[]> {
     const { rows } = await this.pool.query<{
       id: string; name: string; ldong_regn_cd: string; ldong_signgu_cd: string | null;
-      start_date: Date | string; nights: number;
+      start_date: Date | string; nights: number; watch_keywords: string[] | null;
     }>(
-      `SELECT id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights
-         FROM product WHERE start_date + nights >= $1::date ORDER BY id`,
+      `SELECT p.id, p.name, p.ldong_regn_cd, p.ldong_signgu_cd, p.start_date, p.nights,
+              s.watch_keywords
+         FROM product p
+         LEFT JOIN user_setting s ON s.account_id = p.account_id
+        WHERE p.start_date + p.nights >= $1::date
+        ORDER BY p.id`,
       [today],
     );
     return rows.map((r) => ({
@@ -202,7 +215,17 @@ export class RadarRepository {
       ldongSignguCd: r.ldong_signgu_cd,
       startDate: isoDate(r.start_date),
       nights: Number(r.nights),
+      keywords: r.watch_keywords ?? [],
     }));
+  }
+
+  /** 그 계정의 관심 키워드. 설정 행이 없으면 빈 목록이다 */
+  async watchKeywords(accountId: number): Promise<readonly string[]> {
+    const { rows } = await this.pool.query<{ watch_keywords: string[] }>(
+      `SELECT watch_keywords FROM user_setting WHERE account_id = $1`,
+      [accountId],
+    );
+    return rows[0]?.watch_keywords ?? [];
   }
 }
 
