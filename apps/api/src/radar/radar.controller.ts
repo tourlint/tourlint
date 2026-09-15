@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
@@ -7,7 +7,8 @@ import { RadarService } from './radar.service';
 /**
  * 수요 · 변경 레이더 (F12 ~ F14 · API 설계 4-8).
  *
- * 세 경로 다 저장된 값만 읽는다 — 공사 호출이 0건이다. T1 · T2 는 배치가 미리 산출한다.
+ * 조회 경로는 저장된 값만 읽는다 — 공사 호출이 0건이다. T1 · T2 · T3 는 배치가 미리 산출하고,
+ * 배치가 꺼진 기간에만 `region-signals/refresh` 가 사용자 요청으로 산출한다.
  */
 @ApiTags('실엔진')
 @Controller('api/v1')
@@ -44,6 +45,19 @@ export class RadarController {
       throw new BadRequestException('productId 가 필요합니다.');
     }
     return this.service.signalsOf(account.accountId, id);
+  }
+
+  /** 관심 지역 새 소식 — 관심 지역(시군구 + 달)마다 T1 · T2 · T3 (FR-MO-059 · 060) */
+  @Get('radar/region-signals')
+  async regionSignals(@CurrentAccount() account: SessionAccount): Promise<readonly Record<string, unknown>[]> {
+    return this.service.regionSignals(account.accountId);
+  }
+
+  /** 관심 지역 신호를 지금 산출. 배치가 꺼진 기간에만 쓴다 (API 4-8) */
+  @Post('radar/region-signals/refresh')
+  @HttpCode(200)
+  async refreshRegionSignals(@CurrentAccount() account: SessionAccount): Promise<readonly Record<string, unknown>[]> {
+    return this.service.refreshRegionSignals(account.accountId);
   }
 }
 

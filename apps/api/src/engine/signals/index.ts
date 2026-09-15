@@ -1,5 +1,6 @@
-import { addDays, formatIsoDate, parseIsoDate, type IsoDate } from '../calendar/dates';
-import type { KeywordHits, Signal, SignalContent, SignalWindow, TypeBreakdown } from './types';
+import { addDays, daysInMonth, formatIsoDate, parseIsoDate, type IsoDate } from '../calendar/dates';
+import { visitorRegionCode } from './fetch';
+import type { KeywordHits, Signal, SignalContent, SignalWindow, TypeBreakdown, VisitorRow } from './types';
 
 export * from './types';
 export * from './fetch';
@@ -44,14 +45,16 @@ export function summarizeNewContents(
 }
 
 /**
- * T2 — 여행기간 ±3일에 그 지역에서 **열리는 행사** (FR-RU-120).
+ * T2 — 여행기간 ±3일(관심 지역은 그 달)에 그 지역에서 **열리는 행사** (FR-RU-120 · FR-MO-059).
  *
  * 근거 필드는 `eventstartdate` · `eventenddate` 다. 기간을 모르는 행사는 세지 않는다 —
- * 결측을 「그 기간에 열린다」로도 「안 열린다」로도 읽지 않는다.
+ * 결측을 「그 기간에 열린다」로도 「안 열린다」로도 읽지 않는다. 관심 키워드는 T1 과 같이
+ * 건수를 거르지 않고 곳 목록으로 둔다 — 지역 카드의 "'커피' 행사 1" (UI-S7-015).
  */
 export function summarizeFestivals(
   contents: readonly SignalContent[],
   window: SignalWindow,
+  keywords: readonly string[] = [],
 ): Signal {
   const matched = contents.filter((c) => {
     if (!inRegion(c, window)) return false;
@@ -60,7 +63,49 @@ export function summarizeFestivals(
     return c.eventStart <= window.to && c.eventEnd >= window.from;
   });
 
-  return { count: matched.length, byType: countByType(matched), byKeyword: {}, window };
+  return { count: matched.length, byType: countByType(matched), byKeyword: hitsByKeyword(matched, keywords), window };
+}
+
+/**
+ * T3 — 지난해 같은 달 그 지역 방문자 수 (FR-MO-059 · 060 · EI-KT-026).
+ *
+ * 창 안의 날마다 현지인 · 외지인 · 외국인(`touDivCd` 1 – 3)을 모두 더해 반올림한다. 관측된
+ * 수일 뿐 인기 · 예측이 아니다. **그 지역 줄이 하나도 없으면 `null`** 이고 0 이 아니다 —
+ * 지난해 코드와 이어지지 않는 지역(2026년 행정구역이 바뀐 곳)을 「방문자 0」으로 읽으면 안 된다.
+ */
+export function summarizeVisitors(rows: readonly VisitorRow[], window: SignalWindow): Signal | null {
+  const code = visitorRegionCode(window);
+  if (code === null) return null;
+  const mine = rows.filter((r) =>
+    r.signguCode === code && r.touNum !== null
+    && r.baseYmd !== null && r.baseYmd >= window.from && r.baseYmd <= window.to);
+  if (mine.length === 0) return null;
+  const total = mine.reduce((sum, r) => sum + (r.touNum ?? 0), 0);
+  return { count: Math.round(total), byType: {}, byKeyword: {}, window };
+}
+
+/** `YYYY-MM` 그 달 1일부터 말일까지 — 관심 지역 T2 창 (FR-MO-059). 달이 아니면 null */
+export function monthWindow(
+  month: string,
+  region: { ldongRegnCd: string | null; ldongSignguCd: string | null },
+): SignalWindow | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  const first = m === null ? null : parseIsoDate(`${m[1]}-${m[2]}-01`);
+  if (first === null) return null;
+  return {
+    ...region,
+    from: formatIsoDate(first),
+    to: formatIsoDate({ ...first, day: daysInMonth(first.year, first.month) }),
+  };
+}
+
+/** 지난해 같은 달 — 관심 지역 T3 창 (FR-MO-059). 2월은 그해 말일까지다 */
+export function lastYearMonthWindow(
+  month: string,
+  region: { ldongRegnCd: string | null; ldongSignguCd: string | null },
+): SignalWindow | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  return m === null ? null : monthWindow(`${Number(m[1]) - 1}-${m[2]}`, region);
 }
 
 /**
