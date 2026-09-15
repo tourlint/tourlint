@@ -12,6 +12,7 @@ const CONFIG = {
   apiKey: SECRET,
   modelStructure: 'claude-sonnet-5',
   modelNormalize: 'claude-sonnet-4-6',
+  modelAgent: 'claude-sonnet-5',
 };
 
 const REQ: LlmStructuredRequest = {
@@ -101,6 +102,7 @@ describe('인증키와 원문이 새지 않는다 (EI-CM-002 · NF-SC-009 · DB 
     const provider: LlmProvider = {
       name: 'fake',
       structured: async () => ({ value: { weeklyClosed: ['MON'] }, model: 'm' }),
+      toolTurn: async () => { throw new Error('도구 호출은 이 테스트에서 쓰지 않는다'); },
     };
     await new LlmClient({ provider, config: CONFIG, logger }).structured(REQ);
 
@@ -122,6 +124,7 @@ describe('재시도는 1회다 (EI-LM-003)', () => {
         if (n < succeedOn) throw error;
         return { value: { ok: true }, model: 'm' };
       },
+      toolTurn: async () => { throw new Error('도구 호출은 이 테스트에서 쓰지 않는다'); },
     };
   };
 
@@ -179,14 +182,17 @@ describe('제공자와 모델을 환경변수로 바꾼다 (EI-LM-006)', () => {
   });
 
   it('용도마다 다른 모델을 쓴다 — 병목이 다르다', () => {
-    const client = new LlmClient({ provider: { name: 'f', structured: async () => ({ value: {}, model: 'm' }) }, config: CONFIG });
+    const client = new LlmClient({ provider: { name: 'f', structured: async () => ({ value: {}, model: 'm' }), toolTurn: async () => { throw new Error('도구 호출은 이 테스트에서 쓰지 않는다'); } }, config: CONFIG });
     expect(client.modelFor('STRUCTURE')).toBe('claude-sonnet-5');
     expect(client.modelFor('NORMALIZE')).toBe('claude-sonnet-4-6');
+    // 에이전트 셋은 한 모델을 같이 쓴다
+    expect(client.modelFor('PLACE_MATCH')).toBe('claude-sonnet-5');
+    expect(client.modelFor('TODAY_BRIEF')).toBe('claude-sonnet-5');
   });
 
   it('모델이 안 적혀 있으면 부르지 않고 알린다', () => {
     const client = new LlmClient({
-      provider: { name: 'f', structured: async () => ({ value: {}, model: 'm' }) },
+      provider: { name: 'f', structured: async () => ({ value: {}, model: 'm' }), toolTurn: async () => { throw new Error('도구 호출은 이 테스트에서 쓰지 않는다'); } },
       config: { ...CONFIG, modelNormalize: '' },
     });
     expect(() => client.modelFor('NORMALIZE')).toThrow(LlmNotConfiguredError);
@@ -212,3 +218,123 @@ describe('조각 해시 (EI-LM-005 · NF-MT-001)', () => {
     expect(key).not.toContain('월요일');
   });
 });
+
+describe('도구 호출 대화 (EI-LM-007)', () => {
+  const TURN_REQ = {
+    purpose: 'PLACE_MATCH' as const,
+    system: '고르지 않은 줄의 장소를 찾는다',
+    tools: [
+      { name: 'search_places', description: '상품 지역에서 장소를 찾는다', inputSchema: { type: 'object' as const, properties: { keyword: { type: 'string' } } } },
+      { name: 'submit_result', description: '답을 낸다', inputSchema: { type: 'object' as const, properties: {} } },
+    ],
+    turns: [
+      { role: 'user' as const, text: '1일차 10:00 오죽헌' },
+      { role: 'assistant' as const, blocks: [{ type: 'text' as const, text: '찾아볼게요' }, { type: 'tool_use' as const, id: 'toolu_1', name: 'search_places', input: { keyword: '오죽헌' } }] },
+      { role: 'tool_results' as const, results: [{ toolUseId: 'toolu_1', content: '[{"contentid":"129784"}]', isError: false }], note: '더 조회할 수 없다' },
+    ],
+  };
+
+  const capture = (response: unknown, status = 200) => {
+    const seen: { body?: Record<string, unknown>; signal?: AbortSignal | null } = {};
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      seen.body = JSON.parse(init.body as string) as Record<string, unknown>;
+      seen.signal = init.signal ?? null;
+      return new Response(JSON.stringify(response), { status });
+    }) as unknown as typeof globalThis.fetch;
+    return { seen, fetchImpl };
+  };
+
+  it('🔴 도구를 강제하지 않고(tool_choice auto) 대화를 Messages API 모양으로 보낸다', async () => {
+    const { seen, fetchImpl } = capture({ model: 'claude-sonnet-5', stop_reason: 'end_turn', content: [] });
+    const signal = new AbortController().signal;
+    await new AnthropicProvider(SECRET, { fetchImpl }).toolTurn({ ...TURN_REQ, signal }, 'claude-sonnet-5');
+
+    const body = seen.body ?? {};
+    // 강제 호출을 400 으로 거절하는 모델이 있다 — 강제하면 모델을 바꿀 수 없다
+    expect(body.tool_choice).toEqual({ type: 'auto' });
+    expect(body.temperature).toBeUndefined();
+    expect(body.tools).toEqual([
+      { name: 'search_places', description: '상품 지역에서 장소를 찾는다', input_schema: TURN_REQ.tools[0]?.inputSchema },
+      { name: 'submit_result', description: '답을 낸다', input_schema: { type: 'object', properties: {} } },
+    ]);
+    expect(body.messages).toEqual([
+      { role: 'user', content: '1일차 10:00 오죽헌' },
+      { role: 'assistant', content: [
+        { type: 'text', text: '찾아볼게요' },
+        { type: 'tool_use', id: 'toolu_1', name: 'search_places', input: { keyword: '오죽헌' } },
+      ] },
+      // 도구 결과는 한 사용자 메시지에 담고, 서버 안내는 결과 뒤에 붙인다
+      { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu_1', content: '[{"contentid":"129784"}]' },
+        { type: 'text', text: '더 조회할 수 없다' },
+      ] },
+    ]);
+    expect(seen.signal).toBe(signal);
+  });
+
+  it('실패한 도구 결과는 is_error 로 표시한다', async () => {
+    const { seen, fetchImpl } = capture({ content: [] });
+    await new AnthropicProvider(SECRET, { fetchImpl }).toolTurn({
+      ...TURN_REQ,
+      turns: [{ role: 'tool_results', results: [{ toolUseId: 't', content: '조회에 실패했다', isError: true }] }],
+    }, 'm');
+    expect((seen.body?.messages as unknown[])[0]).toEqual({
+      role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: '조회에 실패했다', is_error: true }],
+    });
+  });
+
+  it('응답에서 산문 · 도구 호출 블록과 stop_reason 을 읽고 모르는 블록은 버린다', async () => {
+    const { fetchImpl } = capture({
+      model: 'claude-sonnet-5-20260801',
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'text', text: '찾아볼게요' },
+        { type: 'tool_use', id: 'toolu_2', name: 'search_places', input: { keyword: '경포대' } },
+        { type: 'mystery', payload: 1 },
+      ],
+    });
+    const out = await new AnthropicProvider(SECRET, { fetchImpl }).toolTurn(TURN_REQ, 'claude-sonnet-5');
+    expect(out).toEqual({
+      blocks: [
+        { type: 'text', text: '찾아볼게요' },
+        { type: 'tool_use', id: 'toolu_2', name: 'search_places', input: { keyword: '경포대' } },
+      ],
+      stopReason: 'tool_use',
+      model: 'claude-sonnet-5-20260801',
+    });
+  });
+
+  it('🔴 HTTP 오류에 본문을 싣지 않는다 — 우리가 보낸 대화가 되돌아온다', async () => {
+    const fetchImpl = respond(400, { error: { message: '1일차 10:00 오죽헌 은 잘못됐습니다' } });
+    const e = await new AnthropicProvider(SECRET, { fetchImpl }).toolTurn(TURN_REQ, 'm').catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(LlmUnavailableError);
+    expect((e as Error).message).not.toContain('오죽헌');
+    expect((e as Error).message).not.toContain(SECRET);
+  });
+
+  it('시간 상한으로 끊기면 TIMEOUT 이다', async () => {
+    const fetchImpl = (async () => {
+      const e = new Error('The operation was aborted due to timeout');
+      e.name = 'TimeoutError';
+      throw e;
+    }) as unknown as typeof globalThis.fetch;
+    const e = await new AnthropicProvider(SECRET, { fetchImpl }).toolTurn(TURN_REQ, 'm').catch((x: unknown) => x);
+    expect((e as Error).message).toContain('TIMEOUT');
+  });
+
+  it('🔴 호출 로그 operation 은 목적만이고 대화 · 도구 결과는 남지 않는다 — 재시도하지 않는다', async () => {
+    const logger = new InMemoryApiCallLogger();
+    let calls = 0;
+    const provider: LlmProvider = {
+      name: 'fake',
+      structured: async () => { throw new Error('안 쓴다'); },
+      toolTurn: async () => { calls += 1; throw new LlmUnavailableError('HTTP 503'); },
+    };
+    const client = new LlmClient({ provider, config: CONFIG, logger });
+    await expect(client.toolTurn(TURN_REQ)).rejects.toBeInstanceOf(LlmUnavailableError);
+    expect(calls).toBe(1);
+    expect(logger.entries.map((e) => [e.provider, e.operation, e.status])).toEqual([['LLM', 'PLACE_MATCH', 'FAIL']]);
+    expect(JSON.stringify(logger.entries)).not.toMatch(/오죽헌|129784|고르지 않은 줄/);
+  });
+});
+

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { EXTERNAL_UNAVAILABLE_MESSAGE, type ExceptionReasonCode, type ExceptionUnit } from '@tourlint/shared';
 import type { Request, Response } from 'express';
 import { isExternalError } from '../external/external.error';
+import { RateLimitException } from './domain.exception';
 
 /**
  * 공통 예외 필터 — 오류 응답은 **이 한 곳에서만** 만든다 (API 설계 3-2).
@@ -47,6 +48,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
      */
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(`[${traceId}] ${req.method} ${req.url} → ${reasonCode}`, exception);
+    }
+
+    // 빈도 제한은 언제 다시 되는지 알린다 (API 3-4 · EX-SY-008)
+    if (exception instanceof RateLimitException && exception.retryAfterSeconds !== null) {
+      res.setHeader('Retry-After', String(exception.retryAfterSeconds));
     }
 
     res.status(status).json({

@@ -42,6 +42,7 @@ export function readAgentTimeouts(env: NodeJS.ProcessEnv = process.env): AgentTi
 }
 
 let shared: Agent | undefined;
+const longResponse = new Map<number, Agent>();
 
 /** 연결을 재사용한다. 호출마다 새로 만들면 TLS 핸드셰이크가 매번 붙는다 */
 export function sharedAgent(): Agent {
@@ -52,6 +53,21 @@ export function sharedAgent(): Agent {
 /** 테스트에서 환경을 바꾼 뒤 다시 만들게 한다 */
 export function resetSharedAgent(): void {
   shared = undefined;
+  longResponse.clear();
+}
+
+/**
+ * 응답 타임아웃만 늘린 연결. 연결 타임아웃은 공통 값 그대로다.
+ *
+ * AI 에이전트 한 턴은 응답을 다 만든 뒤에야 헤더가 와서 10초를 넘길 수 있다. 에이전트는 실행
+ * 전체에 30초 상한을 따로 걸므로(EI-LM-007) 요청 하나를 10초에 끊지 않는다.
+ */
+function longResponseAgent(responseTimeoutMs: number): Agent {
+  const found = longResponse.get(responseTimeoutMs);
+  if (found !== undefined) return found;
+  const agent = new Agent({ ...readAgentTimeouts(), headersTimeout: responseTimeoutMs, bodyTimeout: responseTimeoutMs });
+  longResponse.set(responseTimeoutMs, agent);
+  return agent;
 }
 
 /**
@@ -59,11 +75,13 @@ export function resetSharedAgent(): void {
  *
  * 어댑터들은 이걸 기본값으로 받고, 테스트는 `fetchImpl` 로 갈아끼운다.
  */
-export function createHttpFetch(): typeof globalThis.fetch {
+export function createHttpFetch(options: { readonly responseTimeoutMs?: number } = {}): typeof globalThis.fetch {
   return ((input: Parameters<typeof globalThis.fetch>[0], init?: Parameters<typeof globalThis.fetch>[1]) =>
     undiciFetch(input as Parameters<typeof undiciFetch>[0], {
       ...(init as Parameters<typeof undiciFetch>[1]),
-      dispatcher: sharedAgent(),
+      dispatcher: options.responseTimeoutMs === undefined
+        ? sharedAgent()
+        : longResponseAgent(options.responseTimeoutMs),
     })) as unknown as typeof globalThis.fetch;
 }
 

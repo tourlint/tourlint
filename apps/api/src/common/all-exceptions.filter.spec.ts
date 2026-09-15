@@ -6,17 +6,19 @@ import { KtoFetchError, KtoQuotaExceededError } from '../external/kto/kto.errors
 import { RouteProviderError } from '../external/kakao/kakao.errors';
 import { ForecastProviderError } from '../external/kma/kma.errors';
 import { AllExceptionsFilter } from './all-exceptions.filter';
-import { DomainException } from './domain.exception';
+import { DomainException, RateLimitException } from './domain.exception';
 
 /**
  * 오류 응답은 이 필터 한 곳에서만 만든다. 외부 장애를 우리 버그와 갈라 놓는 자리이기도 하다.
  */
-function run(exception: unknown): { status: number; body: Record<string, unknown> } {
+function run(exception: unknown): { status: number; body: Record<string, unknown>; headers: Record<string, string> } {
   let status = 0;
   let body: Record<string, unknown> = {};
+  const headers: Record<string, string> = {};
   const res = {
     status: (s: number) => { status = s; return res; },
     json: (b: Record<string, unknown>) => { body = b; },
+    setHeader: (name: string, value: string) => { headers[name] = value; },
   };
   const host = {
     switchToHttp: () => ({
@@ -28,8 +30,23 @@ function run(exception: unknown): { status: number; body: Record<string, unknown
   const filter = new AllExceptionsFilter();
   vi.spyOn(filter['logger'], 'error').mockImplementation(() => undefined);
   filter.catch(exception, host);
-  return { status, body };
+  return { status, body, headers };
 }
+
+describe('빈도 제한 (EX-SY-008 · EX-AG-004 · API 3-4)', () => {
+  it('🔴 분당 상한이면 429 RATE_LIMIT_EXCEEDED 와 Retry-After(초)를 싣는다', () => {
+    const { status, body, headers } = run(new RateLimitException('잠시 뒤에 다시 눌러 주세요.', 42));
+    expect(status).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(body.reasonCode).toBe('RATE_LIMIT_EXCEEDED');
+    expect(headers['Retry-After']).toBe('42');
+  });
+
+  it('같은 에이전트가 도는 중이라 막힌 것이면 언제 되는지 몰라 헤더를 붙이지 않는다', () => {
+    const { status, headers } = run(new RateLimitException('이미 정리하고 있어요.', null));
+    expect(status).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(headers).toEqual({});
+  });
+});
 
 describe('외부 서비스 장애 (EX-MS-003 · UI-ST-004)', () => {
   it('🔴 제공자를 특정하지 않는 문구로 안내한다', () => {
