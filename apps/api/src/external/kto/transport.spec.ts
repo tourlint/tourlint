@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseKtoResponse } from './envelope';
 import { FixtureMissingError, KtoFetchError, KtoTimeoutError } from './kto.errors';
-import { FixtureKtoTransport, HttpKtoTransport } from './transport';
+import { FixtureKtoTransport, HttpKtoTransport, type KtoParams } from './transport';
 
 const FIXTURES = join(__dirname, '../../../../../fixtures/kto');
 
@@ -114,6 +114,62 @@ describe('FixtureKtoTransport — 픽스처 리플레이 (KTO_MODE=fixture)', ()
   });
 });
 
+describe('FixtureKtoTransport — 새 서비스 5종 (EI-KT-022 ~ 026)', () => {
+  const transport = new FixtureKtoTransport(FIXTURES);
+  const itemsOf = async (operation: Parameters<typeof transport.request>[0], params: KtoParams) =>
+    parseKtoResponse(operation, (await transport.request(operation, params)).body).items;
+  const GANGNEUNG = { lDongRegnCd: '51', lDongSignguCd: '150' };
+
+  it('무장애 · 반려동물 지역 목록은 시도 · 시군구로 찾는다', async () => {
+    const withItems = await itemsOf('withAreaBasedList2', GANGNEUNG);
+    const petItems = await itemsOf('petAreaBasedList2', GANGNEUNG);
+    expect(withItems.length).toBeGreaterThan(0);
+    expect(petItems.length).toBeGreaterThan(0);
+    for (const i of [...withItems, ...petItems]) expect(i).toMatchObject(GANGNEUNG);
+  });
+
+  it('🔴 다른 지역의 무장애 목록은 강릉 스냅샷으로 대신하지 않는다 — 필터가 그럴듯하게 틀린다', async () => {
+    await expect(transport.request('withAreaBasedList2', { lDongRegnCd: '11', lDongSignguCd: '110' }))
+      .rejects.toBeInstanceOf(FixtureMissingError);
+    await expect(transport.request('petAreaBasedList2', { lDongRegnCd: '51' })).rejects.toBeInstanceOf(FixtureMissingError);
+  });
+
+  it('상세는 본문 contentid 로 찾는다', async () => {
+    expect((await itemsOf('detailWithTour2', { contentId: '129784' }))[0]?.contentid).toBe('129784');
+    expect((await itemsOf('detailPetTour2', { contentId: '2628994' }))[0]?.contentid).toBe('2628994');
+    await expect(transport.request('detailWithTour2', { contentId: '125790' })).rejects.toThrow(/보유 목록: 129784/);
+  });
+
+  it('🔴 연관 관광지는 키워드가 다르면 던진다 — 다른 기준 관광지의 순위를 붙이지 않는다', async () => {
+    expect((await itemsOf('searchKeyword1', { keyword: '경포대', baseYm: '202608' })).length).toBeGreaterThan(0);
+    await expect(transport.request('searchKeyword1', { keyword: '오죽헌', baseYm: '202608' }))
+      .rejects.toBeInstanceOf(FixtureMissingError);
+  });
+
+  it('걷기 길은 전국 목록 하나다', async () => {
+    expect((await itemsOf('courseList', { numOfRows: 1000, pageNo: 1 })).length).toBeGreaterThan(0);
+  });
+
+  it('🔴 방문자수는 기간까지 맞아야 돌려준다 — 다른 달 숫자가 T3 로 가면 안 된다', async () => {
+    expect((await itemsOf('locgoRegnVisitrDDList', { startYmd: '20250901', endYmd: '20250901' })).length).toBeGreaterThan(0);
+    await expect(transport.request('locgoRegnVisitrDDList', { startYmd: '20250901', endYmd: '20250930' }))
+      .rejects.toBeInstanceOf(FixtureMissingError);
+  });
+
+  it('🔴 근처 3km 는 분류별 스냅샷을 돌려주고, 없는 분류는 섞인 목록으로 대신하지 않는다', async () => {
+    const near = { mapX: 128.8947, mapY: 37.7517, radius: 3000 };
+    const food = await itemsOf('locationBasedList2', { ...near, lclsSystm1: 'FD' });
+    const lodging = await itemsOf('locationBasedList2', { ...near, lclsSystm1: 'AC' });
+    expect(food.length).toBeGreaterThan(0);
+    expect(food.every((i) => i.lclsSystm1 === 'FD')).toBe(true);
+    expect(lodging.every((i) => i.lclsSystm1 === 'AC')).toBe(true);
+    await expect(transport.request('locationBasedList2', { ...near, lclsSystm1: 'VE' })).rejects.toBeInstanceOf(FixtureMissingError);
+    // 분류 없는 조회(수정안 후보)는 지금까지 쓰던 스냅샷 그대로다
+    const mixed = await itemsOf('locationBasedList2', near);
+    expect(new Set(mixed.map((i) => i.lclsSystm1)).size).toBeGreaterThan(1);
+  });
+});
+
 describe('HttpKtoTransport', () => {
   const opts = { serviceKey: 'TEST-KEY-DO-NOT-LOG', fetchImpl: async () => new Response('{}') };
 
@@ -138,6 +194,45 @@ describe('HttpKtoTransport', () => {
     expect(parsed.searchParams.get('MobileOS')).toBe('ETC');
     expect(parsed.searchParams.get('MobileApp')).toBe('TourLint');
     expect(parsed.searchParams.get('keyword')).toBe('강릉');
+  });
+
+  describe('서비스마다 베이스 URL 이 따로다 (외부 연동 3-1 · API 7-2)', () => {
+    const seenUrl = async (operation: Parameters<HttpKtoTransport['request']>[0], extra: object = {}): Promise<URL> => {
+      let seen = '';
+      const t = new HttpKtoTransport({
+        ...opts,
+        ...extra,
+        fetchImpl: async (url) => {
+          seen = String(url);
+          return new Response('{}');
+        },
+      });
+      await t.request(operation, {});
+      return new URL(seen);
+    };
+
+    it.each([
+      ['areaBasedList2', 'https://apis.data.go.kr/B551011/KorService2/areaBasedList2'],
+      ['withAreaBasedList2', 'https://apis.data.go.kr/B551011/KorWithService2/areaBasedList2'],
+      ['detailWithTour2', 'https://apis.data.go.kr/B551011/KorWithService2/detailWithTour2'],
+      ['petAreaBasedList2', 'https://apis.data.go.kr/B551011/KorPetTourService2/areaBasedList2'],
+      ['detailPetTour2', 'https://apis.data.go.kr/B551011/KorPetTourService2/detailPetTour2'],
+      ['searchKeyword1', 'https://apis.data.go.kr/B551011/TarRlteTarService1/searchKeyword1'],
+      ['courseList', 'https://apis.data.go.kr/B551011/Durunubi/courseList'],
+      ['locgoRegnVisitrDDList', 'https://apis.data.go.kr/B551011/DataLabService/locgoRegnVisitrDDList'],
+    ] as const)('🔴 %s → %s', async (operation, expected) => {
+      const url = await seenUrl(operation);
+      expect(`${url.origin}${url.pathname}`).toBe(expected);
+      // 새 서비스도 공통 파라미터는 같다
+      expect(url.searchParams.get('_type')).toBe('json');
+      expect(url.searchParams.get('MobileApp')).toBe('TourLint');
+    });
+
+    it('KTO_BASE_URL 은 국문 관광정보에만 적용한다', async () => {
+      const proxy = { baseUrl: 'http://proxy.test/kor' };
+      expect((await seenUrl('areaBasedList2', proxy)).href).toMatch(/^http:\/\/proxy\.test\/kor\/areaBasedList2\?/);
+      expect((await seenUrl('withAreaBasedList2', proxy)).host).toBe('apis.data.go.kr');
+    });
   });
 
   it('타임아웃은 KtoTimeoutError 로 확정한다', async () => {

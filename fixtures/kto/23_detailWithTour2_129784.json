@@ -1,0 +1,48 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "129784",
+            "parking": "위치 : 지상주차장, 개수 : 4대위치 : 서원커피 주차장, 개수 : 2대",
+            "publictransport": "오죽헌 정류장 하차 후 도보 6분",
+            "route": "출입구까지 경사로가 설치되어 있음",
+            "ticketoffice": "",
+            "promotion": "",
+            "wheelchair": "대여 가능(5대/매표소 발권 후 우측에 보관함)",
+            "exit": "경사로 있음",
+            "elevator": "엘리베이터 있음",
+            "restroom": "장애인 화장실 있음",
+            "auditorium": "",
+            "room": "",
+            "handicapetc": "",
+            "braileblock": "",
+            "helpdog": "",
+            "guidehuman": "",
+            "audioguide": "",
+            "bigprint": "",
+            "brailepromotion": "",
+            "guidesystem": "",
+            "blindhandicapetc": "점자블록",
+            "signguide": "",
+            "videoguide": "",
+            "hearingroom": "",
+            "hearinghandicapetc": "",
+            "stroller": "대여 가능(5대/매표소 발권 후 우측에 보관함)",
+            "lactationroom": "수유실 있음",
+            "babysparechair": "",
+            "infantsfamilyetc": ""
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

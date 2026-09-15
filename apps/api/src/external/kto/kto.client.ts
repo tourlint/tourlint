@@ -1,21 +1,24 @@
 import {
   CONTENT_TYPE_ID,
+  KTO_PROVIDER_OF,
+  KTO_SERVICE_OF,
   LOCATION_RADIUS_MAX_METERS,
   type ContentTypeId,
   type KtoOperation,
 } from '@tourlint/shared';
 import type { ApiCallLogEntry, ApiCallLogger, CallStatus } from '../api-call-log';
 import { parseKtoResponse, type KtoEnvelope } from './envelope';
-import { ContentNotFoundError, KtoError, KtoFetchError, KtoTimeoutError } from './kto.errors';
+import { ContentNotFoundError, KtoError, KtoFetchError, KtoInvalidRequestError, KtoTimeoutError } from './kto.errors';
 import type { KtoParams, KtoTransport } from './transport';
 
 /**
  * 공사 OpenAPI 어댑터 (EI-CM-003).
  *
  * 규칙엔진·화면은 이 클래스만 본다. HTTP·재시도·봉투 해석·호출 로깅이 전부 여기 모여 있다.
- * 오퍼레이션은 **허용된 9종 중 검수에 쓰는 5종**만 노출한다 (EI-KT-001).
+ * 오퍼레이션은 **허용된 16종**(국문 관광정보 9 · 새 서비스 5종의 7)만 노출한다 (EI-KT-001).
  *
  * 호출 1건 = 로그 1행이다. 실패도 남긴다 — 증빙이자 예산 카운트의 근거다 (EI-CM-006 · FR-OP-001).
+ * 제공자는 서비스마다 따로 적는다. 활용신청과 하루 한도가 서비스마다 따로다 (외부 연동 3-1).
  */
 
 export interface KtoListPage {
@@ -50,6 +53,14 @@ const DEFAULT_BASE_DELAY_MS = 300;
 export const KTO_MAX_ROWS = 1000;
 
 /**
+ * 방문자수 `numOfRows` — 지역 조건이 없어 기간의 전국 시군구가 한 번에 온다 (EI-KT-026).
+ * 한 달치 전국이 2만 4천 행 안팎이라(2025년 9월 23,760행) 1콜에 받으려면 이만큼 필요하다.
+ */
+export const KTO_VISITOR_ROWS = 30_000;
+/** 방문자수 조회 기간 상한(일). 한 달을 넘기면 `KTO_VISITOR_ROWS` 1콜에 다 오지 않는다 */
+export const KTO_VISITOR_MAX_DAYS = 31;
+
+/**
  * `areaBasedList2` 정렬 코드 (EI-KT-021 실측).
  *
  * `D` 생성일 내림차순 · `C` 수정일 내림차순. 안 주면 정렬되지 않는다.
@@ -79,7 +90,7 @@ export class KtoClient {
     this.onLogFailure = options.onLogFailure ?? ((): void => undefined);
   }
 
-  // ── 오퍼레이션 5종 ──────────────────────────────────────────────
+  // ── 국문 관광정보 ──────────────────────────────────────────────
 
   /** 키워드로 관광지를 찾는다. 일정 항목 ↔ 콘텐츠 매칭의 출발점이다 */
   async searchKeyword(params: {
@@ -140,12 +151,20 @@ export class KtoClient {
     });
   }
 
-  /** 위치기반 목록 — 수정안 후보를 고를 때 쓴다. 반경 상한 20km (EI-KT-008 · SC-DT-013) */
+  /**
+   * 위치기반 목록 — 수정안 후보를 고를 때 쓴다. 반경 상한 20km (EI-KT-008 · SC-DT-013).
+   *
+   * 기획 화면의 식당 · 숙소 3km 칩은 `lclsSystm1`(FD · AC)로 거른다. 응답은 거리순이 아니다 —
+   * 거리순이 필요하면 `dist` 로 정렬한다 (외부 연동 3-4).
+   */
   async locationBasedList(params: {
     mapX: number;
     mapY: number;
     radius: number;
     contentTypeId?: ContentTypeId;
+    lclsSystm1?: string;
+    lclsSystm2?: string;
+    lclsSystm3?: string;
     numOfRows?: number;
     pageNo?: number;
   }): Promise<KtoListPage> {
@@ -161,6 +180,9 @@ export class KtoClient {
       mapY: params.mapY,
       radius: params.radius,
       ...optional('contentTypeId', params.contentTypeId),
+      ...optional('lclsSystm1', params.lclsSystm1),
+      ...optional('lclsSystm2', params.lclsSystm2),
+      ...optional('lclsSystm3', params.lclsSystm3),
       numOfRows: clampRows(params.numOfRows),
       pageNo: params.pageNo ?? 1,
     });
@@ -224,6 +246,10 @@ export class KtoClient {
     lDongRegnCd?: string;
     lDongSignguCd?: string;
     contentTypeId?: ContentTypeId;
+    /** 기획 화면 종류 칩의 등록 수는 분류로 거른 `totalCount` 다 (외부 연동 3-3 6행) */
+    lclsSystm1?: string;
+    lclsSystm2?: string;
+    lclsSystm3?: string;
     arrange?: AreaListArrange;
     numOfRows?: number;
     pageNo?: number;
@@ -232,9 +258,103 @@ export class KtoClient {
       ...optional('lDongRegnCd', params.lDongRegnCd),
       ...optional('lDongSignguCd', params.lDongSignguCd),
       ...optional('contentTypeId', params.contentTypeId),
+      ...optional('lclsSystm1', params.lclsSystm1),
+      ...optional('lclsSystm2', params.lclsSystm2),
+      ...optional('lclsSystm3', params.lclsSystm3),
       ...optional('arrange', params.arrange),
       numOfRows: clampRows(params.numOfRows),
       pageNo: params.pageNo ?? 1,
+    });
+  }
+
+  // ── 새 서비스 5종 (EI-KT-022 ~ 026 · 2026.09.15 실호출 확정) ─────────────
+
+  /**
+   * 무장애 여행 정보 지역 목록 — 휠체어 가능 필터의 `contentid` 집합 (EI-KT-022).
+   *
+   * 목록의 `contentid` 는 국문 관광정보와 같다. 시군구 하나가 1콜에 온다(강릉 729건).
+   * 경로는 국문과 같은 `areaBasedList2` 이고 서비스(`KorWithService2`)만 다르다.
+   */
+  async withAreaBasedList(params: RegionListParams): Promise<KtoListPage> {
+    return this.list('withAreaBasedList2', regionListParams(params));
+  }
+
+  /** 무장애 상세 — 카드를 펼칠 때만 부른다. 필터에는 목록 값만 쓴다 (EI-KT-022) */
+  async detailWithTour(contentId: string): Promise<Record<string, unknown>> {
+    return this.detail('detailWithTour2', contentId, { contentId });
+  }
+
+  /** 반려동물 동반여행정보 지역 목록 — 국문과 다른 서비스(`KorPetTourService2`)다 (EI-KT-023) */
+  async petAreaBasedList(params: RegionListParams): Promise<KtoListPage> {
+    return this.list('petAreaBasedList2', regionListParams(params));
+  }
+
+  /** 반려동물 동반 조건 상세 — 카드를 펼칠 때만 부른다 (EI-KT-023) */
+  async detailPetTour(contentId: string): Promise<Record<string, unknown>> {
+    return this.detail('detailPetTour2', contentId, { contentId });
+  }
+
+  /**
+   * 연관 관광지 — 기준 관광지 이름으로 찾는다 (EI-KT-024).
+   *
+   * 응답에 국문 `contentid` 가 없다. 이름 · 시군구로 대조하는 것은 호출자 몫이다.
+   * `areaCd` 는 시도 2자리, `signguCd` 는 시도를 앞에 붙인 5자리다(강릉 `51` · `51150`).
+   * 모양이 틀리면 공사가 0건을 돌려줘 순위가 조용히 사라지므로 부르기 전에 막는다.
+   */
+  async relatedSearchKeyword(params: {
+    keyword: string;
+    baseYm: string;
+    areaCd: string;
+    signguCd: string;
+    numOfRows?: number;
+    pageNo?: number;
+  }): Promise<KtoListPage> {
+    const problem =
+      params.keyword.trim() === '' ? '기준 관광지 이름이 비어 있다'
+        : !/^\d{6}$/.test(params.baseYm) ? `baseYm 은 YYYYMM: ${params.baseYm}`
+          : !/^\d{2}$/.test(params.areaCd) ? `areaCd 는 2자리: ${params.areaCd}`
+            : !/^\d{5}$/.test(params.signguCd) || !params.signguCd.startsWith(params.areaCd)
+              ? `signguCd 는 areaCd 로 시작하는 5자리: ${params.signguCd}`
+              : null;
+    if (problem !== null) throw new KtoInvalidRequestError('searchKeyword1', problem);
+    return this.list('searchKeyword1', {
+      keyword: params.keyword,
+      baseYm: params.baseYm,
+      areaCd: params.areaCd,
+      signguCd: params.signguCd,
+      numOfRows: clampRows(params.numOfRows ?? 100),
+      pageNo: params.pageNo ?? 1,
+    });
+  }
+
+  /**
+   * 두루누비 걷기 길 코스 — 지역 조건 없이 전국이 1콜에 온다 (EI-KT-025, 141건).
+   *
+   * 좌표가 없고 코스 하나만 부르는 조회도 없다. 상품 지역은 호출자가 `sigun` 글자로 거른다.
+   */
+  async courseList(): Promise<KtoListPage> {
+    return this.listWhole('courseList', { numOfRows: KTO_MAX_ROWS, pageNo: 1 });
+  }
+
+  /**
+   * 기초 지자체 방문자 수 — 기간의 전국 시군구가 한 번에 온다 (EI-KT-026). 레이더 T3 배치 전용.
+   *
+   * 지역 조건 파라미터가 없다(`signguCode` 를 주면 오류). 응답의 `signguCode` 는
+   * `lDongRegnCd` + `lDongSignguCd` 다. 기간이 한 달을 넘으면 1콜에 다 오지 않으므로 막는다.
+   */
+  async locgoRegnVisitrDDList(params: { startYmd: string; endYmd: string }): Promise<KtoListPage> {
+    const days = daysInclusive(params.startYmd, params.endYmd);
+    if (days === null || days < 1 || days > KTO_VISITOR_MAX_DAYS) {
+      throw new KtoInvalidRequestError(
+        'locgoRegnVisitrDDList',
+        `기간은 YYYYMMDD 로 1 – ${KTO_VISITOR_MAX_DAYS}일: ${params.startYmd} – ${params.endYmd}`,
+      );
+    }
+    return this.listWhole('locgoRegnVisitrDDList', {
+      startYmd: params.startYmd,
+      endYmd: params.endYmd,
+      numOfRows: KTO_VISITOR_ROWS,
+      pageNo: 1,
     });
   }
 
@@ -248,6 +368,18 @@ export class KtoClient {
       numOfRows: envelope.numOfRows,
       totalCount: envelope.totalCount,
     };
+  }
+
+  /**
+   * 한 번에 다 온다고 보고 페이지를 넘기지 않는 목록. 잘려 왔으면 던진다 — 잘린 전국 목록으로
+   * 거르면 있는 걷기 길 · 방문자 수가 없다고 나온다 (설계 원칙 3).
+   */
+  private async listWhole(operation: KtoOperation, params: KtoParams): Promise<KtoListPage> {
+    const page = await this.list(operation, params);
+    if (page.totalCount !== null && page.totalCount > page.items.length) {
+      throw new KtoFetchError(operation, `한 번에 다 오지 않았다: ${page.items.length} / ${page.totalCount}건`);
+    }
+    return page;
   }
 
   private async detail(
@@ -322,7 +454,8 @@ export class KtoClient {
     if (this.transport.kind === 'fixture') return;
 
     const entry: ApiCallLogEntry = {
-      provider: 'KTO',
+      // 서비스마다 활용신청 · 한도가 따로라 따로 센다. 한 값이면 새 서비스가 국문 예산을 잠식한다
+      provider: KTO_PROVIDER_OF[KTO_SERVICE_OF[operation]],
       operation,
       calledAt: startedAt,
       status,
@@ -342,6 +475,40 @@ export class KtoClient {
       this.onLogFailure(e);
     }
   }
+}
+
+/** 무장애 · 반려동물 지역 목록의 조건 — 시군구 단위로 부른다 (외부 연동 3-3 10 · 11행) */
+export interface RegionListParams {
+  readonly lDongRegnCd: string;
+  readonly lDongSignguCd: string;
+  readonly numOfRows?: number;
+  readonly pageNo?: number;
+}
+
+function regionListParams(params: RegionListParams): KtoParams {
+  return {
+    lDongRegnCd: params.lDongRegnCd,
+    lDongSignguCd: params.lDongSignguCd,
+    numOfRows: clampRows(params.numOfRows),
+    pageNo: params.pageNo ?? 1,
+  };
+}
+
+/** `YYYYMMDD` 두 날짜 사이 일수(양 끝 포함). 날짜가 아니면 null */
+function daysInclusive(startYmd: string, endYmd: string): number | null {
+  const toUtc = (ymd: string): number | null => {
+    const m = /^(\d{4})(\d{2})(\d{2})$/.exec(ymd);
+    if (m === null) return null;
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    const t = Date.UTC(y, mo - 1, d);
+    const back = new Date(t);
+    // 20250231 같은 없는 날짜는 다음 달로 넘어가므로 되돌려 확인한다
+    return back.getUTCFullYear() === y && back.getUTCMonth() === mo - 1 && back.getUTCDate() === d ? t : null;
+  };
+  const start = toUtc(startYmd);
+  const end = toUtc(endYmd);
+  if (start === null || end === null) return null;
+  return Math.round((end - start) / 86_400_000) + 1;
 }
 
 /** 값이 없으면 파라미터를 아예 보내지 않는다 — 빈 문자열을 보내면 공사가 다르게 해석한다 */
