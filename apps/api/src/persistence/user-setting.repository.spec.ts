@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DWELL_MINUTES_SEED, INDOOR_OUTDOOR_SEED } from '@tourlint/shared';
+import { DWELL_MINUTES_SEED, INDOOR_OUTDOOR_SEED, SETTING_DEFAULTS } from '@tourlint/shared';
 import { AccountRepository } from '../auth/account.repository';
 import { UserSettingRepository } from './user-setting.repository';
 
@@ -27,62 +27,55 @@ describe.skipIf(URL === undefined)('UserSettingRepository — 실 DB', () => {
     await pool.end();
   });
 
-  it('🔴 계정을 만들면 실내외 59행 · 체류시간 47행이 함께 생긴다', async () => {
-    const io = await pool.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM indoor_outdoor_map WHERE account_id = $1`, [accountId]);
-    const dw = await pool.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM dwell_default WHERE account_id = $1`, [accountId]);
-    expect(Number(io.rows[0]?.n)).toBe(59);
-    expect(Number(dw.rows[0]?.n)).toBe(Object.keys(DWELL_MINUTES_SEED).length);
-  });
+  const setR07 = (span: number, meal: number) =>
+    pool.query(`UPDATE user_setting SET r07_span_hours = $2, r07_meal_minutes = $3 WHERE account_id = $1`,
+      [accountId, span, meal]);
 
-  it('DB 값을 그대로 읽는다', async () => {
+  it('🔴 회사 기준(R07 두 값)은 계정 값을 읽는다 (FR-OP-022)', async () => {
+    await setR07(5, 90);
     const s = await repo.find(accountId);
-    expect(s.r09IndoorOutdoor.HS01).toBe('OUTDOOR');
-    expect(s.r09IndoorOutdoor.VE07).toBe('INDOOR');
-    expect(s.dwellMinutes.EV01).toBe(120);
-    expect(Object.keys(s.r09IndoorOutdoor)).toHaveLength(59);
+    expect(s.r07SpanHours).toBe(5);
+    expect(s.r07MealMinutes).toBe(90);
+    await setR07(6, 60);
   });
 
-  it('🔴 설정을 고치면 그 값으로 읽힌다 — 상수가 아니라 DB 를 본다 (FR-OP-021)', async () => {
+  it('🔴 표준보다 느슨한 값은 표준으로 읽는다 — 릴리즈 2 전 DB 에 남은 8시간 · 45분 (DR-CF-008)', async () => {
+    await setR07(8, 45);
+    const s = await repo.find(accountId);
+    expect(s.r07SpanHours).toBe(SETTING_DEFAULTS.r07SpanHours);
+    expect(s.r07MealMinutes).toBe(SETTING_DEFAULTS.r07MealMinutes);
+    await setR07(6, 60);
+  });
+
+  it('🔴 계정 표를 고쳐도 판정 기준표는 표준 시드다 (FR-OP-021)', async () => {
+    /*
+     * 표 3종과 `r04_threshold` 는 릴리즈 2 까지 남아 있다. 옛 설정 화면으로 값이 들어가도
+     * 판정은 모든 계정이 같은 표준으로 해야 한다.
+     */
     await pool.query(
-      `UPDATE indoor_outdoor_map SET space_type = 'INDOOR' WHERE account_id = $1 AND lcls_systm2 = 'HS01'`,
+      `INSERT INTO indoor_outdoor_map (account_id, lcls_systm2, space_type) VALUES ($1, 'HS01', 'INDOOR')
+       ON CONFLICT (account_id, lcls_systm2) DO UPDATE SET space_type = 'INDOOR'`,
+      [accountId]);
+    await pool.query(
+      `INSERT INTO dwell_default (account_id, lcls_systm2, minutes) VALUES ($1, 'EV01', 15)
+       ON CONFLICT (account_id, lcls_systm2) DO UPDATE SET minutes = 15`,
       [accountId]);
     await pool.query(`UPDATE user_setting SET r04_threshold = 5 WHERE account_id = $1`, [accountId]);
 
     const s = await repo.find(accountId);
-    expect(s.r09IndoorOutdoor.HS01).toBe('INDOOR');
-    expect(s.r04Threshold).toBe(5);
-    // 상수는 그대로다
-    expect(INDOOR_OUTDOOR_SEED.HS01).toBe('OUTDOOR');
+    expect(s.r09IndoorOutdoor).toEqual(INDOOR_OUTDOOR_SEED);
+    expect(s.dwellMinutes).toEqual(DWELL_MINUTES_SEED);
+    expect(s.r04Threshold).toBe(SETTING_DEFAULTS.r04Threshold);
 
-    await pool.query(
-      `UPDATE indoor_outdoor_map SET space_type = 'OUTDOOR' WHERE account_id = $1 AND lcls_systm2 = 'HS01'`,
-      [accountId]);
+    await pool.query(`DELETE FROM indoor_outdoor_map WHERE account_id = $1`, [accountId]);
+    await pool.query(`DELETE FROM dwell_default WHERE account_id = $1`, [accountId]);
     await pool.query(`UPDATE user_setting SET r04_threshold = 3 WHERE account_id = $1`, [accountId]);
   });
 
-  it('🔴 표가 비면 상수로 돌아간다 — 빈 매핑으로 판정하지 않는다', async () => {
-    /*
-     * 빈 매핑을 그대로 쓰면 R09 가 모든 항목을 「매핑 없음」으로 보고 야외 비중을 못 세
-     * 상품 전체가 확인 불가가 된다. 기본 데이터가 안 들어간 것이 판정으로 새면 안 된다.
-     */
-    const other = await new AccountRepository(pool).create(`empty-${Date.now()}@t.test`, 'hash');
-    try {
-      await pool.query(`DELETE FROM indoor_outdoor_map WHERE account_id = $1`, [other.id]);
-      await pool.query(`DELETE FROM dwell_default WHERE account_id = $1`, [other.id]);
-
-      const s = await repo.find(other.id);
-      expect(s.r09IndoorOutdoor).toEqual(INDOOR_OUTDOOR_SEED);
-      expect(s.dwellMinutes).toEqual(DWELL_MINUTES_SEED);
-    } finally {
-      await pool.query(`DELETE FROM account WHERE id = $1`, [other.id]);
-    }
-  });
-
-  it('설정 행이 없는 계정은 기본값이다', async () => {
+  it('설정 행이 없는 계정은 표준이다', async () => {
     const s = await repo.find(accountId + 1_000_000);
     expect(s.r07SpanHours).toBe(6);
+    expect(s.r07MealMinutes).toBe(60);
     expect(s.r04Threshold).toBe(3);
   });
 });

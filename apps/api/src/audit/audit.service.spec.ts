@@ -13,7 +13,8 @@ import {
   toUnverifiedResponse,
 } from './audit.service';
 import { DomainException } from '../common/domain.exception';
-import { RULES, RULESET_VERSION } from './rule-registry';
+import { RULE_DATA_SOURCE, SETTING_DEFAULTS, STANDARD_VERSION } from '@tourlint/shared';
+import { RULES, RULESET_VERSION, RULE_EXPLANATIONS } from './rule-registry';
 
 /**
  * 검수 관통 — **실 DB + 픽스처 리플레이**.
@@ -198,6 +199,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(String((body.scoreBreakdown as Record<string, unknown>).formula)).toMatch(/^100 − /);
       expect(body.counts).toMatchObject({ blocker: 2, dismissed: 0 });
       expect((body.evidence as Record<string, unknown>).source).toBe('출처: ⓒ한국관광공사');
+      // 적용 기준 — 리포트 머리글이 이 값을 쓴다 (API 5-5 · DR-CF-009)
+      expect(body.settingSnapshot).toEqual({ standardVersion: STANDARD_VERSION, r07SpanHours: 6, r07MealMinutes: 60 });
     });
 
     it('finding 응답이 API 설계 5-6 형식이다', async () => {
@@ -1064,5 +1067,39 @@ describe('규칙 목록 (API 설계 5-10)', () => {
     for (const r of toRulesResponse().rules as { name: string }[]) {
       expect(r.name.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  interface ExplainedRule {
+    code: string; basis: string; dataSources: string[]; threshold: string; example: string; companyAdjustable: boolean;
+  }
+  const explained = (): ExplainedRule[] => toRulesResponse().rules as ExplainedRule[];
+
+  it('🔴 모든 규칙에 설명 네 가지가 붙는다 — 쓰는 데이터 · 기준값 · 예시 · 회사 기준 여부 (FR-OP-025)', () => {
+    expect(Object.keys(RULE_EXPLANATIONS).sort()).toEqual(RULES.map((r) => r.code).sort());
+    for (const r of explained()) {
+      expect(r.dataSources.length, r.code).toBeGreaterThan(0);
+      for (const d of r.dataSources) expect(RULE_DATA_SOURCE, r.code).toContain(d);
+      expect(r.threshold.trim().length, r.code).toBeGreaterThan(0);
+      expect(r.example.trim().length, r.code).toBeGreaterThan(0);
+    }
+  });
+
+  it('🔴 회사 기준으로 조정할 수 있는 규칙은 R07 뿐이다 (FR-OP-022)', () => {
+    expect(explained().filter((r) => r.companyAdjustable).map((r) => r.code)).toEqual(['R07']);
+  });
+
+  it('🔴 쓰는 데이터가 근거와 어긋나지 않는다 — 일정만 쓰는 규칙은 일정뿐, 외부를 쓰는 규칙은 그 서비스까지', () => {
+    const by = Object.fromEntries(explained().map((r) => [r.code, r]));
+    for (const r of explained()) {
+      if (r.basis === 'ITINERARY_ONLY') expect(r.dataSources, r.code).toEqual(['ITINERARY']);
+      if (r.basis === 'KTO_ONLY') expect(r.dataSources, r.code).toEqual(['KTO']);
+    }
+    expect(by.R08?.dataSources).toEqual(['KTO', 'KAKAO']);
+    expect(by.R09?.dataSources).toEqual(['KTO', 'KMA']);
+  });
+
+  it('R07 기준값은 표준 값에서 나온다 — 숫자를 따로 적지 않는다', () => {
+    const r07 = explained().find((r) => r.code === 'R07');
+    expect(r07?.threshold).toBe(`연속 ${SETTING_DEFAULTS.r07SpanHours}시간 · 식사 ${SETTING_DEFAULTS.r07MealMinutes}분`);
   });
 });

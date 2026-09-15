@@ -1,6 +1,5 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DWELL_MINUTES_SEED, INDOOR_OUTDOOR_SEED, TARGET_PROFILE_SEED } from '@tourlint/shared';
 import { DEMO_PRODUCTS } from './demo-products';
 import { seedDemo } from './demo-seed';
 
@@ -70,32 +69,27 @@ describe.skipIf(URL === undefined)('seedDemo', () => {
     };
   };
 
-  it('🔴 계정 기본 데이터 3종을 채운다 — 비면 R10 이 확인 불가로 물러난다', async () => {
+  it('🔴 계정 기본 데이터는 user_setting 한 행이다 — 기준표는 표준 시드를 읽어 복사하지 않는다', async () => {
     /*
-     * 운영 데모 계정이 `target_profile 0/63` 인 채로 돌아 TP-03 이 명세 AC 의 29점이
-     * 아니라 27점이 나왔다 (이슈 #310). 시드가 `user_setting` 만 넣고 나머지를 빠뜨렸다.
+     * R10 프로파일 · 체류시간 · 실내 · 야외는 모든 계정이 같은 표준이다(FR-OP-021). 계정마다
+     * 복사하면 표준을 고쳐도 옛 계정이 옛 표로 판정한다 — 이슈 #310 이 그 반대 방향으로 난 사고다.
      *
      * **계정을 먼저 지운다.** 안 지우면 앞 테스트가 만든 계정이 남아 「기존 계정」 경로로
-     * 흘러 신규 생성 경로를 안 밟는다 — 그 상태로는 생성 경로를 되돌려도 초록이었다.
+     * 흘러 신규 생성 경로를 안 밟는다.
      */
     await pool.query(`DELETE FROM account WHERE email = $1`, [SPEC_EMAIL]);
     const { accountId } = await seedDemo(pool);
-    expect(await defaults(accountId)).toEqual({
-      target: TARGET_PROFILE_SEED.length,
-      io: Object.keys(INDOOR_OUTDOOR_SEED).length,
-      dwell: Object.keys(DWELL_MINUTES_SEED).length,
-      setting: 1,
-    });
+    expect(await defaults(accountId)).toEqual({ target: 0, io: 0, dwell: 0, setting: 1 });
   });
 
-  it('🔴 이미 있는 계정에도 채운다 — 비어 있던 계정이 시드로 복구된다', async () => {
+  it('🔴 이미 있는 계정에도 설정 행을 채운다 — 비어 있던 계정이 복구된다', async () => {
     // 조회 후 바로 반환하면 그때 빠진 계정은 영영 비어 있다
     const { accountId } = await seedDemo(pool);
-    await pool.query(`DELETE FROM target_profile WHERE account_id = $1`, [accountId]);
-    expect((await defaults(accountId)).target).toBe(0);
+    await pool.query(`DELETE FROM user_setting WHERE account_id = $1`, [accountId]);
+    expect((await defaults(accountId)).setting).toBe(0);
 
     await seedDemo(pool);
-    expect((await defaults(accountId)).target).toBe(TARGET_PROFILE_SEED.length);
+    expect((await defaults(accountId)).setting).toBe(1);
   });
 
   it('다시 시드해도 계정은 하나, 상품 수는 그대로다 (복원 멱등)', async () => {
