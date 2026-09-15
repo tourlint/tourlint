@@ -36,10 +36,12 @@ describe('@tourlint/shared 계약', () => {
     expect(new Set(REASON_CODE).size).toBe(15);
   });
 
-  it('예외 사유코드는 39종이며 CONTENT_NOT_FOUND 를 포함한다 (예외처리 v1.3)', () => {
-    expect(EXCEPTION_REASON_CODE).toHaveLength(39);
-    expect(new Set(EXCEPTION_REASON_CODE).size).toBe(39);
-    expect(EXCEPTION_REASON_CODE).toContain('CONTENT_NOT_FOUND');
+  it('예외 사유코드는 42종이며 CONTENT_NOT_FOUND 와 검수 기준 · 에이전트 코드를 포함한다 (예외처리 v1.5)', () => {
+    expect(EXCEPTION_REASON_CODE).toHaveLength(42);
+    expect(new Set(EXCEPTION_REASON_CODE).size).toBe(42);
+    for (const code of ['CONTENT_NOT_FOUND', 'SETTING_NOT_STRICTER', 'DISMISS_REASON_REQUIRED', 'RATE_LIMIT_EXCEEDED']) {
+      expect(EXCEPTION_REASON_CODE).toContain(code);
+    }
   });
 
   it('판정 사유코드와 예외 사유코드는 네임스페이스가 겹치지 않는다 (EX-CM-002)', () => {
@@ -77,8 +79,8 @@ describe('@tourlint/shared 계약', () => {
     expect(UNIT_SEPARATOR).toHaveLength(1);
   });
 
-  it('사용 오퍼레이션은 9종이며 폐기 예정 API 를 포함하지 않는다 (EI-KT-001)', () => {
-    expect(KTO_OPERATIONS).toHaveLength(9);
+  it('사용 오퍼레이션은 국문 9종 + 새 서비스 7개이며 폐기 예정 API 를 포함하지 않는다 (EI-KT-001)', () => {
+    expect(KTO_OPERATIONS).toHaveLength(16);
     for (const banned of ['areaCode2', 'categoryCode2', 'detailInfo2']) {
       expect(KTO_OPERATIONS).not.toContain(banned);
     }

@@ -156,3 +156,21 @@ export const TARGET_PROFILE_SEED: readonly TargetProfileSeed[] = [
   { targetKey: 'GROUP', conceptKey: 'SHOPPING', expectedLcls2: ['SH06', 'SH04', 'SH02'], expectsNight: false }, // 단체·모임 · 시장 면세점 쇼핑몰
   { targetKey: 'SOLO', conceptKey: 'SHOPPING', expectedLcls2: ['SH05', 'SH06', 'SH07'], expectsNight: false }, // 나홀로 · 전문매장/상가 시장 기타쇼핑시설
 ];
+
+export function isTargetKey(v: unknown): v is TargetKey {
+  return typeof v === 'string' && (TARGET_KEY as readonly string[]).includes(v);
+}
+
+export function isConceptKey(v: unknown): v is ConceptKey {
+  return typeof v === 'string' && (CONCEPT_KEY as readonly string[]).includes(v);
+}
+
+/**
+ * 타깃 · 콘셉트 조합의 표준 프로파일. 검수 엔진(R10)과 기획 화면의 "자주 넣는 곳" 칩이
+ * 같은 63행에서 찾는다 (FR-RU-100 · FR-PL-003). 목록 밖 키는 null 이다 — 옛 자유 입력 값을
+ * 비슷한 키로 짐작해 붙이지 않는다.
+ */
+export function findProfile(targetKey: string, conceptKey: string): TargetProfileSeed | null {
+  if (!isTargetKey(targetKey) || !isConceptKey(conceptKey)) return null;
+  return TARGET_PROFILE_SEED.find((p) => p.targetKey === targetKey && p.conceptKey === conceptKey) ?? null;
+}
