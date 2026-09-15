@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { t1Window, t2Window, T1_DEFAULT_DAYS, type SignalWindow } from '../engine/signals';
 import type { DemandSignalRepository } from '../persistence/demand-signal.repository';
 import { regionKey } from '../persistence/demand-signal.repository';
-import type { ProductRegion, RadarRepository } from '../radar/radar.repository';
+import type { RadarRepository, WatchedProduct } from '../radar/radar.repository';
 import type { SignalRunner } from './signal-runner';
 
 /**
@@ -19,7 +19,8 @@ import type { SignalRunner } from './signal-runner';
  * ## 같은 창은 한 번만 부른다
  *
  * 상품 열 개가 모두 강릉이면 T1 창이 같다. 지역·구간으로 접어서 부른다 —
- * 안 접으면 같은 조회가 열 번 나간다.
+ * 안 접으면 같은 조회가 열 번 나간다. 관심 키워드는 그 창을 쓰는 상품들의 계정 키워드를
+ * 합쳐 한 번에 판정한다 (FR-RU-112). `demand_signal` 은 지역 단위라 계정별로 부르지 않는다.
  *
  * ## 실패는 그 창 하나에 가둔다
  *
@@ -72,10 +73,10 @@ export class SignalBatchJob {
     let computed = 0;
     let failed = 0;
 
-    for (const [type, window] of windows) {
+    for (const [type, window, keywords] of windows) {
       // 창 하나마다 예산을 다시 본다. 앞 창들이 다 써 버렸을 수 있다
       if (!await this.hasBudget()) break;
-      const signal = type === 'T1' ? await this.runner.t1(window) : await this.runner.t2(window);
+      const signal = type === 'T1' ? await this.runner.t1(window, keywords) : await this.runner.t2(window);
       if (signal === null) {
         failed += 1;
         continue;
@@ -91,33 +92,36 @@ export class SignalBatchJob {
   }
 }
 
+/** 산출할 창 하나 — 종류 · 창 · 판정할 관심 키워드(T1 만, 정렬된 합집합) */
+export type SignalTask = readonly ['T1' | 'T2', SignalWindow, readonly string[]];
+
 /**
  * 산출할 창 목록. 같은 창은 한 번만 담는다.
  *
  * T1 은 지역당 하나(오늘 기준 30일)이고, T2 는 **상품의 여행일에서 나오므로** 같은
- * 지역이라도 일정이 다르면 창이 다르다.
+ * 지역이라도 일정이 다르면 창이 다르다. T1 창의 키워드는 그 창에 접힌 상품들의 계정
+ * 키워드 합집합이다 — 한 계정 것만 넘기면 같은 지역 다른 계정의 키워드 일치가 빠진다.
  */
 export function collectWindows(
-  products: readonly ProductRegion[],
+  products: readonly WatchedProduct[],
   today: string,
-): readonly (readonly ['T1' | 'T2', SignalWindow])[] {
-  const seen = new Set<string>();
-  const out: (readonly ['T1' | 'T2', SignalWindow])[] = [];
+): readonly SignalTask[] {
+  const tasks = new Map<string, { type: 'T1' | 'T2'; window: SignalWindow; keywords: Set<string> }>();
 
-  const add = (type: 'T1' | 'T2', window: SignalWindow | null): void => {
+  const add = (type: 'T1' | 'T2', window: SignalWindow | null, keywords: readonly string[]): void => {
     if (window === null || window.ldongRegnCd === null) return;
     const key = `${type}|${regionKey(window.ldongRegnCd, window.ldongSignguCd)}|${window.from}|${window.to}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push([type, window]);
+    const task = tasks.get(key) ?? { type, window, keywords: new Set<string>() };
+    for (const k of keywords) if (k.trim() !== '') task.keywords.add(k.trim());
+    tasks.set(key, task);
   };
 
   for (const p of products) {
     const region = { ldongRegnCd: p.ldongRegnCd, ldongSignguCd: p.ldongSignguCd };
-    add('T1', t1Window(today, region, T1_DEFAULT_DAYS));
-    add('T2', t2Window(p.startDate, p.nights, region));
+    add('T1', t1Window(today, region, T1_DEFAULT_DAYS), p.keywords);
+    add('T2', t2Window(p.startDate, p.nights, region), []);
   }
-  return out;
+  return [...tasks.values()].map((t) => [t.type, t.window, [...t.keywords].sort()] as const);
 }
 
 /** KST 기준 오늘. 배치 날짜 판정은 한국 시간이다 */

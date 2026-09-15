@@ -20,10 +20,22 @@ import type { IsoDate } from '../calendar/dates';
 /** 유형별 건수. 키는 `contentTypeId` 문자열이다 */
 export type TypeBreakdown = Readonly<Record<string, number>>;
 
+/**
+ * 관심 키워드 → 제목에 그 키워드가 들어간 `contentid` (FR-RU-112 · DR-PR-009).
+ * **제목은 담지 않는다** — 이름은 화면이 표시할 때 조회한다.
+ */
+export type KeywordHits = Readonly<Record<string, readonly string[]>>;
+
 /** 신호 하나. **건수와 분포뿐이다** */
 export interface Signal {
   readonly count: number;
   readonly byType: TypeBreakdown;
+  /**
+   * 배치가 넘긴 키워드마다 한 줄이다. 맞는 곳이 없으면 빈 배열이고, 넘기지 않은 키워드는
+   * 키가 없다 — 조회가 「세어 보니 없었다」와 「아직 안 봤다」를 가를 수 있게 한다.
+   * T2 는 키워드로 보지 않아 비어 있다.
+   */
+  readonly byKeyword: KeywordHits;
   /** 산출에 쓴 조회 조건. 화면이 그대로 표시한다 (FR-MO-056) */
   readonly window: SignalWindow;
 }
@@ -47,6 +59,6 @@ export interface SignalContent {
   /** `YYYYMMDD`. T2 의 근거 필드다 (FR-RU-120). 행사가 아니면 null */
   readonly eventStart: IsoDate | null;
   readonly eventEnd: IsoDate | null;
-  /** 관심 키워드 필터용 (FR-RU-112). 원문을 담지 않으므로 러너가 판정만 해서 넘긴다 */
-  readonly matchesKeyword: boolean;
+  /** 제목에 들어간 관심 키워드 (FR-RU-112). 제목은 담지 않고 판정 결과만 넘긴다 */
+  readonly matchedKeywords: readonly string[];
 }

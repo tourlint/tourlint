@@ -21,7 +21,7 @@ export function toSignalContent(
     eventStart: toIsoDay(item.eventstartdate),
     eventEnd: toIsoDay(item.eventenddate),
     // 판정만 하고 제목은 버린다. 화면은 자기 데이터로 이름을 채운다
-    matchesKeyword: keywords.some((k) => k !== '' && title.includes(k)),
+    matchedKeywords: [...new Set(keywords)].filter((k) => k !== '' && title.includes(k)),
   };
 }
 

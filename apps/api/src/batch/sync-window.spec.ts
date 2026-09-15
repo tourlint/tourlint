@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_DAYS_PER_RUN, isWeekend, kstDayOfWeek, kstMinutesOfDay, kstToday, minutesOfDay, pendingDates, toKtoDate,
+  MAX_DAYS_PER_RUN, isWeekend, kstDayOfWeek, kstMinutesOfDay, kstToday, minutesOfDay, nextBatchAt, pendingDates,
+  toKtoDate,
 } from './sync-window';
 
 /** 한국 시간 문자열을 Date 로. 서버 시간대에 흔들리지 않게 한다 */
@@ -115,5 +116,35 @@ describe('실행 시각 (FR-MO-010)', () => {
     // 한국 00:30 = UTC 전날 15:30
     expect(kstMinutesOfDay(kst('2026-08-27T00:30:00'))).toBe(30);
     expect(kstMinutesOfDay(kst('2026-08-27T23:59:00'))).toBe(1439);
+  });
+});
+
+describe('다음 배치 시각 (API 4-8 nextBatchAt)', () => {
+  it('평일 배치 시각 전이면 오늘이다', () => {
+    // 2026-09-15 화요일 04:10
+    expect(nextBatchAt(kst('2026-09-15T04:10:00'), '05:00', true)).toBe('2026-09-15T05:00:00+09:00');
+  });
+
+  it('🔴 그 분이 됐으면 이미 걸린 것이라 다음 평일이다', () => {
+    expect(nextBatchAt(kst('2026-09-15T05:00:00'), '05:00', true)).toBe('2026-09-16T05:00:00+09:00');
+    expect(nextBatchAt(kst('2026-09-15T18:30:00'), '05:00', true)).toBe('2026-09-16T05:00:00+09:00');
+  });
+
+  it('🔴 주말은 건너뛴다 — 금요일 배치 뒤와 토요일은 월요일이다 (FR-MO-010)', () => {
+    expect(nextBatchAt(kst('2026-09-18T06:00:00'), '05:00', true)).toBe('2026-09-21T05:00:00+09:00');
+    expect(nextBatchAt(kst('2026-09-19T04:00:00'), '05:00', true)).toBe('2026-09-21T05:00:00+09:00');
+  });
+
+  it('🔴 한국 시간으로 본다 — UTC 로는 전날 밤이어도 KST 날짜를 쓴다', () => {
+    // 2026-09-15 00:30 KST = 2026-09-14 15:30 UTC
+    expect(nextBatchAt(new Date('2026-09-14T15:30:00Z'), '05:00', true)).toBe('2026-09-15T05:00:00+09:00');
+  });
+
+  it('🔴 배치가 꺼져 있으면 null 이다 — 돌지 않을 시각을 약속하지 않는다', () => {
+    expect(nextBatchAt(kst('2026-09-15T04:10:00'), '05:00', false)).toBeNull();
+  });
+
+  it('시각을 못 읽으면 null 이다', () => {
+    expect(nextBatchAt(kst('2026-09-15T04:10:00'), '5시', true)).toBeNull();
   });
 });

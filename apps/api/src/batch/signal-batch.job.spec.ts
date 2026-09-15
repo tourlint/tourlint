@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { ProductRegion } from '../radar/radar.repository';
+import type { WatchedProduct } from '../radar/radar.repository';
 import { collectWindows } from './signal-batch.job';
 
-function product(over: Partial<ProductRegion> = {}): ProductRegion {
+function product(over: Partial<WatchedProduct> = {}): WatchedProduct {
   return {
     productId: 1, name: '강릉 1박 2일', ldongRegnCd: '51', ldongSignguCd: '150',
-    startDate: '2026-10-13', nights: 1, ...over,
+    startDate: '2026-10-13', nights: 1, keywords: [], ...over,
   };
 }
 
@@ -46,6 +46,29 @@ describe('신호 산출 대상 창', () => {
     const [, w] = collectWindows([product()], '2026-08-30')[0] ?? [];
     expect(w?.from).toBe('2026-08-01');
     expect(w?.to).toBe('2026-08-30');
+  });
+
+  it('🔴 T1 창 하나에 그 지역 상품들의 계정 키워드를 합쳐 넘긴다 (FR-RU-112)', () => {
+    /*
+     * `demand_signal` 은 지역 단위다. 첫 상품의 키워드만 넘기면 같은 강릉 상품을 가진
+     * 다른 계정의 키워드 일치가 저장되지 않는다.
+     */
+    const w = collectWindows(
+      [product({ productId: 1, keywords: ['온천', '야행'] }),
+       product({ productId: 2, keywords: ['커피', '온천'] }),
+       product({ productId: 3, ldongSignguCd: '210', keywords: ['바다'] })],
+      '2026-08-30',
+    );
+    const t1 = w.filter(([t]) => t === 'T1');
+    expect(t1.map(([, win, keywords]) => [win.ldongSignguCd, keywords])).toEqual([
+      ['150', ['야행', '온천', '커피']],
+      ['210', ['바다']],
+    ]);
+  });
+
+  it('T2 창에는 키워드를 넘기지 않는다 — 행사는 키워드로 보지 않는다', () => {
+    const w = collectWindows([product({ keywords: ['온천'] })], '2026-08-30');
+    expect(w.find(([t]) => t === 'T2')?.[2]).toEqual([]);
   });
 
   it('T2 창은 여행기간 앞뒤 3일이다 (FR-RU-120)', () => {

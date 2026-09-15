@@ -1,8 +1,10 @@
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { nextBatchAt } from '../batch/sync-window';
 import { DomainException } from '../common/domain.exception';
-import { BATCH_KEY } from '../persistence/batch-state.repository';
+import { BATCH_KEY, BatchStateRepository } from '../persistence/batch-state.repository';
 import { DemandSignalRepository } from '../persistence/demand-signal.repository';
+import { RadarRepository } from './radar.repository';
 import { RadarService } from './radar.service';
 
 /**
@@ -106,6 +108,7 @@ describe.skipIf(URL === undefined)('RadarService — 관통', () => {
     await signals.upsert('T1', {
       count: 4,
       byType: { '12': 3, '15': 1 },
+      byKeyword: {},
       window: { ldongRegnCd: '51', ldongSignguCd: '150', from, to: today },
     }, new Date());
 
@@ -113,6 +116,89 @@ describe.skipIf(URL === undefined)('RadarService — 관통', () => {
     expect(t1.count).toBe(4);
     expect(t1.byType).toEqual({ '12': 3, '15': 1 });
     expect((t1.window as Record<string, unknown>).from).toBe(from);
+  });
+
+  describe('관심 키워드 일치 (FR-RU-112 · DR-PR-009)', () => {
+    const t1Of = async (accountId: number, id: number): Promise<Record<string, unknown>> =>
+      (await service.signalsOf(accountId, id)).t1 as Record<string, unknown>;
+
+    const saveT1 = async (byKeyword: Record<string, string[]>): Promise<void> => {
+      const today = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
+      await signals.upsert('T1', {
+        count: 9, byType: { '12': 9 }, byKeyword,
+        window: { ldongRegnCd: '51', ldongSignguCd: '150', from, to: today },
+      }, new Date());
+    };
+
+    const keywordsOf = (accountId: number, keywords: string[]) =>
+      pool.query(`INSERT INTO user_setting (account_id, watch_keywords) VALUES ($1, $2)`, [accountId, keywords]);
+
+    it('🔴 계정마다 자기 키워드의 일치 곳만 본다 — 같은 지역 남의 키워드는 드러나지 않는다', async () => {
+      const other = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights, transport)
+         VALUES ($1,'강릉 당일','51','150', DATE '2026-11-02', 0, 'CAR') RETURNING id`,
+        [theirs],
+      );
+      await keywordsOf(mine, ['온천']);
+      await keywordsOf(theirs, ['커피']);
+      await saveT1({ '온천': ['123', '456'], '커피': ['789'] });
+
+      const t1Mine = await t1Of(mine, productId);
+      expect(t1Mine.keywordHits).toEqual([{ keyword: '온천', contentIds: ['123', '456'] }]);
+      expect(JSON.stringify(t1Mine)).not.toContain('커피');
+
+      const t1Theirs = await t1Of(theirs, Number(other.rows[0]?.id));
+      expect(t1Theirs.keywordHits).toEqual([{ keyword: '커피', contentIds: ['789'] }]);
+      // 건수는 거르지 않는다 — 키워드가 달라도 T1 은 같은 지역 전체다
+      expect(t1Mine.count).toBe(9);
+      expect(t1Theirs.count).toBe(9);
+    });
+
+    it('🔴 배치가 아직 안 본 키워드는 null 이다 — 빈 배열(세어 보니 없음)과 가른다', async () => {
+      await keywordsOf(mine, ['온천', '바다']);
+      await saveT1({ '온천': [] });
+      expect((await t1Of(mine, productId)).keywordHits).toEqual([
+        { keyword: '온천', contentIds: [] },
+        { keyword: '바다', contentIds: null },
+      ]);
+    });
+
+    it('관심 키워드가 없는 계정은 빈 목록이다', async () => {
+      await saveT1({ '온천': ['123'] });
+      expect((await t1Of(mine, productId)).keywordHits).toEqual([]);
+    });
+
+    it('🔴 저장된 일치에는 contentid 만 있다 — 제목이 없다', async () => {
+      await keywordsOf(mine, ['온천']);
+      await saveT1({ '온천': ['123'] });
+      const { rows } = await pool.query<{ by_keyword: unknown }>(
+        `SELECT by_keyword FROM demand_signal WHERE ldong_regn_cd = '51' AND signal_type = 'T1'`,
+      );
+      expect(rows.map((r) => r.by_keyword)).toEqual([{ '온천': ['123'] }]);
+    });
+  });
+
+  it('🔴 신호 배치 대상 상품에 그 계정의 관심 키워드가 실린다 — 설정 행이 없으면 빈 목록 (FR-RU-112)', async () => {
+    const other = await pool.query<{ id: string }>(
+      `INSERT INTO product (account_id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights, transport)
+       VALUES ($1,'강릉 당일','51','150', DATE '2026-11-02', 0, 'CAR') RETURNING id`,
+      [theirs],
+    );
+    await pool.query(`INSERT INTO user_setting (account_id, watch_keywords) VALUES ($1, $2)`, [mine, ['온천', '야행']]);
+
+    const watched = await new RadarRepository(pool).watchedRegions('2026-09-01');
+    const byId = new Map(watched.map((w) => [w.productId, w.keywords]));
+    expect(byId.get(productId)).toEqual(['온천', '야행']);
+    expect(byId.get(Number(other.rows[0]?.id))).toEqual([]);
+  });
+
+  it('요약에 마지막 · 다음 배치 시각이 실린다 (API 4-8)', async () => {
+    const now = new Date('2026-09-15T04:10:00+09:00');
+    const setting = await new BatchStateRepository(pool).setting();
+    const summary = await service.summary(mine, now);
+    expect(summary.nextBatchAt).toBe(nextBatchAt(now, setting.batchTime, setting.batchEnabled));
+    expect(summary).toHaveProperty('lastBatchAt');
   });
 
   it('🔴 응답에 강도 점수가 없다 (FR-RU-121)', async () => {

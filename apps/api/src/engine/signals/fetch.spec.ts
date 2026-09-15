@@ -21,7 +21,7 @@ describe('목록 응답 해석', () => {
     const parsed = toSignalContent(listItem());
     expect(Object.keys(parsed).sort()).toEqual([
       'contentId', 'contentTypeId', 'createdTime', 'eventEnd', 'eventStart',
-      'ldongRegnCd', 'ldongSignguCd', 'matchesKeyword',
+      'ldongRegnCd', 'ldongSignguCd', 'matchedKeywords',
     ]);
     for (const leak of ['강릉 국가유산야행', '강원특별자치도', 'firstimage', 'tel', 'zipcode']) {
       expect(JSON.stringify(parsed), leak).not.toContain(leak);
@@ -30,14 +30,16 @@ describe('목록 응답 해석', () => {
 
   it('🔴 키워드는 판정만 하고 제목은 안 넘긴다 (FR-RU-112)', () => {
     // 제목을 넘기면 신호 객체를 통해 원문이 화면과 로그로 샌다
-    const hit = toSignalContent(listItem(), ['야행']);
-    expect(hit.matchesKeyword).toBe(true);
-    expect(JSON.stringify(hit)).not.toContain('야행');
+    const hit = toSignalContent(listItem(), ['야행', '커피축제']);
+    expect(hit.matchedKeywords).toEqual(['야행']);
+    expect(JSON.stringify(hit)).not.toContain('국가유산');
 
-    expect(toSignalContent(listItem(), ['커피축제']).matchesKeyword).toBe(false);
+    expect(toSignalContent(listItem(), ['커피축제']).matchedKeywords).toEqual([]);
     // 빈 키워드는 아무거나 맞는 것으로 치지 않는다
-    expect(toSignalContent(listItem(), ['']).matchesKeyword).toBe(false);
-    expect(toSignalContent(listItem()).matchesKeyword).toBe(false);
+    expect(toSignalContent(listItem(), ['']).matchedKeywords).toEqual([]);
+    expect(toSignalContent(listItem()).matchedKeywords).toEqual([]);
+    // 같은 키워드가 두 번 와도 한 번만 적는다
+    expect(toSignalContent(listItem(), ['야행', '야행']).matchedKeywords).toEqual(['야행']);
   });
 
   it('행사기간을 ISO 로 읽고, 없으면 null 이다', () => {

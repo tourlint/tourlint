@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { Signal, SignalWindow, TypeBreakdown } from '../engine/signals';
+import type { KeywordHits, Signal, SignalWindow, TypeBreakdown } from '../engine/signals';
 
 /**
  * 수요 신호 T1 · T2 저장소 (`demand_signal` · F14 · DB 명세서 v1.9).
@@ -7,8 +7,8 @@ import type { Signal, SignalWindow, TypeBreakdown } from '../engine/signals';
  * 배치가 미리 산출해 두고 조회는 읽기만 한다 (2026-08-30 결정). 요청마다 공사를 부르면
  * 레이더 화면을 열 때마다 예산이 나간다.
  *
- * ⚠️ **공사 원문을 담지 않는다.** `by_type` 은 `contentTypeId` → 건수 분포일 뿐이고
- *    관광지명 · 주소는 어디에도 없다 (DR-PR-001).
+ * ⚠️ **공사 원문을 담지 않는다.** `by_type` 은 `contentTypeId` → 건수 분포, `by_keyword` 는
+ *    관심 키워드 → `contentid` 일 뿐이고 관광지명 · 주소는 어디에도 없다 (DR-PR-001 · 009).
  */
 
 export type SignalType = 'T1' | 'T2';
@@ -17,6 +17,7 @@ export interface StoredSignal {
   readonly type: SignalType;
   readonly count: number;
   readonly byType: TypeBreakdown;
+  readonly byKeyword: KeywordHits;
   readonly window: SignalWindow;
   readonly computedAt: Date;
 }
@@ -41,15 +42,16 @@ export class DemandSignalRepository {
     await this.pool.query(
       `INSERT INTO demand_signal
          (signal_type, region_key, ldong_regn_cd, ldong_signgu_cd,
-          window_from, window_to, total_count, by_type, computed_at)
-       VALUES ($1,$2,$3,$4,$5::date,$6::date,$7,$8::jsonb,$9)
+          window_from, window_to, total_count, by_type, by_keyword, computed_at)
+       VALUES ($1,$2,$3,$4,$5::date,$6::date,$7,$8::jsonb,$9::jsonb,$10)
        ON CONFLICT (signal_type, region_key, window_from, window_to) DO UPDATE
          SET total_count = EXCLUDED.total_count,
              by_type     = EXCLUDED.by_type,
+             by_keyword  = EXCLUDED.by_keyword,
              computed_at = EXCLUDED.computed_at`,
       [type, regionKey(ldongRegnCd, ldongSignguCd), ldongRegnCd, ldongSignguCd,
        signal.window.from, signal.window.to, signal.count,
-       JSON.stringify(signal.byType), computedAt],
+       JSON.stringify(signal.byType), JSON.stringify(signal.byKeyword), computedAt],
     );
   }
 
@@ -63,7 +65,7 @@ export class DemandSignalRepository {
     if (window.ldongRegnCd === null) return null;
     const { rows } = await this.pool.query<SignalRow>(
       `SELECT signal_type, ldong_regn_cd, ldong_signgu_cd, window_from, window_to,
-              total_count, by_type, computed_at
+              total_count, by_type, by_keyword, computed_at
          FROM demand_signal
         WHERE signal_type = $1 AND region_key = $2
           AND window_from = $3::date AND window_to = $4::date`,
@@ -90,6 +92,7 @@ interface SignalRow {
   window_to: Date | string;
   total_count: number;
   by_type: TypeBreakdown;
+  by_keyword: KeywordHits;
   computed_at: Date;
 }
 
@@ -98,6 +101,7 @@ function toStored(row: SignalRow): StoredSignal {
     type: row.signal_type as SignalType,
     count: Number(row.total_count),
     byType: row.by_type,
+    byKeyword: row.by_keyword,
     window: {
       ldongRegnCd: row.ldong_regn_cd,
       ldongSignguCd: row.ldong_signgu_cd,
