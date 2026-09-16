@@ -14,7 +14,6 @@ import {
   isApiError,
   settingsApi,
   type AccountSettings,
-  type GlobalSettings,
   type SettingsView,
 } from "../../lib/api";
 
@@ -178,11 +177,6 @@ export default function SettingsPage() {
           <ProfileEditor />
         </Section>
 
-        {/* 전역 설정 — 서비스 전체 공통 (UI-S8-002 · 006). 데모 계정은 조회만. */}
-        <Section title="서비스 전체 기준 (전역)">
-          <GlobalSettingsSection initial={view.global} editable={view.globalEditable} cap={view.quotaCap} />
-        </Section>
-
         {error && (
           <p role="alert" className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
             {error}
@@ -255,96 +249,3 @@ function NumberField({
   );
 }
 
-// 전역 설정 (UI-S8-002 · 006). 데모 계정은 조회만, 그 밖에는 편집·저장한다. 일일 예산은
-// 계정 한도를 넘길 수 없다. 실제 인가는 서버가 강제한다(데모면 403).
-function GlobalSettingsSection({ initial, editable, cap }: { initial: GlobalSettings; editable: boolean; cap: number }) {
-  const [g, setG] = useState<GlobalSettings>(initial);
-  const [draft, setDraft] = useState<GlobalSettings>(initial);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (!editable) {
-    return (
-      <>
-        <p className="text-xs text-slate-400">
-          배치 실행 시각과 일일 호출 예산은 전 계정이 공유하는 전역 값입니다. 데모 계정은 조회만 할 수 있습니다.
-        </p>
-        <dl className="grid gap-3 sm:grid-cols-2">
-          <ReadonlyRow label="배치 실행 시각" value={g.batchTime} />
-          <ReadonlyRow label="일일 호출 예산" value={`${g.dailyQuota.toLocaleString()}건`} />
-        </dl>
-      </>
-    );
-  }
-
-  const dirty =
-    draft.batchTime !== g.batchTime || draft.dailyQuota !== g.dailyQuota || draft.batchEnabled !== g.batchEnabled;
-
-  function patch(p: Partial<GlobalSettings>) {
-    setSaved(false);
-    setDraft((d) => ({ ...d, ...p }));
-  }
-
-  async function save() {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-    try {
-      const res = await settingsApi.updateGlobal(draft);
-      setG(res.global);
-      setDraft(res.global);
-      setSaved(true);
-    } catch (err) {
-      setError(isApiError(err) ? err.message : "저장에 실패했습니다.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <>
-      <p className="text-xs text-slate-400">전 계정이 공유하는 전역 값입니다. 변경은 서비스 전체에 적용됩니다.</p>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="배치 실행 시각">
-          <TextInput type="time" value={draft.batchTime} onChange={(e) => patch({ batchTime: e.target.value })} />
-        </Field>
-        <Field label="일일 호출 예산" hint={`계정 한도 ${cap.toLocaleString()}건`}>
-          <TextInput
-            type="number"
-            min={1}
-            max={cap}
-            value={draft.dailyQuota}
-            onChange={(e) => patch({ dailyQuota: Number(e.target.value) })}
-          />
-        </Field>
-      </div>
-      <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-        <input type="checkbox" checked={draft.batchEnabled} onChange={(e) => patch({ batchEnabled: e.target.checked })} />
-        배치 자동 실행
-      </label>
-
-      <div className="flex items-center justify-end gap-3">
-        {error && <span className="mr-auto text-sm text-rose-600 dark:text-rose-400">{error}</span>}
-        {saved && !error && <span className="mr-auto text-sm text-emerald-600 dark:text-emerald-400">저장했습니다.</span>}
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving || !dirty}
-          className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? "저장 중…" : "저장"}
-        </button>
-      </div>
-    </>
-  );
-}
-
-function ReadonlyRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-      <dt className="text-xs text-slate-400">{label}</dt>
-      <dd className="mt-0.5 text-sm font-medium text-slate-800 tabular-nums dark:text-slate-100">{value}</dd>
-    </div>
-  );
-}

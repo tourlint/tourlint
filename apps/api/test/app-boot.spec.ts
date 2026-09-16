@@ -93,6 +93,17 @@ describe('앱 부팅', () => {
     }
   });
 
+  it('🔴 전역 설정 사용자 API 가 없다 — 조회·계정 저장만 남는다 (PM-FN-008 · B1)', () => {
+    /*
+     * 배치 시각 · 일일 호출 예산은 서비스 전체 공통이라 사용자 API 로 바꾸지 않는다.
+     * `PUT settings/global` 을 되살리면 이 검사가 빨개진다. 계정 설정 조회 · 저장은 남는다.
+     */
+    const routes = registeredRoutes(app);
+    expect(routes).not.toContain('PUT /api/v1/settings/global');
+    expect(routes).toContain('GET /api/v1/settings');
+    expect(routes).toContain('PUT /api/v1/settings');
+  });
+
   it('교체된 mock 라우트가 남아 있지 않다 (NF-CO-002)', () => {
     /*
      * 같은 메서드 · 같은 경로가 mock 과 실엔진에 둘 다 있으면 **먼저 등록된 쪽이 이긴다.**

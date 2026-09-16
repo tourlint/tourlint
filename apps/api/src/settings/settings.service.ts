@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import {
   ACCOUNT_SETTING_DEFAULTS,
   GLOBAL_QUOTA_CAP,
@@ -7,7 +7,7 @@ import {
   type GlobalSettings,
   SettingsRepository,
 } from './settings.repository';
-import { validateAccountSettings, validateGlobal } from './settings.dto';
+import { validateAccountSettings } from './settings.dto';
 
 export interface SettingsView {
   account: AccountSettings;
@@ -38,22 +38,6 @@ export class SettingsService {
     const { errors, settings } = validateAccountSettings(body as Record<string, unknown> | undefined);
     if (settings === undefined) throw new BadRequestException(errors.join(' '));
     await this.repo.saveAccount(accountId, settings);
-    return this.get(accountId, isDemo);
-  }
-
-  /**
-   * 전역 설정 저장. 서비스 전체에 적용되므로 데모 계정은 막는다 (PM-TA · FR-OP-021).
-   *
-   * 관리자 롤 체계가 없어 지금은 데모 여부로만 가른다 — 비데모 계정이면 바꿀 수 있다.
-   * 진짜 관리자 인가는 후속 과제다.
-   */
-  async updateGlobal(accountId: number, isDemo: boolean, body: unknown): Promise<SettingsView> {
-    if (isDemo) {
-      throw new ForbiddenException('데모 계정은 서비스 전체 설정을 바꿀 수 없습니다.');
-    }
-    const { errors, settings } = validateGlobal(body as Record<string, unknown> | undefined);
-    if (settings === undefined) throw new BadRequestException(errors.join(' '));
-    await this.repo.saveGlobal(settings);
     return this.get(accountId, isDemo);
   }
 }

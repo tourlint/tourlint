@@ -616,12 +616,9 @@ export interface SettingsView {
 
 export const settingsApi = {
   get: () => request<SettingsView>("/settings"),
-  // 계정 설정만 저장한다. 전역 값은 이 경로로 바꾸지 않는다.
+  // 계정 설정만 저장한다. 전역 값(배치 시각·일일 예산)은 사용자 API 로 바꾸지 않는다 (PM-FN-008).
   update: (account: AccountSettings) =>
     request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify(account) }),
-  // 전역 설정 저장(배치 시각·일일 예산). 데모 계정이면 서버가 403 을 준다.
-  updateGlobal: (global: GlobalSettings) =>
-    request<SettingsView>("/settings/global", { method: "PUT", body: JSON.stringify(global) }),
 };
 
 // ── 계정 기준표 (F16 · UI-S8-005) ────────────────────────────────────────────
