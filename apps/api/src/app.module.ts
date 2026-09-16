@@ -9,6 +9,8 @@ import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
 import { AgentLock } from './agent/agent-lock';
+import { CheckQuestionController } from './agent/check-question.controller';
+import { CheckQuestionService } from './agent/check-question.service';
 import { PlaceSuggestionController } from './agent/place-suggestion.controller';
 import { PlaceSuggestionService } from './agent/place-suggestion.service';
 import { SignalBatchJob } from './batch/signal-batch.job';
@@ -94,7 +96,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
      */
     ContentController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
-    PlanController, PlaceFactsController, PlaceSuggestionController,
+    PlanController, PlaceFactsController, PlaceSuggestionController, CheckQuestionController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
@@ -333,6 +335,34 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
         });
       },
       inject: [DB_POOL, AgentLock],
+    },
+    {
+      /*
+       * 검수 에이전트 — 전화로 물어볼 내용 (F18 · FR-AG-020 ~ 022).
+       *
+       * `AuditService` 의 읽기 메서드 넷만 쓴다. 판정 · 무시 · 확인은 사람이 누르는 기존 API 다.
+       */
+      provide: CheckQuestionService,
+      useFactory: (pool: Pool, audit: AuditService, lock: AgentLock) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new CheckQuestionService({
+          audit,
+          kto: () => (client ??= createKtoClient(logs)),
+          llm: () => {
+            const config = readLlmConfig();
+            if (config === null) throw new LlmNotConfiguredError('LLM_API_KEY 가 비어 있다');
+            return new LlmClient({ provider: createProvider(config), config, logger: logs });
+          },
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+          lock,
+        });
+      },
+      inject: [DB_POOL, AuditService, AgentLock],
     },
     {
       provide: SyncBatchScheduler,

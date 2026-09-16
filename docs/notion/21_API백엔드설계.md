@@ -1022,8 +1022,8 @@ POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "item
 <tr>
 <td>POST</td>
 <td>`/api/v1/audit-runs/{runId}/check-questions`</td>
-<td>확인 필요 목록으로 곳마다 `{findingIds[], itemId, visit{dayNo, date, start}, tel: string|null, questions[]}`. 도구 결과 밖 전화번호는 `null` 로 바꾼다. 저장 없음</td>
-<td>FR-AG-020 – 022 · 곳마다 최대 1콜(문의처 10분 캐시) + LLM 1회</td>
+<td>확인 필요 목록으로 곳마다 `{findingIds[], itemId, visit{dayNo, date, start}, tel: string|null, questions[]}`. 도구 결과 밖 전화번호는 `null` 로 바꾼다. `visit` 은 항목 값 그대로이고 `findingIds` 는 그 곳의 것만 남긴다 — 둘 다 서버가 채운다. 확인 필요가 0건이면 모델도 부르지 않는다. 저장 없음</td>
+<td>FR-AG-020 – 022 · 곳마다 최대 2콜(문의처 10분 캐시) + LLM 1회</td>
 </tr>
 <tr>
 <td>POST</td>
@@ -1046,7 +1046,8 @@ POST /api/v1/products/{id}/place-suggestions   본문 { "itemIds"?: [21, 22] }  
 POST /api/v1/audit-runs/{runId}/check-questions
   → { "places": CheckQuestionPlace[], "incomplete": null }
     예: { "findingIds": [301], "itemId": 25, "visit": { "dayNo": 1, "date": "2026-10-23", "start": "19:30" }, "tel": null, "questions": ["그날 문을 여나요?", "몇 시까지 운영하나요?"] }
-    도구: audit-runs/{id}/unverified · findings · 상품 항목 · content-view 연락처(공통정보 tel → 소개정보 infocenter). 곳마다 최대 1콜(10분 캐시) + LLM 1회. 도구 결과에 없던 전화번호는 null
+    도구: audit-runs/{id}/unverified · findings · 상품 항목 · content-view 연락처(공통정보 tel → 소개정보 infocenter). 곳마다 최대 2콜(공통정보 1 + tel 이 비었을 때 소개정보 1 · 10분 캐시) + LLM 1회. 도구 결과에 없던 전화번호는 null
+    곳은 확인 불가 · 확인 필요 판정을 항목별로 묶은 것이다 — 이미 확인한 항목과 항목을 가리키지 않는 판정은 빼고, 직접 정한 곳은 문의처를 조회하지 않는다
 POST /api/v1/radar/today
   → { "basisAt": "2026-09-11T05:00:00+09:00", "todos": TodayItem[], "quiet": [ { "productId": 9, "text": "태백 당일 산행은 바뀐 정보가 없어요." } ], "incomplete": null }
     도구: radar/summary · radar/changes · notifications · 관심 지역 새 소식 · 상품 목록. 공사 0콜 + LLM 1회. 순서는 서버가 정한다(출발일이 가까운 상품의 바뀐 정보 → 새 소식)
