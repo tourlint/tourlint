@@ -20,3 +20,7 @@ probe4_out/
 # Claude Code 개인 설정 — 권한 허용 목록 등은 사람마다 다르다.
 # 공유할 프로젝트 설정이 생기면 .claude/settings.json 으로 넣는다 (이쪽은 추적한다).
 .claude/settings.local.json
+
+# 운영 DB 덤프 · 수동 확인 산출물. 실제 계정 데이터가 들어 있어 저장소에 올리지 않는다
+outputs/
+.codex-artifact-work/
