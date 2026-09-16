@@ -1016,7 +1016,7 @@ POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "item
 <tr>
 <td>POST</td>
 <td>`/api/v1/products/{productId}/place-suggestions`</td>
-<td>`{itemIds?}`(없으면 PENDING 전체). 줄마다 `{itemId, kind: FOUND|NOT_FOUND|NO_NAME, place?, alternatives[], reason}` 과 요약 건수. `place` 의 제목 · 주소는 응답으로만 흐른다. 도구 결과 밖 contentid 는 버린다. 저장 없음</td>
+<td>`{itemIds?}`(없으면 PENDING 전체). 줄마다 `{itemId, kind: FOUND|NOT_FOUND|NO_NAME, place?, alternatives[], reason}` 과 요약 건수. `place` 의 제목 · 주소는 응답으로만 흐른다. 도구 결과 밖 contentid 는 버린다. `NO_NAME` 은 서버가 정한다 — 일반 낱말로만 된 줄(「점심」 · 「숙소 체크인」)은 모델도 공사도 부르지 않는다. 저장 없음</td>
 <td>FR-AG-010 – 012 · 줄마다 0 – 2콜 + LLM 1회 · 30초</td>
 </tr>
 <tr>
@@ -1041,6 +1041,8 @@ POST /api/v1/products/{id}/place-suggestions   본문 { "itemIds"?: [21, 22] }  
           "alternatives": [ { "contentId": "…", "title": "식당 C", "kindName": "음식점", "distanceM": 2300 } ],
           "reason": "초당순두부 음식점 3곳 중 앞 일정과 가장 가까운 곳이에요 (1.4km)" }
     도구: searchKeyword2(상품 지역) · detailCommon2. 줄마다 0 – 2콜 + LLM 1회. 도구 결과에 없던 contentId 는 버린다. 저장 · 로깅 없음
+    검색 지역은 서버가 상품의 시도 · 시군구로 붙인다(모델 입력이 아니다). 제목 · 주소 · 분류도 도구가 받아 둔 값만 싣고, alternatives 의 distanceM 은 앞뒤 고른 줄과의 직선거리다 — 이동시간이 아니다.
+    끝내지 못한 줄(모델 실패 · 시간 초과 · 예산 · 버린 줄)은 incomplete.itemIds 에 담기고 응답 items 에는 없다
 POST /api/v1/audit-runs/{runId}/check-questions
   → { "places": CheckQuestionPlace[], "incomplete": null }
     예: { "findingIds": [301], "itemId": 25, "visit": { "dayNo": 1, "date": "2026-10-23", "start": "19:30" }, "tel": null, "questions": ["그날 문을 여나요?", "몇 시까지 운영하나요?"] }

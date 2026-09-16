@@ -31,6 +31,9 @@ export interface PlanProduct {
   readonly productId: number;
   readonly startDate: string;
   readonly transport: string;
+  /** 상품 지역. 에이전트의 검색은 이 지역으로 고정된다 (FR-AG-010) */
+  readonly regnCd: string | null;
+  readonly signguCd: string | null;
   readonly items: readonly PlanItem[];
 }
 
@@ -39,8 +42,11 @@ export class PlanItemRepository {
 
   /** 그 계정의 상품과 일정 항목. 남의 상품이면 `null` 이다 */
   async product(accountId: number, productId: number): Promise<PlanProduct | null> {
-    const { rows } = await this.pool.query<{ start_date: Date | string; transport: string }>(
-      `SELECT start_date, transport FROM product WHERE id = $1 AND account_id = $2`,
+    const { rows } = await this.pool.query<{
+      start_date: Date | string; transport: string; ldong_regn_cd: string | null; ldong_signgu_cd: string | null;
+    }>(
+      `SELECT start_date, transport, ldong_regn_cd, ldong_signgu_cd
+         FROM product WHERE id = $1 AND account_id = $2`,
       [productId, accountId],
     );
     const product = rows[0];
@@ -59,6 +65,8 @@ export class PlanItemRepository {
       productId,
       startDate: isoDate(product.start_date),
       transport: product.transport,
+      regnCd: product.ldong_regn_cd,
+      signguCd: product.ldong_signgu_cd,
       items: items.rows.map(toItem),
     };
   }
