@@ -1,0 +1,29 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2628994",
+            "relaAcdntRiskMtr": "전 견종 동반 가능",
+            "acmpyTypeCd": "전구역 동반가능",
+            "relaPosesFclty": "",
+            "relaFrnshPrdlst": "",
+            "etcAcmpyInfo": "- 맹견의 경우, 입마개 착용 필수- 배변봉투 지참 및 배변처리 필수",
+            "relaPurcPrdlst": "",
+            "acmpyPsblCpam": "전 견종 동반 가능",
+            "relaRntlPrdlst": "",
+            "acmpyNeedMtr": "목줄 착용"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

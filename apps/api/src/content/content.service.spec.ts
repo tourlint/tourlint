@@ -33,3 +33,52 @@ describe('ContentService (API 설계 4-2 · 5-12)', () => {
     expect(seen).toEqual([14]);
   });
 });
+
+describe('카드 펼침의 조건 축 (FR-PL-012 · API 4-10)', () => {
+  const conditions = (found: { accessible: Record<string, unknown> | null; pet: Record<string, unknown> | null }) => {
+    const asked: unknown[] = [];
+    return {
+      asked,
+      service: {
+        of: async (contentId: string, want: unknown) => { asked.push({ contentId, want }); return found; },
+      } as unknown as import('../plan/place-conditions.service').PlaceConditionService,
+    };
+  };
+
+  it('🔴 with 를 주지 않으면 조건 축을 부르지도 싣지도 않는다 — 검수 화면의 콜 수가 그대로다', async () => {
+    const found = conditions({ accessible: { wheelchair: '있음' }, pet: null });
+    const body = await new ContentService(() => ({
+      detailCommon: async () => ({}),
+      detailIntro: async () => ({}),
+    } as unknown as KtoClient), found.service).detail('129784', '12');
+
+    expect(body).not.toHaveProperty('accessible');
+    expect(body).not.toHaveProperty('pet');
+    expect(found.asked).toEqual([]);
+  });
+
+  it('요청한 축만 싣는다', async () => {
+    const found = conditions({ accessible: { wheelchair: '있음' }, pet: null });
+    const body = await new ContentService(() => ({
+      detailCommon: async () => ({}),
+      detailIntro: async () => ({}),
+    } as unknown as KtoClient), found.service).detail('129784', '12', { accessible: true, pet: false });
+
+    expect(body.accessible).toEqual({ wheelchair: '있음' });
+    expect(body).not.toHaveProperty('pet');
+    expect(found.asked).toEqual([{ contentId: '129784', want: { accessible: true, pet: false } }]);
+  });
+
+  it('🔴 조건 축을 못 받아도 카드의 나머지는 그대로다 (EX-PL-004)', async () => {
+    const found = conditions({ accessible: null, pet: null });
+    const body = await new ContentService(() => ({
+      detailCommon: async () => ({}),
+      detailIntro: async () => ({ usetime: '09:00~18:00' }),
+    } as unknown as KtoClient), found.service).detail('129784', '12', { accessible: true, pet: true });
+
+    expect(body.accessible).toBeNull();
+    expect(body.pet).toBeNull();
+    expect(body.ktoRaw).toMatchObject({ usetime: '09:00~18:00' });
+  });
+});
+

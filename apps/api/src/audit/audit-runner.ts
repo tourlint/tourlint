@@ -1,8 +1,7 @@
 import {
-  CONTENT_TYPE_ID, INTRO_FIELDS, SEVERITY_WEIGHT_DEFAULT,
-  type ConceptKey, type TargetKey,
+  CONTENT_TYPE_ID, INTRO_FIELDS, SEVERITY_WEIGHT_DEFAULT, STANDARD_VERSION, findProfile,
   type ContentTypeId, type EndTimeSource, type ExceptionReasonCode, type ItemType, type MatchStatus, type Severity,
-  type Transport,
+  type SettingSnapshot, type TargetProfileSeed, type Transport,
 } from '@tourlint/shared';
 import { KOREAN_HOLIDAYS } from '../engine/calendar/holidays';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
@@ -83,24 +82,19 @@ export interface ProductRow {
   /** 상품 성격. 선택 입력이라 없을 수 있고, 없으면 R10 이 물러난다 (FR-RU-100) */
   readonly targetKey?: string | null;
   readonly conceptKey?: string | null;
-  /** 상품 소유자. 기대 프로파일이 계정 설정이라 필요하다 */
+  /** 상품 소유자. 회사 기준(R07 두 값)을 읽을 계정이다 */
   readonly accountId?: number;
 }
 
 /**
- * 기대 콘텐츠 프로파일 조회 (`target_profile` · FR-RU-100).
+ * 기대 콘텐츠 프로파일 조회 (FR-RU-100).
  *
- * 계정 설정이라 계정마다 다르다. **없으면 `null`** 이고 R10 은 그 상품을 확인 불가로
- * 남긴다 — 비슷한 조합으로 대신 판정하지 않는다 (FR-RU-051).
+ * **모든 계정이 같은 표준 63행이다** — 기본값은 `@tourlint/shared` 의 `findProfile` 이고, 기획
+ * 화면의 "자주 넣는 곳" 칩도 같은 함수를 쓴다. 옵션은 테스트가 표에 없는 중분류를 결손으로
+ * 두기 위한 것이다. **없으면 `null`** 이고 R10 은 그 상품을 확인 불가로 남긴다 — 비슷한
+ * 조합으로 대신 판정하지 않는다 (FR-RU-051).
  */
-export interface TargetProfileLookup {
-  find(accountId: number, targetKey: string, conceptKey: string): Promise<TargetProfileRow | null>;
-}
-
-export interface TargetProfileRow {
-  readonly expectedLcls2: readonly string[];
-  readonly expectsNight: boolean;
-}
+export type TargetProfileLookup = (targetKey: string, conceptKey: string) => TargetProfileSeed | null;
 
 /**
  * 평년 강수일수 조회 (EI-WX-004 · FR-RU-091 D+11 이상).
@@ -159,10 +153,8 @@ export interface AuditRunnerOptions {
   readonly kma?: KmaClient;
   /** 평년 강수일수. 없으면 D+11 이상이 확인 불가로 남는다 (이슈 #7) */
   readonly climate?: ClimateNormalLookup;
-  /** 기대 콘텐츠 프로파일. 없으면 R10 을 판정하지 않는다 */
-  readonly profiles?: TargetProfileLookup;
-  /** 프로파일을 찾을 계정. 상품 소유자다 */
-  readonly accountId?: number;
+  /** 기대 콘텐츠 프로파일 조회. 주지 않으면 표준(`findProfile`)이다 */
+  readonly profileOf?: TargetProfileLookup;
 }
 
 export interface AuditRunResult {
@@ -179,6 +171,8 @@ export interface AuditRunResult {
   readonly failedRules: readonly string[];
   /** 상품 단위 총 이동시간·거리 (FR-RU-084). F10 전후 비교의 입력이다 */
   readonly travelTotals: { readonly durationSeconds: number; readonly distanceMeters: number };
+  /** 적용한 기준 — 표준 버전과 회사 기준 두 값 (DR-CF-009). 실행에 딸린 기록이라 소급해 바뀌지 않는다 */
+  readonly settingSnapshot: SettingSnapshot;
 }
 
 /** 한 콘텐츠의 조회 결과. 실패해도 버리지 않고 사유와 함께 남긴다 */
@@ -213,8 +207,7 @@ export class AuditRunner {
   private readonly kakao: KakaoMobilityClient | null;
   private readonly kma: KmaClient | null;
   private readonly climate: ClimateNormalLookup | null;
-  private readonly profiles: TargetProfileLookup | null;
-  private readonly accountId: number | null;
+  private readonly profileOf: TargetProfileLookup;
   private readonly clock: () => Date;
   private readonly onProgress: (done: number, total: number) => void | Promise<void>;
 
@@ -228,8 +221,7 @@ export class AuditRunner {
     this.kakao = options.kakao ?? null;
     this.kma = options.kma ?? null;
     this.climate = options.climate ?? null;
-    this.profiles = options.profiles ?? null;
-    this.accountId = options.accountId ?? null;
+    this.profileOf = options.profileOf ?? findProfile;
     this.clock = options.clock ?? ((): Date => new Date());
     this.onProgress = options.onProgress ?? ((): void => undefined);
     this.normalizeFallback = options.normalizeFallback ?? null;
@@ -302,11 +294,11 @@ export class AuditRunner {
     }
 
     // ── 4) 외부 데이터 조회 (구간 단위 병렬) ──
-    const [travelTimes, rainOutlooks, targetProfile] = await Promise.all([
+    const [travelTimes, rainOutlooks] = await Promise.all([
       this.fetchTravelTimes(product, judged),
       this.fetchRainOutlooks(product, judged, executedAt),
-      this.fetchTargetProfile(product),
     ]);
+    const targetProfile = this.targetProfileOf(product);
 
     // ── 5) ItineraryContext 조립 (I/O 끝) ──
     const ctx = this.buildContext(product, judged, fetched, verdicts, travelTimes, rainOutlooks, targetProfile);
@@ -341,6 +333,11 @@ export class AuditRunner {
       weights: this.weights,
       executedAt,
       travelTotals: totalTravel(travelTimes),
+      settingSnapshot: {
+        standardVersion: STANDARD_VERSION,
+        r07SpanHours: this.settings.r07SpanHours,
+        r07MealMinutes: this.settings.r07MealMinutes,
+      },
       runFingerprint: fingerprints.length === 0
         ? null
         : buildRunFingerprint(fingerprints.map((f) => ({ ktoContentId: f.ktoContentId, fieldHash: f.fieldHash }))),
@@ -707,27 +704,26 @@ export class AuditRunner {
   }
 
   /**
-   * [4단계] 기대 콘텐츠 프로파일을 읽는다 (FR-RU-100).
+   * [4단계] 기대 콘텐츠 프로파일을 찾는다 (FR-RU-100). 표준 63행이라 I/O 가 없다.
    *
    * 타깃 · 콘셉트는 **선택 입력**이라 안 적은 상품이 있다. 그때는 `undefined` 를 주고
    * R10 이 조용히 물러난다 — 안 적은 것을 결함이라 말할 근거가 없다.
    *
-   * 적었는데 그 조합의 프로파일이 없으면 확인 불가로 남긴다. 비슷한 조합으로 대신
-   * 판정하지 않는다 (FR-RU-051).
+   * 적었는데 표준 목록에 없는 값(옛 자유 입력)이면 확인 불가로 남긴다. 비슷한 조합으로 대신
+   * 판정하지 않는다 (FR-RU-051 · DR-IN-015).
    */
-  private async fetchTargetProfile(product: ProductRow): Promise<TargetProfileContext | undefined> {
+  private targetProfileOf(product: ProductRow): TargetProfileContext | undefined {
     const targetKey = product.targetKey ?? null;
     const conceptKey = product.conceptKey ?? null;
     if (targetKey === null || conceptKey === null || targetKey === '' || conceptKey === '') return undefined;
-    if (this.profiles === null || this.accountId === null) return { ok: false, targetKey, conceptKey };
 
     try {
-      const row = await this.profiles.find(this.accountId, targetKey, conceptKey);
+      const row = this.profileOf(targetKey, conceptKey);
       if (row === null) return { ok: false, targetKey, conceptKey };
       return {
         ok: true,
-        targetKey: targetKey as TargetKey,
-        conceptKey: conceptKey as ConceptKey,
+        targetKey: row.targetKey,
+        conceptKey: row.conceptKey,
         expectedLcls2: row.expectedLcls2,
         expectsNight: row.expectsNight,
       };

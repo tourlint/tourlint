@@ -267,3 +267,65 @@ describe('휴식 최소 시간 (이슈 #32 A안)', () => {
     expect(evaluateDay(day({ start: '12:00', end: '12:20' }), loose)).toBe('OK');
   });
 });
+
+describe('회사 기준 문장 — 적용한 기준을 함께 적는다 (FR-RU-074)', () => {
+  const company = (over: Partial<typeof DEFAULT_AUDIT_SETTINGS>) => ({ ...DEFAULT_AUDIT_SETTINGS, ...over });
+  const evaluateWith = (items: readonly AuditItem[], settings: typeof DEFAULT_AUDIT_SETTINGS): readonly Finding[] =>
+    rule.evaluate({ productId: 1, items, holidays: KOREAN_HOLIDAYS, settings });
+  const nineHours = (meal: { start: string; end: string }): AuditItem[] => [
+    item({ seq: 1, start: '09:00', end: '12:00' }),
+    item({ seq: 2, ...meal, type: 'MEAL', label: '점심' }),
+    item({ seq: 3, start: '13:00', end: '18:00' }),
+  ];
+
+  it('🔴 회사 기준에 걸리고 표준은 충족하면 두 값을 함께 적는다', () => {
+    const [f] = evaluateWith(nineHours({ start: '12:00', end: '13:00' }), company({ r07MealMinutes: 90 }));
+    expect(f?.reasonCode).toBe('MEAL_TIME_SHORT');
+    expect(f?.message).toBe(
+      '1일차 09:00~18:00 연속 9시간 중 식사(점심)가 60분으로 회사 기준 90분보다 짧습니다. ' +
+      'TourLint 표준 60분은 충족합니다. 시간을 늘리거나 뒤 일정을 미뤄 주세요.',
+    );
+    // 판정에 쓴 기준값은 근거에 그대로 남는다
+    expect(f?.evidence.thresholds).toEqual({ spanHours: 6, mealMinutes: 90 });
+  });
+
+  it('표준에도 못 미치면 그렇게 적는다', () => {
+    const [f] = evaluateWith(nineHours({ start: '12:00', end: '12:45' }), company({ r07MealMinutes: 90 }));
+    expect(f?.message).toContain('45분으로 회사 기준 90분보다 짧습니다. TourLint 표준 60분에도 못 미칩니다.');
+  });
+
+  it('🔴 연속 시간만 회사 기준에 걸리면 두 기준이 언제부터 보는지를 적는다', () => {
+    // 5.5시간 — 회사 기준 5시간에는 걸리고 표준 6시간에는 걸리지 않는다
+    const items = [
+      item({ seq: 1, start: '09:00', end: '12:00' }),
+      item({ seq: 2, start: '12:00', end: '12:30', type: 'MEAL', label: '점심' }),
+      item({ seq: 3, start: '12:30', end: '14:30' }),
+    ];
+    const [f] = evaluateWith(items, company({ r07SpanHours: 5 }));
+    expect(f?.message).toBe(
+      '1일차 09:00~14:30 연속 5.5시간 중 식사(점심)가 30분으로 최소 60분보다 짧습니다. ' +
+      '회사 기준은 연속 5시간부터, TourLint 표준은 연속 6시간부터 식사·휴식을 봅니다. 시간을 늘리거나 뒤 일정을 미뤄 주세요.',
+    );
+    const [missing] = evaluateWith([item({ start: '09:00', end: '14:30' })], company({ r07SpanHours: 5 }));
+    expect(missing?.message).toBe(
+      '1일차 09:00~14:30 연속 5.5시간 일정에 식사·휴식 항목이 없습니다. ' +
+      '회사 기준은 연속 5시간부터, TourLint 표준은 연속 6시간부터 식사·휴식을 봅니다. 공백 구간에 식사를 넣어 주세요.',
+    );
+  });
+
+  it('🔴 표준과 같은 기준이면 지금 문장 그대로다 — 회귀 정답셋이 흔들리지 않는다', () => {
+    const [f] = evaluateWith(nineHours({ start: '12:00', end: '12:30' }), DEFAULT_AUDIT_SETTINGS);
+    expect(f?.message).toBe(
+      '1일차 09:00~18:00 연속 9시간 중 식사(점심)가 30분으로 최소 60분보다 짧습니다. 시간을 늘리거나 뒤 일정을 미뤄 주세요.',
+    );
+    // 연속 시간만 엄격하고 표준으로도 같은 판정이면 덧붙일 말이 없다
+    const [same] = evaluateWith(nineHours({ start: '12:00', end: '12:30' }), company({ r07SpanHours: 5 }));
+    expect(same?.message).toBe(f?.message);
+  });
+
+  it('결정론성 — 같은 입력이면 회사 기준 문장도 같다 (NF-MT-001)', () => {
+    const items = nineHours({ start: '12:00', end: '13:00' });
+    const runs = Array.from({ length: 3 }, () => evaluateWith(items, company({ r07MealMinutes: 90 })));
+    for (const r of runs) expect(r).toEqual(runs[0]);
+  });
+});

@@ -77,7 +77,8 @@ export const REASON_CODE = [
 export type ReasonCode = (typeof REASON_CODE)[number];
 
 // ─────────────────────────────────────────────────────────────
-// 예외 사유코드 39종 — 문자열 하드코딩 금지 (EX-CM-020)
+// 예외 사유코드 42종 — 문자열 하드코딩 금지 (EX-CM-020)
+// 순서는 예외처리 요구사항 4장 표와 같다
 // ─────────────────────────────────────────────────────────────
 export const EXCEPTION_REASON_CODE = [
   'UPLOAD_FORMAT_INVALID', 'UPLOAD_ROW_INVALID', 'UPLOAD_LIMIT_EXCEEDED',
@@ -89,11 +90,13 @@ export const EXCEPTION_REASON_CODE = [
   'CONTENT_HIDDEN', 'COORD_MISSING',
   'ROUTE_NOT_FOUND', 'ROUTE_PROVIDER_FAILED', 'TRANSIT_NOT_SUPPORTED',
   'FORECAST_UNAVAILABLE', 'CLIMATE_DATA_MISSING',
-  'AUDIT_PARTIAL', 'AUDIT_TIMEOUT',
+  'AUDIT_PARTIAL', 'AUDIT_TIMEOUT', 'DISMISS_REASON_REQUIRED',
   'PATCH_CONFLICT', 'PATCH_STALE', 'UNDO_UNAVAILABLE',
   'FINGERPRINT_INCOMPARABLE',
   'BATCH_EMPTY', 'BATCH_HIDDEN_OVERFLOW', 'BUDGET_THRESHOLD', 'BUDGET_EXHAUSTED',
-  'FORBIDDEN_ACTION', 'NOT_AUTHENTICATED', 'NOT_FOUND', 'REPORT_FAILED', 'INTERNAL_ERROR',
+  'RATE_LIMIT_EXCEEDED',
+  'FORBIDDEN_ACTION', 'NOT_AUTHENTICATED', 'NOT_FOUND', 'REPORT_FAILED',
+  'SETTING_NOT_STRICTER', 'INTERNAL_ERROR',
 ] as const;
 export type ExceptionReasonCode = (typeof EXCEPTION_REASON_CODE)[number];
 
@@ -328,6 +331,39 @@ export const SETTING_DEFAULTS = {
   dwellFallbackMinutes: 90,
 } as const;
 
+// ─────────────────────────────────────────────────────────────
+// 검수 기준 — 표준 · 회사 기준 · 건별 무시 (FR-OP-020 – 027 · FR-AU-068)
+// ─────────────────────────────────────────────────────────────
+
+/** 표준 버전. 검수마다 `audit_run.setting_snapshot` 에 남고 리포트 머리글에 찍힌다 (G-123) */
+export const STANDARD_VERSION = '2026.09';
+
+/**
+ * 회사 기준은 표준보다 엄격하게만 저장한다 — 연속 일정은 짧게, 식사는 길게.
+ * 느슨한 값은 400 `SETTING_NOT_STRICTER` (FR-OP-022).
+ */
+export const COMPANY_SETTING_LIMITS = {
+  r07SpanHoursMax: SETTING_DEFAULTS.r07SpanHours,
+  r07MealMinutesMin: SETTING_DEFAULTS.r07MealMinutes,
+} as const;
+
+/**
+ * 검수 실행에 적용한 기준 (`audit_run.setting_snapshot` · API 5-5 `settingSnapshot`).
+ * 회사 기준을 나중에 바꿔도 이 값은 그대로다 — 리포트 머리글이 이 값을 쓴다 (DR-CF-009 · FR-OP-023).
+ */
+export interface SettingSnapshot {
+  readonly standardVersion: string;
+  readonly r07SpanHours: number;
+  readonly r07MealMinutes: number;
+}
+
+/** 규칙 설명의 쓰는 데이터 — 관광정보 · 일정 · 이동 시간 · 날씨 예보 (API 5-10 · FR-OP-025). 화면은 코드 대신 사용자 말로 적는다 */
+export const RULE_DATA_SOURCE = ['KTO', 'ITINERARY', 'KAKAO', 'KMA'] as const;
+export type RuleDataSource = (typeof RULE_DATA_SOURCE)[number];
+
+/** 무시 사유 중 자주 쓰는 3개. 그 밖은 기타(내용 필수) — 사유 없는 무시는 400 `DISMISS_REASON_REQUIRED` (FR-AU-068) */
+export const DISMISS_REASON_PRESET = ['고객 요청 사항', '계약 업체 · 확정 일정', '전화로 직접 확인함'] as const;
+
 /** 전역 운영 설정 기본값 (system_setting) */
 export const SYSTEM_SETTING_DEFAULTS = {
   batchTime: '05:00',
@@ -399,13 +435,157 @@ export const INTRO_FIELDS: Readonly<
   39: { rest: 'restdatefood', use: ['opentimefood'], contact: 'infocenterfood' },
 };
 
-/** 사용 오퍼레이션 9종 — 이외 호출 금지 (EI-KT-001) */
+/**
+ * 공사 서비스 6개 (외부 연동 3-1). 활용신청과 하루 한도가 서비스마다 따로다.
+ * 반려동물(PET)은 국문 관광정보와 다른 서비스 `KorPetTourService2` 다 (2026.09.15 확인).
+ */
+export const KTO_SERVICE = ['KOR', 'PET', 'WITH', 'RELATED', 'DURUNUBI', 'VISITOR'] as const;
+export type KtoService = (typeof KTO_SERVICE)[number];
+
+/**
+ * 사용 오퍼레이션 16종 — 이외 호출 금지 (EI-KT-001 · 외부 연동 3-3).
+ * 국문 관광정보 9종과 새 서비스 7개(2026.09.15 실호출 확정).
+ *
+ * 무장애 · 반려동물의 지역 목록은 국문과 오퍼레이션 이름이 같다(`areaBasedList2`). 이름만으로는
+ * 어느 서비스를 부르는지 알 수 없어 서비스를 붙인 이름으로 두고, 요청 경로는
+ * `KTO_OPERATION_PATH` 에서 고른다.
+ */
 export const KTO_OPERATIONS = [
   'searchKeyword2', 'detailCommon2', 'detailIntro2', 'searchFestival2',
   'areaBasedSyncList2', 'areaBasedList2', 'locationBasedList2',
   'ldongCode2', 'lclsSystmCode2',
+  'petAreaBasedList2', 'detailPetTour2',
+  'withAreaBasedList2', 'detailWithTour2',
+  /** 연관 관광지 — 기준 관광지 이름으로 찾는다. 응답에 국문 contentid 가 없다 (EI-KT-024) */
+  'searchKeyword1',
+  /** 두루누비 코스 — 지역 조건 · 좌표가 없다 (EI-KT-025) */
+  'courseList',
+  /** 기초 지자체 방문자 수 — 지역 조건이 없어 한 달치 전국이 온다 (EI-KT-026) */
+  'locgoRegnVisitrDDList',
 ] as const;
 export type KtoOperation = (typeof KTO_OPERATIONS)[number];
 
+/** 오퍼레이션 → 서비스. transport 는 베이스 URL 을, 호출 로그는 제공자를 이 표로 고른다 (API 7-2) */
+export const KTO_SERVICE_OF: Readonly<Record<KtoOperation, KtoService>> = {
+  searchKeyword2: 'KOR',
+  detailCommon2: 'KOR',
+  detailIntro2: 'KOR',
+  searchFestival2: 'KOR',
+  areaBasedSyncList2: 'KOR',
+  areaBasedList2: 'KOR',
+  locationBasedList2: 'KOR',
+  ldongCode2: 'KOR',
+  lclsSystmCode2: 'KOR',
+  petAreaBasedList2: 'PET',
+  detailPetTour2: 'PET',
+  withAreaBasedList2: 'WITH',
+  detailWithTour2: 'WITH',
+  searchKeyword1: 'RELATED',
+  courseList: 'DURUNUBI',
+  locgoRegnVisitrDDList: 'VISITOR',
+};
+
+/** 오퍼레이션 → 서비스 베이스 URL 뒤에 붙는 경로. 서비스를 붙인 두 이름만 이름과 다르다 */
+export const KTO_OPERATION_PATH: Readonly<Record<KtoOperation, string>> = {
+  searchKeyword2: 'searchKeyword2',
+  detailCommon2: 'detailCommon2',
+  detailIntro2: 'detailIntro2',
+  searchFestival2: 'searchFestival2',
+  areaBasedSyncList2: 'areaBasedSyncList2',
+  areaBasedList2: 'areaBasedList2',
+  locationBasedList2: 'locationBasedList2',
+  ldongCode2: 'ldongCode2',
+  lclsSystmCode2: 'lclsSystmCode2',
+  petAreaBasedList2: 'areaBasedList2',
+  detailPetTour2: 'detailPetTour2',
+  withAreaBasedList2: 'areaBasedList2',
+  detailWithTour2: 'detailWithTour2',
+  searchKeyword1: 'searchKeyword1',
+  courseList: 'courseList',
+  locgoRegnVisitrDDList: 'locgoRegnVisitrDDList',
+};
+
+/**
+ * 호출 로그 제공자 (`api_call_log.provider` · `ck_log_provider`).
+ * 공사 서비스는 활용신청 · 한도가 따로라 서비스마다 따로 센다 (외부 연동 3-1 · API 8-2).
+ */
+export const CALL_PROVIDER = [
+  'KTO', 'KTO_WITH', 'KTO_PET', 'KTO_RELATED', 'KTO_DURUNUBI', 'KTO_VISITOR',
+  'KAKAO_MOBILITY', 'KMA', 'LLM',
+] as const;
+export type CallProvider = (typeof CALL_PROVIDER)[number];
+
+export const KTO_PROVIDER_OF: Readonly<Record<KtoService, CallProvider>> = {
+  KOR: 'KTO',
+  PET: 'KTO_PET',
+  WITH: 'KTO_WITH',
+  RELATED: 'KTO_RELATED',
+  DURUNUBI: 'KTO_DURUNUBI',
+  VISITOR: 'KTO_VISITOR',
+};
+
+/**
+ * 새 서비스 5종 각각의 하루 상한 — 개발계정 1,000건의 80%.
+ * 국문 관광정보(`KTO`)는 이 값이 아니라 `system_setting.daily_quota` 를 쓴다 (외부 연동 3-1).
+ */
+export const EXTRA_PROVIDER_DAILY_CAP = 800;
+
 /** 위치기반 조회 반경 상한 (SC-DT-013 · EI-KT-008) */
 export const LOCATION_RADIUS_MAX_METERS = 20000;
+
+// ─────────────────────────────────────────────────────────────
+// 수요 신호 (demand_signal.signal_type)
+// ─────────────────────────────────────────────────────────────
+
+/** T1 최근 30일 신규 등록 · T2 행사 밀도 · T3 지난해 같은 달 방문자 수(레이더 전용) — FR-RU-121 · FR-MO-059 */
+export const SIGNAL_TYPE = ['T1', 'T2', 'T3'] as const;
+export type SignalType = (typeof SIGNAL_TYPE)[number];
+
+// ─────────────────────────────────────────────────────────────
+// 상품 기획 (F17) — 판정하지 않고 관광정보 사실만 보인다 (FR-PL-021)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 장소 담기 첫째 줄 기본 칩 4 — 랜드마크 · 바다 · 강 풍경 · 전시 · 박물관 · 공예 체험 (FR-PL-010).
+ * "자주 넣는 곳"에서 기본에 없는 종류를 열면 그 칩이 더해진다.
+ */
+export const PLAN_BASE_LCLS2 = ['VE01', 'NA02', 'VE07', 'EX02'] as const;
+
+/** 시군구 전체 목록에서 빼는 대분류. 음식(FD) · 숙박(AC)은 근처 3km 칩으로만, 추천코스(C01)는 쓰지 않는다 */
+export const PLAN_EXCLUDED_LCLS1 = ['FD', 'AC', 'C01'] as const;
+
+/** 식당 · 카페 · 숙소 칩의 반경 — 넣을 위치 앞 장소 기준 (FR-PL-010) */
+export const PLAN_NEAR_RADIUS_M = 3000;
+
+/** 근처 3km 칩 세 가지. 주점(FD04)은 식당에 넣지 않고, 카페(FD05)는 따로 센다 */
+export const PLAN_NEAR_KIND = {
+  MEAL: { lcls1: 'FD', excludeLcls2: ['FD04', 'FD05'] },
+  CAFE: { lcls1: 'FD', lcls2: 'FD05' },
+  STAY: { lcls1: 'AC' },
+} as const;
+export type PlanNearKind = keyof typeof PLAN_NEAR_KIND;
+
+/**
+ * 위치기반 목록의 한 곳이 그 칩에 들어가는가. 칩 숫자는 이 조건으로 거른 개수다 (API 4-10).
+ */
+export function matchesNearKind(kind: PlanNearKind, lcls1: string, lcls2: string): boolean {
+  switch (kind) {
+    case 'MEAL':
+      return lcls1 === PLAN_NEAR_KIND.MEAL.lcls1 && !(PLAN_NEAR_KIND.MEAL.excludeLcls2 as readonly string[]).includes(lcls2);
+    case 'CAFE':
+      return lcls1 === PLAN_NEAR_KIND.CAFE.lcls1 && lcls2 === PLAN_NEAR_KIND.CAFE.lcls2;
+    case 'STAY':
+      return lcls1 === PLAN_NEAR_KIND.STAY.lcls1;
+  }
+}
+
+/** 장소를 고른 방식 — 화면의 "AI가 찾음"은 AGENT 만 (`itinerary_item.matched_by` · D8) */
+export const ITEM_MATCHED_BY = ['AUTO', 'USER', 'AGENT'] as const;
+export type ItemMatchedBy = (typeof ITEM_MATCHED_BY)[number];
+
+/** 항목이 들어온 경로 (`itinerary_item.origin` · `ck_item_origin`) */
+export const ITEM_ORIGIN = ['MANUAL', 'UPLOAD', 'TEXT', 'PICKER', 'SIGNAL', 'PATCH'] as const;
+export type ItemOrigin = (typeof ITEM_ORIGIN)[number];
+
+/** 기획 조회의 메모리 캐시 — 지역 · 중분류별 수와 목록, 무장애 · 반려동물 contentid 집합, 걷기 길 목록. DB · 로그 금지 (DB 명세서 6-4) */
+export const PLAN_LIST_CACHE_TTL_MS = 10 * 60 * 1000;

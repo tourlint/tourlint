@@ -6,7 +6,7 @@ import {
   parseKtoResponse,
   stripLegacyCodeFields,
 } from './envelope';
-import { KtoAuthError, KtoFetchError, KtoQuotaExceededError } from './kto.errors';
+import { KtoAuthError, KtoFetchError, KtoInvalidRequestError, KtoQuotaExceededError } from './kto.errors';
 
 const FIXTURES = join(__dirname, '../../../../../fixtures/kto');
 const read = (file: string): string => readFileSync(join(FIXTURES, file), 'utf8');
@@ -54,6 +54,12 @@ describe('parseKtoResponse — 실측 함정 5가지', () => {
       expect(catchError(() => parseKtoResponse('detailCommon2', xml(code, msg)))).toBeInstanceOf(KtoAuthError);
     });
 
+    it('XML 파라미터 오류(10)도 재시도하지 않는다', () => {
+      const e = catchError(() => parseKtoResponse('courseList', xml('10', 'INVALID_REQUEST_PARAMETER_ERROR')));
+      expect(e).toBeInstanceOf(KtoInvalidRequestError);
+      expect((e as KtoInvalidRequestError).retryable).toBe(false);
+    });
+
     it('코드가 없어도 인증 메시지로 판별한다', () => {
       const noCode = '<OpenAPI_ServiceResponse><cmmMsgHeader><returnAuthMsg>SERVICE_KEY_IS_NOT_REGISTERED_ERROR</returnAuthMsg></cmmMsgHeader></OpenAPI_ServiceResponse>';
       expect(catchError(() => parseKtoResponse('searchKeyword2', noCode))).toBeInstanceOf(KtoAuthError);
@@ -97,6 +103,31 @@ describe('parseKtoResponse — 실측 함정 5가지', () => {
 
     it('0000 이면 통과한다', () => {
       expect(parseKtoResponse('searchKeyword2', okBody({ items: '' })).resultCode).toBe('0000');
+    });
+
+    it('🔴 두루누비는 파라미터 오류를 봉투 없이 최상위에 준다 — 코드를 살려 던진다 (2026.09.15 실호출)', () => {
+      const top = JSON.stringify({ resultCode: '10', resultMsg: 'INVALID_REQUEST_PARAMETER_ERROR(crsIdx)' });
+      const e = catchError(() => parseKtoResponse('courseList', top, 200));
+      expect(e).toBeInstanceOf(KtoInvalidRequestError);
+      expect((e as KtoInvalidRequestError).resultCode).toBe('10');
+      expect((e as Error).message).toContain('INVALID_REQUEST_PARAMETER_ERROR(crsIdx)');
+    });
+
+    it('최상위에 코드도 없으면 봉투가 없는 응답이다', () => {
+      const e = catchError(() => parseKtoResponse('courseList', JSON.stringify({ items: [] })));
+      expect(e).toBeInstanceOf(KtoFetchError);
+      expect((e as Error).message).toMatch(/response 봉투가 없다/);
+    });
+
+    it.each([
+      ['0010', 'INVALID_REQUEST_PARAMETER_ERROR'],
+      ['11', 'NO_MANDATORY_REQUEST_PARAMETERS_ERROR'],
+      ['12', 'NO_OPENAPI_SERVICE_ERROR'],
+    ])('🔴 파라미터 오류 %s 는 재시도 대상이 아니다 — 같은 요청은 다시 보내도 같다', (code, msg) => {
+      const e = catchError(() => parseKtoResponse('searchKeyword1', withCode(code, msg)));
+      expect(e).toBeInstanceOf(KtoInvalidRequestError);
+      expect((e as KtoInvalidRequestError).retryable).toBe(false);
+      expect((e as KtoInvalidRequestError).reasonCode).toBe('KTO_FETCH_FAILED');
     });
   });
 
@@ -173,6 +204,15 @@ describe('parseKtoResponse — 실호출 스냅샷', () => {
     ['07_searchFestival2.json', 'searchFestival2', 1],
     ['09_detailCommon2.json', 'detailCommon2', 1],
     ['10_detailIntro2_12.json', 'detailIntro2', 1],
+    // 새 서비스 5종도 국문과 같은 봉투다 (2026.09.15 실호출)
+    ['20_petAreaBasedList2_51_150.json', 'petAreaBasedList2', 1],
+    ['21_detailPetTour2_2628994.json', 'detailPetTour2', 1],
+    ['22_withAreaBasedList2_51_150.json', 'withAreaBasedList2', 1],
+    ['23_detailWithTour2_129784.json', 'detailWithTour2', 1],
+    ['24_searchKeyword1_경포대.json', 'searchKeyword1', 1],
+    ['25_courseList.json', 'courseList', 1],
+    ['26_locgoRegnVisitrDDList_20250901_20250901.json', 'locgoRegnVisitrDDList', 1],
+    ['27_locationBasedList2_FD.json', 'locationBasedList2', 1],
   ] as const)('%s 를 해석한다', (file, operation, minItems) => {
     const env = parseKtoResponse(operation, read(file));
     expect(env.resultCode).toBe('0000');

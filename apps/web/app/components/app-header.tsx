@@ -12,7 +12,7 @@ import { authApi, isApiError, usageApi, type AccountView, type BudgetView } from
 const NAV = [
   { href: "/", label: "대시보드" },
   { href: "/radar", label: "레이더" },
-  { href: "/settings", label: "설정" },
+  { href: "/standard", label: "검수 기준" },
 ] as const;
 
 export function AppHeader() {

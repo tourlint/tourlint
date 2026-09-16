@@ -1,4 +1,4 @@
-import { HttpException, type HttpStatus } from '@nestjs/common';
+import { HttpException, HttpStatus } from '@nestjs/common';
 import type { ExceptionReasonCode, ExceptionUnit } from '@tourlint/shared';
 
 /**
@@ -24,5 +24,17 @@ export class DomainException extends HttpException {
     readonly fieldErrors?: readonly FieldError[],
   ) {
     super({ reasonCode, message, unit, fieldErrors }, status);
+  }
+}
+
+/**
+ * 빈도 제한 · 동시 실행 거절 (EX-SY-008 · EX-AG-004 · API 3-4). 429 `RATE_LIMIT_EXCEEDED`.
+ *
+ * 분당 상한이면 언제 다시 되는지 알 수 있어 `Retry-After`(초)를 싣는다. 같은 에이전트가 도는
+ * 중이라서 막힌 것이면 끝나는 시각을 모르므로 `null` 이고 헤더를 붙이지 않는다.
+ */
+export class RateLimitException extends DomainException {
+  constructor(message: string, readonly retryAfterSeconds: number | null) {
+    super(HttpStatus.TOO_MANY_REQUESTS, 'RATE_LIMIT_EXCEEDED', message, 'REQUEST');
   }
 }

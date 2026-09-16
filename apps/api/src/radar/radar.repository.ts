@@ -50,6 +50,29 @@ export interface ProductRegion {
   readonly nights: number;
 }
 
+/**
+ * 관심 지역 한 칸 (`user_setting.watch_regions` · FR-MO-059). 시군구 + 달이고, 세종은 시군구
+ * 단계가 없어 `ldongSignguCd` 가 null 이다. 그 계정의 관심 키워드를 함께 싣는다.
+ */
+export interface WatchRegion {
+  readonly accountId: number;
+  readonly ldongRegnCd: string;
+  readonly ldongSignguCd: string | null;
+  /** `YYYY-MM` */
+  readonly month: string;
+  readonly keywords: readonly string[];
+}
+
+/** 신호 배치의 대상 상품. 그 상품 계정의 관심 키워드를 함께 싣는다 (FR-RU-112) */
+export interface WatchedProduct extends ProductRegion {
+  readonly keywords: readonly string[];
+}
+
+/** 오늘 할 일이 보는 상품 한 줄 (FR-AG-030) */
+export interface BriefProduct extends ProductRegion {
+  readonly released: boolean;
+}
+
 export class RadarRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -185,14 +208,22 @@ export class RadarRepository {
     };
   }
 
-  /** 배치가 신호를 산출할 대상. 여행이 끝나지 않은 상품의 지역·일정이다 */
-  async watchedRegions(today: string): Promise<readonly ProductRegion[]> {
+  /**
+   * 배치가 신호를 산출할 대상. 여행이 끝나지 않은 상품의 지역·일정과 그 계정의 관심 키워드다.
+   *
+   * 키워드는 배치가 창마다 합쳐서 한 번에 판정한다 — 저장은 지역 단위라 계정이 드러나지 않는다.
+   */
+  async watchedRegions(today: string): Promise<readonly WatchedProduct[]> {
     const { rows } = await this.pool.query<{
       id: string; name: string; ldong_regn_cd: string; ldong_signgu_cd: string | null;
-      start_date: Date | string; nights: number;
+      start_date: Date | string; nights: number; watch_keywords: string[] | null;
     }>(
-      `SELECT id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights
-         FROM product WHERE start_date + nights >= $1::date ORDER BY id`,
+      `SELECT p.id, p.name, p.ldong_regn_cd, p.ldong_signgu_cd, p.start_date, p.nights,
+              s.watch_keywords
+         FROM product p
+         LEFT JOIN user_setting s ON s.account_id = p.account_id
+        WHERE p.start_date + p.nights >= $1::date
+        ORDER BY p.id`,
       [today],
     );
     return rows.map((r) => ({
@@ -202,8 +233,80 @@ export class RadarRepository {
       ldongSignguCd: r.ldong_signgu_cd,
       startDate: isoDate(r.start_date),
       nights: Number(r.nights),
+      keywords: r.watch_keywords ?? [],
     }));
   }
+
+  /**
+   * 오늘 할 일의 대상 상품 (FR-AG-030). **여행이 끝나지 않은 것만** — 다녀온 상품은 할 일이 아니다.
+   *
+   * 순서는 출발일이 가까운 것부터다. 에이전트가 이 순서를 바꾸지 못한다.
+   */
+  async upcomingProducts(accountId: number, today: string): Promise<readonly BriefProduct[]> {
+    const { rows } = await this.pool.query<{
+      id: string; name: string; ldong_regn_cd: string; ldong_signgu_cd: string | null;
+      start_date: Date | string; nights: number; released_at: Date | null;
+    }>(
+      `SELECT id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights, released_at
+         FROM product
+        WHERE account_id = $1 AND start_date + nights >= $2::date
+        ORDER BY start_date, id`,
+      [accountId, today],
+    );
+    return rows.map((r) => ({
+      productId: Number(r.id),
+      name: r.name,
+      ldongRegnCd: r.ldong_regn_cd,
+      ldongSignguCd: r.ldong_signgu_cd,
+      startDate: isoDate(r.start_date),
+      nights: Number(r.nights),
+      released: r.released_at !== null,
+    }));
+  }
+
+  /**
+   * 관심 지역 (FR-MO-059). `accountId` 를 주면 그 계정 것만, 안 주면 배치용으로 전 계정 것이다.
+   *
+   * 저장값은 설정 화면이 검증해 넣지만 JSONB 라 모양을 다시 본다. 코드 · 달 모양이 아닌 칸은
+   * 조용히 기본값으로 바꾸지 않고 뺀다 — 엉뚱한 지역의 신호를 세면 안 된다.
+   */
+  async watchRegions(accountId?: number): Promise<readonly WatchRegion[]> {
+    const { rows } = await this.pool.query<{ account_id: string; watch_regions: unknown; watch_keywords: string[] }>(
+      `SELECT account_id, watch_regions, watch_keywords FROM user_setting
+        WHERE jsonb_typeof(watch_regions) = 'array' AND jsonb_array_length(watch_regions) > 0
+          AND ($1::bigint IS NULL OR account_id = $1)
+        ORDER BY account_id`,
+      [accountId ?? null],
+    );
+    return rows.flatMap((r) => {
+      const entries = Array.isArray(r.watch_regions) ? r.watch_regions : [];
+      return entries.flatMap((e: unknown): WatchRegion[] => {
+        const region = readWatchRegion(e);
+        return region === null
+          ? []
+          : [{ accountId: Number(r.account_id), ...region, keywords: r.watch_keywords ?? [] }];
+      });
+    });
+  }
+
+  /** 그 계정의 관심 키워드. 설정 행이 없으면 빈 목록이다 */
+  async watchKeywords(accountId: number): Promise<readonly string[]> {
+    const { rows } = await this.pool.query<{ watch_keywords: string[] }>(
+      `SELECT watch_keywords FROM user_setting WHERE account_id = $1`,
+      [accountId],
+    );
+    return rows[0]?.watch_keywords ?? [];
+  }
+}
+
+/** 관심 지역 칸 하나를 읽는다. `{regnCd, signguCd, month}` 모양이 아니면 null */
+function readWatchRegion(e: unknown): Omit<WatchRegion, 'accountId' | 'keywords'> | null {
+  if (typeof e !== 'object' || e === null) return null;
+  const { regnCd, signguCd, month } = e as Record<string, unknown>;
+  if (typeof regnCd !== 'string' || !/^\d{2}(?:\d{3})?$/.test(regnCd)) return null;
+  if (signguCd !== null && (typeof signguCd !== 'string' || !/^\d{3}$/.test(signguCd))) return null;
+  if (typeof month !== 'string' || !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)) return null;
+  return { ldongRegnCd: regnCd, ldongSignguCd: signguCd, month };
 }
 
 interface ChangeQueryRow {

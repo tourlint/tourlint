@@ -1,80 +1,66 @@
-import { GLOBAL_QUOTA_CAP, type AccountSettings, type GlobalSettings } from './settings.repository';
-
-const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+import { COMPANY_SETTING_LIMITS } from '@tourlint/shared';
+import type { CompanyPatch, WatchRegion } from './settings.repository';
 
 /**
- * 계정 설정 입력 검증. 범위는 스키마 CHECK 제약과 일치시킨다 (user_setting) — DB 가 던지기
- * 전에 화면이 읽을 수 있는 문구로 돌려주기 위해서다.
+ * 검수 기준 저장 입력 검증 (PUT /settings). 바꿀 수 있는 것은 회사 기준 R07 두 값과 관심
+ * 키워드 · 관심 지역뿐이다 (FR-OP-022). 회사 기준은 **표준보다 엄격하게만** — 연속 일정은
+ * 표준(6시간) 이하, 식사는 표준(60분) 이상이라야 한다. 느슨하면 `notStricter` 로 표시하고
+ * 서비스가 400 `SETTING_NOT_STRICTER` 를 던진다 (DR-CF-008). 그 밖의 형식 오류는 `errors`.
  */
 
-const SEVERITIES = ['BLOCKER', 'ERROR', 'WARNING', 'UNVERIFIED'] as const;
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const MAX_KEYWORDS = 50;
+const MAX_REGIONS = 50;
 
-interface Raw {
-  weights?: unknown;
-  r07SpanHours?: unknown;
-  r07MealMinutes?: unknown;
-  r04Threshold?: unknown;
-  watchKeywords?: unknown;
+export interface CompanyUpdateResult {
+  errors: string[];
+  /** 회사 기준이 표준보다 느슨함 — 400 `SETTING_NOT_STRICTER` */
+  notStricter: boolean;
+  patch: CompanyPatch;
 }
 
-export function validateAccountSettings(body: Raw | undefined): { errors: string[]; settings?: AccountSettings } {
+export function validateCompanyUpdate(body: Record<string, unknown> | undefined): CompanyUpdateResult {
   const errors: string[] = [];
   const b = body ?? {};
+  let notStricter = false;
+  const patch: CompanyPatch = {};
 
-  const weights = intMap(b.weights, errors);
-  const r07SpanHours = intInRange(b.r07SpanHours, 1, 24, 'R07 연속 일정 기준 시간', '1~24시간', errors);
-  const r07MealMinutes = intInRange(b.r07MealMinutes, 1, 240, 'R07 최소 식사 시간', '1~240분', errors);
-  const r04Threshold = intInRange(b.r04Threshold, 2, 10, 'R04 편중 임계치', '2~10', errors);
-  const watchKeywords = keywords(b.watchKeywords, errors);
-
-  if (errors.length > 0) return { errors };
-  return {
-    errors,
-    settings: {
-      weights: weights!,
-      r07SpanHours: r07SpanHours!,
-      r07MealMinutes: r07MealMinutes!,
-      r04Threshold: r04Threshold!,
-      watchKeywords: watchKeywords!,
-    },
-  };
-}
-
-function intInRange(v: unknown, min: number, max: number, label: string, range: string, errors: string[]): number | undefined {
-  if (typeof v !== 'number' || !Number.isInteger(v)) {
-    errors.push(`${label}은(는) 정수여야 합니다.`);
-    return undefined;
-  }
-  if (v < min || v > max) {
-    errors.push(`${label}은(는) ${range} 범위여야 합니다.`);
-    return undefined;
-  }
-  return v;
-}
-
-function intMap(v: unknown, errors: string[]): AccountSettings['weights'] | undefined {
-  if (typeof v !== 'object' || v === null) {
-    errors.push('출시 준비도 가중치는 4개 등급 값을 담은 객체여야 합니다.');
-    return undefined;
-  }
-  const rec = v as Record<string, unknown>;
-  const out: Record<string, number> = {};
-  let ok = true;
-  for (const sev of SEVERITIES) {
-    const n = rec[sev];
-    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 100) {
-      errors.push(`가중치 ${sev}은(는) 0~100 정수여야 합니다.`);
-      ok = false;
+  if (b.r07SpanHours !== undefined) {
+    const v = b.r07SpanHours;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) {
+      errors.push('연속 일정 기준 시간은 1 이상 정수여야 합니다.');
+    } else if (v > COMPANY_SETTING_LIMITS.r07SpanHoursMax) {
+      notStricter = true;
     } else {
-      out[sev] = n;
+      patch.r07SpanHours = v;
     }
   }
-  return ok ? (out as AccountSettings['weights']) : undefined;
+
+  if (b.r07MealMinutes !== undefined) {
+    const v = b.r07MealMinutes;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v > 240) {
+      errors.push('최소 식사 시간은 240 이하 정수여야 합니다.');
+    } else if (v < COMPANY_SETTING_LIMITS.r07MealMinutesMin) {
+      notStricter = true;
+    } else {
+      patch.r07MealMinutes = v;
+    }
+  }
+
+  if (b.watchKeywords !== undefined) {
+    const kw = keywords(b.watchKeywords, errors);
+    if (kw !== undefined) patch.watchKeywords = kw;
+  }
+
+  if (b.watchRegions !== undefined) {
+    const rg = regions(b.watchRegions, errors);
+    if (rg !== undefined) patch.watchRegions = rg;
+  }
+
+  return { errors, notStricter, patch };
 }
 
 function keywords(v: unknown, errors: string[]): string[] | undefined {
-  if (v === undefined) return [];
   if (!Array.isArray(v)) {
     errors.push('관심 키워드는 문자열 목록이어야 합니다.');
     return undefined;
@@ -87,27 +73,40 @@ function keywords(v: unknown, errors: string[]): string[] | undefined {
   return cleaned;
 }
 
-interface RawGlobal {
-  batchTime?: unknown;
-  batchEnabled?: unknown;
-  dailyQuota?: unknown;
-}
-
-/** 전역 설정 검증. 예산 상한은 스키마 CHECK(1~100000)와 맞춘다 (UI-S8-006). */
-export function validateGlobal(body: RawGlobal | undefined): { errors: string[]; settings?: GlobalSettings } {
-  const errors: string[] = [];
-  const b = body ?? {};
-
-  const batchTime = typeof b.batchTime === 'string' ? b.batchTime : '';
-  if (!TIME_RE.test(batchTime)) errors.push('배치 실행 시각을 HH:MM 형식으로 입력하세요.');
-
-  const dailyQuota = b.dailyQuota;
-  if (typeof dailyQuota !== 'number' || !Number.isInteger(dailyQuota) || dailyQuota < 1 || dailyQuota > GLOBAL_QUOTA_CAP) {
-    errors.push(`일일 호출 예산은 1~${GLOBAL_QUOTA_CAP.toLocaleString()} 범위여야 합니다.`);
+/**
+ * 관심 지역 검증. `{ regnCd, signguCd|null, month:"YYYY-MM" }` 모양만 받는다. 세종처럼 시군구
+ * 단계가 없는 곳은 `signguCd` 가 null 이다 (개발 분담 계획 3-3).
+ */
+function regions(v: unknown, errors: string[]): WatchRegion[] | undefined {
+  if (!Array.isArray(v)) {
+    errors.push('관심 지역은 목록이어야 합니다.');
+    return undefined;
   }
-
-  const batchEnabled = b.batchEnabled === true;
-
-  if (errors.length > 0) return { errors };
-  return { errors, settings: { batchTime, dailyQuota: dailyQuota as number, batchEnabled } };
+  if (v.length > MAX_REGIONS) {
+    errors.push(`관심 지역은 최대 ${MAX_REGIONS}개까지 등록할 수 있습니다.`);
+    return undefined;
+  }
+  const out: WatchRegion[] = [];
+  for (const item of v) {
+    if (typeof item !== 'object' || item === null) {
+      errors.push('관심 지역 항목의 형식이 올바르지 않습니다.');
+      return undefined;
+    }
+    const r = item as Record<string, unknown>;
+    const signguCd = r.signguCd ?? null;
+    if (typeof r.regnCd !== 'string' || r.regnCd.trim() === '') {
+      errors.push('관심 지역의 시도 코드가 필요합니다.');
+      return undefined;
+    }
+    if (signguCd !== null && typeof signguCd !== 'string') {
+      errors.push('관심 지역의 시군구 코드 형식이 올바르지 않습니다.');
+      return undefined;
+    }
+    if (typeof r.month !== 'string' || !MONTH_RE.test(r.month)) {
+      errors.push('관심 지역의 월은 YYYY-MM 형식이어야 합니다.');
+      return undefined;
+    }
+    out.push({ regnCd: r.regnCd, signguCd: signguCd as string | null, month: r.month });
+  }
+  return out;
 }

@@ -70,6 +70,16 @@ export class FixtureMissingError extends KtoFetchError {
   override readonly retryable = false;
 }
 
+/**
+ * 요청 파라미터 오류 — 공공데이터포털 코드 10 · 11 · 12.
+ *
+ * **재시도하지 않는다.** 같은 파라미터는 다시 보내도 같은 오류라 남은 예산만 태운다.
+ * 두루누비에 없는 조건(`crsIdx`)을 주면 이 코드가 온다 (2026.09.15 실호출).
+ */
+export class KtoInvalidRequestError extends KtoFetchError {
+  override readonly retryable = false;
+}
+
 /** 연결 3초 · 응답 10초 초과 (EI-CM-004). 호출 로그에 `TIMEOUT` 으로 남는다 */
 export class KtoTimeoutError extends KtoError {
   readonly reasonCode = 'KTO_FETCH_FAILED' as const;

@@ -8,6 +8,13 @@ import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
+import { AgentLock } from './agent/agent-lock';
+import { CheckQuestionController } from './agent/check-question.controller';
+import { CheckQuestionService } from './agent/check-question.service';
+import { TodayBriefController } from './agent/today-brief.controller';
+import { TodayBriefService } from './agent/today-brief.service';
+import { PlaceSuggestionController } from './agent/place-suggestion.controller';
+import { PlaceSuggestionService } from './agent/place-suggestion.service';
 import { SignalBatchJob } from './batch/signal-batch.job';
 import { SignalRunner } from './batch/signal-runner';
 import { SyncBatchJob } from './batch/sync-batch.job';
@@ -17,8 +24,11 @@ import { ContentController } from './content/content.controller';
 import { ContentService } from './content/content.service';
 import { CatalogService } from './catalog/catalog.service';
 import { DemoController } from './demo/demo.controller';
-import { evaluateBudget } from './external/budget-guard';
+import { evaluateBudget, ktoBudgetGuard } from './external/budget-guard';
+import { KakaoMobilityClient, createKakaoTransport } from './external/kakao';
 import { createKtoClient, type KtoClient } from './external/kto';
+import { LlmClient, createProvider, readLlmConfig } from './external/llm';
+import { LlmNotConfiguredError } from './external/llm';
 import type { ContentTypeId } from '@tourlint/shared';
 import { DB_POOL, getPool } from './persistence/db';
 import { PatchApplicationRepository } from './persistence/patch-application.repository';
@@ -34,6 +44,13 @@ import { ProductController } from './product/product.controller';
 import { ItemController } from './product/item.controller';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
+import { PlaceConditionService } from './plan/place-conditions.service';
+import { PlaceFactsController } from './plan/place-facts.controller';
+import { PlaceFactsService } from './plan/place-facts.service';
+import { PlanController } from './plan/plan.controller';
+import { PlanItemRepository } from './plan/plan-item.repository';
+import { PlanService } from './plan/plan.service';
+import { WalkNameResolver } from './plan/walk-names';
 import { DemandSignalRepository } from './persistence/demand-signal.repository';
 import { NotificationController } from './radar/notification.controller';
 import { NotificationService } from './radar/notification.service';
@@ -81,6 +98,8 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
      */
     ContentController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
+    PlanController, PlaceFactsController, PlaceSuggestionController, CheckQuestionController,
+    TodayBriefController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
@@ -94,7 +113,45 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
     {
       // 관광지 1건 실시간 조회 (5-12 근거 펼침). 저장하지 않는다 (DR-PR-004)
       provide: ContentService,
-      useFactory: (pool: Pool) => new ContentService(() => createKtoClient(new PgApiCallLogger(pool))),
+      useFactory: (pool: Pool, conditions: PlaceConditionService) =>
+        new ContentService(() => createKtoClient(new PgApiCallLogger(pool)), conditions),
+      inject: [DB_POOL, PlaceConditionService],
+    },
+    {
+      // 카드 펼침의 무장애 · 반려동물 축 (FR-PL-012). 요청한 축만 1콜씩 부른다
+      provide: PlaceConditionService,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlaceConditionService({
+          kto: () => (client ??= createKtoClient(logs)),
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+        });
+      },
+      inject: [DB_POOL],
+    },
+    {
+      /*
+       * 넣은 걷기 길의 표시 이름 (D9). 항목에는 `walk_id` 만 저장하므로 보일 때 찾는다 —
+       * 상품 응답 · 리포트가 같은 것을 쓴다.
+       */
+      provide: WalkNameResolver,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new WalkNameResolver({
+          kto: () => (client ??= createKtoClient(logs)),
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+        });
+      },
       inject: [DB_POOL],
     },
     {
@@ -188,14 +245,155 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
           runner: new SignalRunner({ kto: () => (client ??= createKtoClient(logs)) }),
           signals: new DemandSignalRepository(pool),
           radar: new RadarRepository(pool),
-          hasBudget: async () => {
+          // 서비스마다 따로 센다 — T1 · T2 는 국문 관광정보, T3 는 방문자수 예산 (API 8-2)
+          hasBudget: async (service) => {
             const { dailyQuota } = await state.setting();
-            const usedToday = await logs.countToday('KTO', new Date());
-            return evaluateBudget({ dailyBudget: dailyQuota, usedToday }, 'BATCH').allowed;
+            return (await ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('BATCH')).allowed;
           },
         });
       },
       inject: [DB_POOL],
+    },
+    {
+      /*
+       * 상품 기획 조회 (F17). 공사 호출은 검수와 같은 100% 게이트를 지나고(`PLAN`), 서비스마다
+       * 자기 예산을 본다 — 무장애 · 반려동물 · 두루누비가 막혀도 국문 조회는 계속된다.
+       */
+      provide: PlanService,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlanService({
+          kto: () => (client ??= createKtoClient(logs)),
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+        });
+      },
+      inject: [DB_POOL],
+    },
+    {
+      /*
+       * 장소 정보 한 줄 (F17 · FR-PL-005). 고른 항목마다 소개정보 1콜 + 앞 구간 길찾기 1콜이고
+       * 규칙엔진을 부르지 않는다 — 기획 화면에는 판정이 없다.
+       */
+      provide: PlaceFactsService,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlaceFactsService({
+          items: new PlanItemRepository(pool),
+          kto: () => (client ??= createKtoClient(logs)),
+          // 카카오 키가 없으면 이동시간만 비운다. 장소 정보까지 막지 않는다 (EI-KM-009)
+          kakao: () => {
+            try {
+              return new KakaoMobilityClient({ transport: createKakaoTransport(), logger: logs });
+            } catch {
+              return null;
+            }
+          },
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+          // 리포트가 쓰는 것과 같은 리졸버지만 인스턴스는 따로다 — 이름 캐시는 10분짜리 메모리다
+          names: new PlaceNameResolver({ kto: () => (client ??= createKtoClient(logs)) }),
+        });
+      },
+      inject: [DB_POOL],
+    },
+    {
+      /** 에이전트 셋이 함께 쓰는 자물쇠 — 계정마다 같은 에이전트 동시 1회 (FR-AG-002 · EX-AG-004) */
+      provide: AgentLock,
+      useFactory: () => new AgentLock(),
+    },
+    {
+      /*
+       * 기획 에이전트 — 고르지 않은 줄의 장소 찾기 (F18 · FR-AG-010 ~ 012).
+       *
+       * 읽기 도구 둘(검색 · 공통정보)만 넘긴다. 상품 · 항목을 바꾸는 서비스는 도구가 아니다.
+       */
+      provide: PlaceSuggestionService,
+      useFactory: (pool: Pool, lock: AgentLock) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlaceSuggestionService({
+          items: new PlanItemRepository(pool),
+          kto: () => (client ??= createKtoClient(logs)),
+          llm: () => {
+            const config = readLlmConfig();
+            // 모델이 없으면 거절하지 않고 incomplete 로 끝낸다 (FR-AG-005)
+            if (config === null) throw new LlmNotConfiguredError('LLM_API_KEY 가 비어 있다');
+            return new LlmClient({ provider: createProvider(config), config, logger: logs });
+          },
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+          lock,
+        });
+      },
+      inject: [DB_POOL, AgentLock],
+    },
+    {
+      /*
+       * 검수 에이전트 — 전화로 물어볼 내용 (F18 · FR-AG-020 ~ 022).
+       *
+       * `AuditService` 의 읽기 메서드 넷만 쓴다. 판정 · 무시 · 확인은 사람이 누르는 기존 API 다.
+       */
+      provide: CheckQuestionService,
+      useFactory: (pool: Pool, audit: AuditService, lock: AgentLock) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new CheckQuestionService({
+          audit,
+          kto: () => (client ??= createKtoClient(logs)),
+          llm: () => {
+            const config = readLlmConfig();
+            if (config === null) throw new LlmNotConfiguredError('LLM_API_KEY 가 비어 있다');
+            return new LlmClient({ provider: createProvider(config), config, logger: logs });
+          },
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+          lock,
+        });
+      },
+      inject: [DB_POOL, AuditService, AgentLock],
+    },
+    {
+      /*
+       * 레이더 에이전트 — 오늘 할 일 (F18 · FR-AG-030 · 031).
+       *
+       * 저장된 알림 · 신호와 상품 출발일만 읽는다(공사 0콜). 순서와 대상은 서버가 정하고
+       * 모델은 이유 한 줄씩만 쓴다.
+       */
+      provide: TodayBriefService,
+      useFactory: (pool: Pool, radar: RadarService, lock: AgentLock) => {
+        const logs = new PgApiCallLogger(pool);
+        const repository = new RadarRepository(pool);
+        return new TodayBriefService({
+          radar: {
+            upcomingProducts: (accountId, today) => repository.upcomingProducts(accountId, today),
+            changes: (accountId, page, size) => repository.changes(accountId, page, size),
+            regionSignals: (accountId, now) => radar.regionSignals(accountId, now),
+            lastBatchAt: async () => (await repository.batchState())?.lastRunAt ?? null,
+          },
+          llm: () => {
+            const config = readLlmConfig();
+            if (config === null) throw new LlmNotConfiguredError('LLM_API_KEY 가 비어 있다');
+            return new LlmClient({ provider: createProvider(config), config, logger: logs });
+          },
+          lock,
+        });
+      },
+      inject: [DB_POOL, RadarService, AgentLock],
     },
     {
       provide: SyncBatchScheduler,

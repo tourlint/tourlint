@@ -1,5 +1,5 @@
 import type { IsoDate } from '../calendar/dates';
-import type { SignalContent, SignalWindow } from './types';
+import type { SignalContent, SignalWindow, VisitorRow } from './types';
 
 /**
  * 목록 응답 한 줄 → 신호 입력 (T1 · T2).
@@ -21,8 +21,36 @@ export function toSignalContent(
     eventStart: toIsoDay(item.eventstartdate),
     eventEnd: toIsoDay(item.eventenddate),
     // 판정만 하고 제목은 버린다. 화면은 자기 데이터로 이름을 채운다
-    matchesKeyword: keywords.some((k) => k !== '' && title.includes(k)),
+    matchedKeywords: [...new Set(keywords)].filter((k) => k !== '' && title.includes(k)),
   };
+}
+
+/** 방문자수 응답 한 줄 → T3 입력. 지역 이름 · 요일 이름은 버린다 (EI-KT-026) */
+export function toVisitorRow(item: Record<string, unknown>): VisitorRow {
+  const raw = String(item.touNum ?? '').trim();
+  const num = raw === '' ? Number.NaN : Number(raw);
+  return {
+    signguCode: String(item.signguCode ?? '').trim(),
+    baseYmd: toIsoDay(item.baseYmd),
+    touDivCd: String(item.touDivCd ?? '').trim(),
+    touNum: Number.isFinite(num) ? num : null,
+  };
+}
+
+/**
+ * 관심 지역 → 방문자수 지역 코드 (EI-KT-026).
+ *
+ * `lDongRegnCd` + `lDongSignguCd` 5자리다. 세종은 시군구 단계가 없어 시도 코드 `36110` 이 곧
+ * 그 코드다. 시군구 없이 두 자리 시도만 있으면 방문자수가 시군구 단위라 맞출 코드가 없다.
+ */
+export function visitorRegionCode(region: {
+  readonly ldongRegnCd: string | null;
+  readonly ldongSignguCd: string | null;
+}): string | null {
+  const regn = region.ldongRegnCd ?? '';
+  if (region.ldongSignguCd === null) return /^\d{5}$/.test(regn) ? regn : null;
+  const code = `${regn}${region.ldongSignguCd}`;
+  return /^\d{5}$/.test(code) ? code : null;
 }
 
 /**

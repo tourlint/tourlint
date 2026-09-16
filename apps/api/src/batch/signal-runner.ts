@@ -1,12 +1,12 @@
 import type { KtoClient } from '../external/kto';
 import { isKtoError } from '../external/kto';
 import {
-  festivalQueryDate, reachedOlderThan, summarizeFestivals, summarizeNewContents,
-  toSignalContent, type Signal, type SignalContent, type SignalWindow,
+  festivalQueryDate, reachedOlderThan, summarizeFestivals, summarizeNewContents, summarizeVisitors,
+  toKtoDay, toSignalContent, toVisitorRow, type Signal, type SignalContent, type SignalWindow,
 } from '../engine/signals';
 
 /**
- * T1 · T2 수요 신호 러너 (F14 · FR-RU-110 ~ 122).
+ * T1 · T2 · T3 수요 신호 러너 (F14 · FR-RU-110 ~ 122 · FR-MO-059).
  *
  * 산출은 `engine/signals` 의 순수 함수가 하고, 여기서는 **공사를 불러 그 함수에 먹이는
  * 일만** 한다. 규칙 평가가 메모리 전용이어야 하는 것과 같은 분리다 (NF-PF-014).
@@ -31,21 +31,22 @@ export const ROWS_PER_PAGE = 100;
 
 export interface SignalRunnerOptions {
   readonly kto: () => KtoClient;
-  /** 관심 키워드 (FR-RU-112). 비어 있으면 거르지 않는다 */
-  readonly keywords?: readonly string[];
 }
 
 export class SignalRunner {
   private readonly kto: () => KtoClient;
-  private readonly keywords: readonly string[];
 
   constructor(options: SignalRunnerOptions) {
     this.kto = options.kto;
-    this.keywords = options.keywords ?? [];
   }
 
-  /** T1 — 그 지역에 최근 등록된 콘텐츠 (FR-RU-110). 실패하면 `null` */
-  async t1(window: SignalWindow): Promise<Signal | null> {
+  /**
+   * T1 — 그 지역에 최근 등록된 콘텐츠 (FR-RU-110). 실패하면 `null`.
+   *
+   * `keywords` 는 그 창을 쓰는 계정들의 관심 키워드 합집합이다 (FR-RU-112). 제목 일치만
+   * 판정해 `byKeyword` 에 곳 목록으로 남기고 건수는 거르지 않는다.
+   */
+  async t1(window: SignalWindow, keywords: readonly string[] = []): Promise<Signal | null> {
     if (window.ldongRegnCd === null) return null;
     const collected: SignalContent[] = [];
     try {
@@ -58,7 +59,7 @@ export class SignalRunner {
           numOfRows: ROWS_PER_PAGE,
           pageNo: page,
         });
-        const rows = res.items.map((i) => toSignalContent(i, this.keywords));
+        const rows = res.items.map((i) => toSignalContent(i, keywords));
         collected.push(...rows);
         if (rows.length === 0 || reachedOlderThan(rows, window.from)) break;
       }
@@ -66,11 +67,11 @@ export class SignalRunner {
       if (!isKtoError(e)) throw e;
       return null;
     }
-    return summarizeNewContents(collected, window, { keywordFiltered: this.keywords.length > 0 });
+    return summarizeNewContents(collected, window, keywords);
   }
 
-  /** T2 — 여행기간 ±3일에 열리는 행사 (FR-RU-120). 실패하면 `null` */
-  async t2(window: SignalWindow): Promise<Signal | null> {
+  /** T2 — 여행기간 ±3일(관심 지역은 그 달)에 열리는 행사 (FR-RU-120). 실패하면 `null` */
+  async t2(window: SignalWindow, keywords: readonly string[] = []): Promise<Signal | null> {
     if (window.ldongRegnCd === null) return null;
     const collected: SignalContent[] = [];
     try {
@@ -83,7 +84,7 @@ export class SignalRunner {
           numOfRows: ROWS_PER_PAGE,
           pageNo: page,
         });
-        const rows = res.items.map((i) => toSignalContent(i, this.keywords));
+        const rows = res.items.map((i) => toSignalContent(i, keywords));
         collected.push(...rows);
         if (rows.length < ROWS_PER_PAGE) break;
       }
@@ -91,6 +92,30 @@ export class SignalRunner {
       if (!isKtoError(e)) throw e;
       return null;
     }
-    return summarizeFestivals(collected, window);
+    return summarizeFestivals(collected, window, keywords);
+  }
+
+  /**
+   * T3 — 지난해 같은 달 방문자 수 (FR-MO-059 · EI-KT-026).
+   *
+   * 방문자수 API 는 지역 조건이 없어 **기간 하나에 1콜**이고 전국 시군구가 온다. 창들은 모두
+   * 같은 기간이어야 하며, 받은 목록을 창마다 거른다. 결과는 `windows` 와 같은 순서이고
+   * 그 지역 줄이 없으면 그 자리가 `null` 이다. 조회에 실패하면 전체가 `null` 이다.
+   */
+  async t3(windows: readonly SignalWindow[]): Promise<readonly (Signal | null)[] | null> {
+    const first = windows[0];
+    if (first === undefined) return [];
+    if (windows.some((w) => w.from !== first.from || w.to !== first.to)) {
+      throw new Error('T3 창은 같은 기간끼리만 한 번에 부른다');
+    }
+    let rows;
+    try {
+      const res = await this.kto().locgoRegnVisitrDDList({ startYmd: toKtoDay(first.from), endYmd: toKtoDay(first.to) });
+      rows = res.items.map(toVisitorRow);
+    } catch (e) {
+      if (!isKtoError(e)) throw e;
+      return null;
+    }
+    return windows.map((w) => summarizeVisitors(rows, w));
   }
 }

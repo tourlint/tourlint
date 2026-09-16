@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { SYSTEM_SETTING_DEFAULTS } from '@tourlint/shared';
+import { EXTRA_PROVIDER_DAILY_CAP, SYSTEM_SETTING_DEFAULTS, type CallProvider } from '@tourlint/shared';
 import { InMemoryApiCallLogger, localDateKey, type ApiCallLogEntry } from './api-call-log';
-import { BudgetBlockedError, BudgetGuard, evaluateBudget } from './budget-guard';
+import { BudgetBlockedError, BudgetGuard, evaluateBudget, ktoBudgetGuard } from './budget-guard';
 
 describe('evaluateBudget — 경계가 둘이고 의도에 따라 다르다 (FR-OP-003 · 004)', () => {
   const at = (usedToday: number, dailyBudget = 800): { dailyBudget: number; usedToday: number } => ({ dailyBudget, usedToday });
@@ -42,6 +42,28 @@ describe('evaluateBudget — 경계가 둘이고 의도에 따라 다르다 (FR-
 
     it('초과해도 차단이다', () => {
       expect(evaluateBudget(at(1200), 'USER_AUDIT').allowed).toBe(false);
+    });
+  });
+
+  describe('기획 조회 · 에이전트(PLAN) — 경계는 사용자 검수와 같은 100% (EI-CM-012 · D2)', () => {
+    it('🔴 80% 를 넘어도 막지 않는다 — 80% 에서 멈추는 것은 자동 배치뿐이다', () => {
+      const d = evaluateBudget(at(640), 'PLAN');
+      expect(d.allowed).toBe(true);
+      expect(d.warn).toBe(true);
+    });
+
+    it('🔴 99.9% 까지 허용한다', () => {
+      expect(evaluateBudget(at(799), 'PLAN').allowed).toBe(true);
+    });
+
+    it('🔴 정확히 100% 에서 BUDGET_EXHAUSTED 로 막는다', () => {
+      expect(evaluateBudget(at(800), 'PLAN')).toMatchObject({ allowed: false, reasonCode: 'BUDGET_EXHAUSTED' });
+    });
+
+    it('어느 소진율에서도 사용자 검수와 같은 판정이다', () => {
+      for (const used of [0, 639, 640, 799, 800, 1200]) {
+        expect(evaluateBudget(at(used), 'PLAN')).toEqual(evaluateBudget(at(used), 'USER_AUDIT'));
+      }
     });
   });
 
@@ -119,6 +141,54 @@ describe('BudgetGuard', () => {
     const e = await guard.assertAllowed('BATCH').catch((x: unknown) => x);
     expect(e).toBeInstanceOf(BudgetBlockedError);
     expect((e as BudgetBlockedError).reasonCode).toBe('BUDGET_THRESHOLD');
+  });
+});
+
+describe('ktoBudgetGuard — 공사 서비스마다 따로 센다 (외부 연동 3-1 · API 8-2)', () => {
+  const clock = (): Date => new Date('2026-08-22T05:00:00Z');
+  const fill = (logger: InMemoryApiCallLogger, provider: CallProvider, n: number): void => {
+    for (let i = 0; i < n; i++) {
+      logger.record({
+        provider, operation: 'op', calledAt: new Date('2026-08-22T04:00:00Z'),
+        status: 'OK', httpStatus: 200, resultCode: '0000', latencyMs: 1, auditRunId: null,
+      });
+    }
+  };
+
+  it('🔴 무장애 800건 소진이 국문 예산에 섞이지 않는다', async () => {
+    const logger = new InMemoryApiCallLogger();
+    fill(logger, 'KTO_WITH', 800);
+    const withGuard = ktoBudgetGuard('WITH', { counter: logger, dailyQuota: 800, clock });
+    const korGuard = ktoBudgetGuard('KOR', { counter: logger, dailyQuota: 800, clock });
+
+    await expect(withGuard.check('PLAN')).resolves.toMatchObject({ allowed: false, reasonCode: 'BUDGET_EXHAUSTED' });
+    await expect(korGuard.check('PLAN')).resolves.toMatchObject({ allowed: true, ratio: 0 });
+  });
+
+  it('🔴 국문 소진도 새 서비스 예산에 섞이지 않고, 새 서비스끼리도 따로다', async () => {
+    const logger = new InMemoryApiCallLogger();
+    fill(logger, 'KTO', 800);
+    fill(logger, 'KTO_PET', 800);
+    await expect(ktoBudgetGuard('RELATED', { counter: logger, dailyQuota: 800, clock }).snapshot())
+      .resolves.toEqual({ dailyBudget: EXTRA_PROVIDER_DAILY_CAP, usedToday: 0 });
+    await expect(ktoBudgetGuard('PET', { counter: logger, dailyQuota: 800, clock }).snapshot())
+      .resolves.toEqual({ dailyBudget: EXTRA_PROVIDER_DAILY_CAP, usedToday: 800 });
+  });
+
+  it('🔴 국문은 daily_quota 를, 새 서비스 5종은 각 800건을 분모로 쓴다', async () => {
+    const counter = new InMemoryApiCallLogger();
+    expect((await ktoBudgetGuard('KOR', { counter, dailyQuota: 1200, clock }).snapshot()).dailyBudget).toBe(1200);
+    for (const service of ['PET', 'WITH', 'RELATED', 'DURUNUBI', 'VISITOR'] as const) {
+      expect((await ktoBudgetGuard(service, { counter, dailyQuota: 1200, clock }).snapshot()).dailyBudget).toBe(800);
+    }
+  });
+
+  it('자동 배치는 새 서비스도 80% 에서 멈춘다 — 레이더 T3 방문자수 배치', async () => {
+    const logger = new InMemoryApiCallLogger();
+    fill(logger, 'KTO_VISITOR', 640);
+    const guard = ktoBudgetGuard('VISITOR', { counter: logger, dailyQuota: 800, clock });
+    await expect(guard.check('BATCH')).resolves.toMatchObject({ allowed: false, reasonCode: 'BUDGET_THRESHOLD' });
+    await expect(guard.check('PLAN')).resolves.toMatchObject({ allowed: true });
   });
 });
 

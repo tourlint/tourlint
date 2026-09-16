@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import type { ApiCallLogger, CallStatus } from '../api-call-log';
 import { AnthropicProvider } from './anthropic.provider';
 import { LlmError, LlmNotConfiguredError, LlmUnavailableError } from './llm.errors';
-import type { LlmProvider, LlmPurpose, LlmStructuredRequest, LlmStructuredResult } from './llm.types';
+import type {
+  LlmProvider, LlmPurpose, LlmStructuredRequest, LlmStructuredResult, LlmToolTurnRequest, LlmToolTurnResult,
+} from './llm.types';
 
 /**
  * 용도별 모델을 고르고, 실패를 정해진 만큼만 되돌린다 (EI-LM-003).
@@ -18,6 +20,8 @@ export interface LlmConfig {
   readonly modelStructure: string;
   /** F03 운영정보 정규화 폴백 */
   readonly modelNormalize: string;
+  /** AI 에이전트 셋(장소 찾기 · 확인 질문 · 오늘 할 일). 비어 있으면 에이전트를 돌리지 않는다 */
+  readonly modelAgent: string;
 }
 
 /** 설정이 없으면 null 이다. 없다고 던지지 않는다 — LLM 없이도 검수는 돈다 */
@@ -31,6 +35,7 @@ export function readLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig |
     apiKey,
     modelStructure: get('LLM_MODEL_STRUCTURE'),
     modelNormalize: get('LLM_MODEL_NORMALIZE'),
+    modelAgent: get('LLM_MODEL_AGENT'),
   };
 }
 
@@ -65,9 +70,11 @@ export class LlmClient {
     this.auditRunId = opts.auditRunId ?? null;
   }
 
-  /** 용도마다 모델이 다르다. 병목이 다르기 때문이다 (이슈 #6) */
+  /** 용도마다 모델이 다르다. 병목이 다르기 때문이다 (이슈 #6). 에이전트 셋은 한 모델을 같이 쓴다 */
   modelFor(purpose: LlmPurpose): string {
-    const model = purpose === 'STRUCTURE' ? this.config.modelStructure : this.config.modelNormalize;
+    const model = purpose === 'STRUCTURE' ? this.config.modelStructure
+      : purpose === 'NORMALIZE' ? this.config.modelNormalize
+        : this.config.modelAgent;
     if (model === '') throw new LlmNotConfiguredError(`${purpose} 용 모델이 설정되지 않았습니다`);
     return model;
   }
@@ -86,17 +93,37 @@ export class LlmClient {
       const startedAt = Date.now();
       try {
         const result = await this.provider.structured(req, model);
-        this.log(req.purpose, model, startedAt, 'OK', null);
+        this.log(`${req.purpose}:${model}`, startedAt, 'OK', null);
         return result;
       } catch (e) {
         const err = e instanceof LlmError ? e : new LlmUnavailableError((e as Error).name);
         const status: CallStatus = err.message.includes('TIMEOUT') ? 'TIMEOUT' : 'FAIL';
-        this.log(req.purpose, model, startedAt, status, err.reasonCode);
+        this.log(`${req.purpose}:${model}`, startedAt, status, err.reasonCode);
         if (!err.retryable) throw err;
         last = err;
       }
     }
     throw last ?? new LlmUnavailableError('알 수 없는 실패');
+  }
+
+  /**
+   * 에이전트 대화의 다음 턴 하나 (EI-LM-007). **되돌리지 않는다** — 실행 전체에 30초 상한이
+   * 있어 실패는 러너가 끝난 항목만 싣고 `incomplete` 로 알린다 (EI-LM-010).
+   *
+   * 호출 로그 `operation` 은 목적(`PLACE_MATCH` 등)만이다. 지시문 · 대화 · 도구 결과는 남기지 않는다.
+   */
+  async toolTurn(req: LlmToolTurnRequest): Promise<LlmToolTurnResult> {
+    const model = this.modelFor(req.purpose);
+    const startedAt = Date.now();
+    try {
+      const result = await this.provider.toolTurn(req, model);
+      this.log(req.purpose, startedAt, 'OK', null);
+      return result;
+    } catch (e) {
+      const err = e instanceof LlmError ? e : new LlmUnavailableError((e as Error).name);
+      this.log(req.purpose, startedAt, err.message.includes('TIMEOUT') ? 'TIMEOUT' : 'FAIL', err.reasonCode);
+      throw err;
+    }
   }
 
   /**
@@ -106,18 +133,17 @@ export class LlmClient {
    * 얼마나 걸려 불렀는지와 결과뿐이다 (NF-OB-006 · DB 명세서 6-4 누출 경로 ①).
    */
   private log(
-    purpose: LlmPurpose,
-    model: string,
+    operation: string,
     startedAt: number,
     status: CallStatus,
     resultCode: string | null,
   ): void {
     if (this.logger === undefined) return;
     try {
-      // 모델명은 설정값이지 원문이 아니다. 어느 모델이 얼마나 실패하는지 봐야 한다
+      // 구조화 · 정규화는 `목적:모델`, 에이전트는 목적만 적는다(API 4-11). 둘 다 원문이 아니다
       void this.logger.record({
         provider: 'LLM',
-        operation: `${purpose}:${model}`,
+        operation,
         calledAt: new Date(startedAt),
         status,
         httpStatus: null,
