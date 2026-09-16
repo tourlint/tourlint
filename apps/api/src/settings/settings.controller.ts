@@ -31,16 +31,4 @@ export class SettingsController {
   ): Promise<SettingsView> {
     return this.service.updateAccount(account.accountId, account.isDemo, body);
   }
-
-  /**
-   * 전역 설정(배치 시각 · 일일 예산) 저장. 서비스 전체에 적용된다. 데모 계정은 403 이다.
-   * 관리자 롤 체계가 서면 여기에 그 인가를 건다.
-   */
-  @Put('settings/global')
-  async updateGlobal(
-    @CurrentAccount() account: SessionAccount,
-    @Body() body: unknown,
-  ): Promise<SettingsView> {
-    return this.service.updateGlobal(account.accountId, account.isDemo, body);
-  }
 }
