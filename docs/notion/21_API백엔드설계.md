@@ -940,19 +940,19 @@ GET /api/v1/rules             기존 응답에 규칙마다 추가
 <tr>
 <td>GET</td>
 <td>`/api/v1/plan/events`</td>
-<td>`searchFestival2` 여행 기간 ±3일. 각 항목에 기간 관계(BEFORE · IN · AFTER)와 옮길 출발일 제안</td>
+<td>`searchFestival2` 여행 기간 ±3일. 각 항목에 기간 관계(BEFORE · IN · AFTER)와 옮길 출발일 제안. 끝나는 날만 조건으로 주므로 창 뒤에 열리는 행사도 함께 오고(`AFTER`), 창 전에 끝난 것과 기간을 모르는 것은 뺀다</td>
 <td>FR-PL-014 · 1콜</td>
 </tr>
 <tr>
 <td>GET</td>
 <td>`/api/v1/plan/walks`</td>
-<td>두루누비 걷기 길 목록(식별자 · 이름 · 길이 · 소요 · 난이도 — 좌표 없음). 넣으면 직접 정한 곳 — 넣을 때는 `walkId` 만 보내고 이름은 저장하지 않는다(4-3)</td>
+<td>두루누비 걷기 길 목록(식별자 · 이름 · 길이 · 소요 · 난이도 — 좌표 없음). 넣으면 직접 정한 곳 — 넣을 때는 `walkId` 만 보내고 이름은 저장하지 않는다(4-3). 코스의 `sigun` 을 시군구 이름으로 대조하므로 그 이름을 모르면 빈 목록이다</td>
 <td>FR-PL-015 · 1콜</td>
 </tr>
 <tr>
 <td>GET</td>
 <td>`/api/v1/contents/{contentId}?with=accessible,pet`</td>
-<td>기존 엔드포인트 확장. 카드 펼침 1콜 + 요청한 조건 축 각 1콜</td>
+<td>기존 엔드포인트 확장. 카드 펼침 1콜 + 요청한 조건 축 각 1콜. `with` 에 다른 값이 오면 400 이고, 축이 막히거나 실패하면 그 축만 `null` 이다</td>
 <td>FR-PL-012</td>
 </tr>
 <tr>
@@ -992,7 +992,9 @@ GET /api/v1/plan/places?scope=NEAR3KM&nearKind=MEAL|CAFE|STAY&anchor=128.89,37.7
 GET /api/v1/plan/events?regnCd&signguCd&startDate&nights   → { "window": { "from", "to" }, "items": PlanEvent[] }
 GET /api/v1/plan/walks?regnCd&signguCd                     → { "items": PlanWalk[], "notice": "넣으면 직접 정한 곳으로 들어가요" }
     두루누비 courseList 1콜(지역 조건 없음 · 전국 코스 · 10분 캐시)을 코스의 시군구 글자(sigun)로 거른다. 코스에 좌표가 없어 앵커가 되지 않는다
+    거르는 기준은 법정동 목록에서 찾은 시군구 이름이고, 세종처럼 시군구 단계가 없는 곳만 시도 약칭으로 본다
 GET /api/v1/contents/{contentId}?contentTypeId=12&with=accessible,pet   기존 응답 + "accessible": {...} | null, "pet": {...} | null
+    요청한 축만 detailWithTour2 · detailPetTour2 로 1콜씩 부르고(10분 캐시) 값에서 contentid 는 뺀다. with 가 없으면 콜 수도 응답도 그대로다
 POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "items": PlaceFacts[] }. 규칙엔진 · audit_run 없음 · 저장 없음. 고른 직후 그 항목만
 모든 기획 조회: 예산 100% 면 검수와 같은 429 BUDGET_EXHAUSTED. 오류 본문은 공통 모양(3-2) 그대로이고 재개 시각(내일 0시)과 "일정 입력 · 저장은 지금도 된다"를 message 에 담는다 — 오류에 필드를 더하지 않는다. 새 서비스 하나가 막히거나 실패하면 그 필드만 null 이고 notice 로 알린다
 타입 PlanBriefing · PlanPlace · PlanEvent · PlanWalk · PlaceFacts 는 packages/shared plan.ts. PlanPlace 에서 worldHeritage 를 뺐다(2026.09.16) — 목록 응답에 그 표시가 없고 화면 요구사항에도 없다

@@ -35,11 +35,13 @@ import { ProductController } from './product/product.controller';
 import { ItemController } from './product/item.controller';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
+import { PlaceConditionService } from './plan/place-conditions.service';
 import { PlaceFactsController } from './plan/place-facts.controller';
 import { PlaceFactsService } from './plan/place-facts.service';
 import { PlanController } from './plan/plan.controller';
 import { PlanItemRepository } from './plan/plan-item.repository';
 import { PlanService } from './plan/plan.service';
+import { WalkNameResolver } from './plan/walk-names';
 import { DemandSignalRepository } from './persistence/demand-signal.repository';
 import { NotificationController } from './radar/notification.controller';
 import { NotificationService } from './radar/notification.service';
@@ -101,7 +103,45 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
     {
       // 관광지 1건 실시간 조회 (5-12 근거 펼침). 저장하지 않는다 (DR-PR-004)
       provide: ContentService,
-      useFactory: (pool: Pool) => new ContentService(() => createKtoClient(new PgApiCallLogger(pool))),
+      useFactory: (pool: Pool, conditions: PlaceConditionService) =>
+        new ContentService(() => createKtoClient(new PgApiCallLogger(pool)), conditions),
+      inject: [DB_POOL, PlaceConditionService],
+    },
+    {
+      // 카드 펼침의 무장애 · 반려동물 축 (FR-PL-012). 요청한 축만 1콜씩 부른다
+      provide: PlaceConditionService,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlaceConditionService({
+          kto: () => (client ??= createKtoClient(logs)),
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+        });
+      },
+      inject: [DB_POOL],
+    },
+    {
+      /*
+       * 넣은 걷기 길의 표시 이름 (D9). 항목에는 `walk_id` 만 저장하므로 보일 때 찾는다 —
+       * 상품 응답 · 리포트가 같은 것을 쓴다.
+       */
+      provide: WalkNameResolver,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new WalkNameResolver({
+          kto: () => (client ??= createKtoClient(logs)),
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+        });
+      },
       inject: [DB_POOL],
     },
     {

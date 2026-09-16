@@ -33,17 +33,38 @@ export const REGN_SHORT_NAME: Readonly<Record<string, string>> = {
 /**
  * 그 코스가 상품 지역의 것인가.
  *
- * 시군구가 있으면 시군구 이름으로 본다 — 같은 약칭을 쓰는 시도가 없어 이름만으로 갈린다.
- * 세종처럼 시군구가 없으면 시도 약칭으로 본다. 지역 이름을 모르면 거르지 않고 **아무것도
- * 넣지 않는다** — 전국 목록을 그대로 보이면 다른 지역 코스가 상품에 들어간다.
+ * 시군구가 있으면 **시군구 이름**으로 본다 — 코스의 `sigun` 이 「강원 강릉시」 꼴이라 이름만으로
+ * 갈린다. 세종처럼 시군구 단계가 없으면 시도 약칭으로 본다.
+ *
+ * **시군구를 물었는데 그 이름을 모르면 아무것도 넣지 않는다.** 시도 약칭으로 넓혀 거르면 옆
+ * 시군구 코스가 상품에 들어간다 — 물어본 것보다 넓게 주지 않는다.
  */
 export function isCourseInRegion(
   sigun: unknown,
-  region: { readonly regnCd: string; readonly signguName: string | null },
+  region: { readonly regnCd: string; readonly signguCd?: string | null; readonly signguName: string | null },
 ): boolean {
   const text = String(sigun ?? '').trim();
   if (text === '') return false;
   if (region.signguName !== null && region.signguName !== '') return text.includes(region.signguName);
+  if (region.signguCd !== null && region.signguCd !== undefined && region.signguCd !== '') return false;
   const short = REGN_SHORT_NAME[region.regnCd];
   return short !== undefined && text.includes(short);
 }
+
+/** 두루누비 코스 한 줄 → 걷기 길 카드 (EI-KT-025). 좌표는 응답에 없다 */
+export function toWalk(course: Record<string, unknown>): { walkId: string; name: string; lengthKm: number | null; minutes: number | null; level: 1 | 2 | 3 | null } {
+  const level = Number(course.crsLevel);
+  return {
+    walkId: String(course.crsIdx ?? ''),
+    name: String(course.crsKorNm ?? ''),
+    lengthKm: numberOrNull(course.crsDstnc),
+    minutes: numberOrNull(course.crsTotlRqrmHour),
+    level: level === 1 || level === 2 || level === 3 ? level : null,
+  };
+}
+
+function numberOrNull(value: unknown): number | null {
+  const n = Number(String(value ?? '').trim());
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
