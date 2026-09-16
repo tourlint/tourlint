@@ -5,14 +5,16 @@
  * `credentials: "include"` 로 세션 쿠키를 함께 보낸다. 외부 API 를 브라우저에서 직접
  * 부르지 않는다 — 인증키는 서버에만 있다 (PM-SC-002).
  */
+import { EXTERNAL_UNAVAILABLE_MESSAGE } from "@tourlint/shared";
+
 /**
  * 외부 서비스 장애 안내 (EX-MS-003 · UI-ST-004).
  *
  * 서버가 같은 문구를 내려주므로 보통은 그것을 쓴다. 여기 것은 응답 자체가 못 온 경우의
- * 기본값이다. 정본은 `@tourlint/shared` 의 `EXTERNAL_UNAVAILABLE_MESSAGE` — 웹은 그
- * 패키지를 의존하지 않아 문자열만 옮겨 둔다 (ITEM_TYPE · TRANSPORT 와 같은 방식).
+ * 기본값이다. 정본은 `@tourlint/shared` 의 `EXTERNAL_UNAVAILABLE_MESSAGE` — 이제 웹이 그
+ * 패키지를 직접 의존하므로 문자열을 옮겨 적지 않고 시드를 그대로 쓴다.
  */
-export const EXTERNAL_UNAVAILABLE = "일시적으로 조회할 수 없습니다.";
+export const EXTERNAL_UNAVAILABLE = EXTERNAL_UNAVAILABLE_MESSAGE;
 
 export interface ApiError {
   status: number;
