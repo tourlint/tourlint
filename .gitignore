@@ -24,3 +24,6 @@ probe4_out/
 # 운영 DB 덤프 · 수동 확인 산출물. 실제 계정 데이터가 들어 있어 저장소에 올리지 않는다
 outputs/
 .codex-artifact-work/
+
+# python 바이트코드 — scripts/ 를 돌리면 생긴다
+__pycache__/
