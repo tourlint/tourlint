@@ -76,13 +76,16 @@ export function computeCompanyUpdate(current: CompanySettings, patch: CompanyPat
   if (patch.r07MealMinutes !== undefined && patch.r07MealMinutes !== current.r07MealMinutes) {
     added.push({ at, field: 'r07MealMinutes', from: current.r07MealMinutes, to: patch.r07MealMinutes });
   }
+  const history = [...current.history, ...added].slice(-R07_HISTORY_MAX);
   return {
     r07SpanHours: patch.r07SpanHours ?? current.r07SpanHours,
     r07MealMinutes: patch.r07MealMinutes ?? current.r07MealMinutes,
     watchKeywords: patch.watchKeywords ?? current.watchKeywords,
     watchRegions: patch.watchRegions ?? current.watchRegions,
-    history: [...current.history, ...added].slice(-R07_HISTORY_MAX),
-    updatedAt: at,
+    history,
+    // 회사 기준 변경 시각 = 마지막 R07 변경 시각. 한 번도 안 바꿨으면 null이다 —
+    // 계정 생성 때 시드로 만든 행의 updated_at 을 "바꾼 적 있음"으로 오해하지 않는다.
+    updatedAt: history.at(-1)?.at ?? null,
   };
 }
 
@@ -92,7 +95,6 @@ interface CompanyRow {
   watch_keywords: string[];
   watch_regions: WatchRegion[];
   r07_history: R07HistoryEntry[];
-  updated_at: Date;
 }
 
 export class SettingsRepository {
@@ -101,7 +103,7 @@ export class SettingsRepository {
   /** 회사 기준 · 관심 값. 행이 없으면 표준값과 빈 목록 (아직 정한 적 없는 계정). */
   async company(accountId: number): Promise<CompanySettings> {
     const { rows } = await this.pool.query<CompanyRow>(
-      `SELECT r07_span_hours, r07_meal_minutes, watch_keywords, watch_regions, r07_history, updated_at
+      `SELECT r07_span_hours, r07_meal_minutes, watch_keywords, watch_regions, r07_history
          FROM user_setting WHERE account_id = $1`,
       [accountId],
     );
@@ -110,7 +112,8 @@ export class SettingsRepository {
     return {
       r07SpanHours: row.r07_span_hours,
       r07MealMinutes: row.r07_meal_minutes,
-      updatedAt: row.updated_at.toISOString(),
+      // 마지막 R07 변경 시각. 시드로 만든 행은 이력이 비어 있어 null 이다 (바꾼 적 없음).
+      updatedAt: row.r07_history.at(-1)?.at ?? null,
       history: row.r07_history,
       watchKeywords: row.watch_keywords,
       watchRegions: row.watch_regions,
