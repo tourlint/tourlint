@@ -67,9 +67,6 @@ import { UsageService } from './usage/usage.service';
 import { SettingsController } from './settings/settings.controller';
 import { SettingsService } from './settings/settings.service';
 import { SettingsRepository } from './settings/settings.repository';
-import { SettingsTablesController } from './settings/settings-tables.controller';
-import { SettingsTablesService } from './settings/settings-tables.service';
-import { SettingsTablesRepository } from './settings/settings-tables.repository';
 
 /**
  * 목업은 남아 있지 않다. 마지막 두 라우트(출시 승인 · 항목 목록)를 실엔진으로 옮기면서
@@ -97,7 +94,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
      * 순서에만 기대지 않도록 `app-boot` 이 가려짐을 검사한다.
      */
     ContentController,
-    ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
+    ReportController, NotificationController, RadarController, SettingsController,
     PlanController, PlaceFactsController, PlaceSuggestionController, CheckQuestionController,
     TodayBriefController,
   ],
@@ -158,12 +155,6 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
       // 관리자 설정 (F16). 계정 설정 조회·저장 + 전역 설정 조회 (PM-DA-005)
       provide: SettingsService,
       useFactory: (pool: Pool) => new SettingsService(new SettingsRepository(pool)),
-      inject: [DB_POOL],
-    },
-    {
-      // 계정 기준표 편집 (F16 · 체류시간 · 실내외 매핑)
-      provide: SettingsTablesService,
-      useFactory: (pool: Pool) => new SettingsTablesService(new SettingsTablesRepository(pool)),
       inject: [DB_POOL],
     },
     {

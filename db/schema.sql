@@ -313,66 +313,24 @@ COMMENT ON COLUMN notification.change_hash_from IS
 CREATE TABLE user_setting (
     id               BIGSERIAL PRIMARY KEY,
     account_id       BIGINT      NOT NULL UNIQUE REFERENCES account(id) ON DELETE CASCADE,
-    -- weights · r04_threshold : 표준 고정 — 엔진이 읽지 않음. 삭제 예정(릴리즈 2)
-    weights          JSONB       NOT NULL
-        DEFAULT '{"BLOCKER":25,"ERROR":10,"WARNING":4,"UNVERIFIED":3}'::jsonb,
+    -- 계정이 바꾸는 것은 R07 두 값뿐이다. 가중치 · R04 임계 · R10 프로파일 · 체류시간 ·
+    -- 실내 · 야외는 모든 계정이 같은 표준이라 @tourlint/shared 시드에 있다 (FR-OP-021)
     r07_span_hours   SMALLINT    NOT NULL DEFAULT 6,
     r07_meal_minutes SMALLINT    NOT NULL DEFAULT 60,
-    r04_threshold    SMALLINT    NOT NULL DEFAULT 3,
     watch_keywords   TEXT[]      NOT NULL DEFAULT '{}',
     watch_regions    JSONB       NOT NULL DEFAULT '[]'::jsonb,
     r07_history      JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    -- DR-CF-008 : 회사 기준은 표준(6시간 · 60분)보다 엄격하게만 — 설정 API 가 거부한다.
-    --   CHECK 를 1–6 · 60–240 으로 조이는 것은 릴리즈 2 다. 구 설정 API 가 1–24 · 1–240 을
-    --   받는 동안 조이면 그 저장이 실패한다
-    CONSTRAINT ck_set_span   CHECK (r07_span_hours   BETWEEN 1 AND 24),
-    CONSTRAINT ck_set_meal   CHECK (r07_meal_minutes BETWEEN 1 AND 240),
-    CONSTRAINT ck_set_r04    CHECK (r04_threshold    BETWEEN 2 AND 10)
+    -- DR-CF-008 : 회사 기준은 표준(6시간 · 60분)보다 엄격하게만. 설정 API 가 거부하고
+    --   DB 도 막는다 — 화면 · API · DB 세 곳이 각각 막아야 어느 하나를 우회해도 통과하지 않는다
+    CONSTRAINT ck_set_span   CHECK (r07_span_hours   BETWEEN 1 AND 6),
+    CONSTRAINT ck_set_meal   CHECK (r07_meal_minutes BETWEEN 60 AND 240)
 );
 
 -- ---------------------------------------------------------------------
--- 11~13. 계정 단위 기준 테이블
--- ---------------------------------------------------------------------
-CREATE TABLE target_profile (
-    id             BIGSERIAL PRIMARY KEY,
-    account_id     BIGINT      NOT NULL REFERENCES account(id) ON DELETE CASCADE,
-    target_key     TEXT        NOT NULL,
-    concept_key    TEXT        NOT NULL,
-    expected_lcls2 TEXT[]      NOT NULL,
-    expects_night  BOOLEAN     NOT NULL DEFAULT FALSE,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    CONSTRAINT uq_profile UNIQUE (account_id, target_key, concept_key),
-    CONSTRAINT ck_profile_lcls CHECK (array_length(expected_lcls2, 1) >= 1)
-);
-
-CREATE TABLE dwell_default (
-    id          BIGSERIAL PRIMARY KEY,
-    account_id  BIGINT      NOT NULL REFERENCES account(id) ON DELETE CASCADE,
-    lcls_systm2 TEXT        NOT NULL,
-    minutes     SMALLINT    NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    CONSTRAINT uq_dwell   UNIQUE (account_id, lcls_systm2),
-    CONSTRAINT ck_dwell_m CHECK (minutes BETWEEN 1 AND 1440)
-);
-
-CREATE TABLE indoor_outdoor_map (
-    id          BIGSERIAL PRIMARY KEY,
-    account_id  BIGINT      NOT NULL REFERENCES account(id) ON DELETE CASCADE,
-    lcls_systm2 TEXT        NOT NULL,
-    space_type  TEXT        NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    CONSTRAINT uq_io    UNIQUE (account_id, lcls_systm2),
-    CONSTRAINT ck_io_st CHECK (space_type IN ('INDOOR','OUTDOOR','MIXED'))
-);
-
--- ---------------------------------------------------------------------
--- 14~18. 전역 기준 · 운영 테이블
+-- 11~14. 전역 기준 · 운영 테이블
 -- ---------------------------------------------------------------------
 CREATE TABLE lcls_systm_code (
     id           BIGSERIAL PRIMARY KEY,
@@ -442,7 +400,7 @@ COMMENT ON COLUMN batch_state.last_covered IS
     '배치 성공 시에만 갱신. 평일 조회 0건이면 갱신 금지 - DR-CF-005';
 
 -- ---------------------------------------------------------------------
--- 18. system_setting : 전역 운영 설정 (전역 1행)
+-- 15. system_setting : 전역 운영 설정 (전역 1행)
 --     배치 시각 · 활성화 · 일일 호출 예산은 계정별 값이 아니라 서비스 전체 값
 -- ---------------------------------------------------------------------
 CREATE TABLE system_setting (
@@ -460,7 +418,7 @@ COMMENT ON TABLE  system_setting IS
     '전역 운영 설정. 배치 시각·활성화·일일 호출 예산은 전 계정 공통 - PM-DA-006 · DR-CF-007';
 
 -- ---------------------------------------------------------------------
--- 19. demand_signal : 수요 신호 T1 · T2 · T3 (배치 산출)
+-- 16. demand_signal : 수요 신호 T1 · T2 · T3 (배치 산출)
 -- ---------------------------------------------------------------------
 CREATE TABLE demand_signal (
     id              BIGSERIAL PRIMARY KEY,
@@ -494,7 +452,7 @@ COMMENT ON COLUMN demand_signal.region_key IS
     'regn 또는 regn:signgu. NULL 이 UNIQUE 를 무력화하는 것을 피한다';
 
 -- ---------------------------------------------------------------------
--- 20. llm_parse_cache : LLM 해석 결과 캐시
+-- 17. llm_parse_cache : LLM 해석 결과 캐시
 -- ---------------------------------------------------------------------
 CREATE TABLE llm_parse_cache (
     fragment_hash TEXT        PRIMARY KEY,
@@ -626,12 +584,10 @@ INSERT INTO system_setting (key) VALUES ('global');
 -- 자격증명은 소스·스키마에 넣지 않고 환경변수(DEMO_ACCOUNT_EMAIL · DEMO_ACCOUNT_PASSWORD)로
 -- 주입하며, 비밀번호는 회원가입과 같은 scrypt 해시로 저장한다 (apps/api/src/seed).
 
--- 계정 생성 시 기본값 복제 (DR-CF-002)
---   user_setting        1행
---   dwell_default       중분류 59행
---   indoor_outdoor_map  중분류 59행
---   target_profile      사전 제공 프로파일
--- 위 4종은 회원가입 트랜잭션에서 함께 생성한다. 빈 상태를 허용하지 않는다.
+-- 계정 생성 시 기본값 (DR-CF-002)
+--   user_setting  1행 — 회원가입 트랜잭션에서 함께 생성한다. 빈 상태를 허용하지 않는다.
+-- 체류시간 · 실내 · 야외 · R10 프로파일은 계정마다 복제하지 않는다. 모든 계정이 같은 표준이라
+-- @tourlint/shared 시드에 있고 엔진 · 화면이 그것을 읽는다 (FR-OP-021).
 
 -- 데모 상품 시드 (PM-TA-003 · DR-TD-007)
 -- 데모 계정의 상품 · 일정은 리포지토리의 시드 스크립트로 정의한다.
