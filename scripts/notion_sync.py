@@ -37,6 +37,8 @@ import re
 import sys
 from pathlib import Path
 
+from notion_verify import normalize
+
 ROOT = Path(__file__).resolve().parents[1]
 NOTION_DIR = ROOT / 'docs' / 'notion'
 BASELINE_DIR = NOTION_DIR / '.baseline'
@@ -236,10 +238,14 @@ def cmd_plan(key: str | None, out_path: str | None) -> None:
 
 # ── check ─────────────────────────────────────────────────────────────
 def cmd_check(key: str, raw_file: str) -> None:
-    """정본을 다시 받아 기준선과 비교한다. 다르면 누군가 노션을 직접 고친 것이다."""
+    """정본을 다시 받아 기준선과 비교한다. 다르면 누군가 노션을 직접 고친 것이다.
+
+    노션 표기(`~` 이스케이프 · 맨 도메인 자동 링크 · 댓글 앵커 span)는 되돌린 뒤 비교한다.
+    그대로 비교하면 손대지 않은 문서도 전부 DRIFT 로 나와 진짜 상류 변경을 가린다.
+    """
     _, base = paths(key)
-    fresh = extract_content(Path(raw_file).read_text(encoding='utf-8'))
-    current = base.read_text(encoding='utf-8')
+    fresh = normalize(extract_content(Path(raw_file).read_text(encoding='utf-8')))
+    current = normalize(base.read_text(encoding='utf-8'))
     if fresh == current:
         print(f'ok     {key} — 정본이 기준선과 같다. push 해도 안전하다')
         return
