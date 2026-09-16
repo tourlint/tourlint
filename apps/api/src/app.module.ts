@@ -8,6 +8,9 @@ import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
+import { AgentLock } from './agent/agent-lock';
+import { PlaceSuggestionController } from './agent/place-suggestion.controller';
+import { PlaceSuggestionService } from './agent/place-suggestion.service';
 import { SignalBatchJob } from './batch/signal-batch.job';
 import { SignalRunner } from './batch/signal-runner';
 import { SyncBatchJob } from './batch/sync-batch.job';
@@ -20,6 +23,8 @@ import { DemoController } from './demo/demo.controller';
 import { evaluateBudget, ktoBudgetGuard } from './external/budget-guard';
 import { KakaoMobilityClient, createKakaoTransport } from './external/kakao';
 import { createKtoClient, type KtoClient } from './external/kto';
+import { LlmClient, createProvider, readLlmConfig } from './external/llm';
+import { LlmNotConfiguredError } from './external/llm';
 import type { ContentTypeId } from '@tourlint/shared';
 import { DB_POOL, getPool } from './persistence/db';
 import { PatchApplicationRepository } from './persistence/patch-application.repository';
@@ -89,7 +94,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
      */
     ContentController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
-    PlanController, PlaceFactsController,
+    PlanController, PlaceFactsController, PlaceSuggestionController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
@@ -294,6 +299,40 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
         });
       },
       inject: [DB_POOL],
+    },
+    {
+      /** 에이전트 셋이 함께 쓰는 자물쇠 — 계정마다 같은 에이전트 동시 1회 (FR-AG-002 · EX-AG-004) */
+      provide: AgentLock,
+      useFactory: () => new AgentLock(),
+    },
+    {
+      /*
+       * 기획 에이전트 — 고르지 않은 줄의 장소 찾기 (F18 · FR-AG-010 ~ 012).
+       *
+       * 읽기 도구 둘(검색 · 공통정보)만 넘긴다. 상품 · 항목을 바꾸는 서비스는 도구가 아니다.
+       */
+      provide: PlaceSuggestionService,
+      useFactory: (pool: Pool, lock: AgentLock) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlaceSuggestionService({
+          items: new PlanItemRepository(pool),
+          kto: () => (client ??= createKtoClient(logs)),
+          llm: () => {
+            const config = readLlmConfig();
+            // 모델이 없으면 거절하지 않고 incomplete 로 끝낸다 (FR-AG-005)
+            if (config === null) throw new LlmNotConfiguredError('LLM_API_KEY 가 비어 있다');
+            return new LlmClient({ provider: createProvider(config), config, logger: logs });
+          },
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+          lock,
+        });
+      },
+      inject: [DB_POOL, AgentLock],
     },
     {
       provide: SyncBatchScheduler,
