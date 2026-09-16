@@ -981,7 +981,8 @@ GET /api/v1/plan/briefing?regnCd=51&signguCd=150&startDate=2026-10-23&nights=1(&
     중분류 칩마다 areaBasedList2(lDongRegnCd, lDongSignguCd, lclsSystm2, numOfRows=1) 의 totalCount 1콜.
     축제 · 공연은 searchFestival2 1콜, 걷기 길은 두루누비 1콜 → 6콜. 지역이 바뀔 때만 다시 센다. 기대 · 없음 표시는 없다. 지역 · 중분류별 10분 메모리 캐시
 GET /api/v1/plan/places?regnCd&signguCd&lcls2=VE01&sort=near|together&anchor=128.89,37.79&anchorContentId=125769&wheelchair=1&pet=1&indoor=1&page=1
-  → { "scope": { "kind": "SIGNGU" | "NEAR", "label": "강릉시 전체" | "고른 줄 반경 20km" }, "totalCount": 6, "items": PlanPlace[], "notice": "..." }
+  → { "scope": { "kind": "SIGNGU" | "NEAR", "label": "강릉시 전체" | "고른 줄 반경 20km" }, "totalCount": 6, "items": PlanPlace[], "disabled": null, "notice": "..." }
+    totalCount 는 거른 뒤 곳 수이고 items 는 한 쪽 20곳(page)이다. 목록은 칩과 같은 조건이라 필터를 걸지 않으면 칩 숫자와 맞는다
     칩과 같은 조건(lclsSystm2 · 시군구)의 areaBasedList2 목록 1콜(numOfRows=100 · 10분 캐시) — 칩의 totalCount 와 같은 조회라 수가 맞는다. 정렬 · 필터는 그 위에서.
     near 는 locationBasedList2(radius 20000) 1콜. together 는 searchKeyword1(앵커 이름 · 시군구 · 기준 연월) 1콜 · 연관 관광지 응답에 contentid 가 없어 이름 · 시군구 대조가 하나로 정해질 때만 순위 · 관광지 순위만 · 기준 연월 표기 · 기준은 넣을 위치 앞의 고른 항목(앵커). 앵커가 없으면 이 정렬은 비활성
 GET /api/v1/plan/places?scope=NEAR3KM&nearKind=MEAL|CAFE|STAY&anchor=128.89,37.79&page=1
@@ -993,8 +994,8 @@ GET /api/v1/plan/walks?regnCd&signguCd                     → { "items": PlanWa
     두루누비 courseList 1콜(지역 조건 없음 · 전국 코스 · 10분 캐시)을 코스의 시군구 글자(sigun)로 거른다. 코스에 좌표가 없어 앵커가 되지 않는다
 GET /api/v1/contents/{contentId}?contentTypeId=12&with=accessible,pet   기존 응답 + "accessible": {...} | null, "pet": {...} | null
 POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "items": PlaceFacts[] }. 규칙엔진 · audit_run 없음 · 저장 없음. 고른 직후 그 항목만
-모든 기획 조회: 예산 100% 면 검수와 같은 429 BUDGET_EXHAUSTED { "resumeAt": "익일 00:00 KST" } (문구만 "입력 · 저장은 계속"). 새 서비스 하나가 실패하면 그 필드만 null
-타입 PlanBriefing · PlanPlace · PlanEvent · PlanWalk · PlaceFacts 는 packages/shared plan.ts
+모든 기획 조회: 예산 100% 면 검수와 같은 429 BUDGET_EXHAUSTED. 오류 본문은 공통 모양(3-2) 그대로이고 재개 시각(내일 0시)과 "일정 입력 · 저장은 지금도 된다"를 message 에 담는다 — 오류에 필드를 더하지 않는다. 새 서비스 하나가 막히거나 실패하면 그 필드만 null 이고 notice 로 알린다
+타입 PlanBriefing · PlanPlace · PlanEvent · PlanWalk · PlaceFacts 는 packages/shared plan.ts. PlanPlace 에서 worldHeritage 를 뺐다(2026.09.16) — 목록 응답에 그 표시가 없고 화면 요구사항에도 없다
 ```
 <callout icon="🚧" color="orange_bg">
 	**기획 조회는 판정하지 않고 저장하지 않습니다** (FR-PL-017 · 021).
