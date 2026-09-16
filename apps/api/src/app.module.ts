@@ -34,6 +34,8 @@ import { ProductController } from './product/product.controller';
 import { ItemController } from './product/item.controller';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
+import { PlanController } from './plan/plan.controller';
+import { PlanService } from './plan/plan.service';
 import { DemandSignalRepository } from './persistence/demand-signal.repository';
 import { NotificationController } from './radar/notification.controller';
 import { NotificationService } from './radar/notification.service';
@@ -81,6 +83,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
      */
     ContentController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
+    PlanController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
@@ -192,6 +195,26 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
           hasBudget: async (service) => {
             const { dailyQuota } = await state.setting();
             return (await ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('BATCH')).allowed;
+          },
+        });
+      },
+      inject: [DB_POOL],
+    },
+    {
+      /*
+       * 상품 기획 조회 (F17). 공사 호출은 검수와 같은 100% 게이트를 지나고(`PLAN`), 서비스마다
+       * 자기 예산을 본다 — 무장애 · 반려동물 · 두루누비가 막혀도 국문 조회는 계속된다.
+       */
+      provide: PlanService,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlanService({
+          kto: () => (client ??= createKtoClient(logs)),
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
           },
         });
       },
