@@ -11,6 +11,8 @@ import { AuthGuard } from './auth/auth.guard';
 import { AgentLock } from './agent/agent-lock';
 import { CheckQuestionController } from './agent/check-question.controller';
 import { CheckQuestionService } from './agent/check-question.service';
+import { TodayBriefController } from './agent/today-brief.controller';
+import { TodayBriefService } from './agent/today-brief.service';
 import { PlaceSuggestionController } from './agent/place-suggestion.controller';
 import { PlaceSuggestionService } from './agent/place-suggestion.service';
 import { SignalBatchJob } from './batch/signal-batch.job';
@@ -97,6 +99,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
     ContentController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
     PlanController, PlaceFactsController, PlaceSuggestionController, CheckQuestionController,
+    TodayBriefController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
@@ -363,6 +366,34 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
         });
       },
       inject: [DB_POOL, AuditService, AgentLock],
+    },
+    {
+      /*
+       * 레이더 에이전트 — 오늘 할 일 (F18 · FR-AG-030 · 031).
+       *
+       * 저장된 알림 · 신호와 상품 출발일만 읽는다(공사 0콜). 순서와 대상은 서버가 정하고
+       * 모델은 이유 한 줄씩만 쓴다.
+       */
+      provide: TodayBriefService,
+      useFactory: (pool: Pool, radar: RadarService, lock: AgentLock) => {
+        const logs = new PgApiCallLogger(pool);
+        const repository = new RadarRepository(pool);
+        return new TodayBriefService({
+          radar: {
+            upcomingProducts: (accountId, today) => repository.upcomingProducts(accountId, today),
+            changes: (accountId, page, size) => repository.changes(accountId, page, size),
+            regionSignals: (accountId, now) => radar.regionSignals(accountId, now),
+            lastBatchAt: async () => (await repository.batchState())?.lastRunAt ?? null,
+          },
+          llm: () => {
+            const config = readLlmConfig();
+            if (config === null) throw new LlmNotConfiguredError('LLM_API_KEY 가 비어 있다');
+            return new LlmClient({ provider: createProvider(config), config, logger: logs });
+          },
+          lock,
+        });
+      },
+      inject: [DB_POOL, RadarService, AgentLock],
     },
     {
       provide: SyncBatchScheduler,

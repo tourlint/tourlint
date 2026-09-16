@@ -68,6 +68,11 @@ export interface WatchedProduct extends ProductRegion {
   readonly keywords: readonly string[];
 }
 
+/** 오늘 할 일이 보는 상품 한 줄 (FR-AG-030) */
+export interface BriefProduct extends ProductRegion {
+  readonly released: boolean;
+}
+
 export class RadarRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -229,6 +234,33 @@ export class RadarRepository {
       startDate: isoDate(r.start_date),
       nights: Number(r.nights),
       keywords: r.watch_keywords ?? [],
+    }));
+  }
+
+  /**
+   * 오늘 할 일의 대상 상품 (FR-AG-030). **여행이 끝나지 않은 것만** — 다녀온 상품은 할 일이 아니다.
+   *
+   * 순서는 출발일이 가까운 것부터다. 에이전트가 이 순서를 바꾸지 못한다.
+   */
+  async upcomingProducts(accountId: number, today: string): Promise<readonly BriefProduct[]> {
+    const { rows } = await this.pool.query<{
+      id: string; name: string; ldong_regn_cd: string; ldong_signgu_cd: string | null;
+      start_date: Date | string; nights: number; released_at: Date | null;
+    }>(
+      `SELECT id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights, released_at
+         FROM product
+        WHERE account_id = $1 AND start_date + nights >= $2::date
+        ORDER BY start_date, id`,
+      [accountId, today],
+    );
+    return rows.map((r) => ({
+      productId: Number(r.id),
+      name: r.name,
+      ldongRegnCd: r.ldong_regn_cd,
+      ldongSignguCd: r.ldong_signgu_cd,
+      startDate: isoDate(r.start_date),
+      nights: Number(r.nights),
+      released: r.released_at !== null,
     }));
   }
 
