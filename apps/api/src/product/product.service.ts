@@ -7,7 +7,6 @@ import type { PatchApplicationRepository } from '../persistence/patch-applicatio
 import {
   validateAddItem,
   validateCreate,
-  validateHandoff,
   validateOrder,
   validatePatchItem,
   validateUpdate,
