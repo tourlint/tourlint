@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AccountRepository } from '../auth/account.repository';
-import { ACCOUNT_SETTING_DEFAULTS, SettingsRepository } from './settings.repository';
+import { COMPANY_SETTING_DEFAULTS, SettingsRepository } from './settings.repository';
 
 const URL = process.env.TEST_DATABASE_URL;
 
@@ -28,41 +28,44 @@ describe.skipIf(URL === undefined)('SettingsRepository — 실 DB', () => {
     await pool.end();
   });
 
-  it('저장한 적 없으면 기본값을 읽는다', async () => {
-    const s = await repo.accountSettings(a1);
-    expect(s.r04Threshold).toBe(ACCOUNT_SETTING_DEFAULTS.r04Threshold);
-    expect(s.weights).toEqual(ACCOUNT_SETTING_DEFAULTS.weights);
+  it('회사 기준을 정한 적 없으면 표준값과 빈 목록을 읽는다', async () => {
+    const s = await repo.company(a1);
+    expect(s.r07SpanHours).toBe(COMPANY_SETTING_DEFAULTS.r07SpanHours);
+    expect(s.r07MealMinutes).toBe(COMPANY_SETTING_DEFAULTS.r07MealMinutes);
+    expect(s.updatedAt).toBeNull();
+    expect(s.history).toEqual([]);
     expect(s.watchKeywords).toEqual([]);
+    expect(s.watchRegions).toEqual([]);
   });
 
-  it('저장하면 그 값을 읽는다 (upsert)', async () => {
-    await repo.saveAccount(a1, {
-      weights: { BLOCKER: 30, ERROR: 10, WARNING: 4, UNVERIFIED: 3 },
-      r07SpanHours: 8,
-      r07MealMinutes: 45,
-      r04Threshold: 5,
-      watchKeywords: ['강릉'],
-    });
-    // 두 번째 저장이 첫 행을 덮는다 (계정당 1행)
-    await repo.saveAccount(a1, {
-      weights: { BLOCKER: 20, ERROR: 8, WARNING: 3, UNVERIFIED: 2 },
-      r07SpanHours: 7,
-      r07MealMinutes: 50,
-      r04Threshold: 4,
-      watchKeywords: ['강릉', '벚꽃'],
-    });
-    const s = await repo.accountSettings(a1);
-    expect(s.r07SpanHours).toBe(7);
-    expect(s.r04Threshold).toBe(4);
-    expect(s.watchKeywords).toEqual(['강릉', '벚꽃']);
-    expect(s.weights.BLOCKER).toBe(20);
+  it('회사 기준을 저장하면 그 값과 변경 이력을 읽는다 (upsert · 엄격하게만)', async () => {
+    await repo.saveCompany(a1, { r07SpanHours: 5, watchKeywords: ['강릉'] }, '2026-09-16T01:00:00.000Z');
+    // 두 번째 저장이 첫 행을 덮고, 바뀐 R07 값만 이력에 쌓인다 (식사 60 → 90)
+    const saved = await repo.saveCompany(
+      a1,
+      { r07MealMinutes: 90, watchRegions: [{ regnCd: '51', signguCd: '150', month: '2026-10' }] },
+      '2026-09-16T02:00:00.000Z',
+    );
+    expect(saved.r07SpanHours).toBe(5); // 안 준 값은 그대로
+    expect(saved.r07MealMinutes).toBe(90);
+    expect(saved.watchKeywords).toEqual(['강릉']);
+    expect(saved.watchRegions).toEqual([{ regnCd: '51', signguCd: '150', month: '2026-10' }]);
+
+    const read = await repo.company(a1);
+    expect(read.r07MealMinutes).toBe(90);
+    // 이력: 연속 6→5, 식사 60→90 — 두 줄
+    expect(read.history).toEqual([
+      { at: '2026-09-16T01:00:00.000Z', field: 'r07SpanHours', from: 6, to: 5 },
+      { at: '2026-09-16T02:00:00.000Z', field: 'r07MealMinutes', from: 60, to: 90 },
+    ]);
+    expect(read.updatedAt).not.toBeNull();
   });
 
   it('계정 설정은 서로 격리된다 (PM-DA-005)', async () => {
-    // a1 만 저장했다. a2 는 자기 기본값이어야 한다 — a1 의 값이 새지 않는다.
-    const s2 = await repo.accountSettings(a2);
-    expect(s2.r07SpanHours).toBe(ACCOUNT_SETTING_DEFAULTS.r07SpanHours);
-    expect(s2.r04Threshold).toBe(ACCOUNT_SETTING_DEFAULTS.r04Threshold);
+    // a1 만 저장했다. a2 는 표준값이어야 한다 — a1 의 값이 새지 않는다.
+    const s2 = await repo.company(a2);
+    expect(s2.r07SpanHours).toBe(COMPANY_SETTING_DEFAULTS.r07SpanHours);
+    expect(s2.r07MealMinutes).toBe(COMPANY_SETTING_DEFAULTS.r07MealMinutes);
     expect(s2.watchKeywords).toEqual([]);
   });
 

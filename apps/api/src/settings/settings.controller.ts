@@ -5,14 +5,11 @@ import type { SessionAccount } from '../auth/session.repository';
 import { SettingsService, type SettingsView } from './settings.service';
 
 /**
- * 관리자 설정 (F16 · FR-OP-020~027 · UI-S8).
+ * 검수 기준 (F16 · FR-OP-020~027 · UI-S8).
  *
- * 계정 설정(가중치 · R07 · R04 · 관심 키워드)은 요청 계정 것만 조회·저장한다 (PM-DA-005).
- * 전역 설정(배치 실행 시각 · 일일 호출 예산)은 서비스 전체 공통이라 여기서는 조회만 준다 —
- * 전역 변경은 관리자 권한 체계가 서야 열 수 있다.
- *
- * R10 기대 콘텐츠 프로파일 · 중분류 체류시간 · 실내 · 야외 매핑(59행 표 3종)은 별도 편집
- * 경로로 다룬다 (후속).
+ * 계정이 바꾸는 것은 회사 기준(R07 두 값)과 관심 키워드 · 관심 지역뿐이고, 요청 계정 것만
+ * 조회·저장한다 (PM-DA-005). 표준(가중치 · R04 · 표 3종)은 모든 계정에 같아 화면이 shared
+ * 시드를 직접 읽고, 배치 시각 · 예산은 운영자 전용이라 조회에 다음 배치 시각만 실린다.
  */
 @ApiTags('실엔진')
 @Controller('api/v1')
@@ -21,7 +18,7 @@ export class SettingsController {
 
   @Get('settings')
   async get(@CurrentAccount() account: SessionAccount): Promise<SettingsView> {
-    return this.service.get(account.accountId, account.isDemo);
+    return this.service.get(account.accountId);
   }
 
   @Put('settings')
@@ -29,6 +26,6 @@ export class SettingsController {
     @CurrentAccount() account: SessionAccount,
     @Body() body: unknown,
   ): Promise<SettingsView> {
-    return this.service.updateAccount(account.accountId, account.isDemo, body);
+    return this.service.update(account.accountId, body);
   }
 }
