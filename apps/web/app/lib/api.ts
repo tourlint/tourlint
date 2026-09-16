@@ -316,9 +316,27 @@ export const itemApi = {
     request<void>(`/products/${productId}/items/order`, { method: "PUT", body: JSON.stringify({ items }) }),
 };
 
+/** GET /rules 한 규칙 (검수 기준 탭 규칙 설명 · FR-OP-025 · API 5-10). */
+export interface RuleView {
+  code: string;
+  name: string;
+  version: string;
+  defaultSeverity: string | null;
+  requiresExternal: boolean;
+  basis: string;
+  /** 쓰는 데이터 코드 — 화면은 코드 대신 사용자 말로 적는다 (KTO·KAKAO 노출 금지) */
+  dataSources: string[];
+  threshold: string;
+  example: string;
+  /** R07 만 회사 기준으로 조일 수 있다 */
+  companyAdjustable: boolean;
+}
+
 export const auditApi = {
   listRuns: (productId: number) =>
     request<{ totalCount: number; runs: RunListItem[] }>(`/products/${productId}/audit-runs`),
+  /** 규칙 목록과 설명 (검수 기준 탭). 계정과 무관한 표준이라 캐시해도 된다. */
+  rules: () => request<{ rulesetVersion: string; rules: RuleView[] }>(`/rules`),
   getRun: (runId: number) => request<RunSummary>(`/audit-runs/${runId}`),
   getFindings: (runId: number) =>
     request<{ content: Finding[]; totalElements: number }>(`/audit-runs/${runId}/findings`),
@@ -584,7 +602,10 @@ export const reportApi = {
   },
 };
 
-// ── 관리자 설정 (F16 · UI-S8 · FR-OP-020~027) ────────────────────────────────
+// ── 검수 기준 (F16 · UI-S8 · FR-OP-020~027) ──────────────────────────────────
+//
+// 표준(가중치 · R04 임계치 · 표 3종)은 모든 계정에 같아 화면이 @tourlint/shared 시드를
+// 직접 읽는다(0콜). 계정이 바꾸는 것은 회사 기준 R07 두 값과 관심 키워드 · 관심 지역뿐이다.
 
 export interface WeightSettings {
   BLOCKER: number;
@@ -593,82 +614,57 @@ export interface WeightSettings {
   UNVERIFIED: number;
 }
 
-export interface AccountSettings {
-  weights: WeightSettings;
-  r07SpanHours: number;
-  r07MealMinutes: number;
-  r04Threshold: number;
-  watchKeywords: string[];
+export interface WatchRegion {
+  regnCd: string;
+  signguCd: string | null;
+  month: string;
 }
 
-export interface GlobalSettings {
-  batchTime: string;
-  batchEnabled: boolean;
-  dailyQuota: number;
+export interface R07HistoryEntry {
+  at: string;
+  field: "r07SpanHours" | "r07MealMinutes";
+  from: number;
+  to: number;
+}
+
+/** 표준 요약 — 읽기만 한다 (UI-S8). 표 3종은 shared 시드를 직접 읽으므로 여기 없다. */
+export interface StandardView {
+  version: string;
+  weights: WeightSettings;
+  r04Threshold: number;
+  r07SpanHours: number;
+  r07MealMinutes: number;
+}
+
+export interface CompanyView {
+  r07SpanHours: number;
+  r07MealMinutes: number;
+  updatedAt: string | null;
+  history: R07HistoryEntry[];
 }
 
 export interface SettingsView {
-  account: AccountSettings;
-  global: GlobalSettings;
-  defaults: { account: AccountSettings; global: GlobalSettings };
-  // 전역 편집 권한·예산 상한 (UI-S8-006). 데모 계정은 전역을 못 바꾼다.
-  globalEditable: boolean;
-  quotaCap: number;
+  standard: StandardView;
+  company: CompanyView;
+  watchKeywords: string[];
+  watchRegions: WatchRegion[];
+  ops: { batchTime: string; nextBatchAt: string | null };
+}
+
+/** PUT /settings 본문 — 회사 기준 두 값과 관심 2종만. 안 보낸 것은 그대로 둔다. */
+export interface CompanyUpdate {
+  r07SpanHours?: number;
+  r07MealMinutes?: number;
+  watchKeywords?: string[];
+  watchRegions?: WatchRegion[];
 }
 
 export const settingsApi = {
   get: () => request<SettingsView>("/settings"),
-  // 계정 설정만 저장한다. 전역 값(배치 시각·일일 예산)은 사용자 API 로 바꾸지 않는다 (PM-FN-008).
-  update: (account: AccountSettings) =>
-    request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify(account) }),
-};
-
-// ── 계정 기준표 (F16 · UI-S8-005) ────────────────────────────────────────────
-
-export type IndoorOutdoor = "INDOOR" | "OUTDOOR" | "MIXED";
-
-export interface DwellEntry {
-  lcls2: string;
-  name: string;
-  minutes: number;
-  defaultMinutes: number;
-}
-
-export interface IoEntry {
-  lcls2: string;
-  name: string;
-  spaceType: IndoorOutdoor;
-  defaultSpaceType: IndoorOutdoor;
-}
-
-export interface ProfileEntry {
-  targetKey: string;
-  conceptKey: string;
-  expectedLcls2: string[];
-  expectsNight: boolean;
-}
-
-export interface LclsItem {
-  code: string;
-  name: string;
-}
-
-export const settingsTablesApi = {
-  dwell: () => request<{ entries: DwellEntry[] }>("/settings/dwell"),
-  saveDwell: (entries: { lcls2: string; minutes: number }[]) =>
-    request<{ entries: DwellEntry[] }>("/settings/dwell", { method: "PUT", body: JSON.stringify({ entries }) }),
-  indoorOutdoor: () => request<{ entries: IoEntry[] }>("/settings/indoor-outdoor"),
-  saveIndoorOutdoor: (entries: { lcls2: string; spaceType: IndoorOutdoor }[]) =>
-    request<{ entries: IoEntry[] }>("/settings/indoor-outdoor", {
-      method: "PUT",
-      body: JSON.stringify({ entries }),
-    }),
-  // R10 기대 콘텐츠 프로파일. 저장은 전체 교체다.
-  profiles: () => request<{ entries: ProfileEntry[] }>("/settings/profiles"),
-  saveProfiles: (entries: ProfileEntry[]) =>
-    request<{ entries: ProfileEntry[] }>("/settings/profiles", { method: "PUT", body: JSON.stringify({ entries }) }),
-  // 중분류 카탈로그(코드→이름). 프로파일 편집기의 기대 중분류 선택에 쓴다.
-  lcls: () => request<{ entries: LclsItem[] }>("/settings/lcls"),
+  // 회사 기준(엄격하게만) · 관심 키워드 · 관심 지역만 저장한다. 느슨하면 서버가 400
+  // SETTING_NOT_STRICTER 를 준다 (FR-OP-022).
+  update: (patch: CompanyUpdate) =>
+    request<SettingsView>("/settings", { method: "PUT", body: JSON.stringify(patch) }),
 };
 
 export function isApiError(e: unknown): e is ApiError {
