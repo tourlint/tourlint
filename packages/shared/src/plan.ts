@@ -51,7 +51,6 @@ export interface PlanPlace {
   wheelchair: boolean | null;
   pet: boolean | null;
   indoorOutdoor: IndoorOutdoor | null;
-  worldHeritage: boolean;
 }
 
 export interface PlanEvent {
