@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isApiError } from "../lib/api";
 import { GradeCounts, StatusBadge } from "../components/badges";
+import { STAGE_LABEL, STAGE_ORDER, stageOf, type Stage } from "../lib/stage-of";
 
 interface LatestAudit {
   executedAt: string;
@@ -25,7 +26,12 @@ interface Product {
   nights: number;
   region?: { regnName?: string; signguName?: string };
   latestAudit?: LatestAudit | null;
+  plannedAt?: string | null;
+  releasedAt?: string | null;
+  pendingMatches?: number;
 }
+
+type View = "board" | "list";
 
 const NIGHTS_LABEL = ["당일", "1박 2일", "2박 3일"];
 
@@ -72,6 +78,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("startDate");
   const [showPast, setShowPast] = useState(false);
+  const [view, setView] = useState<View>("board");
 
   useEffect(() => {
     let alive = true;
@@ -106,17 +113,17 @@ export default function DashboardPage() {
     <>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">상품 대시보드</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">내 상품</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            검수 대상: 당일 ~ 2박 3일 · 최대 구간 12곳
+            기획 · 검수 · 출시 단계로 봅니다. 검수 대상은 당일 ~ 2박 3일입니다.
           </p>
         </div>
-        {/* 신규 상품 등록 진입점 (UI-S1-006) */}
+        {/* 새 상품 기획 진입점 (UI-S1-006) */}
         <Link
           href="/products/new"
           className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
         >
-          신규 등록
+          새 상품 기획
         </Link>
       </div>
 
@@ -135,8 +142,131 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
+          {/* 보드 · 목록 전환 (UI-S1-001) */}
+          <div className="mt-6 flex items-center gap-1 text-sm">
+            {(["board", "list"] as View[]).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-pressed={view === v}
+                className={`rounded-md px-2.5 py-1 font-medium transition ${
+                  view === v
+                    ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                    : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                }`}
+              >
+                {v === "board" ? "보드" : "목록"}
+              </button>
+            ))}
+          </div>
+
+          {view === "board" ? (
+            <StageBoard products={upcoming} />
+          ) : (
+            <ListView
+              upcoming={upcoming}
+              past={past}
+              sortKey={sortKey}
+              setSortKey={setSortKey}
+              showPast={showPast}
+              setShowPast={setShowPast}
+            />
+          )}
+
+          {/* 보드 아래 바로 가기 (UI-S1-006) */}
+          <div className="mt-6 flex flex-wrap gap-2 text-sm">
+            <Link href="/radar" className="rounded-md border border-slate-300 px-3 py-1.5 font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+              레이더 보기
+            </Link>
+            <Link href="/standard" className="rounded-md border border-slate-300 px-3 py-1.5 font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+              검수 기준 보기
+            </Link>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+// 단계별 4칸 보드 (UI-S1-001 · 010 · 011). 출발일이 지난 상품은 목록 뷰에서 접어 본다.
+function StageBoard({ products }: { products: Product[] }) {
+  const byStage: Record<Stage, Product[]> = { PLANNING: [], REVIEW: [], RELEASABLE: [], RELEASED: [] };
+  for (const p of products) {
+    byStage[stageOf({ plannedAt: p.plannedAt ?? null, releasedAt: p.releasedAt ?? null, latestAudit: p.latestAudit ?? null })].push(p);
+  }
+  return (
+    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {STAGE_ORDER.map((stage) => (
+        <div key={stage} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/30">
+          <h2 className="flex items-center justify-between text-sm font-semibold text-slate-700 dark:text-slate-200">
+            {STAGE_LABEL[stage]}
+            <span className="tabular-nums text-slate-400">{byStage[stage].length}</span>
+          </h2>
+          <div className="mt-2 space-y-2">
+            {byStage[stage].length === 0 ? (
+              <p className="py-6 text-center text-xs text-slate-400">없음</p>
+            ) : (
+              byStage[stage].map((p) => <BoardCard key={p.productId} product={p} stage={stage} />)
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BoardCard({ product: p, stage }: { product: Product; stage: Stage }) {
+  const a = p.latestAudit ?? null;
+  return (
+    <Link
+      href={`/products/${p.productId}`}
+      className="block rounded-lg border border-slate-200 bg-white p-3 transition hover:border-indigo-300 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700"
+    >
+      <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{p.name}</p>
+      <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
+        {[p.region?.regnName, p.region?.signguName].filter(Boolean).join(" ") || "지역 미지정"} · {p.startDate}
+      </p>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{boardHint(p, stage, a)}</p>
+    </Link>
+  );
+}
+
+function boardHint(p: Product, stage: Stage, a: LatestAudit | null): string {
+  switch (stage) {
+    case "PLANNING":
+      return (p.pendingMatches ?? 0) > 0 ? `아직 고르지 않은 장소 ${p.pendingMatches}곳` : "검수 시작 전";
+    case "REVIEW":
+      if (a === null) return "검수를 시작해요";
+      if (a.isPartial) return "부분 검수";
+      return a.counts.blocker > 0 ? `차단 ${a.counts.blocker}건` : "검수 중";
+    case "RELEASABLE":
+      return a?.readinessScore != null ? `${a.readinessScore}점 · 출시할 수 있어요` : "출시할 수 있어요";
+    case "RELEASED":
+      return p.releasedAt ? `출시함 · ${p.releasedAt.slice(0, 10)}` : "출시함";
+  }
+}
+
+// 목록 뷰 — 정렬 · 지난 상품 접기 (UI-S1-002 · 007 · 008)
+function ListView({
+  upcoming,
+  past,
+  sortKey,
+  setSortKey,
+  showPast,
+  setShowPast,
+}: {
+  upcoming: Product[];
+  past: Product[];
+  sortKey: SortKey;
+  setSortKey: (k: SortKey) => void;
+  showPast: boolean;
+  setShowPast: (fn: (v: boolean) => boolean) => void;
+}) {
+  return (
+    <>
           {/* 정렬 전환 (UI-S1-007) */}
-          <div className="mt-6 flex items-center justify-end gap-1 text-sm">
+          <div className="mt-4 flex items-center justify-end gap-1 text-sm">
             <span className="mr-1 text-slate-400">정렬</span>
             {SORTS.map((s) => (
               <button
@@ -188,8 +318,6 @@ export default function DashboardPage() {
               {showPast && past.map((p) => <ProductRow key={p.productId} product={p} past />)}
             </tbody>
           </table>
-        </>
-      )}
     </>
   );
 }

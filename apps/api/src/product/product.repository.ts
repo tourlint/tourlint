@@ -28,6 +28,9 @@ export interface ProductListRow {
     readonly counts: { readonly blocker: number; readonly error: number; readonly warning: number; readonly unverified: number };
     readonly releasable: boolean;
   } | null;
+  /** 검수 시작을 누른 시각. null 이면 기획 중 (DR-IN-014) */
+  readonly plannedAt: string | null;
+  readonly releasedAt: string | null;
 }
 
 export interface ProductDetailRow {
@@ -42,6 +45,10 @@ export interface ProductDetailRow {
   readonly headCount: number | null;
   readonly transport: Transport;
   readonly releasedAt: string | null;
+  readonly plannedAt: string | null;
+  readonly planOrigin: unknown | null;
+  /** 항목 구성 — 직접 입력 · 장소 담기로 넣음 · 직접 정한 곳(검수 제외) (UI-S1-011) */
+  readonly composition: { readonly manual: number; readonly picker: number; readonly excluded: number };
   readonly createdAt: string;
   readonly items: readonly ItemDetail[];
 }
@@ -96,12 +103,13 @@ export class ProductRepository {
       const { rows } = await client.query<{ id: string; created_at: Date }>(
         `INSERT INTO product
            (account_id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights,
-            target_key, concept_key, head_count, transport)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            target_key, concept_key, head_count, transport, plan_origin)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
          RETURNING id, created_at`,
         [
           accountId, product.name, product.ldongRegnCd, product.ldongSignguCd, product.startDate,
           product.nights, product.targetKey, product.conceptKey, product.headCount, product.transport,
+          product.planOrigin === null ? null : JSON.stringify(product.planOrigin),
         ],
       );
       const created = rows[0];
@@ -131,6 +139,7 @@ export class ProductRepository {
 
     const { rows } = await this.pool.query<ListRaw>(
       `SELECT p.id, p.name, p.start_date, p.nights, p.ldong_regn_cd, p.ldong_signgu_cd,
+              p.planned_at, p.released_at,
               (SELECT count(*) FROM itinerary_item it
                  WHERE it.product_id = p.id AND it.match_status = 'PENDING')::int AS pending,
               (SELECT count(*) FROM notification n
@@ -154,7 +163,7 @@ export class ProductRepository {
   async detail(accountId: number, productId: number): Promise<ProductDetailRow | null> {
     const { rows } = await this.pool.query<DetailRaw>(
       `SELECT id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights,
-              target_key, concept_key, head_count, transport, released_at, created_at
+              target_key, concept_key, head_count, transport, released_at, planned_at, plan_origin, created_at
          FROM product WHERE id = $1 AND account_id = $2`,
       [productId, accountId],
     );
@@ -162,10 +171,19 @@ export class ProductRepository {
     if (row === undefined) return null;
 
     const items = await this.pool.query<ItemRaw>(
-      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status
+      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
+
+    let manual = 0;
+    let picker = 0;
+    let excluded = 0;
+    for (const it of items.rows) {
+      if (it.match_status === 'EXCLUDED') excluded += 1;
+      else if (it.origin === 'PICKER') picker += 1;
+      else manual += 1;
+    }
 
     return {
       id: Number(row.id),
@@ -179,6 +197,9 @@ export class ProductRepository {
       headCount: row.head_count,
       transport: row.transport,
       releasedAt: isoStamp(row.released_at),
+      plannedAt: isoStamp(row.planned_at),
+      planOrigin: row.plan_origin ?? null,
+      composition: { manual, picker, excluded },
       createdAt: isoStamp(row.created_at) ?? '',
       items: items.rows.map(toItemDetail),
     };
@@ -245,6 +266,69 @@ export class ProductRepository {
       [productId, accountId],
     );
     return rows.length === 0 ? null : isoStamp(rows[0]?.released_at ?? null);
+  }
+
+  // ── 검수 시작(handoff) — 기획 중 → 검수 중 (FR-PL-020 · D7) ────────────────
+
+  /** 검수 시작에 필요한 정보. 남의 상품이면 null. */
+  async handoffState(
+    accountId: number,
+    productId: number,
+  ): Promise<{ plannedAt: string | null; pendingIds: number[] } | null> {
+    const { rows } = await this.pool.query<{ planned_at: Date | string | null }>(
+      `SELECT planned_at FROM product WHERE id = $1 AND account_id = $2`,
+      [productId, accountId],
+    );
+    if (rows.length === 0) return null;
+    const pending = await this.pool.query<{ id: string }>(
+      `SELECT id FROM itinerary_item WHERE product_id = $1 AND match_status = 'PENDING' ORDER BY id`,
+      [productId],
+    );
+    return {
+      plannedAt: isoStamp(rows[0]?.planned_at ?? null),
+      pendingIds: pending.rows.map((r) => Number(r.id)),
+    };
+  }
+
+  /**
+   * 남은 미확정을 검수 제외로 넘기고 검수 시작 시각을 한 트랜잭션으로 기록한다 (D7).
+   * `planned_at` 은 아직 없을 때만 채운다(재요청해도 처음 시각 유지). 기록한 시각을 돌려준다.
+   */
+  async applyHandoff(productId: number, excludeIds: readonly number[]): Promise<string> {
+    return withTransaction(this.pool, async (client) => {
+      if (excludeIds.length > 0) {
+        await client.query(
+          `UPDATE itinerary_item SET match_status = 'EXCLUDED'
+            WHERE product_id = $1 AND id = ANY($2::bigint[]) AND match_status = 'PENDING'`,
+          [productId, excludeIds],
+        );
+      }
+      const { rows } = await client.query<{ planned_at: Date }>(
+        `UPDATE product SET planned_at = COALESCE(planned_at, now()), updated_at = now()
+          WHERE id = $1 RETURNING planned_at`,
+        [productId],
+      );
+      return isoStamp(rows[0]?.planned_at ?? null) ?? '';
+    });
+  }
+
+  /**
+   * 검수 요청이 거절돼(예산 100% 등) 되돌린다 — 넘겼던 항목을 미확정으로, 이번에 처음 찍은
+   * `planned_at` 이면 다시 비운다. 상품이 기획 중 상태 그대로 남는다.
+   */
+  async revertHandoff(productId: number, excludeIds: readonly number[], clearPlanned: boolean): Promise<void> {
+    await withTransaction(this.pool, async (client) => {
+      if (excludeIds.length > 0) {
+        await client.query(
+          `UPDATE itinerary_item SET match_status = 'PENDING'
+            WHERE product_id = $1 AND id = ANY($2::bigint[]) AND match_status = 'EXCLUDED'`,
+          [productId, excludeIds],
+        );
+      }
+      if (clearPlanned) {
+        await client.query(`UPDATE product SET planned_at = NULL, updated_at = now() WHERE id = $1`, [productId]);
+      }
+    });
   }
 
   // ── 일정 항목 개별 CRUD (FR-IN-013/014) ──────────────────────────────────
@@ -375,6 +459,8 @@ interface ListRaw {
   error_cnt: number | null;
   warn_cnt: number | null;
   unverified_cnt: number | null;
+  planned_at: Date | string | null;
+  released_at: Date | string | null;
 }
 
 function toListRow(r: ListRaw): ProductListRow {
@@ -405,6 +491,8 @@ function toListRow(r: ListRaw): ProductListRow {
     pendingMatches: r.pending,
     unreadNotifications: r.unread,
     latestAudit,
+    plannedAt: isoStamp(r.planned_at),
+    releasedAt: isoStamp(r.released_at),
   };
 }
 
@@ -420,6 +508,8 @@ interface DetailRaw {
   head_count: number | null;
   transport: Transport;
   released_at: Date | string | null;
+  planned_at: Date | string | null;
+  plan_origin: unknown | null;
   created_at: Date | string;
 }
 
@@ -433,6 +523,7 @@ interface ItemRaw {
   item_type: ItemType;
   kto_content_id: string | null;
   match_status: MatchStatus;
+  origin: string | null;
 }
 
 function toItemDetail(r: ItemRaw): ItemDetail {

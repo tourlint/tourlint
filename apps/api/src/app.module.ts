@@ -166,14 +166,16 @@ import { SettingsRepository } from './settings/settings.repository';
     {
       // 상품 CRUD. 목록의 지역명 조회에 CatalogService 를 재사용한다 (fixture 리플레이라 예산 0)
       provide: ProductService,
-      useFactory: (pool: Pool, catalog: CatalogService) => new ProductService(
+      useFactory: (pool: Pool, catalog: CatalogService, audit: AuditService) => new ProductService(
         new ProductRepository(pool),
         catalog,
         new PatchApplicationRepository(pool),
         // 대체·추가된 항목의 이름은 표시할 때 읽는다 (FR-PA-003 · DR-PR-001)
         new PlaceNameResolver({ kto: () => createKtoClient(new PgApiCallLogger(pool)) }),
+        // 검수 시작(handoff)이 검수를 요청한다 (D7)
+        audit,
       ),
-      inject: [DB_POOL, CatalogService],
+      inject: [DB_POOL, CatalogService, AuditService],
     },
     {
       // 관광지 확정(매칭). 검색·상세 프록시에 KTO 클라이언트를 쓴다 (KTO_MODE 에 따라 live/fixture)

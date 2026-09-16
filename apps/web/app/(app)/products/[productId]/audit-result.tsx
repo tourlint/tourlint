@@ -346,6 +346,7 @@ export function AuditResult({ productId }: { productId: number }) {
               }}
             />
           )}
+          {product && <LifecycleBar product={product} run={data.run} />}
           <SummaryCard run={data.run} releasedAt={product?.releasedAt ?? null} />
           <FindingsSection
             findings={data.findings}
@@ -687,6 +688,49 @@ function ApplyResultBanner({
         )}
       </div>
     </section>
+  );
+}
+
+// 상단 라이프사이클 바 (UI-S1-011 · 기획 → 검수 → 레이더). 기획 출처 · 구성, 검수 요약,
+// 출시 후 레이더 안내를 한 줄로 보여 준다. 출시 버튼은 아래 요약 카드에 있다.
+const STARTED_BY_LABEL: Record<string, string> = {
+  MANUAL: "직접 입력으로 시작",
+  UPLOAD: "엑셀로 시작",
+  TEXT: "메모 붙여넣기로 시작",
+  CLONE: "복제로 시작",
+  SIGNAL: "레이더 소식으로 시작",
+};
+
+function planCell(product: ProductDetail): string {
+  const started = product.planOrigin ? (STARTED_BY_LABEL[product.planOrigin.startedBy] ?? "기획으로 시작") : "직접 기획";
+  const c = product.composition;
+  const total = c.manual + c.picker + c.excluded;
+  const places = c.excluded > 0 ? `장소 ${total}곳 (직접 정한 곳 ${c.excluded})` : `장소 ${total}곳`;
+  return `${started} · ${places}`;
+}
+
+function reviewCell(run: RunSummary): string {
+  if (run.isPartial) return "부분 검수";
+  if (run.readinessScore === null) return "검수 전";
+  return `${run.readinessScore}점 · ${run.releasable ? "출시할 수 있어요" : `차단 ${run.counts.blocker}건`}`;
+}
+
+function LifecycleBar({ product, run }: { product: ProductDetail; run: RunSummary }) {
+  const released = product.releasedAt !== null;
+  const cells: { title: string; text: string }[] = [
+    { title: "기획", text: planCell(product) },
+    { title: "검수", text: reviewCell(run) },
+    { title: "레이더", text: released ? "바뀐 정보를 알려 드려요" : "출시하면 바뀐 정보를 알려 드려요" },
+  ];
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      {cells.map((c) => (
+        <div key={c.title} className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-800">
+          <p className="text-xs text-slate-400">{c.title}</p>
+          <p className="mt-0.5 text-sm text-slate-700 dark:text-slate-200">{c.text}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 

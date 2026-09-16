@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
+import { HttpStatus } from '@nestjs/common';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { DomainException } from '../common/domain.exception';
 import { PlaceNameResolver } from '../audit/place-name';
 import { CatalogService } from '../catalog/catalog.service';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
@@ -39,6 +41,7 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
       new CatalogService(kto),
       patches,
       new PlaceNameResolver({ kto }),
+      {} as never, // 이 스펙은 handoff 를 부르지 않는다
     );
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO account (email, password_hash) VALUES ($1, 'x')
@@ -139,6 +142,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
   it('🔴 차단이 1건이면 403 FORBIDDEN_ACTION 이다 — 화면 버튼만으로 충족하지 않는다', async () => {
@@ -161,5 +165,67 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
       productId: 7,
       releasedAt: '2026-09-09T00:00:00.000Z',
     });
+  });
+});
+
+describe('검수 시작 handoff (FR-PL-020 · D7) — 저장소 · 검수는 스텁', () => {
+  interface Calls {
+    applied?: readonly number[];
+    reverted?: { ids: readonly number[]; clearPlanned: boolean };
+    requested: boolean;
+  }
+
+  // 미확정 pendingIds 와 검수 요청 성공 여부를 주면, 그 조합으로 handoff 를 돌린다.
+  function make(opts: { pendingIds: number[]; plannedAt: string | null; budgetOk: boolean }) {
+    const calls: Calls = { requested: false };
+    const repo = {
+      handoffState: async () => ({ plannedAt: opts.plannedAt, pendingIds: opts.pendingIds }),
+      applyHandoff: async (_productId: number, ids: readonly number[]) => {
+        calls.applied = ids;
+        return '2026-10-01T00:00:00.000Z';
+      },
+      revertHandoff: async (_productId: number, ids: readonly number[], clearPlanned: boolean) => {
+        calls.reverted = { ids, clearPlanned };
+      },
+    } as unknown as ProductRepository;
+    const audit = {
+      requestAudit: async () => {
+        calls.requested = true;
+        if (!opts.budgetOk) {
+          throw new DomainException(HttpStatus.TOO_MANY_REQUESTS, 'BUDGET_EXHAUSTED', '예산 소진', 'REQUEST');
+        }
+        return { job: { id: 42 }, created: true };
+      },
+    } as unknown as import('../audit/audit.service').AuditService;
+    const svc = new ProductService(repo, {} as never, {} as never, {} as never, audit);
+    return { svc, calls };
+  }
+
+  it('미확정이 남았는데 이대로 시작이 아니면 422 로 건수를 알려 준다', async () => {
+    const { svc, calls } = make({ pendingIds: [1, 2], plannedAt: null, budgetOk: true });
+    await expect(svc.handoff(1, 9, false)).rejects.toMatchObject({
+      reasonCode: 'PLACE_UNRESOLVED',
+      status: 422,
+      fieldErrors: [{ field: 'pendingCount', message: '2' }],
+    });
+    expect(calls.requested).toBe(false); // 검수를 요청하지 않았다
+  });
+
+  it('이대로 시작이면 남은 곳을 제외하고 검수를 요청한다 (202)', async () => {
+    const { svc, calls } = make({ pendingIds: [1, 2], plannedAt: null, budgetOk: true });
+    await expect(svc.handoff(1, 9, true)).resolves.toEqual({
+      productId: 9,
+      plannedAt: '2026-10-01T00:00:00.000Z',
+      jobId: 42,
+      excludedCount: 2,
+    });
+    expect(calls.applied).toEqual([1, 2]);
+  });
+
+  it('예산 100% 로 검수 요청이 거절되면 되돌려 기획 중에 남긴다', async () => {
+    const { svc, calls } = make({ pendingIds: [1], plannedAt: null, budgetOk: false });
+    await expect(svc.handoff(1, 9, true)).rejects.toMatchObject({ reasonCode: 'BUDGET_EXHAUSTED' });
+    // 방금 처음 찍은 planned_at 이라 다시 비운다
+    expect(calls.reverted).toEqual({ ids: [1], clearPlanned: true });
   });
 });
