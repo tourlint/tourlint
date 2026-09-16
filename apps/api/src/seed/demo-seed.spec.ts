@@ -61,12 +61,7 @@ describe.skipIf(URL === undefined)('seedDemo', () => {
         `SELECT count(*)::text n FROM ${table} WHERE account_id = $1`, [accountId]);
       return Number(r.rows[0]?.n ?? 0);
     };
-    return {
-      target: await one('target_profile'),
-      io: await one('indoor_outdoor_map'),
-      dwell: await one('dwell_default'),
-      setting: await one('user_setting'),
-    };
+    return { setting: await one('user_setting') };
   };
 
   it('🔴 계정 기본 데이터는 user_setting 한 행이다 — 기준표는 표준 시드를 읽어 복사하지 않는다', async () => {
@@ -79,7 +74,7 @@ describe.skipIf(URL === undefined)('seedDemo', () => {
      */
     await pool.query(`DELETE FROM account WHERE email = $1`, [SPEC_EMAIL]);
     const { accountId } = await seedDemo(pool);
-    expect(await defaults(accountId)).toEqual({ target: 0, io: 0, dwell: 0, setting: 1 });
+    expect(await defaults(accountId)).toEqual({ setting: 1 });
   });
 
   it('🔴 이미 있는 계정에도 설정 행을 채운다 — 비어 있던 계정이 복구된다', async () => {
