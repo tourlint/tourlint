@@ -1,4 +1,4 @@
-import { ITEM_TYPE, TRANSPORT, type ItemType, type Transport } from '@tourlint/shared';
+import { ITEM_TYPE, TRANSPORT, isConceptKey, isTargetKey, type ItemType, type Transport } from '@tourlint/shared';
 
 /**
  * 상품 등록·편집 요청 계약과 검증 (F01 · API 설계 5-1).
@@ -67,6 +67,20 @@ function str(v: unknown): string {
 }
 
 /**
+ * 타깃 · 콘셉트는 표준 키만 받는다 (FR-PL-003 · DR-IN-015). 자유 입력이던 것을 목록 선택으로
+ * 바꿔 R10 이 표준 프로파일과 맞춰볼 수 있게 한다. 빈 값은 null, 목록에 없는 값은 오류다.
+ */
+function keyOrNull(v: unknown, isValid: (x: unknown) => boolean, label: string, errors: string[]): string | null {
+  const s = str(v);
+  if (s === '') return null;
+  if (!isValid(s)) {
+    errors.push(`${label}은(는) 목록에서 골라 주세요.`);
+    return null;
+  }
+  return s;
+}
+
+/**
  * 상품 생성 요청을 검증하고 저장용 형태로 바꾼다. 오류가 있으면 `errors` 가 비지 않는다 —
  * 이때 `product` 는 신뢰하지 않는다.
  */
@@ -99,6 +113,9 @@ export function validateCreate(dto: CreateProductDto): { errors: string[]; produ
     if (!Number.isInteger(headCount) || headCount <= 0) errors.push('예상 인원은 1 이상의 정수여야 합니다.');
   }
 
+  const targetKey = keyOrNull(dto.targetKey, isTargetKey, '타깃', errors);
+  const conceptKey = keyOrNull(dto.conceptKey, isConceptKey, '콘셉트', errors);
+
   const items = validateDays(dto.days, nights, errors);
 
   if (errors.length > 0) return { errors, product: null };
@@ -110,8 +127,8 @@ export function validateCreate(dto: CreateProductDto): { errors: string[]; produ
       ldongSignguCd,
       startDate,
       nights,
-      targetKey: str(dto.targetKey) || null,
-      conceptKey: str(dto.conceptKey) || null,
+      targetKey,
+      conceptKey,
       headCount,
       transport: transport as Transport,
       items,
@@ -154,8 +171,8 @@ export function validateUpdate(dto: UpdateProductDto): { errors: string[]; updat
     if (name === '') errors.push('상품명은 비울 수 없습니다.');
     else update.name = name;
   }
-  if (dto.targetKey !== undefined) update.targetKey = str(dto.targetKey) || null;
-  if (dto.conceptKey !== undefined) update.conceptKey = str(dto.conceptKey) || null;
+  if (dto.targetKey !== undefined) update.targetKey = keyOrNull(dto.targetKey, isTargetKey, '타깃', errors);
+  if (dto.conceptKey !== undefined) update.conceptKey = keyOrNull(dto.conceptKey, isConceptKey, '콘셉트', errors);
   if (dto.headCount !== undefined) {
     if (dto.headCount === null || dto.headCount === '') {
       update.headCount = null;

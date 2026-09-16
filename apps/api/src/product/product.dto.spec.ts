@@ -38,6 +38,24 @@ describe('validateCreate', () => {
     expect(withEnd?.endTimeSource).toBe('INPUT');
   });
 
+  it('🔴 자유 입력이던 타깃 · 콘셉트는 표준 키만 받는다 (FR-PL-003 · DR-IN-015)', () => {
+    // 되돌리기 가드: keyOrNull 검증을 빼면 '20대 커플' 이 통과해 이 검사가 빨개진다
+    const bad = validateCreate(base({ targetKey: '20대 커플', conceptKey: '힐링여행' }));
+    expect(bad.product).toBeNull();
+    expect(bad.errors.length).toBeGreaterThan(0);
+
+    const ok = validateCreate(base({ targetKey: 'COUPLE', conceptKey: 'EMOTIONAL' }));
+    expect(ok.errors).toEqual([]);
+    expect(ok.product?.targetKey).toBe('COUPLE');
+    expect(ok.product?.conceptKey).toBe('EMOTIONAL');
+
+    // 미지정은 허용한다 (아직 안 고른 상품)
+    const none = validateCreate(base({ targetKey: '', conceptKey: undefined }));
+    expect(none.errors).toEqual([]);
+    expect(none.product?.targetKey).toBeNull();
+    expect(none.product?.conceptKey).toBeNull();
+  });
+
   it('박수와 일정 수가 안 맞으면 막는다 (EX-IN-005)', () => {
     // nights 2 는 3일치를 요구하는데 2일치만 준다
     const days = [

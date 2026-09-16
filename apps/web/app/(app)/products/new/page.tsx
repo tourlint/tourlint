@@ -21,6 +21,14 @@ import {
   type Schedule,
   type Transport,
 } from "./types";
+import {
+  CONCEPT_KEY,
+  CONCEPT_LABEL,
+  LCLS_SYSTM2,
+  TARGET_KEY,
+  TARGET_LABEL,
+  findProfile,
+} from "@tourlint/shared";
 
 type Method = "direct" | "upload" | "nl";
 
@@ -188,8 +196,15 @@ export default function ProductNewPage() {
         {/* B. 상품 성격 · 이동 */}
         <Section title="상품 성격 · 이동">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="타깃 고객" hint="R10 타깃 적합성 판정에 쓰입니다.">
-              <TextInput value={target} placeholder="예: 20~30대 커플" onChange={(e) => setTarget(e.target.value)} />
+            <Field label="타깃 고객">
+              <SelectInput value={target} onChange={(e) => setTarget(e.target.value)}>
+                <option value="">선택 안 함</option>
+                {TARGET_KEY.map((k) => (
+                  <option key={k} value={k}>
+                    {TARGET_LABEL[k]}
+                  </option>
+                ))}
+              </SelectInput>
             </Field>
             <Field label="예상 인원">
               <TextInput
@@ -203,10 +218,19 @@ export default function ProductNewPage() {
           </div>
 
           <Field label="상품 콘셉트">
-            <TextInput value={concept} placeholder="예: 해변 산책과 로컬 미식" onChange={(e) => setConcept(e.target.value)} />
+            <SelectInput value={concept} onChange={(e) => setConcept(e.target.value)}>
+              <option value="">선택 안 함</option>
+              {CONCEPT_KEY.map((k) => (
+                <option key={k} value={k}>
+                  {CONCEPT_LABEL[k]}
+                </option>
+              ))}
+            </SelectInput>
           </Field>
 
-          <Field label="이동수단" hint="R08 이동시간 판정에 쓰입니다.">
+          <FavoriteTypes target={target} concept={concept} />
+
+          <Field label="이동수단">
             <SelectInput value={transport} onChange={(e) => setTransport(e.target.value as Transport)}>
               {TRANSPORT_OPTIONS.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -216,10 +240,10 @@ export default function ProductNewPage() {
             </SelectInput>
           </Field>
 
-          {/* 대중교통 선택 시 R08 확인 불가 안내 (UI-S2-005) */}
+          {/* 대중교통은 이동 시간을 확인하기 어렵다는 안내 (UI-S2-005). 규칙 번호 · 등급 말은 쓰지 않는다 */}
           {transport === "PUBLIC_TRANSIT" && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-              대중교통을 선택하면 R08 이동시간 판정이 수행되지 않고 <strong>확인 불가</strong>로 처리됩니다.
+              대중교통을 선택하면 이동 시간을 확인하기 어려워, 이동 관련 항목은 검수에서 빠질 수 있습니다.
             </p>
           )}
         </Section>
@@ -366,4 +390,33 @@ function buildPayload(
       })),
     })),
   };
+}
+
+// 타깃 · 콘셉트를 고르면 그 조합에 자주 넣는 종류를 칩으로 보여 준다 (FR-PL-003). R10 표준
+// 프로파일(@tourlint/shared)을 그대로 읽는다 — 기대 · 없음 같은 판정은 붙이지 않는다. 칩을
+// 누르면 장소 담기에서 그 종류를 여는 것은 B8 의 접점이라, 지금은 보여 주기만 한다.
+function FavoriteTypes({ target, concept }: { target: string; concept: string }) {
+  const profile = target !== "" && concept !== "" ? findProfile(target, concept) : null;
+  if (profile === null) return null;
+  const names = profile.expectedLcls2.map((c) => LCLS_SYSTM2[c]?.name ?? c);
+  const chips = profile.expectsNight ? [...names, "저녁 일정"] : names;
+  const tLabel = TARGET_LABEL[target as keyof typeof TARGET_LABEL] ?? target;
+  const cLabel = CONCEPT_LABEL[concept as keyof typeof CONCEPT_LABEL] ?? concept;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40">
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        {tLabel} · {cLabel} 여행에 자주 넣는 곳
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {chips.map((n) => (
+          <span
+            key={n}
+            className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+          >
+            {n}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
