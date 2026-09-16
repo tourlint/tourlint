@@ -9,16 +9,18 @@ import {
   matchesNearKind,
   type KtoService,
   type PlanBriefing,
+  type PlanEvent,
   type PlanNearKind,
   type PlanPlace,
   type PlanTypeChip,
+  type PlanWalk,
 } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import type { BudgetDecision } from '../external/budget-guard';
 import { isKtoError, type KtoClient, type KtoListPage } from '../external/kto';
 import { PlanCache } from './plan-cache';
-import { isCourseInRegion } from './plan-region';
+import { isCourseInRegion, toWalk } from './plan-region';
 
 /**
  * 상품 기획 조회 (F17 · FR-PL-004 · 010 ~ 012 · 018 · API 4-10).
@@ -154,6 +156,47 @@ export class PlanService {
   async places(query: PlacesQuery): Promise<PlacesResult> {
     if (query.scope === 'NEAR3KM') return this.nearPlaces(query);
     return this.signguPlaces(query);
+  }
+
+  /**
+   * 축제 · 공연 (FR-PL-014). 여행 기간 앞뒤 3일에 열리는 행사 1콜이다.
+   *
+   * 기간 관계는 **참고 표시일 뿐** 판정이 아니다 — 겹치는지 아닌지는 검수의 R02 가 본다. 겹치지
+   * 않는 행사에는 옮길 출발일을 제안하고, 겹치면 제안하지 않는다.
+   */
+  async events(query: BriefingQuery): Promise<{ window: { from: string; to: string } | null; items: readonly PlanEvent[] }> {
+    await this.assertKorBudget();
+    const window = eventWindow(query.startDate, query.nights);
+    if (window === null) return { window: null, items: [] };
+
+    const page = await this.cache.getOrLoad(`eventList:${regionKey(query)}:${window.from}:${window.to}`, async () =>
+      this.kto().searchFestival({
+        eventStartDate: window.from.replace(/-/g, ''),
+        ...ldongParams(query),
+        numOfRows: PLAN_LIST_ROWS,
+      }));
+
+    const items = visibleItems(page)
+      .filter((item) => overlapsOrLater(item, window))
+      .map((item) => toEvent(item, query))
+      .filter((event): event is PlanEvent => event !== null);
+    return { window, items };
+  }
+
+  /**
+   * 걷기 길 (FR-PL-015 · EI-KT-025).
+   *
+   * 두루누비는 지역 조건이 없어 전국 목록 1콜을 시군구 글자로 거른다. 좌표가 없어 근처 3km 의
+   * 기준이 되지 않고, 일정에 넣으면 직접 정한 곳이 된다.
+   */
+  async walks(query: PlanRegion): Promise<{ items: readonly PlanWalk[]; notice: string }> {
+    const region = await this.regionOf(query);
+    const courses = await this.courses();
+    const items = (courses ?? [])
+      .filter((c) => isCourseInRegion(c.sigun, { ...query, signguName: region.signguName }))
+      .map(toWalk)
+      .filter((w) => w.walkId !== '' && w.name !== '');
+    return { items, notice: '넣으면 직접 정한 곳으로 들어가요.' };
   }
 
   // ── 시군구 전체 ─────────────────────────────────────────────────
@@ -371,7 +414,7 @@ export class PlanService {
   private async walkCount(region: PlanRegion, signguName: string | null): Promise<{ count: number } | null> {
     const courses = await this.courses();
     if (courses === null) return null;
-    return { count: courses.filter((c) => isCourseInRegion(c.sigun, { regnCd: region.regnCd, signguName })).length };
+    return { count: courses.filter((c) => isCourseInRegion(c.sigun, { ...region, signguName })).length };
   }
 
   private async courses(): Promise<readonly Record<string, unknown>[] | null> {
@@ -483,6 +526,47 @@ export function eventWindow(startDate: string, nights: number): { from: string; 
   const start = parseIsoDate(startDate);
   if (start === null || !Number.isInteger(nights) || nights < 0) return null;
   return { from: formatIsoDate(addDays(start, -3)), to: formatIsoDate(addDays(start, nights + 3)) };
+}
+
+/**
+ * 행사 한 줄 → 축제 카드. 기간을 모르는 행사는 넣지 않는다 (모르는 건 모른다고 둔다).
+ *
+ * `relation` 은 여행 기간과의 관계 표시다 — `IN` 은 하루라도 겹치는 것이고, `AFTER` 는 여행이
+ * 끝난 뒤 시작, `BEFORE` 는 여행 전에 끝나는 것이다.
+ */
+function toEvent(item: Record<string, unknown>, query: BriefingQuery): PlanEvent | null {
+  const eventStart = isoDay(item.eventstartdate);
+  const eventEnd = isoDay(item.eventenddate);
+  if (eventStart === null || eventEnd === null) return null;
+
+  const tripEnd = tripLastDay(query);
+  const relation: PlanEvent['relation'] = eventEnd < query.startDate ? 'BEFORE'
+    : tripEnd !== null && eventStart > tripEnd ? 'AFTER' : 'IN';
+  return {
+    contentId: String(item.contentid ?? ''),
+    contentTypeId: Number(item.contenttypeid ?? 15),
+    title: String(item.title ?? ''),
+    eventStart,
+    eventEnd,
+    relation,
+    // 겹치지 않는 행사만 옮길 출발일을 제안한다. 겹치면 옮길 이유가 없다
+    suggestedStartDate: relation === 'IN' ? null : eventStart,
+    firstImage: text(item.firstimage),
+    mapx: numberOrNull(item.mapx),
+    mapy: numberOrNull(item.mapy),
+  };
+}
+
+/** 여행 마지막 날. 밤 수가 없으면 출발일 하나다 */
+function tripLastDay(query: BriefingQuery): string | null {
+  const start = parseIsoDate(query.startDate);
+  return start === null ? null : formatIsoDate(addDays(start, query.nights));
+}
+
+/** 창과 겹치거나 창 뒤에 시작하는 행사. 창 전에 끝난 것은 목록에 넣지 않는다 */
+function overlapsOrLater(item: Record<string, unknown>, window: { from: string; to: string }): boolean {
+  const end = isoDay(item.eventenddate);
+  return end !== null && end >= window.from;
 }
 
 /** 목록 한 줄 → 장소 카드. 제목 · 주소 · 사진은 응답으로만 흐른다 */

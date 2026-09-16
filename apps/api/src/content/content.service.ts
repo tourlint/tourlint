@@ -1,5 +1,6 @@
 import { CONTENT_TYPE_ID, type ContentTypeId } from '@tourlint/shared';
 import { fetchContentView, type KtoClient } from '../external/kto';
+import type { ConditionWant, PlaceConditionService } from '../plan/place-conditions.service';
 
 /**
  * 관광지 1건 실시간 조회 (API 설계 4-2 · 5-12 · DR-PR-004 · FR-IN-030).
@@ -7,11 +8,21 @@ import { fetchContentView, type KtoClient } from '../external/kto';
  * **DB 에서 읽지 않는다.** 공사 원문은 저장하지 않으므로 화면이 필요한 순간 여기로 온다 —
  * finding 카드의 「판단 근거 보기」 펼침(FR-AU-013 · 061)과 확인 필요 목록의 항목 펼침
  * (FR-AU-081 · 082)이 같은 경로를 쓴다.
+ *
+ * `with=accessible,pet` 을 주면 기획 화면의 카드 펼침이 쓰는 조건 축을 함께 낸다 (FR-PL-012).
+ * 요청하지 않으면 부르지 않는다 — 검수 화면의 근거 보기는 지금까지와 같은 콜 수다.
  */
 export class ContentService {
-  constructor(private readonly kto: () => KtoClient) {}
+  constructor(
+    private readonly kto: () => KtoClient,
+    private readonly conditions?: PlaceConditionService,
+  ) {}
 
-  async detail(contentId: string, contentTypeId: string | undefined): Promise<Record<string, unknown>> {
+  async detail(
+    contentId: string,
+    contentTypeId: string | undefined,
+    want?: ConditionWant,
+  ): Promise<Record<string, unknown>> {
     const view = await fetchContentView({
       kto: this.kto(),
       ktoContentId: contentId,
@@ -33,6 +44,20 @@ export class ContentService {
       ktoRaw: Object.fromEntries(view.fields.map((f) => [f.name, f.value])),
       ktoModifiedTime: view.ktoModifiedTime,
       unavailableReason: view.unavailableReason,
+      ...(await this.conditionsOf(contentId, want)),
+    };
+  }
+
+  /** 요청한 축만 붙인다. 못 받으면 그 축은 `null` 이고 카드의 나머지는 그대로다 (EX-PL-004) */
+  private async conditionsOf(contentId: string, want: ConditionWant | undefined): Promise<Record<string, unknown>> {
+    if (want === undefined || (!want.accessible && !want.pet)) return {};
+    if (this.conditions === undefined) {
+      return { ...(want.accessible ? { accessible: null } : {}), ...(want.pet ? { pet: null } : {}) };
+    }
+    const found = await this.conditions.of(contentId, want);
+    return {
+      ...(want.accessible ? { accessible: found.accessible } : {}),
+      ...(want.pet ? { pet: found.pet } : {}),
     };
   }
 }

@@ -65,6 +65,11 @@ export function readPlacesQuery(raw: RawPlacesQuery): PlacesQuery {
   };
 }
 
+/** 지역만 받는 조회(걷기 길) */
+export function readRegionQuery(raw: { regnCd?: string; signguCd?: string }): { regnCd: string; signguCd: string | null } {
+  return readRegion(raw);
+}
+
 function readRegion(raw: { regnCd?: string; signguCd?: string }): { regnCd: string; signguCd: string | null } {
   const regnCd = raw.regnCd ?? '';
   // 세종(36110)은 시도 코드가 다섯 자리이고 시군구 단계가 없다

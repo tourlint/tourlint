@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { readBriefingQuery, readPlacesQuery, type RawBriefingQuery, type RawPlacesQuery } from './plan.dto';
+import { readBriefingQuery, readPlacesQuery, readRegionQuery, type RawBriefingQuery, type RawPlacesQuery } from './plan.dto';
 import { PlanService } from './plan.service';
 
 /**
@@ -24,5 +24,17 @@ export class PlanController {
   @Get('places')
   async places(@Query() query: RawPlacesQuery): Promise<Record<string, unknown>> {
     return { ...(await this.service.places(readPlacesQuery(query))) };
+  }
+
+  /** 여행 기간 앞뒤 3일에 열리는 축제 · 공연 (FR-PL-014) */
+  @Get('events')
+  async events(@Query() query: RawBriefingQuery): Promise<Record<string, unknown>> {
+    return { ...(await this.service.events(readBriefingQuery(query))) };
+  }
+
+  /** 걷기 길 — 넣으면 직접 정한 곳이 된다 (FR-PL-015) */
+  @Get('walks')
+  async walks(@Query() query: { regnCd?: string; signguCd?: string }): Promise<Record<string, unknown>> {
+    return { ...(await this.service.walks(readRegionQuery(query))) };
   }
 }

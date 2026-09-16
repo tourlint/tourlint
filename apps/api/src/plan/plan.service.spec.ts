@@ -98,6 +98,37 @@ describe('PlanService — 픽스처로 도는 기획 조회 (FR-PL-010 · 011)',
   });
 });
 
+describe('축제 · 공연과 걷기 길 (FR-PL-014 · 015)', () => {
+  it('여행 기간 앞뒤 3일 창으로 부르고 겹치는 행사는 옮길 출발일을 제안하지 않는다', async () => {
+    const events = await fixtureService().events(briefingQuery());
+    expect(events.window).toEqual({ from: '2026-10-20', to: '2026-10-27' });
+    // 픽스처의 강릉커피축제는 10-21 ~ 10-25 로 여행(10-23 ~ 10-24)과 겹친다
+    expect(events.items).toHaveLength(1);
+    expect(events.items[0]).toMatchObject({ relation: 'IN', suggestedStartDate: null, eventStart: '2026-10-21', eventEnd: '2026-10-25' });
+  });
+
+  it('🔴 걷기 길은 상품 지역 것만이고 좌표가 없다 (EI-KT-025)', async () => {
+    const walks = await fixtureService().walks(GANGNEUNG);
+    // 전국 141개 중 강릉 4개
+    expect(walks.items).toHaveLength(4);
+    expect(walks.items.every((w) => w.walkId.startsWith('T_CRS_MNG'))).toBe(true);
+    expect(walks.items[0]).toMatchObject({ lengthKm: 16, minutes: 330, level: 1 });
+    expect(JSON.stringify(walks.items)).not.toContain('mapx');
+    expect(walks.notice).toContain('직접 정한 곳');
+  });
+
+  it('🔴 시군구 이름을 모르면 시도로 넓히지 않고 비운다 — 물어본 것보다 넓게 주지 않는다', async () => {
+    // 픽스처에 서울 시군구 코드표가 없어 이름을 못 찾는다. 전국 목록에는 서울 코스가 있다
+    const walks = await fixtureService().walks({ regnCd: '11', signguCd: '110' });
+    expect(walks.items).toEqual([]);
+  });
+
+  it('세종처럼 시군구 단계가 없으면 시도 약칭으로 거른다', async () => {
+    const walks = await fixtureService().walks({ regnCd: '36110', signguCd: null });
+    expect(walks.items.every((w) => w.name !== '')).toBe(true);
+  });
+});
+
 /** 어떤 파라미터로 불렀는지 보고 정해진 응답을 돌려주는 트랜스포트 */
 class RecordingTransport implements KtoTransport {
   readonly kind = 'http' as const;
@@ -288,6 +319,39 @@ describe('PlanService — 조회 조건과 경계', () => {
       const result = await service(transport).places(placesQuery({ sort: 'together' }));
       expect(transport.paramsOf('searchKeyword1')).toEqual([]);
       expect(result.notice).toContain('기준이 될 장소');
+    });
+  });
+
+  describe('축제 기간 관계 (FR-PL-014)', () => {
+    const festival = (over: Record<string, unknown>): Record<string, unknown> => ({
+      contentid: '825295', contenttypeid: '15', title: '축제', ...over,
+    });
+
+    it('🔴 여행 뒤에 열리면 옮길 출발일을 제안한다', async () => {
+      const transport = new RecordingTransport({
+        searchFestival2: listBody([festival({ eventstartdate: '20261101', eventenddate: '20261103' })]),
+      });
+      const events = await service(transport).events(briefingQuery());
+      expect(events.items[0]).toMatchObject({ relation: 'AFTER', suggestedStartDate: '2026-11-01' });
+    });
+
+    it('🔴 기간을 모르는 행사는 목록에 넣지 않는다 — 겹치는지 말할 수 없다', async () => {
+      const transport = new RecordingTransport({
+        // 끝나는 날만 있고 시작일이 비어 있으면 겹치는지 말할 수 없다
+        searchFestival2: listBody([festival({ eventstartdate: '', eventenddate: '20261026' }), festival({ eventstartdate: '20261024', eventenddate: '20261026' })]),
+      });
+      const events = await service(transport).events(briefingQuery());
+      expect(events.items).toHaveLength(1);
+      expect(events.items[0]?.relation).toBe('IN');
+    });
+
+    it('창이 시작하기 전에 끝난 행사는 빼고, 창의 시작일로 부른다 (EI-KT-010)', async () => {
+      const transport = new RecordingTransport({
+        searchFestival2: listBody([festival({ eventstartdate: '20261001', eventenddate: '20261005' })]),
+      });
+      const events = await service(transport).events(briefingQuery());
+      expect(events.items).toEqual([]);
+      expect(transport.paramsOf('searchFestival2')[0]).toMatchObject({ eventStartDate: '20261020' });
     });
   });
 
