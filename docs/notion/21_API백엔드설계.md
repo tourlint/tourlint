@@ -1028,7 +1028,7 @@ POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "item
 <tr>
 <td>POST</td>
 <td>`/api/v1/radar/today`</td>
-<td>`{basisAt, todos: [{kind: CHANGE|NEWS, productId?, region?, reason, action: REAUDIT|NEW_PLAN}], quiet: [{productId, text}]}`. 순서는 서버가 정하고 알림 · 새 소식에 없는 항목은 버린다. 저장 없음</td>
+<td>`{basisAt, todos: [{kind: CHANGE|NEWS, productId?, region?, reason, action: REAUDIT|NEW_PLAN}], quiet: [{productId, text}]}`. 순서 · 종류 · 대상은 서버가 정하고 모델은 이유 한 줄만 쓴다 — 알림 · 새 소식에 없는 항목은 버린다. `basisAt` 은 마지막 배치 시각(없으면 지금)이다. 저장 없음</td>
 <td>FR-AG-030 · 031 · 0콜 + LLM 1회</td>
 </tr>
 </table>
@@ -1051,6 +1051,8 @@ POST /api/v1/audit-runs/{runId}/check-questions
 POST /api/v1/radar/today
   → { "basisAt": "2026-09-11T05:00:00+09:00", "todos": TodayItem[], "quiet": [ { "productId": 9, "text": "태백 당일 산행은 바뀐 정보가 없어요." } ], "incomplete": null }
     도구: radar/summary · radar/changes · notifications · 관심 지역 새 소식 · 상품 목록. 공사 0콜 + LLM 1회. 순서는 서버가 정한다(출발일이 가까운 상품의 바뀐 정보 → 새 소식)
+    대상은 여행이 끝나지 않은 상품이고, 바뀐 정보가 없는 상품은 quiet 한 줄이다. 아직 세지 않았거나 0 건인 관심 지역은 새 소식이 아니다
+    공사를 부르지 않아 예산 게이트가 없다 — 이 에이전트의 실행 전 거절은 동시 실행(429 RATE_LIMIT_EXCEEDED)뿐이다
 모든 에이전트: 사람이 누를 때만 · 계정당 같은 에이전트 동시 1회 · 30초.
   실행 전 거절 — 429 BUDGET_EXHAUSTED(예산 100%) · 429 RATE_LIMIT_EXCEEDED(같은 에이전트가 도는 중 · 분당 상한)
   실행 뒤 실패 — 200 + 끝난 항목만 + "incomplete": { "reasonCode": "LLM_UNAVAILABLE" | "BUDGET_EXHAUSTED", "itemIds": [23, 24] }  (레이더 에이전트는 itemIds 가 빈 배열)
