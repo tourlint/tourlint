@@ -753,7 +753,7 @@ R07 finding.message 예: "12:00 점심 60분은 회사 기준 90분보다 짧습
 </table>
 <callout icon="🗂" color="orange_bg">
 	**`reportId` 는 테이블 행이 아닙니다** (2026.08.29 · F11 구현)
-	DB 명세서 6-4 가 PDF 를 서버에 남기지 못하게 하고 `report` 테이블은 엔터티 20종에 없습니다. `POST` 가 렌더까지 끝내고 결과를 **프로세스 메모리에 5분** 들고 있으며 `reportId` 는 그 보관 키입니다. `GET .../download` 는 그것을 스트리밍하고, 수명이 지났거나 소유자가 아니면 404 입니다 (존재 여부 비노출).
+	DB 명세서 6-4 가 PDF 를 서버에 남기지 못하게 하고 `report` 테이블은 엔터티 17종에 없습니다. `POST` 가 렌더까지 끝내고 결과를 **프로세스 메모리에 5분** 들고 있으며 `reportId` 는 그 보관 키입니다. `GET .../download` 는 그것을 스트리밍하고, 수명이 지났거나 소유자가 아니면 404 입니다 (존재 여부 비노출).
 	두 단계를 합치지 않은 이유는 PM-DA-007 의 인수조건이 "리포트 다운로드 URL 을 로그아웃 상태에서 열면" 이라 열어 볼 URL 이 있어야 하기 때문입니다. 매번 재생성하지 않는 이유는 공사 재조회가 다운로드마다 나가기 때문입니다.
 	⚠️ 인스턴스를 늘리면 만든 곳과 받는 곳이 갈려 깨집니다. 다중화 시 이 절을 다시 봅니다.
 </callout>
@@ -904,7 +904,7 @@ GET /api/v1/settings
 
 PUT /api/v1/settings          본문 { "r07SpanHours"?, "r07MealMinutes"?, "watchKeywords"?, "watchRegions"? }
   400 SETTING_NOT_STRICTER    회사 기준이 표준보다 느슨할 때 (7시간 · 30분 등)
-삭제: PUT /settings/global · GET/PUT /settings/dwell · /settings/indoor-outdoor · /settings/profiles · GET /settings/lcls
+삭제: PUT /settings/global · GET/PUT /settings/dwell · /settings/indoor-outdoor · /settings/profiles · GET /settings/lcls (라우트와 DB 표 3종 모두 릴리즈 2 에서 지웠다)
 표준 3표(체류시간 · 실내외 · R10 63행)는 화면이 @tourlint/shared 를 직접 읽는다. 0콜
 
 GET /api/v1/rules             기존 응답에 규칙마다 추가
