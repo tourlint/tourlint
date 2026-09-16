@@ -1,7 +1,8 @@
 import {
-  BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, Query,
+  BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { DomainException } from '../common/domain.exception';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import {
@@ -240,16 +241,28 @@ export class AuditController {
   }
 }
 
+const DISMISS_REASON_MAX = 200;
+
 /**
- * 무시 사유. 없어도 된다 (FR-AU-045 는 사유를 강제하지 않는다).
- *
- * 문자열이 아닌 것은 버린다 — 사유는 기록일 뿐이라 모양이 틀렸다고 무시 자체를 막을 일이
- * 아니다. 수정안 선택(`readSelections`)이 튕기는 것과 다른 이유다.
+ * 무시 사유. **반드시 있어야 한다** (FR-AU-068). 사유 없는 무시는 판단을 지운 자취가 남지
+ * 않아, 나중에 왜 넘어갔는지 알 수 없다 — 비면 400 `DISMISS_REASON_REQUIRED` 로 막는다.
+ * 200자를 넘겨도 같은 코드로 막는다(리포트 머리글에 싣는 길이 한계).
  */
-function readReason(body: unknown): string | null {
-  if (typeof body !== 'object' || body === null) return null;
-  const reason = (body as { reason?: unknown }).reason;
-  return typeof reason === 'string' && reason.trim() !== '' ? reason.trim() : null;
+export function readReason(body: unknown): string {
+  const reason = typeof body === 'object' && body !== null ? (body as { reason?: unknown }).reason : undefined;
+  if (typeof reason !== 'string' || reason.trim() === '') {
+    throw new DomainException(HttpStatus.BAD_REQUEST, 'DISMISS_REASON_REQUIRED', '무시하려면 사유를 입력해 주세요.', 'REQUEST');
+  }
+  const trimmed = reason.trim();
+  if (trimmed.length > DISMISS_REASON_MAX) {
+    throw new DomainException(
+      HttpStatus.BAD_REQUEST,
+      'DISMISS_REASON_REQUIRED',
+      `무시 사유는 ${DISMISS_REASON_MAX}자 이내로 입력해 주세요.`,
+      'REQUEST',
+    );
+  }
+  return trimmed;
 }
 
 /**

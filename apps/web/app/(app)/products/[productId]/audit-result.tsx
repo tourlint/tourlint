@@ -32,6 +32,7 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
+import { DISMISS_REASON_PRESET, SETTING_DEFAULTS } from "@tourlint/shared";
 import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
 import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
@@ -734,6 +735,15 @@ function LifecycleBar({ product, run }: { product: ProductDetail; run: RunSummar
   );
 }
 
+// 이 검수에 적용한 회사 기준이 표준과 다른 값만 짧게. 없으면 빈 문자열이라 배지를 숨긴다.
+function companyBasisText(snapshot: RunSummary["settingSnapshot"]): string {
+  if (snapshot === null) return "";
+  const parts: string[] = [];
+  if (snapshot.r07SpanHours !== SETTING_DEFAULTS.r07SpanHours) parts.push(`연속 일정 ${snapshot.r07SpanHours}시간`);
+  if (snapshot.r07MealMinutes !== SETTING_DEFAULTS.r07MealMinutes) parts.push(`식사 ${snapshot.r07MealMinutes}분`);
+  return parts.join(" · ");
+}
+
 function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string | null }) {
   return (
     <section className="rounded-2xl border border-slate-200 p-6 dark:border-slate-800">
@@ -754,6 +764,17 @@ function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string 
         </div>
         <GradeCounts counts={run.counts} variant="tile" />
       </div>
+
+      {(companyBasisText(run.settingSnapshot) || run.counts.dismissed > 0) && (
+        <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          {companyBasisText(run.settingSnapshot) && (
+            <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300">
+              회사 기준 {companyBasisText(run.settingSnapshot)}
+            </span>
+          )}
+          {run.counts.dismissed > 0 && <span>무시 {run.counts.dismissed}건 제외</span>}
+        </p>
+      )}
 
       {!run.releasable && run.releaseBlockedReason && (
         <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
@@ -842,18 +863,41 @@ function FindingCard({
 }) {
   const [dismissBusy, setDismissBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 무시하려면 사유를 골라야 한다 (FR-AU-068). 무시 버튼을 누르면 사유 창을 편다.
+  const [dismissOpen, setDismissOpen] = useState(false);
+  const [reasonChoice, setReasonChoice] = useState<string | null>(null);
+  const [customReason, setCustomReason] = useState("");
   const meta = SEVERITY_META[finding.severity];
   // 차단은 무시할 수 없다 — 서버가 판단해 `dismissible` 로 준다 (API 설계 5-6)
   const canDismiss = finding.dismissible;
   const dismissed = finding.dismissedAt !== null;
   const hasPatches = finding.patches.length > 0 && !dismissed;
 
-  async function toggleDismiss() {
+  const isCustom = reasonChoice === "__custom__";
+  const finalReason = (isCustom ? customReason : (reasonChoice ?? "")).trim();
+
+  async function confirmDismiss() {
+    if (finalReason === "") return;
     setDismissBusy(true);
     setErr(null);
     try {
-      if (dismissed) await auditApi.undismissFinding(finding.findingId);
-      else await auditApi.dismissFinding(finding.findingId);
+      await auditApi.dismissFinding(finding.findingId, finalReason);
+      setDismissOpen(false);
+      setReasonChoice(null);
+      setCustomReason("");
+      await onChanged();
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "처리하지 못했습니다.");
+    } finally {
+      setDismissBusy(false);
+    }
+  }
+
+  async function undismiss() {
+    setDismissBusy(true);
+    setErr(null);
+    try {
+      await auditApi.undismissFinding(finding.findingId);
       await onChanged();
     } catch (e) {
       setErr(isApiError(e) ? e.message : "처리하지 못했습니다.");
@@ -884,20 +928,105 @@ function FindingCard({
           {finding.requiresExternal && finding.externalSource && (
             <p className="mt-1 text-xs text-slate-400">외부 참고: {finding.externalSource}</p>
           )}
+          {/* 회사 기준으로 조일 수 있는 규칙은 검수 기준 설명으로 보낸다 (UI-S3-027) */}
+          {finding.ruleCode === "R07" && (
+            <Link href={`/standard?rule=${finding.ruleCode}`} className="mt-1 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-300">
+              규칙 설명 보기
+            </Link>
+          )}
+          {dismissed && finding.dismissReason && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">무시 사유: {finding.dismissReason}</p>
+          )}
           <EvidencePanel contentId={contentId} view={finding.evidenceView} />
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
         </div>
-        {canDismiss && (
-          <button
-            type="button"
-            onClick={toggleDismiss}
-            disabled={dismissBusy}
-            className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            {dismissed ? "무시 해제" : "무시"}
-          </button>
-        )}
+        {canDismiss &&
+          (dismissed ? (
+            <button
+              type="button"
+              onClick={undismiss}
+              disabled={dismissBusy}
+              className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              무시 해제
+            </button>
+          ) : (
+            !dismissOpen && (
+              <button
+                type="button"
+                onClick={() => setDismissOpen(true)}
+                disabled={dismissBusy}
+                className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                무시
+              </button>
+            )
+          ))}
       </div>
+
+      {canDismiss && !dismissed && dismissOpen && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40">
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-300">무시 사유를 골라 주세요</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {DISMISS_REASON_PRESET.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setReasonChoice(preset)}
+                className={`rounded-md border px-2 py-1 text-xs transition ${
+                  reasonChoice === preset
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                    : "border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                }`}
+              >
+                {preset}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setReasonChoice("__custom__")}
+              className={`rounded-md border px-2 py-1 text-xs transition ${
+                isCustom
+                  ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              기타
+            </button>
+          </div>
+          {isCustom && (
+            <input
+              type="text"
+              value={customReason}
+              maxLength={200}
+              onChange={(e) => setCustomReason(e.target.value)}
+              placeholder="사유를 적어 주세요"
+              className="mt-2 w-full rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+            />
+          )}
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDismissOpen(false);
+                setReasonChoice(null);
+                setCustomReason("");
+              }}
+              className="rounded-md px-2.5 py-1 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={confirmDismiss}
+              disabled={dismissBusy || finalReason === ""}
+              className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              무시
+            </button>
+          </div>
+        </div>
+      )}
 
       {hasPatches && (
         <fieldset className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800" disabled={busy}>
