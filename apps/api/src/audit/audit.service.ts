@@ -22,7 +22,7 @@ import {
   type StoredPatchApplication,
 } from '../persistence/patch-application.repository';
 import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
-import { AuditRunner, type ItineraryItemRow } from './audit-runner';
+import { AuditRunner, type ItineraryItemRow, type ProductRow } from './audit-runner';
 import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
 import { PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds } from './place-name';
 import { RULES, RULESET_VERSION, RULE_EXPLANATIONS } from './rule-registry';
@@ -251,6 +251,11 @@ export class AuditService {
   /** 일정 항목. 확인 필요 목록이 관광지명·위치를 채우는 데 쓴다 — DB 만 읽는다 (0콜) */
   async itemsOf(productId: number): Promise<readonly ItineraryItemRow[]> {
     return this.products.findItems(productId);
+  }
+
+  /** 상품 한 줄. 검수 에이전트가 방문 날짜를 출발일 + 일차로 적는 데 쓴다 (FR-AG-020) */
+  async productOf(productId: number): Promise<ProductRow | null> {
+    return this.products.findProduct(productId);
   }
 
   /**
