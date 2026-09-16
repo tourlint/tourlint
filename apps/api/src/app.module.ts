@@ -18,6 +18,7 @@ import { ContentService } from './content/content.service';
 import { CatalogService } from './catalog/catalog.service';
 import { DemoController } from './demo/demo.controller';
 import { evaluateBudget, ktoBudgetGuard } from './external/budget-guard';
+import { KakaoMobilityClient, createKakaoTransport } from './external/kakao';
 import { createKtoClient, type KtoClient } from './external/kto';
 import type { ContentTypeId } from '@tourlint/shared';
 import { DB_POOL, getPool } from './persistence/db';
@@ -34,7 +35,10 @@ import { ProductController } from './product/product.controller';
 import { ItemController } from './product/item.controller';
 import { ProductRepository } from './product/product.repository';
 import { ProductService } from './product/product.service';
+import { PlaceFactsController } from './plan/place-facts.controller';
+import { PlaceFactsService } from './plan/place-facts.service';
 import { PlanController } from './plan/plan.controller';
+import { PlanItemRepository } from './plan/plan-item.repository';
 import { PlanService } from './plan/plan.service';
 import { DemandSignalRepository } from './persistence/demand-signal.repository';
 import { NotificationController } from './radar/notification.controller';
@@ -83,7 +87,7 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
      */
     ContentController,
     ReportController, NotificationController, RadarController, SettingsController, SettingsTablesController,
-    PlanController,
+    PlanController, PlaceFactsController,
   ],
   providers: [
     { provide: DB_POOL, useFactory: () => getPool() },
@@ -216,6 +220,37 @@ import { SettingsTablesRepository } from './settings/settings-tables.repository'
             const { dailyQuota } = await state.setting();
             return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
           },
+        });
+      },
+      inject: [DB_POOL],
+    },
+    {
+      /*
+       * 장소 정보 한 줄 (F17 · FR-PL-005). 고른 항목마다 소개정보 1콜 + 앞 구간 길찾기 1콜이고
+       * 규칙엔진을 부르지 않는다 — 기획 화면에는 판정이 없다.
+       */
+      provide: PlaceFactsService,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlaceFactsService({
+          items: new PlanItemRepository(pool),
+          kto: () => (client ??= createKtoClient(logs)),
+          // 카카오 키가 없으면 이동시간만 비운다. 장소 정보까지 막지 않는다 (EI-KM-009)
+          kakao: () => {
+            try {
+              return new KakaoMobilityClient({ transport: createKakaoTransport(), logger: logs });
+            } catch {
+              return null;
+            }
+          },
+          budget: async (service) => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
+          },
+          // 리포트가 쓰는 것과 같은 리졸버지만 인스턴스는 따로다 — 이름 캐시는 10분짜리 메모리다
+          names: new PlaceNameResolver({ kto: () => (client ??= createKtoClient(logs)) }),
         });
       },
       inject: [DB_POOL],
