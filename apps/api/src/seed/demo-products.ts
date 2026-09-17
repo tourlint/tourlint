@@ -31,6 +31,16 @@ export interface DemoItem {
   readonly mapy: number;
 }
 
+/**
+ * 시연 상품이 시드 직후 서 있을 보드 칸 (UI-S1-010 · PM-TA-003). 심사에서 4칸이 비어 보이지
+ * 않게 단계마다 하나 이상 둔다. `stage-of` 의 판정과 같은 신호로 만든다:
+ *   PLANNING   planned_at NULL (검수 시작 전) · 검수 실행 없음
+ *   REVIEW     planned_at 있음 + 검수했는데 차단이 남음(blocker_cnt > 0)
+ *   RELEASABLE planned_at 있음 + 검수 차단 0 · released_at NULL
+ *   RELEASED   planned_at 있음 + 검수 차단 0 + released_at 있음
+ */
+export type DemoStage = 'PLANNING' | 'REVIEW' | 'RELEASABLE' | 'RELEASED';
+
 export interface DemoProduct {
   readonly name: string;
   readonly ldongRegnCd: string;
@@ -41,6 +51,7 @@ export interface DemoProduct {
   readonly conceptKey: string | null;
   readonly headCount: number | null;
   readonly transport: string;
+  readonly stage: DemoStage;
   readonly items: readonly DemoItem[];
 }
 
@@ -55,6 +66,7 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     conceptKey: "HERITAGE",
     headCount: 20,
     transport: "CAR",
+    stage: "RELEASED",
     items: [
       { dayNo: 1, seq: 1, startTime: "10:00", endTime: "11:30", endTimeSource: "INPUT", placeLabel: "강릉 경포대", itemType: "SIGHT", ktoContentId: "125790", contentTypeId: 12, lclsSystm1: "HS", lclsSystm2: "HS01", lclsSystm3: "HS011200", mapx: 128.896483966593, mapy: 37.7955136762197 },
       { dayNo: 1, seq: 2, startTime: "12:00", endTime: "13:00", endTimeSource: "INPUT", placeLabel: "가람집옹심이", itemType: "MEAL", ktoContentId: "2868839", contentTypeId: 39, lclsSystm1: "FD", lclsSystm2: "FD01", lclsSystm3: "FD010100", mapx: 128.9393320379, mapy: 37.7611934162 },
@@ -80,6 +92,7 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     conceptKey: "HERITAGE",
     headCount: 15,
     transport: "CAR",
+    stage: "REVIEW",
     items: [
       { dayNo: 1, seq: 1, startTime: "09:00", endTime: "10:30", endTimeSource: "INPUT", placeLabel: "강릉 녹색도시체험센터", itemType: "SIGHT", ktoContentId: "2465063", contentTypeId: 12, lclsSystm1: "EX", lclsSystm2: "EX06", lclsSystm3: "EX061000", mapx: 128.9065001770321, mapy: 37.7879160027723 },
       { dayNo: 1, seq: 2, startTime: "12:00", endTime: "13:00", endTimeSource: "INPUT", placeLabel: "가람집옹심이", itemType: "MEAL", ktoContentId: "2868839", contentTypeId: 39, lclsSystm1: "FD", lclsSystm2: "FD01", lclsSystm3: "FD010100", mapx: 128.9393320379, mapy: 37.7611934162 },
@@ -102,6 +115,7 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     conceptKey: "EMOTIONAL",
     headCount: 12,
     transport: "CAR",
+    stage: "RELEASABLE",
     items: [
       { dayNo: 1, seq: 1, startTime: "10:00", endTime: "11:30", endTimeSource: "INPUT", placeLabel: "강릉 경포대", itemType: "SIGHT", ktoContentId: "125790", contentTypeId: 12, lclsSystm1: "HS", lclsSystm2: "HS01", lclsSystm3: "HS011200", mapx: 128.896483966593, mapy: 37.7955136762197 },
       { dayNo: 1, seq: 2, startTime: "12:00", endTime: "13:00", endTimeSource: "INPUT", placeLabel: "가람집옹심이", itemType: "MEAL", ktoContentId: "2868839", contentTypeId: 39, lclsSystm1: "FD", lclsSystm2: "FD01", lclsSystm3: "FD010100", mapx: 128.9393320379, mapy: 37.7611934162 },
@@ -123,6 +137,7 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     conceptKey: "HERITAGE",
     headCount: 10,
     transport: "CAR",
+    stage: "PLANNING",
     items: [
       { dayNo: 1, seq: 1, startTime: "10:00", endTime: "11:30", endTimeSource: "INPUT", placeLabel: "강릉 경포대", itemType: "SIGHT", ktoContentId: "125790", contentTypeId: 12, lclsSystm1: null, lclsSystm2: "HS01", lclsSystm3: null, mapx: 128.896483966593, mapy: 37.7955136762197 },
       { dayNo: 1, seq: 2, startTime: "12:00", endTime: "13:00", endTimeSource: "INPUT", placeLabel: "감천골", itemType: "MEAL", ktoContentId: "3536478", contentTypeId: 39, lclsSystm1: null, lclsSystm2: "FD01", lclsSystm3: null, mapx: 128.9130203491, mapy: 37.7666922663 },

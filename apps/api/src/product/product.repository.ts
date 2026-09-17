@@ -1,7 +1,14 @@
 import type { Pool } from 'pg';
-import type { ItemType, MatchStatus, Transport } from '@tourlint/shared';
+import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Transport } from '@tourlint/shared';
 import { withTransaction } from '../persistence/db';
-import type { ItemOrder, ItemPatch, ValidItem, ValidItemInput, ValidProduct } from './product.dto';
+import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct, WalkItemInput } from './product.dto';
+
+/** HH:MM 에 분을 더한다 (하루를 넘지 않게 23:59 로 막는다). 장소 담기 끝 시각 계산용. */
+export function addMinutes(hhmm: string, minutes: number): string {
+  const [h = 9, m = 0] = hhmm.split(':').map(Number);
+  const total = Math.min(h * 60 + m + minutes, 23 * 60 + 59);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
 
 /**
  * 상품·일정 쓰기·읽기 (B 트랙 CRUD). 검수 읽기 전용인 audit/product.repository 와 별개다 —
@@ -63,6 +70,11 @@ export interface ItemDetail {
   readonly itemType: ItemType;
   readonly ktoContentId: string | null;
   readonly matchStatus: MatchStatus;
+  /** 좌표 — 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
+  readonly mapx: number | null;
+  readonly mapy: number | null;
+  /** 걷기 길 식별자 (D9). 이름은 표시할 때 두루누비에서 찾는다 */
+  readonly walkId: string | null;
 }
 
 export interface CreatedProduct {
@@ -171,7 +183,7 @@ export class ProductRepository {
     if (row === undefined) return null;
 
     const items = await this.pool.query<ItemRaw>(
-      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin
+      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy, walk_id
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -344,6 +356,134 @@ export class ProductRepository {
   }
 
   /** 항목 추가. seq 는 그 일차 끝에 붙인다. 소유권은 호출 전 ownedNights 로 확인한다. */
+  /**
+   * 넣을 위치를 잡는다 (4-3). `afterItemId` 를 주면 그 항목(같은 날)을, 없으면 그 날 마지막
+   * 항목을 기준으로 삼는다. `afterItemId` 가 그 날에 없으면(다른 날 앵커 등) 끝에 붙이는 것으로
+   * 되돌린다. 앵커가 없으면(빈 날) `null` — 서비스가 09:00 부터 시작한다.
+   *
+   * 이동시간 계산에 쓰도록 좌표와 "이 항목 다음에 갈 수 있는 시각"(끝, 없으면 시작)을 준다.
+   * 상품의 이동수단도 함께 주어 대중교통이면 이동시간을 짓지 않게 한다.
+   */
+  async pickPlacement(
+    productId: number,
+    dayNo: number,
+    afterItemId: number | null,
+  ): Promise<{ transport: Transport; anchor: { availableFrom: string; seq: number; mapx: number | null; mapy: number | null } | null }> {
+    const prod = await this.pool.query<{ transport: Transport }>(
+      `SELECT transport FROM product WHERE id = $1`, [productId],
+    );
+    const transport = prod.rows[0]?.transport ?? 'CAR';
+
+    const anchorRow = afterItemId === null
+      ? await this.pool.query<{ available_from: string; seq: number; mapx: number | null; mapy: number | null }>(
+        `SELECT COALESCE(end_time, start_time) AS available_from, seq, mapx, mapy FROM itinerary_item
+          WHERE product_id = $1 AND day_no = $2 ORDER BY seq DESC LIMIT 1`,
+        [productId, dayNo],
+      )
+      : await this.pool.query<{ available_from: string; seq: number; mapx: number | null; mapy: number | null }>(
+        `SELECT COALESCE(end_time, start_time) AS available_from, seq, mapx, mapy FROM itinerary_item
+          WHERE id = $1 AND product_id = $2 AND day_no = $3`,
+        [afterItemId, productId, dayNo],
+      );
+    // afterItemId 가 그 날에 없으면 끝에 붙인다 — 앵커를 마지막 항목으로 다시 잡는다
+    const found = anchorRow.rows[0];
+    if (afterItemId !== null && found === undefined) {
+      return this.pickPlacement(productId, dayNo, null);
+    }
+    return {
+      transport,
+      anchor: found === undefined ? null : {
+        availableFrom: String(found.available_from).slice(0, 5),
+        seq: Number(found.seq),
+        mapx: found.mapx === null ? null : Number(found.mapx),
+        mapy: found.mapy === null ? null : Number(found.mapy),
+      },
+    };
+  }
+
+  /**
+   * 장소 담기로 넣는 항목 (FR-PL-013 · 4-3). 고른 공사 콘텐츠라 CONFIRMED 로 넣는다.
+   * 시각(start · end)은 서비스가 이동시간·체류시간으로 계산해 넘긴다. `afterSeq` 가 있으면
+   * 그 순번 **다음**에 끼우고 뒤 항목을 한 칸씩 민다(없으면 그 날 끝에 붙인다). 좌표 · 분류는
+   * 응답으로 온 값을 저장하고 제목 · 주소(공사 원문)는 저장하지 않는다.
+   */
+  async insertPickedItem(
+    productId: number,
+    picked: PickedItemInput,
+    placement: { start: string; end: string | null; afterSeq: number | null },
+  ): Promise<ItemDetail> {
+    return withTransaction(this.pool, async (client) => {
+      let seq: number;
+      if (placement.afterSeq === null) {
+        const max = await client.query<{ seq: number }>(
+          `SELECT COALESCE(MAX(seq), 0) AS seq FROM itinerary_item WHERE product_id = $1 AND day_no = $2`,
+          [productId, picked.dayNo],
+        );
+        seq = Number(max.rows[0]?.seq ?? 0) + 1;
+      } else {
+        // 유니크(product, day, seq) 충돌을 피해 뒤 항목을 크게 비켜 두고 net +1 로 되돌린다 (reorder 와 같은 수법)
+        await client.query(
+          `UPDATE itinerary_item SET seq = seq + 10000 WHERE product_id = $1 AND day_no = $2 AND seq > $3`,
+          [productId, picked.dayNo, placement.afterSeq],
+        );
+        seq = placement.afterSeq + 1;
+      }
+
+      const { rows } = await client.query<ItemRaw>(
+        `INSERT INTO itinerary_item
+           (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
+            match_status, origin, kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy)
+         VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, 'CONFIRMED', $8, $9, $10, $11, $12, $13, $14, $15)
+         RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin`,
+        [
+          productId, picked.dayNo, seq, placement.start, placement.end,
+          placement.end === null ? 'INPUT' : 'DWELL_DEFAULT', picked.itemType, picked.origin,
+          picked.content.contentId, picked.content.contentTypeId,
+          picked.content.lcls1, picked.content.lcls2, picked.content.lcls3, picked.content.mapx, picked.content.mapy,
+        ],
+      );
+
+      if (placement.afterSeq !== null) {
+        await client.query(
+          `UPDATE itinerary_item SET seq = seq - 9999 WHERE product_id = $1 AND day_no = $2 AND seq > 10000`,
+          [productId, picked.dayNo],
+        );
+      }
+
+      const row = rows[0];
+      if (row === undefined) throw new Error('장소 담기 결과가 비어 있다');
+      return toItemDetail(row);
+    });
+  }
+
+  /**
+   * 걷기 길로 넣는 항목 (D9 · FR-PL-015). 직접 정한 곳(EXCLUDED)으로 그 날 끝에 붙인다.
+   * 코스 식별자(walk_id)만 저장하고 코스 이름은 저장하지 않는다 — 표시할 때 두루누비에서 찾는다.
+   * `ck_item_walk` 가 walk_id 를 EXCLUDED 에만 허용한다.
+   */
+  async addWalkItem(productId: number, walk: WalkItemInput): Promise<ItemDetail> {
+    const prev = await this.pool.query<{ start_time: string; end_time: string | null }>(
+      `SELECT start_time, end_time FROM itinerary_item
+        WHERE product_id = $1 AND day_no = $2 ORDER BY seq DESC LIMIT 1`,
+      [productId, walk.dayNo],
+    );
+    const start = (prev.rows[0]?.end_time ?? prev.rows[0]?.start_time ?? '09:00').slice(0, 5);
+    const end = addMinutes(start, SETTING_DEFAULTS.dwellFallbackMinutes);
+    const { rows } = await this.pool.query<ItemRaw>(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
+          match_status, origin, walk_id)
+       VALUES ($1, $2,
+               (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
+               $3, $4, 'DWELL_DEFAULT', NULL, $5, 'EXCLUDED', $6, $7)
+       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin`,
+      [productId, walk.dayNo, start, end, walk.itemType, walk.origin, walk.walkId],
+    );
+    const row = rows[0];
+    if (row === undefined) throw new Error('걷기 길 담기 결과가 비어 있다');
+    return toItemDetail(row);
+  }
+
   async addItem(productId: number, item: ValidItemInput): Promise<ItemDetail> {
     const { rows } = await this.pool.query<ItemRaw>(
       `INSERT INTO itinerary_item
@@ -519,11 +659,14 @@ interface ItemRaw {
   seq: number;
   start_time: string;
   end_time: string | null;
-  place_label: string;
+  place_label: string | null;
   item_type: ItemType;
   kto_content_id: string | null;
   match_status: MatchStatus;
   origin: string | null;
+  mapx?: number | string | null;
+  mapy?: number | string | null;
+  walk_id?: string | null;
 }
 
 function toItemDetail(r: ItemRaw): ItemDetail {
@@ -533,9 +676,12 @@ function toItemDetail(r: ItemRaw): ItemDetail {
     seq: r.seq,
     start: r.start_time.slice(0, 5),
     end: r.end_time === null ? null : r.end_time.slice(0, 5),
-    place: r.place_label,
+    place: r.place_label ?? '',
     itemType: r.item_type,
     ktoContentId: r.kto_content_id,
     matchStatus: r.match_status,
+    mapx: r.mapx == null ? null : Number(r.mapx),
+    mapy: r.mapy == null ? null : Number(r.mapy),
+    walkId: r.walk_id ?? null,
   };
 }

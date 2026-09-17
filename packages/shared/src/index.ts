@@ -5,3 +5,4 @@ export * from './target-profile';
 export * from './plan';
 export * from './agent';
 export * from './rule-names';
+export * from './verdict-rows';

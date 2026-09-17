@@ -4,6 +4,7 @@ import { CatalogService } from '../catalog/catalog.service';
 import { DomainException } from '../common/domain.exception';
 import { buildRunFingerprint, shortFingerprint } from '../engine/fingerprint';
 import { createKtoClient } from '../external/kto';
+import { WalkNameResolver } from '../plan/walk-names';
 import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
@@ -44,6 +45,7 @@ export class ReportService {
   constructor(
     @Inject(DB_POOL) pool: Pool,
     private readonly catalog: CatalogService,
+    private readonly walkNames: WalkNameResolver,
   ) {
     this.reports = new ReportRepository(pool);
     this.results = new AuditResultRepository(pool);
@@ -98,9 +100,11 @@ export class ReportService {
     ]);
     if (run === null || productRow === null) throw notFound();
 
-    const [evidence, region] = await Promise.all([
+    const [evidence, region, walkNames] = await Promise.all([
       collectEvidence({ kto: createKtoClient(this.callLogger), fingerprints }),
       this.regionName(productRow),
+      // 걷기 길 이름은 표시할 때 두루누비에서 찾는다 (D9). 못 찾으면 assembleReport 가 "걷기 길" 로 채운다
+      this.walkNames.resolve(items.map((i) => i.walkId).filter((id): id is string => id !== null)),
     ]);
 
     return assembleReport({
@@ -118,6 +122,7 @@ export class ReportService {
       items,
       patches: await this.toPatchHistory(patchRows),
       evidence,
+      walkNames,
       dataFingerprint: runFingerprintOf(fingerprints),
       // 원문이 YYYYMMDDHHmmss 라 사전순 최대가 곧 최신이다 (DR-PR-008)
       ktoModifiedAt: fingerprints.reduce<string | null>(

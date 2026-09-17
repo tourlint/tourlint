@@ -1,6 +1,8 @@
 import type { Pool, PoolClient } from 'pg';
+import { SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
 import { seedAccountDefaults } from '../auth/account.repository';
 import { hashPassword } from '../auth/password';
+import { RULESET_VERSION } from '../audit/rule-registry';
 import { withTransaction } from '../persistence/db';
 import { DEMO_PRODUCTS, type DemoProduct } from './demo-products';
 
@@ -120,6 +122,41 @@ async function insertDemoProduct(client: PoolClient, accountId: number, product:
         item.lclsSystm1, item.lclsSystm2, item.lclsSystm3, item.mapx, item.mapy,
       ],
     );
+  }
+
+  await applyStage(client, productId, product);
+}
+
+/**
+ * 시연 상품을 지정한 보드 칸에 세운다 (PM-TA-003 · UI-S1-010). `stage-of` 가 읽는 신호
+ * (planned_at · 최신 audit_run.blocker_cnt · released_at)를 그대로 만든다.
+ *
+ * 여기서 넣는 audit_run 은 **보드를 채우는 시연용 표시 상태**다. 심사자가 실제로 [검수 시작]을
+ * 다시 누르면 실검수가 최신 실행이 되어 이 값을 덮는다. 값은 fixture 정답셋을 재현하지 않는다 —
+ * 칸을 채우는 최소 신호만 남긴다.
+ */
+async function applyStage(client: PoolClient, productId: number, product: DemoProduct): Promise<void> {
+  // 기획 중은 아무 것도 하지 않는다 — planned_at NULL · 검수 실행 없음
+  if (product.stage === 'PLANNING') return;
+
+  // 검수 시작을 누른 상태로 둔다
+  await client.query(`UPDATE product SET planned_at = now() WHERE id = $1`, [productId]);
+
+  // 최신 검수 실행 한 건. 검수 중이면 차단 1건을 남겨 두고, 나머지는 차단 0
+  const blocker = product.stage === 'REVIEW' ? 1 : 0;
+  const targetCount = product.items.length;
+  const score = product.stage === 'REVIEW' ? 29 : product.stage === 'RELEASABLE' ? 85 : 92;
+  await client.query(
+    `INSERT INTO audit_run
+       (product_id, executed_at, ruleset_version, readiness_score, target_count, failed_count,
+        blocker_cnt, error_cnt, warn_cnt, unverified_cnt, weight_snapshot)
+     VALUES ($1, now(), $2, $3, $4, $5, $6, 0, 0, 0, $7::jsonb)`,
+    [productId, RULESET_VERSION, score, targetCount, blocker, blocker, JSON.stringify(SEVERITY_WEIGHT_DEFAULT)],
+  );
+
+  // 출시함은 최신 실행 차단이 0 이라 트리거(trg_check_release)를 통과한다
+  if (product.stage === 'RELEASED') {
+    await client.query(`UPDATE product SET released_at = now() WHERE id = $1`, [productId]);
   }
 }
 

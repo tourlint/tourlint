@@ -65,6 +65,9 @@ export class NotificationRepository {
    *
    * **출발일이 지난 상품은 뺀다** (FR-MO-018). 이미 다녀온 일정에 알림을 보내도 할 수
    * 있는 게 없다. 수동 재검수는 계속 되므로 감시에서만 빠진다.
+   *
+   * **기획 중 상품도 뺀다** (`planned_at IS NULL` · B6 함정). 아직 검수 시작을 안 누른
+   * 상품은 F13 영향 탐색·알림 대상이 아니다 — 검수 시작(handoff)부터 감시한다.
    */
   async productsWithContents(
     contentIds: readonly string[],
@@ -79,6 +82,7 @@ export class NotificationRepository {
          JOIN itinerary_item i ON i.product_id = p.id
         WHERE i.kto_content_id = ANY($1::text[])
           AND i.match_status = 'CONFIRMED'
+          AND p.planned_at IS NOT NULL
           AND p.start_date + p.nights >= $2::date
         ORDER BY i.kto_content_id, p.id`,
       [[...new Set(contentIds)], today],
@@ -96,12 +100,16 @@ export class NotificationRepository {
    *
    * **출발일 임박순이다** (FR-MO-020). 상한에 걸려 잘려나가는 것은 가장 덜 급한 상품이어야
    * 하고, 같은 날 출발이면 id 로 갈라 실행마다 같은 결과를 낸다 (NF-MT-001).
+   *
+   * **기획 중 상품은 뺀다** (`planned_at IS NULL` · B6 함정). 검수 시작 전 상품은 감시하지
+   * 않는다 — 조건 2 · 3 도 검수 시작(handoff)부터다.
    */
   async watchedProducts(today: IsoDate, limit?: number): Promise<readonly ImpactCandidate[]> {
     const { rows } = await this.pool.query<CandidateRow>(
       `SELECT p.id, p.start_date, p.nights, p.ldong_signgu_cd
          FROM product p
-        WHERE p.start_date + p.nights >= $1::date
+        WHERE p.planned_at IS NOT NULL
+          AND p.start_date + p.nights >= $1::date
         ORDER BY p.start_date, p.id
         LIMIT $2`,
       [today, limit ?? null],

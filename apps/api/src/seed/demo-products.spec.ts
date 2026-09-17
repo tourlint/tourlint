@@ -77,4 +77,9 @@ describe('DEMO_PRODUCTS', () => {
       seen.add(key);
     }
   });
+
+  it('🔴 보드 4칸을 모두 덮는 상품이 있다 — 심사에서 빈 칸이 없다 (PM-TA-003)', () => {
+    const stages = new Set(DEMO_PRODUCTS.map((p) => p.stage));
+    expect(stages).toEqual(new Set(['PLANNING', 'REVIEW', 'RELEASABLE', 'RELEASED']));
+  });
 });

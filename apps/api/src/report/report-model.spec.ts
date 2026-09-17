@@ -38,7 +38,7 @@ function item(over: Partial<AssembleInput['items'][number]> = {}): AssembleInput
   return {
     itemId: 11, dayNo: 1, seq: 1, start: '10:00', end: '11:00',
     place: '내가 적은 이름', itemType: 'SIGHT', matchStatus: 'CONFIRMED',
-    ktoContentId: '126508', ...over,
+    ktoContentId: '126508', walkId: null, ...over,
   };
 }
 
@@ -61,6 +61,7 @@ function input(over: Partial<AssembleInput> = {}): AssembleInput {
     items: [item()],
     patches: [],
     evidence: new Map([['126508', evidence()]]),
+    walkNames: new Map(),
     dataFingerprint: 'ab12cd34',
     ktoModifiedAt: '20260801120000',
     generatedAt: new Date('2026-08-29T02:00:00.000Z'),
@@ -76,6 +77,20 @@ describe('리포트 모델 조립', () => {
     }));
     expect(m.summary.dismissedCount).toBe(1);
     expect(m.summary.excludedItemCount).toBe(1);
+  });
+
+  it('🔴 걷기 길(walk_id)은 코스 이름으로 적고, 못 찾으면 "걷기 길" 로 적는다 (D9)', () => {
+    const m = assembleReport(input({
+      items: [
+        item({ itemId: 21, seq: 1, matchStatus: 'EXCLUDED', ktoContentId: null, place: '', walkId: 'C-1' }),
+        item({ itemId: 22, seq: 2, matchStatus: 'EXCLUDED', ktoContentId: null, place: '', walkId: 'C-9' }),
+      ],
+      walkNames: new Map([['C-1', '경포호 산책길']]),
+    }));
+    const places = m.itinerary.flatMap((d) => d.items.map((i) => i.place));
+    expect(places).toContain('경포호 산책길');
+    // 못 찾은 코스는 저장 라벨(빈칸)이 아니라 "걷기 길" 로 채운다 — 원문 이름을 지어내지 않는다
+    expect(places).toContain('걷기 길');
   });
 
   it('🔴 적용 기준 머리글에 표준 · 회사 기준 · 무시 사유를 담는다 (FR-PA-064 · FR-OP-023)', () => {

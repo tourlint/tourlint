@@ -7,21 +7,37 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { isApiError, productApi, type ProductDetail, type ProductItem } from "../../../../lib/api";
+import { isApiError, planApi, productApi, type PlaceFacts, type ProductDetail, type ProductItem } from "../../../../lib/api";
 import { PlaceAutocomplete } from "./place-autocomplete";
+import { PlaceFactsLine } from "./place-facts-line";
+import { DaySummary } from "./day-summary";
+import { PendingBar } from "./pending-bar";
+import { StartAuditSheet } from "./start-audit-sheet";
+import { PlacePicker } from "./place-picker";
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   SIGHT: "관광", MEAL: "식사", LODGING: "숙박", REST: "휴식", MOVE: "이동", FREE: "자유",
 };
 
-export function PlanEditor({ productId }: { productId: number }) {
+export function PlanEditor({ productId, openType = null }: { productId: number; openType?: string | null }) {
   const router = useRouter();
   const [product, setProduct] = useState<ProductDetail | null>(null);
+  const [facts, setFacts] = useState<Map<number, PlaceFacts>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const d = await productApi.detail(productId);
     setProduct(d);
+    // 고른 곳의 장소 정보 한 줄. 고른 항목이 있을 때만 부른다 (없으면 공사 호출 0)
+    const hasConfirmed = d.days.some((day) => day.items.some((it) => it.matchStatus === "CONFIRMED"));
+    if (hasConfirmed) {
+      try {
+        const res = await planApi.placeFacts(productId);
+        setFacts(new Map(res.items.map((f) => [f.itemId, f])));
+      } catch {
+        // 장소 정보를 못 읽어도 기획은 계속된다 — 한 줄만 비운다
+      }
+    }
   }, [productId]);
 
   useEffect(() => {
@@ -73,55 +89,74 @@ export function PlanEditor({ productId }: { productId: number }) {
             {regionLabel} · {product.startDate} · 장소를 고르면 이용시간과 쉬는 날을 볼 수 있어요.
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="hidden text-xs text-slate-400 sm:inline">자동 저장됨</span>
           <Link href={`/products/${productId}/edit`} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             일정 편집
           </Link>
-          <Link href={`/products/${productId}`} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500">
-            검수로
-          </Link>
+          <StartAuditSheet productId={productId} pendingCount={pending} />
         </div>
       </div>
 
       {pending > 0 ? (
-        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          아직 고르지 않은 장소가 {pending}곳 있어요.
-        </p>
+        <PendingBar
+          productId={productId}
+          pendingCount={pending}
+          items={product.days.flatMap((d) => d.items)}
+          regnCd={product.ldongRegnCd}
+          signguCd={product.ldongSignguCd}
+          regionLabel={regionLabel}
+          onResolved={refetch}
+        />
       ) : (
         <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-          모든 장소를 골랐어요. 검수로 넘어갈 수 있어요.
+          모든 장소를 골랐어요. 검수 시작을 누르면 돼요.
         </p>
       )}
 
       <div className="mt-6 space-y-6">
         {product.days.map((day) => (
           <section key={day.day}>
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{day.day}일차</h2>
+            <DaySummary day={day.day} items={day.items} />
             <ul className="mt-2 space-y-2">
               {day.items.map((it) => (
-                <ItemRow key={it.itemId} item={it} regnCd={product.ldongRegnCd} signguCd={product.ldongSignguCd} regionLabel={regionLabel} onResolved={refetch} />
+                <ItemRow
+                  key={it.itemId}
+                  item={it}
+                  facts={facts.get(it.itemId) ?? null}
+                  regnCd={product.ldongRegnCd}
+                  signguCd={product.ldongSignguCd}
+                  regionLabel={regionLabel}
+                  onResolved={refetch}
+                />
               ))}
             </ul>
           </section>
         ))}
       </div>
+
+      <PlacePicker product={product} onInserted={refetch} openType={openType} />
     </>
   );
 }
 
 function ItemRow({
   item,
+  facts,
   regnCd,
   signguCd,
   regionLabel,
   onResolved,
 }: {
   item: ProductItem;
+  facts: PlaceFacts | null;
   regnCd: string;
   signguCd: string | null;
   regionLabel: string;
   onResolved: () => Promise<void>;
 }) {
+  // 숙박은 끝 시간이 없다. 그 밖에 끝 시간을 비운 항목은 검수가 보통 머무는 시간으로 채운다.
+  const endHint = item.matchStatus !== "EXCLUDED" && item.end === null && item.itemType !== "LODGING";
   return (
     <li className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
       <div className="flex items-center justify-between gap-2">
@@ -134,6 +169,11 @@ function ItemRow({
         </div>
         <StatusTag status={item.matchStatus} />
       </div>
+      {item.matchStatus === "CONFIRMED" && facts !== null && <PlaceFactsLine facts={facts} />}
+      {item.matchStatus === "EXCLUDED" && (
+        <p className="mt-1 text-xs text-slate-400">이용시간 정보는 표시되지 않아요.</p>
+      )}
+      {endHint && <p className="mt-1 text-xs text-slate-400">끝 시간을 비우면 보통 머무는 시간으로 채워요.</p>}
       {item.matchStatus === "PENDING" && (
         <PlaceAutocomplete item={item} regnCd={regnCd} signguCd={signguCd} regionLabel={regionLabel} onResolved={onResolved} />
       )}

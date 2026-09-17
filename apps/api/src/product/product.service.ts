@@ -1,7 +1,11 @@
 import { BadRequestException, HttpStatus } from '@nestjs/common';
+import { DWELL_MINUTES_SEED, SETTING_DEFAULTS } from '@tourlint/shared';
 import type { AuditService } from '../audit/audit.service';
 import type { PlaceNameResolver } from '../audit/place-name';
 import type { CatalogService } from '../catalog/catalog.service';
+import type { KakaoMobilityClient } from '../external/kakao';
+import { coordinateOf, estimateTravelMinutes } from '../plan/travel-estimate';
+import type { WalkNameResolver } from '../plan/walk-names';
 import { DomainException } from '../common/domain.exception';
 import type { PatchApplicationRepository } from '../persistence/patch-application.repository';
 import {
@@ -9,11 +13,15 @@ import {
   validateCreate,
   validateOrder,
   validatePatchItem,
+  validatePickedItem,
   validateUpdate,
+  validateWalkItem,
   type CreateProductDto,
+  type PickedItemInput,
   type UpdateProductDto,
 } from './product.dto';
 import {
+  addMinutes,
   ProductRepository,
   type CreatedProduct,
   type ItemDetail,
@@ -34,6 +42,9 @@ export class ProductService {
     private readonly patches: PatchApplicationRepository,
     private readonly placeNames: PlaceNameResolver,
     private readonly audit: AuditService,
+    private readonly walkNames: WalkNameResolver,
+    // 장소 담기 시각을 앞 항목과의 이동시간으로 채운다 (FR-PL-013 · 4-3). 없으면 이동시간 없이 붙인다
+    private readonly kakao: () => KakaoMobilityClient | null,
   ) {}
 
   async create(accountId: number, dto: CreateProductDto): Promise<CreatedProduct> {
@@ -124,7 +135,7 @@ export class ProductService {
       planOrigin: row.planOrigin,
       composition: row.composition,
       createdAt: row.createdAt,
-      days: toDays(await this.withCurrentNames(productId, row.items)),
+      days: toDays(await this.withDisplayNames(await this.withCurrentNames(productId, row.items))),
     };
   }
 
@@ -200,6 +211,44 @@ export class ProductService {
     }
   }
 
+  /**
+   * 저장된 라벨이 빈 항목의 표시 이름을 볼 때 채운다 (D1 · D9).
+   *
+   * 장소 담기(CONFIRMED)와 걷기 길(EXCLUDED)은 이름을 저장하지 않는다 — `place_label` 이
+   * 비어 있다. 콘텐츠면 공식 명칭을, 걷기 길이면 코스 이름을 찾아 얹고, **못 찾으면 걷기 길은
+   * "걷기 길" 로 두고 콘텐츠는 빈 채로 둔다**(지어내지 않는다). 조회 실패는 삼킨다.
+   */
+  private async withDisplayNames(items: readonly ItemDetail[]): Promise<readonly ItemDetail[]> {
+    const emptyContent = items
+      .filter((it) => it.place === '' && it.walkId === null && it.ktoContentId !== null)
+      .map((it) => it.ktoContentId as string);
+    const emptyWalk = items
+      .filter((it) => it.place === '' && it.walkId !== null)
+      .map((it) => it.walkId as string);
+    if (emptyContent.length === 0 && emptyWalk.length === 0) return items;
+
+    let contentNames: ReadonlyMap<string, string> = new Map();
+    let walkNames: ReadonlyMap<string, string> = new Map();
+    try {
+      [contentNames, walkNames] = await Promise.all([
+        emptyContent.length > 0 ? this.placeNames.resolve(emptyContent) : Promise.resolve(new Map()),
+        emptyWalk.length > 0 ? this.walkNames.resolve(emptyWalk) : Promise.resolve(new Map()),
+      ]);
+    } catch {
+      // 못 읽어도 걷기 길은 아래에서 "걷기 길" 로 채운다. 콘텐츠는 빈 채로 둔다
+    }
+
+    return items.map((it) => {
+      if (it.place !== '') return it;
+      if (it.walkId !== null) return { ...it, place: walkNames.get(it.walkId) ?? '걷기 길' };
+      if (it.ktoContentId !== null) {
+        const name = contentNames.get(it.ktoContentId);
+        return name === undefined ? it : { ...it, place: name };
+      }
+      return it;
+    });
+  }
+
   async update(accountId: number, productId: number, dto: UpdateProductDto): Promise<{ productId: number; updated: true }> {
     const { errors, update } = validateUpdate(dto);
     if (errors.length > 0) throw new BadRequestException(errors.join(' '));
@@ -218,9 +267,51 @@ export class ProductService {
   async addItem(accountId: number, productId: number, body: unknown): Promise<Record<string, unknown>> {
     const nights = await this.repo.ownedNights(accountId, productId);
     if (nights === null) throw notFound(productId);
-    const { errors, item } = validateAddItem(body as Record<string, unknown> | undefined, nights + 1);
+    const b = body as Record<string, unknown> | undefined;
+    // 걷기 길로 넣으면 excluded.walkId 가 온다 — 직접 정한 곳(EXCLUDED)으로 넣고 이름은 저장 안 함 (D9)
+    if (b !== undefined && typeof b.excluded === 'object' && b.excluded !== null) {
+      const { errors, walk } = validateWalkItem(b, nights + 1);
+      if (walk === undefined) throw new BadRequestException(errors.join(' '));
+      return { ...(await this.repo.addWalkItem(productId, walk)) };
+    }
+    // 장소 담기로 넣으면 content 가 온다 — 이미 고른 콘텐츠라 CONFIRMED 로 넣는다 (FR-PL-013 · 4-3)
+    if (b !== undefined && typeof b.content === 'object' && b.content !== null) {
+      const { errors, picked } = validatePickedItem(b, nights + 1);
+      if (picked === undefined) throw new BadRequestException(errors.join(' '));
+      return { ...(await this.insertPicked(productId, picked)) };
+    }
+    const { errors, item } = validateAddItem(b, nights + 1);
     if (item === undefined) throw new BadRequestException(errors.join(' '));
     return { ...(await this.repo.addItem(productId, item)) };
+  }
+
+  /**
+   * 장소 담기 삽입 (FR-PL-013 · 4-3). 넣을 위치(`afterItemId`) 다음에 끼우고, 시작 시각은
+   * **앞 항목 끝 + 이동시간**으로 채운다.
+   *
+   * 이동시간은 카카오 길찾기로 잰다 — **못 재면(좌표 없음 · 대중교통 · 조회 실패) 이동시간을
+   * 짓지 않고** 앞 항목 끝에 바로 붙인다(FR-RU-051 · R08 과 같은 원칙). 끝 시각은 표준
+   * 체류시간으로 채운다(숙박은 끝 시각 없음).
+   */
+  private async insertPicked(productId: number, picked: PickedItemInput): Promise<ItemDetail> {
+    const { transport, anchor } = await this.repo.pickPlacement(productId, picked.dayNo, picked.afterItemId);
+
+    let start = '09:00';
+    if (anchor !== null) {
+      const travel = await estimateTravelMinutes({
+        kakao: this.kakao(),
+        from: coordinateOf(anchor.mapx, anchor.mapy),
+        to: coordinateOf(picked.content.mapx, picked.content.mapy),
+        transport,
+      });
+      start = addMinutes(anchor.availableFrom, travel ?? 0);
+    }
+
+    const dwell = picked.itemType === 'LODGING' ? null
+      : (picked.content.lcls2 !== null ? DWELL_MINUTES_SEED[picked.content.lcls2] : undefined) ?? SETTING_DEFAULTS.dwellFallbackMinutes;
+    const end = dwell === null ? null : addMinutes(start, dwell);
+
+    return this.repo.insertPickedItem(productId, picked, { start, end, afterSeq: anchor?.seq ?? null });
   }
 
   async patchItem(accountId: number, itemId: number, body: unknown): Promise<Record<string, unknown>> {
@@ -295,6 +386,8 @@ function toDays(items: ProductDetailRow['items']): { day: number; items: unknown
       itemType: it.itemType,
       ktoContentId: it.ktoContentId,
       matchStatus: it.matchStatus,
+      mapx: it.mapx,
+      mapy: it.mapy,
     });
     byDay.set(it.dayNo, list);
   }
