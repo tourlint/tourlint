@@ -1,3 +1,5 @@
+import { verdictRows } from "@tourlint/shared";
+
 /**
  * 판단 근거 3단 병기의 **문구 조합** (FR-AU-013 · 061).
  *
@@ -69,12 +71,14 @@ export function readNormalized(ai: Record<string, unknown> | null | undefined): 
   return rows;
 }
 
-/** 판정 입력값. 규칙이 담은 것을 그대로 펼친다 — 화면이 의미를 지어내지 않는다 */
+/**
+ * 판정 입력값 (#478).
+ *
+ * 종전에는 규칙이 담은 것을 그대로 펼쳤다 — 키도 값도 영어였고 객체는 `[object Object]`
+ * 로 나왔다. 어휘는 키를 만드는 쪽(규칙엔진) 것이라 `@tourlint/shared` 에 있다.
+ */
 export function readVerdict(verdict: unknown): EvidenceRow[] {
-  if (!isRecord(verdict)) return [];
-  return Object.entries(verdict)
-    .filter(([, v]) => v !== null && v !== undefined && v !== "")
-    .map(([label, v]) => ({ label, value: asText(v) || String(v) }));
+  return verdictRows(verdict);
 }
 
 function confidenceOf(v: unknown): string | null {
