@@ -364,11 +364,17 @@ export type RuleDataSource = (typeof RULE_DATA_SOURCE)[number];
 /** 무시 사유 중 자주 쓰는 3개. 그 밖은 기타(내용 필수) — 사유 없는 무시는 400 `DISMISS_REASON_REQUIRED` (FR-AU-068) */
 export const DISMISS_REASON_PRESET = ['고객 요청 사항', '계약 업체 · 확정 일정', '전화로 직접 확인함'] as const;
 
-/** 전역 운영 설정 기본값 (system_setting) */
+/**
+ * 전역 운영 설정 기본값 (system_setting).
+ *
+ * `dailyQuota` 는 **국문 관광정보(`KorService2`) 몫**이고 공사 한도의 80% 다. 트래픽 증설로
+ * 그 한도가 1,000 → 10,000 이 되어(2026-09-17) 800 에서 8,000 으로 올렸다. 새 서비스 5종은
+ * 활용신청 · 한도가 서비스마다 따로여서 `EXTRA_PROVIDER_DAILY_CAP` 이 따로 있다.
+ */
 export const SYSTEM_SETTING_DEFAULTS = {
   batchTime: '05:00',
   batchEnabled: false,
-  dailyQuota: 800,
+  dailyQuota: 8000,
 } as const;
 
 /** 예산 게이트 경계 — 80% 배치 중지 / 100% 신규 검수 차단 (FR-OP-003·004) */

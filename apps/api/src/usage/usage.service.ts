@@ -55,7 +55,7 @@ export class UsageService {
    * 오늘의 예산 소진 상태 (FR-OP-005).
    *
    * 소진율 분자는 **당일 공사 호출 수**다. 카카오 · 기상청 · LLM 은 공사 예산과 별개 한도라
-   * 같이 세면 800건 경계가 엉뚱하게 당겨진다 (API 설계 8-2 주석).
+   * 같이 세면 국문 예산 경계가 엉뚱하게 당겨진다 (API 설계 8-2 주석).
    */
   async budget(now: Date = new Date(), provider: CallProvider = 'KTO'): Promise<BudgetView> {
     const dailyQuota = SYSTEM_SETTING_DEFAULTS.dailyQuota;

@@ -408,7 +408,7 @@ CREATE TABLE system_setting (
     key            TEXT        NOT NULL UNIQUE DEFAULT 'global',
     batch_time     TIME        NOT NULL DEFAULT '05:00',
     batch_enabled  BOOLEAN     NOT NULL DEFAULT FALSE,
-    daily_quota    INT         NOT NULL DEFAULT 800,
+    daily_quota    INT         NOT NULL DEFAULT 8000,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- DR-IN-008 : 개발계정 1000 / 운영계정 100000 상한 (계정 유형별 상한은 앱 검증)
