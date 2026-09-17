@@ -26,16 +26,27 @@ export function PlaceAutocomplete({
 }) {
   const [keyword, setKeyword] = useState(item.place);
   const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
-  const [searching, setSearching] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const autoTried = useRef(false);
+
+  // 이름이 아직 없는 줄 — 빈 검색을 던지지 않고 이름을 적어 보라고 안내한다 (UI-S2-021)
+  const emptyName = keyword.trim() === "";
 
   // 입력이 멈춘 뒤 300ms 에 검색한다 (디바운스). setState 는 비동기 콜백 안에서만.
   useEffect(() => {
     let alive = true;
     const id = window.setTimeout(() => {
       void (async () => {
+        // 빈 이름은 검색하지 않는다 — 문구로 안내한다 (이름 없는 줄)
+        if (keyword.trim() === "") {
+          if (alive) {
+            setCandidates(null);
+            setSearching(false);
+          }
+          return;
+        }
         setSearching(true);
         setErr(null);
         try {
@@ -95,10 +106,13 @@ export function PlaceAutocomplete({
       <input
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
-        placeholder="장소 이름으로 찾기"
+        placeholder="숙소·식당 이름을 적어 보세요…"
         className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
       />
       {err && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
+
+      {/* 이름이 없는 줄은 검색 대신 안내 문구만 보인다 (UI-S2-021) */}
+      {emptyName && <p className="mt-2 text-xs text-slate-400">숙소·식당 이름을 적어 보세요…</p>}
 
       {candidates !== null && (
         count === 0 ? (
