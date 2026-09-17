@@ -99,7 +99,15 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
       </div>
 
       {pending > 0 ? (
-        <PendingBar productId={productId} pendingCount={pending} onResolved={refetch} />
+        <PendingBar
+          productId={productId}
+          pendingCount={pending}
+          items={product.days.flatMap((d) => d.items)}
+          regnCd={product.ldongRegnCd}
+          signguCd={product.ldongSignguCd}
+          regionLabel={regionLabel}
+          onResolved={refetch}
+        />
       ) : (
         <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
           모든 장소를 골랐어요. 검수 시작을 누르면 돼요.

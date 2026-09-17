@@ -4,16 +4,24 @@
 // 찾기]를 누르면 고르지 않은 줄의 장소를 한 번에 찾아 카드로 보여 준다.
 
 import { useState } from "react";
-import { agentApi, isApiError, type PlaceSuggestions } from "../../../../lib/api";
+import { agentApi, isApiError, type PlaceSuggestions, type ProductItem } from "../../../../lib/api";
 import { PlaceSuggestionCard } from "./place-suggestion-card";
 
 export function PendingBar({
   productId,
   pendingCount,
+  items = [],
+  regnCd = "",
+  signguCd = null,
+  regionLabel = "이 지역",
   onResolved,
 }: {
   productId: number;
   pendingCount: number;
+  items?: ProductItem[];
+  regnCd?: string;
+  signguCd?: string | null;
+  regionLabel?: string;
   onResolved: () => Promise<void>;
 }) {
   const [suggestions, setSuggestions] = useState<PlaceSuggestions | null>(null);
@@ -53,6 +61,10 @@ export function PendingBar({
       {suggestions !== null && (
         <PlaceSuggestionCard
           suggestions={suggestions}
+          items={items}
+          regnCd={regnCd}
+          signguCd={signguCd}
+          regionLabel={regionLabel}
           onResolved={async () => {
             await onResolved();
             setSuggestions(null); // 고른 뒤 다시 목록에서 확인한다
