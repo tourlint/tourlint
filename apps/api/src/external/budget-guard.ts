@@ -1,11 +1,11 @@
 import {
   BUDGET_THRESHOLD_RATIO,
-  EXTRA_PROVIDER_DAILY_CAP,
+  extraServiceDailyCap,
   KTO_PROVIDER_OF,
   SYSTEM_SETTING_DEFAULTS,
   type KtoService,
 } from '@tourlint/shared';
-import type { CallProvider, DailyCallCounter } from './api-call-log';
+import { localDateKey, type CallProvider, type DailyCallCounter } from './api-call-log';
 
 /**
  * 일일 호출 예산 관리자 (FR-OP-002 ~ 006).
@@ -108,18 +108,22 @@ export class BudgetGuard {
  * 공사 서비스 하나의 예산 게이트 (외부 연동 3-1 · API 8-2).
  *
  * 국문 관광정보(`KOR`)는 `system_setting.daily_quota`, 새 서비스 5종은 각각
- * `EXTRA_PROVIDER_DAILY_CAP`(개발계정 1,000 의 80%)이다. 소진량도 그 서비스의 제공자만 센다 —
- * 한 값으로 세면 새 서비스 호출이 국문 예산을 잠식하고 자기 한도는 세지 못한다.
+ * `extraServiceDailyCap()` 이다 — 서비스마다 한도가 다르고(증설 대상이 3종뿐이다)
+ * 증설이 기간제라 날짜를 본다. 소진량도 그 서비스의 제공자만 센다 — 한 값으로 세면
+ * 새 서비스 호출이 국문 예산을 잠식하고 자기 한도는 세지 못한다.
  * 게이트는 부르려는 서비스의 것을 쓴다(`KTO_SERVICE_OF[operation]`).
  */
 export function ktoBudgetGuard(
   service: KtoService,
   options: { readonly counter: DailyCallCounter; readonly dailyQuota: number; readonly clock?: () => Date },
 ): BudgetGuard {
+  const now = (options.clock ?? (() => new Date()))();
   return new BudgetGuard({
     counter: options.counter,
     provider: KTO_PROVIDER_OF[service],
-    dailyBudget: service === 'KOR' ? options.dailyQuota : EXTRA_PROVIDER_DAILY_CAP,
+    dailyBudget: service === 'KOR'
+      ? options.dailyQuota
+      : extraServiceDailyCap(service, localDateKey(now)),
     clock: options.clock,
   });
 }

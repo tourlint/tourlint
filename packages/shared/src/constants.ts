@@ -369,7 +369,7 @@ export const DISMISS_REASON_PRESET = ['고객 요청 사항', '계약 업체 · 
  *
  * `dailyQuota` 는 **국문 관광정보(`KorService2`) 몫**이고 공사 한도의 80% 다. 트래픽 증설로
  * 그 한도가 1,000 → 10,000 이 되어(2026-09-17) 800 에서 8,000 으로 올렸다. 새 서비스 5종은
- * 활용신청 · 한도가 서비스마다 따로여서 `EXTRA_PROVIDER_DAILY_CAP` 이 따로 있다.
+ * 활용신청 · 한도가 서비스마다 따로여서 `EXTRA_SERVICE_RAISED_CAP` 이 따로 있다.
  */
 export const SYSTEM_SETTING_DEFAULTS = {
   batchTime: '05:00',
@@ -563,11 +563,45 @@ export const KTO_PROVIDER_OF: Readonly<Record<KtoService, CallProvider>> = {
   VISITOR: 'KTO_VISITOR',
 };
 
+/** 증설 전 하루 상한 — 개발계정 1,000건의 80% */
+export const EXTRA_SERVICE_BASE_CAP = 800;
+
 /**
- * 새 서비스 5종 각각의 하루 상한 — 개발계정 1,000건의 80%.
- * 국문 관광정보(`KTO`)는 이 값이 아니라 `system_setting.daily_quota` 를 쓴다 (외부 연동 3-1).
+ * 트래픽 증설 기간 (양끝 포함). 공사 증설은 **기간제**다 — 2026-09-17 승인분이 30일짜리다.
+ *
+ * 끝나는 날을 코드가 모르면 그때부터 공사가 거절할 호출을 예산 가드가 계속 통과시킨다.
+ * 심사 일정(1차 발표 10-21 · 최종 PT 10-28)이 이 뒤에 걸쳐 있어서 실제로 걸린다.
+ *
+ * 시작일도 둔다. 증설 전 날짜로 시계를 돌리는 검사가 있고, 그때는 800 이 맞는 답이다.
  */
-export const EXTRA_PROVIDER_DAILY_CAP = 800;
+export const EXTRA_SERVICE_QUOTA_RAISED = { from: '2026-09-17', until: '2026-10-16' } as const;
+
+/**
+ * 새 서비스 5종 각각의 하루 상한 — 각 서비스 한도의 80%.
+ *
+ * 무장애 · 반려동물 · 연관 관광지 3종은 트래픽 증설로 한도가 1,000 → 10,000 이 됐다
+ * (2026-09-17 승인 · 증설일정 2026-09-17 ~ 2026-10-16). 두루누비 · 방문자수는 신청 대상이
+ * 아니어서 1,000 그대로다 — **한 값으로 두면 안 늘어난 둘까지 열린다.**
+ *
+ * 국문 관광정보(`KOR`)는 이 표가 아니라 `system_setting.daily_quota` 를 쓴다 (외부 연동 3-1).
+ */
+export const EXTRA_SERVICE_RAISED_CAP: Readonly<Record<Exclude<KtoService, 'KOR'>, number>> = {
+  WITH: 8000,
+  PET: 8000,
+  RELATED: 8000,
+  DURUNUBI: EXTRA_SERVICE_BASE_CAP,
+  VISITOR: EXTRA_SERVICE_BASE_CAP,
+};
+
+/**
+ * 그 날 쓸 수 있는 상한. `todayKey` 는 `YYYY-MM-DD`(KST) 다.
+ *
+ * 문자열 비교로 충분하다 — 세 값 모두 0 채움 ISO 날짜라 사전순이 곧 시간순이다.
+ */
+export function extraServiceDailyCap(service: Exclude<KtoService, 'KOR'>, todayKey: string): number {
+  const raised = todayKey >= EXTRA_SERVICE_QUOTA_RAISED.from && todayKey <= EXTRA_SERVICE_QUOTA_RAISED.until;
+  return raised ? EXTRA_SERVICE_RAISED_CAP[service] : EXTRA_SERVICE_BASE_CAP;
+}
 
 /** 위치기반 조회 반경 상한 (SC-DT-013 · EI-KT-008) */
 export const LOCATION_RADIUS_MAX_METERS = 20000;
