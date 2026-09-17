@@ -67,7 +67,7 @@ export function evaluateBudget(snapshot: BudgetSnapshot, intent: CallIntent): Bu
 
 export interface BudgetGuardOptions {
   readonly counter: DailyCallCounter;
-  /** 전역 1행 `system_setting.daily_call_budget`. 기본 800건 = 개발계정 한도의 80% */
+  /** 전역 1행 `system_setting.daily_quota`. 기본 8,000건 = 국문 관광정보 한도(10,000)의 80% */
   readonly dailyBudget?: number;
   readonly provider?: CallProvider;
   /** 테스트 주입용 */

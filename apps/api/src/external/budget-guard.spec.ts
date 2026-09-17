@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXTRA_PROVIDER_DAILY_CAP, SYSTEM_SETTING_DEFAULTS, type CallProvider } from '@tourlint/shared';
+import { BUDGET_THRESHOLD_RATIO, EXTRA_PROVIDER_DAILY_CAP, SYSTEM_SETTING_DEFAULTS, type CallProvider } from '@tourlint/shared';
 import { InMemoryApiCallLogger, localDateKey, type ApiCallLogEntry } from './api-call-log';
 import { BudgetBlockedError, BudgetGuard, evaluateBudget, ktoBudgetGuard } from './budget-guard';
 
@@ -105,7 +105,7 @@ describe('BudgetGuard', () => {
   it('기본 예산은 800건이다 — 개발계정 한도의 80% (FR-OP-002)', async () => {
     const guard = new BudgetGuard({ counter: new InMemoryApiCallLogger(), clock: clockAt('2026-08-22T04:00:00Z') });
     expect((await guard.snapshot()).dailyBudget).toBe(SYSTEM_SETTING_DEFAULTS.dailyQuota);
-    expect(SYSTEM_SETTING_DEFAULTS.dailyQuota).toBe(800);
+    expect(SYSTEM_SETTING_DEFAULTS.dailyQuota).toBe(8000);
   });
 
   it('소진량은 계정별이 아니라 서비스 전체 기준이다 (PM-DA-006)', async () => {
@@ -134,7 +134,9 @@ describe('BudgetGuard', () => {
 
   it('차단이면 사유코드를 단 예외를 던진다', async () => {
     const logger = new InMemoryApiCallLogger();
-    for (let i = 0; i < 640; i++) logger.record(entry('2026-08-22T04:00:00Z'));
+    // 기본 예산의 경고선(80%)을 **계산해서** 쌓는다. 건수를 박으면 기본값이 바뀔 때 조용히 빗나간다
+    const warnAt = SYSTEM_SETTING_DEFAULTS.dailyQuota * BUDGET_THRESHOLD_RATIO.WARN;
+    for (let i = 0; i < warnAt; i++) logger.record(entry('2026-08-22T04:00:00Z'));
     const guard = new BudgetGuard({ counter: logger, clock: clockAt('2026-08-22T05:00:00Z') });
 
     await expect(guard.assertAllowed('USER_AUDIT')).resolves.toMatchObject({ allowed: true, warn: true });

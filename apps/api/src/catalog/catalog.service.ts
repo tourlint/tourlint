@@ -7,7 +7,7 @@ import { FixtureMissingError, type KtoClient } from '../external/kto';
  * (개발에서는 fixtures/kto 리플레이라 예산을 쓰지 않는다).
  *
  * 코드 목록은 거의 바뀌지 않으므로 프로세스 메모리에 캐시한다. 요청마다 공사를 부르면
- * 운영에서 화면을 열 때마다 일일 예산(800건)을 갉아먹는다 — 참조 조회는 그럴 이유가 없다.
+ * 운영에서 화면을 열 때마다 일일 예산을 갉아먹는다 — 참조 조회는 그럴 이유가 없다.
  */
 export interface CodeItem {
   code: string;
