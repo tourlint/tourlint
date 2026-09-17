@@ -56,6 +56,13 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
     [1, 2, '12:00', '13:00', 'MEAL', '가람집옹심이', '2868839', 39, 'FD01'],
     [1, 3, '12:30', '14:00', 'SIGHT', '오죽헌·시립박물관', '129784', 14, 'VE07'],
     [2, 1, '09:00', '10:00', 'SIGHT', '경포벚꽃축제', '695592', 15, 'EV01'],
+    /*
+     * 갈골한과체험전시관 — 휴무 · 운영 원문이 둘 다 `예약시 운영` 이라 파서가 못 읽는다.
+     * **항목에 붙는 확인 불가를 만드는 것이 이 항목의 목적이다** (FR-AU-081 스펙이 쓴다).
+     * 종전에는 축제(15)가 휴무 정보 없음으로 확인 불가를 내 주고 있었는데, FR-RU-015 로
+     * 축제가 R01 대상에서 빠지면서 항목 단위 확인 불가가 하나도 남지 않았다 (이슈 #436).
+     */
+    [2, 2, '13:00', '14:00', 'SIGHT', '갈골한과체험전시관', '3539725', 14, 'VE07'],
   ];
 
   /** 큐 소비 테스트용 최소 상품 — 항목 1개. 파이프라인을 짧게 유지한다 */
@@ -253,7 +260,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       const { rows } = await pool.query<{ n: string }>(
         'SELECT count(*)::text AS n FROM content_fingerprint WHERE audit_run_id = $1', [runId],
       );
-      expect(Number(rows[0]?.n)).toBe(3);
+      // 콘텐츠마다 한 행이다. 항목 수를 박지 않고 ITEMS 에서 센다
+      expect(Number(rows[0]?.n)).toBe(new Set(ITEMS.map(([, , , , , , contentId]) => contentId)).size);
     });
 
     it('리플레이 검수는 호출 로그를 남기지 않는다 — 증빙과 예산이 오염되지 않는다 (FR-OP-007)', async () => {

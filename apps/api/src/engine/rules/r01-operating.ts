@@ -25,10 +25,11 @@ import { confidenceOfPaths, type AuditItem, type AuditRule, type Finding, type I
  */
 
 /**
- * `1.0.2` — 휴무일 필드가 정의상 없는 유형(축제 15)에 휴무 확인 불가를 달지 않는다 (이슈 #436)
+ * `1.0.3` — 휴무일 필드가 없는 유형(축제 15 · 숙박 32)을 R01 **전체**에서 뺀다 (이슈 #436)
+ * `1.0.2` — 축제의 휴무 확인 불가만 막았다. 운영시간 단계로 흘러가 문제를 옮기기만 했다
  * `1.0.1` — 조건부 휴무 문구에서 원문을 뺐다 (FR-AU-071 계열 · DR-NM-014 · 이슈 #361)
  */
-export const R01_VERSION = '1.0.2';
+export const R01_VERSION = '1.0.3';
 
 /**
  * 1단계 결과.
@@ -225,12 +226,14 @@ function overlaps(aFrom: number, aTo: number, bFrom: number, bTo: number): boole
 /**
  * 공사 소개정보에 **휴무일 필드가 아예 없는** 유형인가 (외부 연동 3-3 분기표 · `INTRO_FIELDS`).
  *
- * 축제공연행사(15)와 숙박(32)이 그렇다. 없는 것은 결측이 아니라 **해당 없음**이다 — 축제는
- * 개최 기간이 곧 운영 기간이라 휴무일 개념이 없다. 이걸 「모른다」로 읽으면 화면에
- * 「축제인데 휴무일을 확인할 수 없습니다」가 뜨고, 이미 R02 로 차단된 항목이 확인 불가로
- * 한 번 더 깎인다 (이슈 #436).
+ * 축제공연행사(15)와 숙박(32)이 그렇다. **이 유형은 R01 전체 대상이 아니다** (FR-RU-015 ·
+ * FR-AU-011). 없는 것은 결측이 아니라 해당 없음이고, 축제는 개최 기간이 운영 정보의
+ * 본체이며 그 판정은 R02 가 한다.
  *
- * 숙박은 그 위에서 R01 전체 대상에서 빠지므로(FR-AU-011) 여기까지 오지 않는다.
+ * **휴무 단계만 건너뛰는 것으로는 부족하다.** 그렇게 고쳐 봤더니(v1.0.2) 운영시간 단계로
+ * 흘러가 거기서 확인 불가가 났다 — 사유코드만 `REST_DAY_UNCERTAIN` 에서 `PARSE_MISSING`
+ * 으로 바뀌고 점수는 그대로였다. 축제의 `playtime` 은 부가 안내라 형식이 제각각이다:
+ * 실측 「평일 13:00~18:00(주말 11:00~18:00 *벚꽃길은 상시 개방)」을 파서가 통째로 못 읽는다.
  */
 function hasNoRestDayField(contentTypeId: number): boolean {
   const fields = INTRO_FIELDS[contentTypeId as ContentTypeId];
@@ -270,8 +273,9 @@ export class R01OperatingRule implements AuditRule {
     // 매칭되지 않은 항목은 판정 대상이 아니다 — R05 가 다룬다
     if (item.content === null || item.matchStatus !== 'CONFIRMED') return [];
 
-    // FR-AU-011 — 숙박은 R01 대상이 아니다. 입실 · 퇴실만 해석해 F09 가 쓴다
-    if (item.content.contentTypeId === 32 || item.itemType === 'LODGING') return [];
+    // FR-RU-015 · FR-AU-011 — 휴무일 필드가 없는 유형(축제 · 숙박)은 R01 대상이 아니다.
+    // 숙박의 입실 · 퇴실은 정규화가 따로 해석해 F09 가 쓴다
+    if (hasNoRestDayField(item.content.contentTypeId) || item.itemType === 'LODGING') return [];
 
     const n = item.content.normalized;
     const date = parseIsoDate(item.date);
@@ -308,13 +312,12 @@ export class R01OperatingRule implements AuditRule {
       return findings;
     }
 
-    if (closed.kind === 'UNKNOWN' && !hasNoRestDayField(item.content.contentTypeId)) {
+    if (closed.kind === 'UNKNOWN') {
       findings.push(unverified(item, `${item.placeLabel} — 휴무일 정보를 확인할 수 없습니다`, {
         step: closed.step, date: item.date,
       }, 'REST_DAY_UNCERTAIN'));
       return findings;
     }
-    // 휴무일 필드가 없는 유형은 휴무 단계만 건너뛴다. 운영시간(축제는 `playtime`)은 그대로 본다
 
     // ── 2 · 3단계 ──
     const selected = selectHours(n, date);
