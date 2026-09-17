@@ -324,6 +324,8 @@ export interface PickedItemInput {
   dayNo: number;
   itemType: ItemType;
   origin: 'PICKER';
+  /** 넣을 위치 — 이 항목 다음에 삽입한다 (4-3). 없으면 그 날 끝에 붙인다 */
+  afterItemId: number | null;
   content: {
     contentId: string;
     contentTypeId: number;
@@ -364,6 +366,11 @@ export function validatePickedItem(body: Record<string, unknown> | undefined, da
   const contentTypeId = typeof cc.contentTypeId === 'number' ? cc.contentTypeId : Number(cc.contentTypeId);
   if (contentId === '') errors.push('contentId 가 필요합니다.');
   if (!Number.isInteger(contentTypeId)) errors.push('contentTypeId 가 올바르지 않습니다.');
+  // 넣을 위치는 선택이다 — 있으면 양의 정수여야 하고, 없으면 그 날 끝에 붙인다
+  const afterItemId = b.afterItemId === undefined || b.afterItemId === null
+    ? null
+    : (typeof b.afterItemId === 'number' && Number.isInteger(b.afterItemId) && b.afterItemId > 0 ? b.afterItemId : 0);
+  if (afterItemId === 0) errors.push('넣을 위치가 올바르지 않습니다.');
   if (errors.length > 0) return { errors };
   return {
     errors,
@@ -371,6 +378,7 @@ export function validatePickedItem(body: Record<string, unknown> | undefined, da
       dayNo,
       itemType: itemType as ItemType,
       origin: 'PICKER',
+      afterItemId,
       content: {
         contentId,
         contentTypeId,

@@ -93,6 +93,8 @@ export function PlacePicker({ product, onInserted }: { product: ProductDetail; o
       await itemApi.addPicked(product.productId, {
         dayNo: day,
         itemType,
+        // 넣을 위치를 고르면 그 항목 다음에 끼운다 (4-3). 안 고르면 그 날 끝에 붙는다
+        afterItemId: state.anchorItemId,
         content: { contentId: p.contentId, contentTypeId: p.contentTypeId, lcls1: p.lcls1, lcls2: p.lcls2, mapx: p.mapx, mapy: p.mapy },
       });
       dispatch({ type: "MARK_INSERTED", contentId: p.contentId });

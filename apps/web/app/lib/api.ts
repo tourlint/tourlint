@@ -346,11 +346,11 @@ export const itemApi = {
   remove: (itemId: number) => request<void>(`/items/${itemId}`, { method: "DELETE" }),
   reorder: (productId: number, items: readonly { itemId: number; dayNo: number; seq: number }[]) =>
     request<void>(`/products/${productId}/items/order`, { method: "PUT", body: JSON.stringify({ items }) }),
-  // 장소 담기로 넣기 (FR-PL-013). 고른 공사 콘텐츠를 그 날에 붙인다 — 시각 · 좌표는 서버가 채운다
-  addPicked: (productId: number, input: { dayNo: number; itemType: string; content: PlanContentRef }) =>
+  // 장소 담기로 넣기 (FR-PL-013 · 4-3). 넣을 위치(afterItemId) 다음에 끼운다 — 시각 · 좌표는 서버가 채운다
+  addPicked: (productId: number, input: { dayNo: number; itemType: string; content: PlanContentRef; afterItemId?: number | null }) =>
     request<ProductItem>(`/products/${productId}/items`, {
       method: "POST",
-      body: JSON.stringify({ dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", content: input.content }),
+      body: JSON.stringify({ dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", afterItemId: input.afterItemId ?? null, content: input.content }),
     }),
   // 걷기 길로 넣기 (D9). 코스 식별자만 보낸다 — 이름은 보내지도 저장하지도 않는다
   addWalk: (productId: number, input: { dayNo: number; walkId: string }) =>

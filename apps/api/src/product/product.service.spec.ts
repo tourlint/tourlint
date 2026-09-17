@@ -44,6 +44,7 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
       new PlaceNameResolver({ kto }),
       {} as never, // 이 스펙은 handoff 를 부르지 않는다
       new WalkNameResolver({ kto, budget: async () => ({ allowed: true, ratio: 0, reasonCode: null, warn: false, remaining: 800 }) }),
+      () => null, // 이 스펙은 카카오 이동시간 없이 앞 항목 끝에 붙는 경로를 본다
     );
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO account (email, password_hash) VALUES ($1, 'x')
@@ -126,6 +127,36 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     expect(placeOf(await service.detail(accountId, productId))).toBe('경포대');
     expect(await patches.staleLabelItemIds(productId)).toEqual(new Set());
   });
+
+  const picked = (contentId: string) => ({
+    dayNo: 1, itemType: 'MEAL', origin: 'PICKER',
+    content: { contentId, contentTypeId: 39, lcls1: null, lcls2: null, lcls3: null, mapx: null, mapy: null },
+  });
+
+  it('🔴 넣을 위치(afterItemId) 다음에 끼우고 뒤 항목 순번을 민다 (4-3)', async () => {
+    const { productId, itemId } = await makeProduct();
+    // 그 날 끝에 하나 더 붙여 [경포대(seq1), 뒤(seq2)] 를 만든다
+    await service.addItem(accountId, productId, picked(REPLACEMENT));
+    const before = (await service.detail(accountId, productId)).days as { items: { itemId: number; seq: number }[] }[];
+    const tailId = before[0]?.items[1]?.itemId;
+
+    // 첫 항목(경포대) 다음에 끼운다 — 뒤 항목은 한 칸 밀려야 한다
+    await service.addItem(accountId, productId, { ...picked(ORIGINAL), afterItemId: itemId });
+
+    const rows = (await pool.query<{ id: string; seq: number }>(
+      `SELECT id, seq FROM itinerary_item WHERE product_id = $1 ORDER BY seq`, [productId],
+    )).rows;
+    expect(rows.map((r) => Number(r.seq))).toEqual([1, 2, 3]);
+    expect(Number(rows[0]?.id)).toBe(itemId);       // 앵커는 그대로 1번
+    expect(Number(rows[2]?.id)).toBe(tailId);       // 밀린 항목이 3번
+  });
+
+  it('넣을 위치를 안 주면 그 날 끝에 붙는다', async () => {
+    const { productId } = await makeProduct();
+    await service.addItem(accountId, productId, picked(REPLACEMENT));
+    const days = (await service.detail(accountId, productId)).days as { items: { seq: number }[] }[];
+    expect(days[0]?.items.map((i) => i.seq)).toEqual([1, 2]);
+  });
 });
 
 /**
@@ -146,6 +177,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
       {} as never,
       {} as never,
       {} as never,
+      () => null,
     );
 
   it('🔴 차단이 1건이면 403 FORBIDDEN_ACTION 이다 — 화면 버튼만으로 충족하지 않는다', async () => {
@@ -200,7 +232,7 @@ describe('검수 시작 handoff (FR-PL-020 · D7) — 저장소 · 검수는 스
         return { job: { id: 42 }, created: true };
       },
     } as unknown as import('../audit/audit.service').AuditService;
-    const svc = new ProductService(repo, {} as never, {} as never, {} as never, audit, {} as never);
+    const svc = new ProductService(repo, {} as never, {} as never, {} as never, audit, {} as never, () => null);
     return { svc, calls };
   }
 
