@@ -13,11 +13,9 @@ import {
   contentApi,
   EXTERNAL_UNAVAILABLE,
   isApiError,
-  matchApi,
   patchApi,
   productApi,
   reportApi,
-  type ContentCandidate,
   type ContentDetail,
   type EvidenceView,
   type Finding,
@@ -39,17 +37,6 @@ import { contactText, readNormalized, readVerdict } from "../../../lib/evidence"
 import { ruleName } from "../../../lib/rule-names";
 import { scoreSentence } from "../../../lib/score-sentence";
 import { CheckQuestionsCard } from "./check-questions-card";
-
-const CONTENT_TYPE_LABEL: Record<number, string> = {
-  12: "관광지",
-  14: "문화시설",
-  15: "축제",
-  25: "여행코스",
-  28: "레포츠",
-  32: "숙박",
-  38: "쇼핑",
-  39: "음식점",
-};
 
 // 배지·건수·라벨은 공통 컴포넌트(components/badges)가 등급 토큰으로 그린다.
 // 여기서는 finding 카드의 좌측 테두리 색과 정렬 순서만 등급별로 둔다.
@@ -330,7 +317,7 @@ export function AuditResult({ productId }: { productId: number }) {
           {error}
         </div>
       ) : product && pendingItems.length > 0 ? (
-        <MatchStage product={product} items={pendingItems} onResolved={refetchProduct} />
+        <PendingNotice productId={productId} count={pendingItems.length} />
       ) : data === null ? (
         <EmptyState running={running} progress={progress} onRun={runAudit} />
       ) : (
@@ -408,191 +395,17 @@ function EmptyState({ running, progress, onRun }: { running: boolean; progress: 
   );
 }
 
-function MatchStage({
-  product,
-  items,
-  onResolved,
-}: {
-  product: ProductDetail;
-  items: ProductItem[];
-  onResolved: () => Promise<void>;
-}) {
+function PendingNotice({ productId, count }: { productId: number; count: number }) {
   return (
-    <div className="mt-6 space-y-4 pb-10">
-      <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-        관광지 <strong>{items.length}</strong>곳을 확정해야 검수할 수 있습니다. 장소마다 공사 콘텐츠를 선택하거나 검수에서 제외하세요.
-      </div>
-      <ul className="space-y-3">
-        {items.map((it) => (
-          <MatchItemRow
-            key={it.itemId}
-            item={it}
-            regnCd={product.ldongRegnCd}
-            signguCd={product.ldongSignguCd}
-            onResolved={onResolved}
-          />
-        ))}
-      </ul>
+    <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+      <p>아직 고르지 않은 장소가 {count}곳 있어요. 기획 화면에서 장소를 고른 뒤 검수할 수 있어요.</p>
+      <Link
+        href={`/products/${productId}/plan`}
+        className="mt-3 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
+      >
+        기획 화면으로
+      </Link>
     </div>
-  );
-}
-
-function MatchItemRow({
-  item,
-  regnCd,
-  signguCd,
-  onResolved,
-}: {
-  item: ProductItem;
-  regnCd: string;
-  signguCd: string | null;
-  onResolved: () => Promise<void>;
-}) {
-  const [keyword, setKeyword] = useState(item.place);
-  const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
-  const [regionFilter, setRegionFilter] = useState(true);
-  const [searching, setSearching] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function runSearch(kw: string, useRegion: boolean) {
-    setSearching(true);
-    setErr(null);
-    try {
-      const res = await matchApi.search(kw, useRegion ? regnCd : null, useRegion ? signguCd : null);
-      setCandidates(res.candidates);
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : EXTERNAL_UNAVAILABLE);
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  // 장소명으로 1회 자동 검색. setState 는 await 뒤에서만 (effect 안 동기 setState 금지)
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await matchApi.search(item.place, regnCd, signguCd);
-        if (!cancelled) setCandidates(res.candidates);
-      } catch {
-        if (!cancelled) setCandidates([]);
-      } finally {
-        if (!cancelled) setSearching(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [item.place, regnCd, signguCd]);
-
-  async function confirm(contentid: string) {
-    setBusy(true);
-    setErr(null);
-    try {
-      await matchApi.match(item.itemId, contentid);
-      await onResolved();
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : "확정에 실패했습니다.");
-      setBusy(false);
-    }
-  }
-
-  async function exclude() {
-    setBusy(true);
-    setErr(null);
-    try {
-      await matchApi.exclude(item.itemId);
-      await onResolved();
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : "제외에 실패했습니다.");
-      setBusy(false);
-    }
-  }
-
-  return (
-    <li className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.place}</span>
-          <span className="ml-2 text-xs text-slate-400">
-            {item.start}
-            {item.end ? `~${item.end}` : ""} · {ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={exclude}
-          disabled={busy}
-          className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-        >
-          검수 제외
-        </button>
-      </div>
-
-      <div className="mt-3 flex gap-2">
-        <input
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void runSearch(keyword, regionFilter);
-          }}
-          placeholder="장소명으로 검색"
-          className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-        />
-        <button
-          type="button"
-          onClick={() => void runSearch(keyword, regionFilter)}
-          disabled={searching}
-          className="rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-200 disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
-          {searching ? "검색 중…" : "검색"}
-        </button>
-      </div>
-      <label className="mt-1.5 flex w-fit cursor-pointer items-center gap-1.5 text-xs text-slate-400">
-        <input
-          type="checkbox"
-          checked={regionFilter}
-          onChange={(e) => {
-            setRegionFilter(e.target.checked);
-            void runSearch(keyword, e.target.checked);
-          }}
-        />
-        이 상품 지역으로 좁히기
-      </label>
-
-      {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
-
-      {candidates &&
-        (candidates.length === 0 ? (
-          <p className="mt-2 text-xs text-slate-400">검색 결과가 없습니다. 검색어를 바꾸거나 검수에서 제외하세요.</p>
-        ) : (
-          <ul className="mt-2 space-y-1.5">
-            {candidates.map((c) => (
-              <li
-                key={c.contentid}
-                className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/50"
-              >
-                <div className="min-w-0">
-                  <span className="text-sm text-slate-800 dark:text-slate-100">{c.title}</span>
-                  {c.contenttypeid !== null && (
-                    <span className="ml-2 text-xs text-slate-400">{CONTENT_TYPE_LABEL[c.contenttypeid] ?? ""}</span>
-                  )}
-                  {c.addr1 && <p className="truncate text-xs text-slate-400">{c.addr1}</p>}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void confirm(c.contentid)}
-                  disabled={busy}
-                  className="shrink-0 rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60"
-                >
-                  확정
-                </button>
-              </li>
-            ))}
-          </ul>
-        ))}
-    </li>
   );
 }
 

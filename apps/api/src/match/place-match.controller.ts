@@ -36,10 +36,12 @@ export class PlaceMatchController {
   async match(
     @CurrentAccount() account: SessionAccount,
     @Param('itemId', ParseIntPipe) itemId: number,
-    @Body() body: { contentid?: unknown } | undefined,
+    @Body() body: { contentid?: unknown; matchedBy?: unknown } | undefined,
   ): Promise<Record<string, unknown>> {
     const contentId = typeof body?.contentid === 'string' ? body.contentid : '';
-    return this.service.match(account.accountId, itemId, contentId);
+    // 누가 골랐는가 (D8). 1곳 자동은 AUTO, 사람이 목록에서 고르면 USER, 에이전트 카드는 AGENT.
+    const matchedBy = body?.matchedBy === 'AGENT' || body?.matchedBy === 'AUTO' ? body.matchedBy : 'USER';
+    return this.service.match(account.accountId, itemId, contentId, matchedBy);
   }
 
   @Post('items/:itemId/exclude')

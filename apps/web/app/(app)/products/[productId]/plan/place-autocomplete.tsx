@@ -1,0 +1,146 @@
+"use client";
+
+// 장소 찾기 (F02 · FR-PL-004 · UI-S2-020~023). 아직 고르지 않은(PENDING) 항목의 이름으로
+// 공사 콘텐츠를 찾아 고르거나 직접 정한 곳으로 둔다. 사용자가 친 글은 그대로 두고 공식
+// 명칭은 고른 뒤 표시한다 (D1). 결과가 1곳뿐이면 자동으로 고른다(AUTO).
+
+import { useEffect, useRef, useState } from "react";
+import { isApiError, matchApi, type ContentCandidate, type ProductItem } from "../../../../lib/api";
+
+const CONTENT_TYPE_LABEL: Record<number, string> = {
+  12: "관광지", 14: "문화시설", 15: "축제", 25: "여행코스", 28: "레포츠", 32: "숙박", 38: "쇼핑", 39: "음식점",
+};
+
+export function PlaceAutocomplete({
+  item,
+  regnCd,
+  signguCd,
+  regionLabel,
+  onResolved,
+}: {
+  item: ProductItem;
+  regnCd: string;
+  signguCd: string | null;
+  regionLabel: string;
+  onResolved: () => Promise<void>;
+}) {
+  const [keyword, setKeyword] = useState(item.place);
+  const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
+  const [searching, setSearching] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const autoTried = useRef(false);
+
+  // 입력이 멈춘 뒤 300ms 에 검색한다 (디바운스). setState 는 비동기 콜백 안에서만.
+  useEffect(() => {
+    let alive = true;
+    const id = window.setTimeout(() => {
+      void (async () => {
+        setSearching(true);
+        setErr(null);
+        try {
+          const res = await matchApi.search(keyword, regnCd, signguCd);
+          if (!alive) return;
+          setCandidates(res.candidates);
+          // 처음 검색에서 딱 한 곳이면 자동으로 고른다 (1건 자동 · AUTO)
+          if (!autoTried.current && keyword === item.place && res.candidates.length === 1) {
+            autoTried.current = true;
+            const only = res.candidates[0];
+            if (only !== undefined) {
+              await matchApi.match(item.itemId, only.contentid, "AUTO");
+              await onResolved();
+            }
+          }
+        } catch (e) {
+          if (alive) setErr(isApiError(e) ? e.message : "장소를 찾지 못했어요.");
+        } finally {
+          if (alive) setSearching(false);
+        }
+      })();
+    }, 300);
+    return () => {
+      alive = false;
+      window.clearTimeout(id);
+    };
+  }, [keyword, regnCd, signguCd, item.itemId, item.place, onResolved]);
+
+  async function pick(contentid: string) {
+    setBusy(true);
+    setErr(null);
+    try {
+      await matchApi.match(item.itemId, contentid, "USER");
+      await onResolved();
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "고르지 못했어요.");
+      setBusy(false);
+    }
+  }
+
+  async function keepAsIs() {
+    setBusy(true);
+    setErr(null);
+    try {
+      await matchApi.exclude(item.itemId);
+      await onResolved();
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "처리하지 못했어요.");
+      setBusy(false);
+    }
+  }
+
+  const count = candidates?.length ?? 0;
+
+  return (
+    <div className="mt-2">
+      <input
+        value={keyword}
+        onChange={(e) => setKeyword(e.target.value)}
+        placeholder="장소 이름으로 찾기"
+        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+      />
+      {err && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
+
+      {candidates !== null && (
+        count === 0 ? (
+          <p className="mt-2 text-xs text-slate-400">
+            {searching ? "찾는 중…" : "관광정보에 올라 있는 이름으로 검색해 보세요 · 상호나 공식 이름이면 찾을 수 있어요"}
+          </p>
+        ) : (
+          <>
+            <p className="mt-2 text-xs text-slate-400">{regionLabel}에서 찾은 곳 {count}곳</p>
+            <ul className="mt-1 space-y-1">
+              {candidates.map((c) => (
+                <li key={c.contentid} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/50">
+                  <div className="min-w-0">
+                    <span className="text-sm text-slate-800 dark:text-slate-100">{c.title}</span>
+                    {c.contenttypeid !== null && (
+                      <span className="ml-2 text-xs text-slate-400">{CONTENT_TYPE_LABEL[c.contenttypeid] ?? ""}</span>
+                    )}
+                    {c.addr1 !== null && <p className="truncate text-xs text-slate-400">{c.addr1}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void pick(c.contentid)}
+                    disabled={busy}
+                    className="shrink-0 rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60"
+                  >
+                    고르기
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )
+      )}
+
+      <button
+        type="button"
+        onClick={() => void keepAsIs()}
+        disabled={busy}
+        className="mt-2 text-xs text-slate-500 underline-offset-2 hover:underline disabled:opacity-60 dark:text-slate-400"
+      >
+        찾는 곳이 없나요? 직접 정한 곳으로 두기
+      </button>
+    </div>
+  );
+}

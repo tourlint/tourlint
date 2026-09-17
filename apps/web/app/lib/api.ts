@@ -397,11 +397,12 @@ export const matchApi = {
     if (signguCd) q.set("signguCd", signguCd);
     return request<ContentSearchResult>(`/contents/search?${q.toString()}`);
   },
-  // contentid 확정 → 항목이 CONFIRMED 가 되고 좌표·분류가 붙는다
-  match: (itemId: number, contentid: string) =>
+  // contentid 확정 → 항목이 CONFIRMED 가 되고 좌표·분류가 붙는다. matchedBy 로 누가 골랐는지
+  // 남긴다 (D8): AUTO(1곳 자동) · USER(직접) · AGENT(에이전트 카드). 기본은 USER.
+  match: (itemId: number, contentid: string, matchedBy: "AUTO" | "USER" | "AGENT" = "USER") =>
     request<{ itemId: number; matchStatus: string; content: ContentCandidate & { mapx: number | null } }>(
       `/items/${itemId}/match`,
-      { method: "POST", body: JSON.stringify({ contentid }) },
+      { method: "POST", body: JSON.stringify({ contentid, matchedBy }) },
     ),
   // 해당 없음 → 검수 제외
   exclude: (itemId: number) =>

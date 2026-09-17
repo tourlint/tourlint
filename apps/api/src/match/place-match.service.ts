@@ -55,7 +55,12 @@ export class PlaceMatchService {
    * 항목에 contentid 를 확정한다. 확정 시점에 상세를 조회해 좌표·분류를 저장하고, 표시용 원문을
    * 응답으로 돌려준다 (실시간 취득 · FR-IN-025).
    */
-  async match(accountId: number, itemId: number, contentId: string): Promise<Record<string, unknown>> {
+  async match(
+    accountId: number,
+    itemId: number,
+    contentId: string,
+    matchedBy: 'AUTO' | 'USER' | 'AGENT' = 'USER',
+  ): Promise<Record<string, unknown>> {
     const item = await this.requireItem(accountId, itemId);
     if (contentId.trim() === '') {
       throw new DomainException(HttpStatus.BAD_REQUEST, 'NOT_FOUND', 'contentid 가 필요합니다.', 'ITEM');
@@ -71,7 +76,7 @@ export class PlaceMatchService {
     const lclsSystm2 = str(common.lclsSystm2);
     const lclsSystm3 = str(common.lclsSystm3);
 
-    await this.repo.confirm(item.itemId, { contentId, contentTypeId, lclsSystm1, lclsSystm2, lclsSystm3, mapx, mapy });
+    await this.repo.confirm(item.itemId, { contentId, contentTypeId, lclsSystm1, lclsSystm2, lclsSystm3, mapx, mapy, matchedBy });
 
     return {
       itemId: item.itemId,

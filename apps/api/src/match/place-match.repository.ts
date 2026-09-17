@@ -25,6 +25,8 @@ export interface ConfirmInput {
   readonly lclsSystm3: string | null;
   readonly mapx: number | null;
   readonly mapy: number | null;
+  /** 누가 골랐는가 — AUTO(1곳 자동) · USER(직접) · AGENT(에이전트 카드). D8 */
+  readonly matchedBy: 'AUTO' | 'USER' | 'AGENT';
 }
 
 export class PlaceMatchRepository {
@@ -62,13 +64,13 @@ export class PlaceMatchRepository {
       `UPDATE itinerary_item
           SET kto_content_id = $2, content_type_id = $3,
               lcls_systm1 = $4, lcls_systm2 = $5, lcls_systm3 = $6,
-              mapx = $7, mapy = $8,
+              mapx = $7, mapy = $8, matched_by = $9,
               match_status = 'CONFIRMED', updated_at = now()
         WHERE id = $1`,
       [
         itemId, input.contentId, input.contentTypeId,
         input.lclsSystm1, input.lclsSystm2, input.lclsSystm3,
-        input.mapx, input.mapy,
+        input.mapx, input.mapy, input.matchedBy,
       ],
     );
   }
