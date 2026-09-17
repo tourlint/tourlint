@@ -5,6 +5,7 @@ import { CatalogService } from '../catalog/catalog.service';
 import { DomainException } from '../common/domain.exception';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
+import { WalkNameResolver } from '../plan/walk-names';
 import { ReportService } from './report.service';
 
 /**
@@ -40,7 +41,11 @@ describe.skipIf(URL === undefined)('ReportService — 관통', () => {
     const catalog = new CatalogService(
       () => createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
     );
-    service = new ReportService(pool, catalog);
+    const walkNames = new WalkNameResolver({
+      kto: () => createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
+      budget: async () => ({ allowed: true, ratio: 0, reasonCode: null, warn: false, remaining: 800 }),
+    });
+    service = new ReportService(pool, catalog, walkNames);
   });
 
   afterAll(async () => {

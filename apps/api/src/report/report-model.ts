@@ -226,9 +226,12 @@ export interface AssembleInput {
     readonly matchStatus: string;
     readonly ktoContentId: string | null;
     readonly itemId: number;
+    readonly walkId: string | null;
   }[];
   readonly patches: readonly ReportPatch[];
   readonly evidence: ReadonlyMap<string, ContentEvidence>;
+  /** 걷기 길 코스 이름 (walk_id → 이름 · D9). 못 찾은 코스는 여기 없어 "걷기 길" 로 떨어진다 */
+  readonly walkNames: ReadonlyMap<string, string>;
   readonly dataFingerprint: string | null;
   /** 공사 데이터 최종 수정일 원문. 지문 행에서 모은다 */
   readonly ktoModifiedAt: string | null;
@@ -242,11 +245,13 @@ export interface AssembleInput {
  * `place_label` 그대로다 — 비표출 콘텐츠도 여기로 떨어져 원문 명칭이 새지 않는다.
  */
 export function assembleReport(input: AssembleInput): ReportModel {
-  const { run, evidence } = input;
+  const { run, evidence, walkNames } = input;
   const c = run.current;
   const appliedBasis = describeAppliedBasis(run, c.dismissedCount);
 
-  const nameOf = (contentId: string | null, fallback: string): string => {
+  // 표시명: 공식 명칭을 읽었으면 그것, 걷기 길이면 코스 이름(못 찾으면 "걷기 길"), 아니면 입력 라벨
+  const nameOf = (contentId: string | null, fallback: string, walkId: string | null): string => {
+    if (walkId !== null) return walkNames.get(walkId) ?? '걷기 길';
     if (contentId === null) return fallback;
     return evidence.get(contentId)?.officialName ?? fallback;
   };
@@ -261,7 +266,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
       seq: it.seq,
       start: it.start,
       end: it.end,
-      place: nameOf(it.ktoContentId, it.place),
+      place: nameOf(it.ktoContentId, it.place, it.walkId),
       itemType: it.itemType,
       matchStatus: it.matchStatus,
       excluded,
@@ -269,7 +274,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
     days.set(it.dayNo, bucket);
   }
 
-  const placeOf = new Map(input.items.map((i) => [i.itemId, nameOf(i.ktoContentId, i.place)]));
+  const placeOf = new Map(input.items.map((i) => [i.itemId, nameOf(i.ktoContentId, i.place, i.walkId)]));
   const contentOf = new Map(input.items.map((i) => [i.itemId, i.ktoContentId]));
 
   const toFinding = (f: StoredFinding): ReportFinding => {

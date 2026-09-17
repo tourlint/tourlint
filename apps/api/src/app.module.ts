@@ -166,7 +166,7 @@ import { SettingsRepository } from './settings/settings.repository';
     {
       // 상품 CRUD. 목록의 지역명 조회에 CatalogService 를 재사용한다 (fixture 리플레이라 예산 0)
       provide: ProductService,
-      useFactory: (pool: Pool, catalog: CatalogService, audit: AuditService) => new ProductService(
+      useFactory: (pool: Pool, catalog: CatalogService, audit: AuditService, walkNames: WalkNameResolver) => new ProductService(
         new ProductRepository(pool),
         catalog,
         new PatchApplicationRepository(pool),
@@ -174,8 +174,10 @@ import { SettingsRepository } from './settings/settings.repository';
         new PlaceNameResolver({ kto: () => createKtoClient(new PgApiCallLogger(pool)) }),
         // 검수 시작(handoff)이 검수를 요청한다 (D7)
         audit,
+        // 걷기 길(walk_id)의 표시 이름은 저장하지 않고 볼 때 찾는다 (D9)
+        walkNames,
       ),
-      inject: [DB_POOL, CatalogService, AuditService],
+      inject: [DB_POOL, CatalogService, AuditService, WalkNameResolver],
     },
     {
       // 관광지 확정(매칭). 검색·상세 프록시에 KTO 클라이언트를 쓴다 (KTO_MODE 에 따라 live/fixture)
