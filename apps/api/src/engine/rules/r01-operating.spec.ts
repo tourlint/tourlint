@@ -134,6 +134,32 @@ describe('[1단계] 휴무 판정 — 위에서부터, 걸리면 즉시 CLOSED (
     expect(spot('연중무휴', '09:00~18:00', '2026-10-08')).toHaveLength(0);
   });
 
+  describe('휴무일 필드가 없는 유형 — 결측이 아니라 해당 없음이다 (이슈 #436)', () => {
+    /** 축제공연행사(15). 공사 소개정보에 휴무일 필드가 없고 `playtime` 만 있다 */
+    const festival = (playtime: string, date: string, start?: string, end?: string | null) =>
+      evaluate({ contentTypeId: 15, raw: { playtime }, date, start, end, placeLabel: '강릉 경포벚꽃축제' });
+
+    it('🔴 축제는 휴무일 확인 불가를 내지 않는다', () => {
+      /*
+       * `INTRO_FIELDS[15].rest` 가 `null` 이다 — 축제는 개최 기간이 곧 운영 기간이라 휴무일
+       * 개념이 없다. 이걸 「모른다」로 읽으면 이미 R02 로 차단된 항목이 확인 불가로 한 번 더
+       * 깎이고, 화면에는 「축제인데 휴무일을 확인할 수 없습니다」가 뜬다.
+       */
+      expect(festival('10:00~18:00', '2026-11-18', '11:00', '12:00')).toHaveLength(0);
+    });
+
+    it('🔴 축제도 운영시간 판정은 그대로 받는다 — 휴무 단계만 건너뛴다', () => {
+      // `playtime` 은 있는 필드다. 휴무가 없다고 시각까지 안 보면 R01 이 축제에 아무 일도 안 한다
+      const [f] = festival('10:00~18:00', '2026-11-18', '08:00', '09:00');
+      expect(f).toMatchObject({ severity: 'BLOCKER', reasonCode: 'OPEN_HOUR_CONFLICT' });
+    });
+
+    it('관광지는 종전대로 확인 불가다 — 그쪽은 있어야 할 값이 빈 것이다', () => {
+      const [f] = spot('', '09:00~18:00', '2026-11-18');
+      expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'REST_DAY_UNCERTAIN' });
+    });
+  });
+
   it('1-7 휴무 필드가 모두 비면 확인 불가다 — 정상으로 판정하지 않는다 (FR-AU-009)', () => {
     const [f] = spot('', '09:00~18:00', '2026-10-08');
     expect(f).toMatchObject({ severity: 'UNVERIFIED' });
