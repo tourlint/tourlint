@@ -4,6 +4,12 @@
 // 같은 데이터를 쓰면 시연과 회귀가 어긋나지 않는다. 손으로 고치지 말고 스크립트로 다시 뽑는다.
 // contentId 가 전부 있어 match_status 는 CONFIRMED 로 고정한다 (DR-IN-004)
 //
+// **출발일만 픽스처와 다르다.** 픽스처는 2026-10 이고 시드는 정확히 5주 뒤인 2026-11 이다 —
+// 시연 일정이 과거가 되면 R08 이 「현재 시각 기준」 폴백으로 내려가고 R09 가 예보 범위를
+// 벗어난다 (이슈 #429). 7의 배수로만 옮긴다. 요일이 바뀌면 `매주 화요일` 휴무로 나는 차단이
+// 사라져 명세 AC 의 29점이 재현되지 않는다. 다시 뽑을 때도 이 값을 유지하고,
+// `demo-dates.spec.ts` 가 요일 · 공휴일 · 미래 여부를 묶어 둔다
+//
 // targetKey · conceptKey 는 **코드**다. 한글 라벨을 담으면 target_profile 이 코드로
 // 저장돼 있어 R10 이 어느 행도 못 찾고 판정 대신 확인 불가를 낸다 (이슈 #310)..
 
@@ -43,7 +49,7 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     name: "강릉 역사·힐링 2박 3일",
     ldongRegnCd: "51",
     ldongSignguCd: "150",
-    startDate: "2026-10-22",
+    startDate: "2026-11-12",
     nights: 2,
     targetKey: "SENIOR",
     conceptKey: "HERITAGE",
@@ -68,7 +74,7 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     name: "강릉 경계 검증 2박 3일",
     ldongRegnCd: "51",
     ldongSignguCd: "150",
-    startDate: "2026-10-15",
+    startDate: "2026-11-19",
     nights: 2,
     targetKey: "SENIOR",
     conceptKey: "HERITAGE",
@@ -90,7 +96,7 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     name: "강릉 감성 1박 2일",
     ldongRegnCd: "51",
     ldongSignguCd: "150",
-    startDate: "2026-10-13",
+    startDate: "2026-11-17",
     nights: 1,
     targetKey: "YOUTH_20S",
     conceptKey: "EMOTIONAL",
@@ -111,7 +117,7 @@ export const DEMO_PRODUCTS: readonly DemoProduct[] = [
     name: "강릉 실패 격리 검증 1박 2일",
     ldongRegnCd: "51",
     ldongSignguCd: "150",
-    startDate: "2026-10-08",
+    startDate: "2026-11-26",
     nights: 1,
     targetKey: "SENIOR",
     conceptKey: "HERITAGE",
