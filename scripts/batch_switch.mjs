@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 /**
- * 경량 배치 스위치 (FR-MO-010).
+ * 운영 전역 설정 스위치 — 배치 두 값과 일일 예산 (FR-MO-010 · FR-OP-003).
  *
  *   DATABASE_URL=... node scripts/batch_switch.mjs              현재 상태만 본다
  *   DATABASE_URL=... node scripts/batch_switch.mjs --on
  *   DATABASE_URL=... node scripts/batch_switch.mjs --off
  *   DATABASE_URL=... node scripts/batch_switch.mjs --time 07:30
+ *   DATABASE_URL=... node scripts/batch_switch.mjs --quota 8000
  *
  * `system_setting.batch_enabled` 는 기본이 `FALSE` 라 배포만으로는 배치가 안 돈다.
  * 스케줄러는 깨어나서 "배치가 꺼져 있다" 만 남긴다.
  *
- * **시연 전에 끄는 데도 쓴다.** 일일 800건 중 배치가 먼저 먹는 몫을 0 으로 만든다.
+ * **시연 전에 끄는 데도 쓴다.** 일일 예산 중 배치가 먼저 먹는 몫을 0 으로 만든다.
+ *
+ * `daily_quota` 는 **국문 관광정보 몫**이고 운영자만 바꾼다 — 설정 API 는 계정 설정만
+ * 다루고 이 행을 쓰는 경로가 저장소에 여기뿐이다. 값은 공사 한도의 80% 로 둔다
+ * (트래픽 증설로 10,000 이 되어 8,000 · 2026-09-17). 새 서비스 5종은 `EXTRA_PROVIDER_DAILY_CAP`
+ * 으로 따로 센다 — 여기서 바꾸는 값과 무관하다.
  */
 import { createRequire } from 'node:module';
 
@@ -19,6 +25,8 @@ const timeIdx = args.indexOf('--time');
 const time = timeIdx === -1 ? null : args[timeIdx + 1];
 const on = args.includes('--on');
 const off = args.includes('--off');
+const quotaIdx = args.indexOf('--quota');
+const quota = quotaIdx === -1 ? null : Number(args[quotaIdx + 1]);
 
 if (on && off) {
   console.error('--on 과 --off 를 같이 줄 수 없다');
@@ -26,6 +34,11 @@ if (on && off) {
 }
 if (timeIdx !== -1 && !/^\d{2}:\d{2}$/.test(time ?? '')) {
   console.error('--time 은 HH:MM 이다 (예: 05:00)');
+  process.exit(1);
+}
+// `ck_sys_quota` 가 1 – 100,000 이다. 여기서 먼저 걸러야 DB 오류 대신 뜻이 있는 말이 나온다
+if (quotaIdx !== -1 && (!Number.isInteger(quota) || quota < 1 || quota > 100000)) {
+  console.error('--quota 는 1 – 100000 의 정수다 (예: 8000)');
   process.exit(1);
 }
 
@@ -107,8 +120,8 @@ async function show(label) {
 try {
   await show('지금');
 
-  if (!on && !off && time === null) {
-    console.log('\n바꾸려면 --on / --off / --time HH:MM 을 준다.');
+  if (!on && !off && time === null && quota === null) {
+    console.log('\n바꾸려면 --on / --off / --time HH:MM / --quota N 을 준다.');
     process.exit(0);
   }
 
@@ -117,12 +130,13 @@ try {
    * 안 준 항목은 COALESCE 로 기존 값을 지킨다 — --time 만 줬는데 켜지면 사고다.
    */
   await pool.query(
-    `INSERT INTO system_setting (key, batch_time, batch_enabled)
-     VALUES ('global', COALESCE($1::time, '05:00'), COALESCE($2::boolean, FALSE))
+    `INSERT INTO system_setting (key, batch_time, batch_enabled, daily_quota)
+     VALUES ('global', COALESCE($1::time, '05:00'), COALESCE($2::boolean, FALSE), COALESCE($3::int, 8000))
      ON CONFLICT (key) DO UPDATE SET
        batch_time    = COALESCE($1::time, system_setting.batch_time),
-       batch_enabled = COALESCE($2::boolean, system_setting.batch_enabled)`,
-    [time, on ? true : off ? false : null],
+       batch_enabled = COALESCE($2::boolean, system_setting.batch_enabled),
+       daily_quota   = COALESCE($3::int, system_setting.daily_quota)`,
+    [time, on ? true : off ? false : null, quota],
   );
 
   await show('바꾼 뒤');
