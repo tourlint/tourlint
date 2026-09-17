@@ -1,4 +1,5 @@
 import type { ExceptionReasonCode, ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
+import { INTRO_FIELDS, type ContentTypeId } from '@tourlint/shared';
 import {
   addDays, dayOfWeek, isWithinMonthDayRange, nthWeekdayOfMonth, parseIsoDate, toMonthDay,
   type CalendarDate,
@@ -23,8 +24,11 @@ import { confidenceOfPaths, type AuditItem, type AuditRule, type Finding, type I
  *   5단계 신뢰도 게이트   4단계 결과에 덮어쓴다
  */
 
-/** `1.0.1` — 조건부 휴무 문구에서 원문을 뺐다 (FR-AU-071 계열 · DR-NM-014 · 이슈 #361) */
-export const R01_VERSION = '1.0.1';
+/**
+ * `1.0.2` — 휴무일 필드가 정의상 없는 유형(축제 15)에 휴무 확인 불가를 달지 않는다 (이슈 #436)
+ * `1.0.1` — 조건부 휴무 문구에서 원문을 뺐다 (FR-AU-071 계열 · DR-NM-014 · 이슈 #361)
+ */
+export const R01_VERSION = '1.0.2';
 
 /**
  * 1단계 결과.
@@ -218,6 +222,21 @@ function overlaps(aFrom: number, aTo: number, bFrom: number, bTo: number): boole
   return aFrom < bTo && bFrom < aTo;
 }
 
+/**
+ * 공사 소개정보에 **휴무일 필드가 아예 없는** 유형인가 (외부 연동 3-3 분기표 · `INTRO_FIELDS`).
+ *
+ * 축제공연행사(15)와 숙박(32)이 그렇다. 없는 것은 결측이 아니라 **해당 없음**이다 — 축제는
+ * 개최 기간이 곧 운영 기간이라 휴무일 개념이 없다. 이걸 「모른다」로 읽으면 화면에
+ * 「축제인데 휴무일을 확인할 수 없습니다」가 뜨고, 이미 R02 로 차단된 항목이 확인 불가로
+ * 한 번 더 깎인다 (이슈 #436).
+ *
+ * 숙박은 그 위에서 R01 전체 대상에서 빠지므로(FR-AU-011) 여기까지 오지 않는다.
+ */
+function hasNoRestDayField(contentTypeId: number): boolean {
+  const fields = INTRO_FIELDS[contentTypeId as ContentTypeId];
+  return fields !== undefined && fields.rest === null;
+}
+
 /** [4단계] 등급 매핑 */
 const SEVERITY_BY_VERDICT: Readonly<Record<string, { severity: Severity; reason: ReasonCode }>> = {
   CLOSED: { severity: 'BLOCKER', reason: 'REST_DAY_CONFLICT' },
@@ -289,12 +308,13 @@ export class R01OperatingRule implements AuditRule {
       return findings;
     }
 
-    if (closed.kind === 'UNKNOWN') {
+    if (closed.kind === 'UNKNOWN' && !hasNoRestDayField(item.content.contentTypeId)) {
       findings.push(unverified(item, `${item.placeLabel} — 휴무일 정보를 확인할 수 없습니다`, {
         step: closed.step, date: item.date,
       }, 'REST_DAY_UNCERTAIN'));
       return findings;
     }
+    // 휴무일 필드가 없는 유형은 휴무 단계만 건너뛴다. 운영시간(축제는 `playtime`)은 그대로 본다
 
     // ── 2 · 3단계 ──
     const selected = selectHours(n, date);
