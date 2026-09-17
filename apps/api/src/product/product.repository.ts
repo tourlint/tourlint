@@ -1,7 +1,14 @@
 import type { Pool } from 'pg';
-import type { ItemType, MatchStatus, Transport } from '@tourlint/shared';
+import { DWELL_MINUTES_SEED, SETTING_DEFAULTS, type ItemType, type MatchStatus, type Transport } from '@tourlint/shared';
 import { withTransaction } from '../persistence/db';
-import type { ItemOrder, ItemPatch, ValidItem, ValidItemInput, ValidProduct } from './product.dto';
+import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct } from './product.dto';
+
+/** HH:MM 에 분을 더한다 (하루를 넘지 않게 23:59 로 막는다). 장소 담기 끝 시각 계산용. */
+function addMinutes(hhmm: string, minutes: number): string {
+  const [h = 9, m = 0] = hhmm.split(':').map(Number);
+  const total = Math.min(h * 60 + m + minutes, 23 * 60 + 59);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
 
 /**
  * 상품·일정 쓰기·읽기 (B 트랙 CRUD). 검수 읽기 전용인 audit/product.repository 와 별개다 —
@@ -344,6 +351,42 @@ export class ProductRepository {
   }
 
   /** 항목 추가. seq 는 그 일차 끝에 붙인다. 소유권은 호출 전 ownedNights 로 확인한다. */
+  /**
+   * 장소 담기로 넣는 항목 (FR-PL-013). 고른 공사 콘텐츠라 CONFIRMED 로 그 날 끝에 붙인다.
+   * 시작 시각은 그 날 마지막 항목의 끝(없으면 시작, 그마저 없으면 09:00) 다음이고, 끝 시각은
+   * 표준 체류시간으로 채운다(숙박은 끝 시각 없음). 좌표 · 분류는 응답으로 온 값을 저장하고
+   * 제목 · 주소(공사 원문)는 저장하지 않는다.
+   */
+  async addPickedItem(productId: number, picked: PickedItemInput): Promise<ItemDetail> {
+    const prev = await this.pool.query<{ start_time: string; end_time: string | null }>(
+      `SELECT start_time, end_time FROM itinerary_item
+        WHERE product_id = $1 AND day_no = $2 ORDER BY seq DESC LIMIT 1`,
+      [productId, picked.dayNo],
+    );
+    const start = (prev.rows[0]?.end_time ?? prev.rows[0]?.start_time ?? '09:00').slice(0, 5);
+    const dwell = picked.itemType === 'LODGING' ? null
+      : (picked.content.lcls2 !== null ? DWELL_MINUTES_SEED[picked.content.lcls2] : undefined) ?? SETTING_DEFAULTS.dwellFallbackMinutes;
+    const end = dwell === null ? null : addMinutes(start, dwell);
+
+    const { rows } = await this.pool.query<ItemRaw>(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
+          match_status, origin, kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy)
+       VALUES ($1, $2,
+               (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
+               $3, $4, $5, NULL, $6, 'CONFIRMED', $7, $8, $9, $10, $11, $12, $13, $14)
+       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin`,
+      [
+        productId, picked.dayNo, start, end, end === null ? 'INPUT' : 'DWELL_DEFAULT', picked.itemType, picked.origin,
+        picked.content.contentId, picked.content.contentTypeId,
+        picked.content.lcls1, picked.content.lcls2, picked.content.lcls3, picked.content.mapx, picked.content.mapy,
+      ],
+    );
+    const row = rows[0];
+    if (row === undefined) throw new Error('장소 담기 결과가 비어 있다');
+    return toItemDetail(row);
+  }
+
   async addItem(productId: number, item: ValidItemInput): Promise<ItemDetail> {
     const { rows } = await this.pool.query<ItemRaw>(
       `INSERT INTO itinerary_item

@@ -319,12 +319,77 @@ export interface ValidItemInput {
   itemType: ItemType;
 }
 
+/** 장소 담기로 넣는 항목 — 이미 고른 공사 콘텐츠라 CONFIRMED 로 들어간다 (D8 · FR-PL-013) */
+export interface PickedItemInput {
+  dayNo: number;
+  itemType: ItemType;
+  origin: 'PICKER';
+  content: {
+    contentId: string;
+    contentTypeId: number;
+    lcls1: string | null;
+    lcls2: string | null;
+    lcls3: string | null;
+    mapx: number | null;
+    mapy: number | null;
+  };
+}
+
 interface RawItem {
   dayNo?: unknown;
   startTime?: unknown;
   endTime?: unknown;
   placeLabel?: unknown;
   itemType?: unknown;
+}
+
+/**
+ * 장소 담기 넣기 검증 (FR-PL-013). 고른 공사 콘텐츠(content) · 일차 · 항목 유형만 받는다.
+ * 시각 · 좌표는 서버가 채운다 — 공사 원문(제목 · 주소)은 저장하지 않는다.
+ */
+export function validatePickedItem(body: Record<string, unknown> | undefined, dayCount: number): { errors: string[]; picked?: PickedItemInput } {
+  const errors: string[] = [];
+  const b = body ?? {};
+  const dayNo = typeof b.dayNo === 'number' && Number.isInteger(b.dayNo) ? b.dayNo : 0;
+  if (dayNo < 1 || dayNo > dayCount) errors.push(`일차는 1~${dayCount} 범위여야 합니다.`);
+  const itemType = str(b.itemType);
+  if (!(ITEM_TYPE as readonly string[]).includes(itemType)) errors.push('항목 유형이 올바르지 않습니다.');
+  const c = b.content;
+  if (typeof c !== 'object' || c === null) {
+    errors.push('넣을 장소 정보가 필요합니다.');
+    return { errors };
+  }
+  const cc = c as Record<string, unknown>;
+  const contentId = str(cc.contentId);
+  const contentTypeId = typeof cc.contentTypeId === 'number' ? cc.contentTypeId : Number(cc.contentTypeId);
+  if (contentId === '') errors.push('contentId 가 필요합니다.');
+  if (!Number.isInteger(contentTypeId)) errors.push('contentTypeId 가 올바르지 않습니다.');
+  if (errors.length > 0) return { errors };
+  return {
+    errors,
+    picked: {
+      dayNo,
+      itemType: itemType as ItemType,
+      origin: 'PICKER',
+      content: {
+        contentId,
+        contentTypeId,
+        lcls1: strOrNull(cc.lcls1),
+        lcls2: strOrNull(cc.lcls2),
+        lcls3: strOrNull(cc.lcls3),
+        mapx: numOrNull(cc.mapx),
+        mapy: numOrNull(cc.mapy),
+      },
+    },
+  };
+}
+
+function strOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+}
+function numOrNull(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** 항목 추가. dayNo 는 1~dayCount, 나머지는 등록 때와 같은 규칙. */

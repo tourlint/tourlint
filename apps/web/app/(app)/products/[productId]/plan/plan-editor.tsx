@@ -13,6 +13,7 @@ import { PlaceFactsLine } from "./place-facts-line";
 import { DaySummary } from "./day-summary";
 import { PendingBar } from "./pending-bar";
 import { StartAuditSheet } from "./start-audit-sheet";
+import { PlacePicker } from "./place-picker";
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   SIGHT: "관광", MEAL: "식사", LODGING: "숙박", REST: "휴식", MOVE: "이동", FREE: "자유",
@@ -125,6 +126,8 @@ export function PlanEditor({ productId }: { productId: number }) {
           </section>
         ))}
       </div>
+
+      <PlacePicker product={product} onInserted={refetch} />
     </>
   );
 }

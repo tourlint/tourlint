@@ -343,7 +343,23 @@ export const itemApi = {
   remove: (itemId: number) => request<void>(`/items/${itemId}`, { method: "DELETE" }),
   reorder: (productId: number, items: readonly { itemId: number; dayNo: number; seq: number }[]) =>
     request<void>(`/products/${productId}/items/order`, { method: "PUT", body: JSON.stringify({ items }) }),
+  // 장소 담기로 넣기 (FR-PL-013). 고른 공사 콘텐츠를 그 날에 붙인다 — 시각 · 좌표는 서버가 채운다
+  addPicked: (productId: number, input: { dayNo: number; itemType: string; content: PlanContentRef }) =>
+    request<ProductItem>(`/products/${productId}/items`, {
+      method: "POST",
+      body: JSON.stringify({ dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", content: input.content }),
+    }),
 };
+
+/** 장소 담기로 넣을 때 서버에 보내는 콘텐츠 참조 — 제목 · 주소(원문)는 보내지 않는다 */
+export interface PlanContentRef {
+  contentId: string;
+  contentTypeId: number;
+  lcls1: string;
+  lcls2: string;
+  mapx: number | null;
+  mapy: number | null;
+}
 
 /** GET /rules 한 규칙 (검수 기준 탭 규칙 설명 · FR-OP-025 · API 5-10). */
 export interface RuleView {
@@ -426,7 +442,74 @@ export interface PlaceFacts {
   origin: string | null;
 }
 
+/** 종류 칩 한 개 (기획 4-3). count null = 아직 안 셈(근처 3km) 또는 그 서비스 불가 */
+export interface PlanTypeChip {
+  kind: "LCLS2" | "EVENT" | "WALK" | "NEAR";
+  lcls2: string | null;
+  nearKind: "MEAL" | "CAFE" | "STAY" | null;
+  name: string;
+  count: number | null;
+  disabled: "ANCHOR_REQUIRED" | null;
+}
+
+export interface PlanBriefing {
+  region: { regnCd: string; signguCd: string | null; name: string };
+  types: PlanTypeChip[];
+  events: { count: number; from: string; to: string } | null;
+  accessible: { count: number } | null;
+  pet: { count: number } | null;
+  walks: { count: number } | null;
+  budget: "OK" | "WARN" | "PAUSED";
+}
+
+/** 장소 카드 한 곳. 제목 · 주소 · 사진은 공사 원문 — 응답으로만 흐르고 저장하지 않는다 */
+export interface PlanPlace {
+  contentId: string;
+  contentTypeId: number;
+  lcls1: string;
+  lcls2: string;
+  lcls2Name: string;
+  title: string;
+  addr1: string | null;
+  firstImage: string | null;
+  mapx: number | null;
+  mapy: number | null;
+  distanceM: number | null;
+  togetherRank: number | null;
+  wheelchair: boolean | null;
+  pet: boolean | null;
+  indoorOutdoor: string | null;
+}
+
+export interface PlanPlaces {
+  scope: { kind: string; label: string };
+  totalCount: number;
+  items: PlanPlace[];
+  notice: string | null;
+}
+
+export interface BriefingQuery {
+  regnCd: string;
+  signguCd?: string | null;
+  startDate: string;
+  nights: number;
+}
+
 export const planApi = {
+  // 첫째 줄 종류 칩 · 행사 · 걷기 길 요약 (지역이 바뀔 때만 다시 센다 · 10분 캐시)
+  briefing: (q: BriefingQuery) => {
+    const p = new URLSearchParams({ regnCd: q.regnCd, startDate: q.startDate, nights: String(q.nights) });
+    if (q.signguCd) p.set("signguCd", q.signguCd);
+    return request<PlanBriefing>(`/plan/briefing?${p.toString()}`);
+  },
+  // 종류(중분류)로 시군구 장소 목록 (칩과 같은 조회라 수가 맞는다)
+  places: (q: { regnCd: string; signguCd?: string | null; lcls2: string; sort?: "near" | "together"; page?: number }) => {
+    const p = new URLSearchParams({ regnCd: q.regnCd, lcls2: q.lcls2 });
+    if (q.signguCd) p.set("signguCd", q.signguCd);
+    if (q.sort) p.set("sort", q.sort);
+    if (q.page) p.set("page", String(q.page));
+    return request<PlanPlaces>(`/plan/places?${p.toString()}`);
+  },
   // 고른 직후 그 항목만(또는 고른 항목 전부). 규칙엔진 · audit_run 없음
   placeFacts: (productId: number, itemIds?: number[]) =>
     request<{ items: PlaceFacts[] }>(`/products/${productId}/place-facts`, {
