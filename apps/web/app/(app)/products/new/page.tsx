@@ -198,7 +198,7 @@ export default function ProductNewPage() {
         <Segmented value={method} options={METHODS} onChange={setMethod} ariaLabel="등록 방식" />
         {method === "direct" && (
           <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-            엑셀·CSV 업로드나 자연어 붙여넣기로 일정을 한 번에 채울 수도 있습니다. 어느 쪽이든 저장 전에 여기서 편집합니다.
+            일정은 비워 두고 저장해도 됩니다 — 다음 기획 화면에서 장소 담기로 채울 수 있어요. 엑셀·CSV 업로드나 자연어 붙여넣기로 한 번에 채울 수도 있습니다.
           </p>
         )}
       </div>
@@ -385,15 +385,13 @@ interface FormState {
   schedule: Schedule;
 }
 
-// UI-S2-012 — 박수와 일자별 일정 수가 불일치하면(빈 일차가 있으면) 저장을 막는다.
+// 기본정보만 있으면 기획 중으로 저장한다 (EX-IN-005 개정 · #519). 일정은 비워 두고 저장해
+// 다음 기획 화면에서 장소 담기로 채울 수 있다. 박수↔일정 완성도는 검수 시작에서 본다.
 function validate(f: FormState): string[] {
   const errs: string[] = [];
   if (!f.name.trim()) errs.push("상품명을 입력하세요.");
   if (!f.region.regnCode) errs.push("여행 지역(시도)을 선택하세요.");
   if (!f.startDate) errs.push("출발일을 선택하세요.");
-  for (let d = 0; d < dayCount(f.nights); d++) {
-    if ((f.schedule[d]?.length ?? 0) === 0) errs.push(`${d + 1}일차 일정을 1개 이상 입력하세요.`);
-  }
   return errs;
 }
 
