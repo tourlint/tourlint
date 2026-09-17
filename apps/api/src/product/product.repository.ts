@@ -286,9 +286,9 @@ export class ProductRepository {
   async handoffState(
     accountId: number,
     productId: number,
-  ): Promise<{ plannedAt: string | null; pendingIds: number[] } | null> {
-    const { rows } = await this.pool.query<{ planned_at: Date | string | null }>(
-      `SELECT planned_at FROM product WHERE id = $1 AND account_id = $2`,
+  ): Promise<{ plannedAt: string | null; pendingIds: number[]; nights: number; daysWithItems: number[] } | null> {
+    const { rows } = await this.pool.query<{ planned_at: Date | string | null; nights: number }>(
+      `SELECT planned_at, nights FROM product WHERE id = $1 AND account_id = $2`,
       [productId, accountId],
     );
     if (rows.length === 0) return null;
@@ -296,9 +296,16 @@ export class ProductRepository {
       `SELECT id FROM itinerary_item WHERE product_id = $1 AND match_status = 'PENDING' ORDER BY id`,
       [productId],
     );
+    // 완성도 검사용: 항목이 있는 일차들 (빈 일차 판정 · EX-IN-005 개정 — 검수 시작 관문)
+    const days = await this.pool.query<{ day_no: number }>(
+      `SELECT DISTINCT day_no FROM itinerary_item WHERE product_id = $1 ORDER BY day_no`,
+      [productId],
+    );
     return {
       plannedAt: isoStamp(rows[0]?.planned_at ?? null),
       pendingIds: pending.rows.map((r) => Number(r.id)),
+      nights: Number(rows[0]?.nights ?? 0),
+      daysWithItems: days.rows.map((r) => Number(r.day_no)),
     };
   }
 

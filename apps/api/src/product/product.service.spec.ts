@@ -211,10 +211,13 @@ describe('검수 시작 handoff (FR-PL-020 · D7) — 저장소 · 검수는 스
   }
 
   // 미확정 pendingIds 와 검수 요청 성공 여부를 주면, 그 조합으로 handoff 를 돌린다.
-  function make(opts: { pendingIds: number[]; plannedAt: string | null; budgetOk: boolean }) {
+  function make(opts: { pendingIds: number[]; plannedAt: string | null; budgetOk: boolean; nights?: number; daysWithItems?: number[] }) {
     const calls: Calls = { requested: false };
+    const nights = opts.nights ?? 2;
+    // 기본은 모든 일차가 채워진 완성 일정 — 완성도 가드를 통과시킨다
+    const daysWithItems = opts.daysWithItems ?? Array.from({ length: nights + 1 }, (_, i) => i + 1);
     const repo = {
-      handoffState: async () => ({ plannedAt: opts.plannedAt, pendingIds: opts.pendingIds }),
+      handoffState: async () => ({ plannedAt: opts.plannedAt, pendingIds: opts.pendingIds, nights, daysWithItems }),
       applyHandoff: async (_productId: number, ids: readonly number[]) => {
         calls.applied = ids;
         return '2026-10-01T00:00:00.000Z';
@@ -235,6 +238,17 @@ describe('검수 시작 handoff (FR-PL-020 · D7) — 저장소 · 검수는 스
     const svc = new ProductService(repo, {} as never, {} as never, {} as never, audit, {} as never, () => null);
     return { svc, calls };
   }
+
+  it('🔴 빈 일차가 있으면 검수 시작을 막는다 (EX-IN-005 개정 — 검수 시작 관문)', async () => {
+    // 2박 3일인데 2일차에 일정이 없다 — 검수 시작 거부
+    const { svc, calls } = make({ pendingIds: [], plannedAt: null, budgetOk: true, nights: 2, daysWithItems: [1, 3] });
+    await expect(svc.handoff(1, 9, true)).rejects.toMatchObject({
+      reasonCode: 'DAY_COUNT_MISMATCH',
+      status: 422,
+      fieldErrors: [{ field: 'missingDays', message: '2' }],
+    });
+    expect(calls.requested).toBe(false); // 검수를 요청하지 않았다
+  });
 
   it('미확정이 남았는데 이대로 시작이 아니면 422 로 건수를 알려 준다', async () => {
     const { svc, calls } = make({ pendingIds: [1, 2], plannedAt: null, budgetOk: true });
