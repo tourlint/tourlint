@@ -1,7 +1,8 @@
 "use client";
 
 // 화면 2 · 상품 등록 · 편집 (UI-S2 · F01·F02). 1차 = 직접 입력.
-// A 기본정보 + B 상품 성격·이동 + C 일정 입력 + 저장 → 검수 결과(화면 전이 2→3).
+// A 기본정보 + B 상품 성격·이동 + C 일정 입력 + 저장 → 기획 화면(기획 중 · planned_at NULL).
+// 저장은 검수를 돌리지 않는다 — 검수는 기획 화면의 「검수 시작」이 한다 (개편안 결정 1 · 문제 D).
 // 등록 방식 3종(직접 입력 · 엑셀/CSV · 자연어)이 다 열려 있다 (UI-S2-001).
 // 어느 쪽으로 들어와도 결과는 같은 폼 상태로 모이고 저장 전에 여기서 편집한다 (UI-S2-010).
 
@@ -71,6 +72,8 @@ export default function ProductNewPage() {
     // 쿼리 읽기는 클라이언트에서만. setState 는 비동기 콜백 안에서 한다(effect 본문 동기 setState 금지)
     void (async () => {
       const q = new URLSearchParams(window.location.search);
+      const inputMethod = q.get("method");
+      if (inputMethod === "upload" || inputMethod === "nl") setMethod(inputMethod);
       if (q.get("origin") !== "SIGNAL") return;
       const regnCd = q.get("regnCd") ?? "";
       const signguCd = q.get("signguCd") ?? "";
@@ -178,8 +181,8 @@ export default function ProductNewPage() {
   return (
     <>
       <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-        <Link href="/" className="hover:underline">
-          대시보드
+        <Link href="/planning" className="hover:underline">
+          기획
         </Link>
         <span className="mx-2">/</span>
         <span className="text-slate-700 dark:text-slate-300">신규 등록</span>
@@ -187,7 +190,7 @@ export default function ProductNewPage() {
 
       <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">상품 등록</h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        여행 일정을 입력하면 관광정보로 검수할 수 있습니다. (F01)
+        여행 일정을 입력하면 관광정보로 검수할 수 있습니다.
       </p>
 
       {/* 등록 방식 선택 (UI-S2-001). 자연어 붙여넣기는 후속 단계. */}
@@ -305,7 +308,7 @@ export default function ProductNewPage() {
 
         <div className="flex items-center justify-end gap-3">
           <Link
-            href="/"
+            href="/planning"
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             취소
@@ -315,7 +318,7 @@ export default function ProductNewPage() {
             disabled={saving}
             className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? "저장 중…" : "저장하고 검수"}
+            {saving ? "저장 중…" : "저장하고 장소 고르기"}
           </button>
         </div>
       </form>

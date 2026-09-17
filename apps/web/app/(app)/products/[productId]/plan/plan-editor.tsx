@@ -14,6 +14,7 @@ import { DaySummary } from "./day-summary";
 import { PendingBar } from "./pending-bar";
 import { StartAuditSheet } from "./start-audit-sheet";
 import { PlacePicker } from "./place-picker";
+import { hhmm, savedLabel } from "../../../../lib/save-status";
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   SIGHT: "관광", MEAL: "식사", LODGING: "숙박", REST: "휴식", MOVE: "이동", FREE: "자유",
@@ -24,6 +25,8 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [facts, setFacts] = useState<Map<number, PlaceFacts>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  // 이번 세션에서 마지막으로 저장된 시각 (hh:mm). null = 아직 이 화면에서 저장 안 함
+  const [savedAt, setSavedAt] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const d = await productApi.detail(productId);
@@ -66,6 +69,13 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
     }
   }, [load]);
 
+  // 편집(장소 고르기·담기·항목 변경)이 저장되면 그 시각을 남긴다 (개편안 변경 지점 8).
+  // 저장 자체는 항목 API 가 이미 했고, 여기서는 표시와 다시 읽기만 한다.
+  const handleSaved = useCallback(async () => {
+    setSavedAt(hhmm(new Date()));
+    await refetch();
+  }, [refetch]);
+
   if (error !== null && product === null) {
     return <div className="mt-8 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{error}</div>;
   }
@@ -77,7 +87,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
   return (
     <>
       <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-        <Link href="/" className="hover:underline">내 상품</Link>
+        <Link href="/planning" className="hover:underline">기획</Link>
         <span className="mx-1">/</span>
         <span className="text-slate-700 dark:text-slate-200">{product.name}</span>
       </nav>
@@ -90,7 +100,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden text-xs text-slate-400 sm:inline">자동 저장됨</span>
+          <span className="hidden text-xs text-slate-400 sm:inline" aria-live="polite">{savedLabel(savedAt)}</span>
           <Link href={`/products/${productId}/edit`} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             일정 편집
           </Link>
@@ -106,7 +116,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
           regnCd={product.ldongRegnCd}
           signguCd={product.ldongSignguCd}
           regionLabel={regionLabel}
-          onResolved={refetch}
+          onResolved={handleSaved}
         />
       ) : (
         <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -127,7 +137,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
                   regnCd={product.ldongRegnCd}
                   signguCd={product.ldongSignguCd}
                   regionLabel={regionLabel}
-                  onResolved={refetch}
+                  onResolved={handleSaved}
                 />
               ))}
             </ul>
@@ -135,7 +145,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
         ))}
       </div>
 
-      <PlacePicker product={product} onInserted={refetch} openType={openType} />
+      <PlacePicker product={product} onInserted={handleSaved} openType={openType} />
     </>
   );
 }

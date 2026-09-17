@@ -273,8 +273,8 @@ export function AuditResult({ productId }: { productId: number }) {
   return (
     <>
       <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-        <Link href="/" className="hover:underline">
-          대시보드
+        <Link href="/review" className="hover:underline">
+          검수
         </Link>
         <span className="mx-2">/</span>
         <span className="text-slate-700 dark:text-slate-300">{product?.name ?? `상품 #${productId}`}</span>

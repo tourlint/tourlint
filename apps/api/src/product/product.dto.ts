@@ -15,6 +15,19 @@ export interface CreateItemDto {
   readonly end?: unknown;
   readonly place?: unknown;
   readonly itemType?: unknown;
+  // 입력하는 순간 목록에서 고른 관광지 (UI-S2-020). 있으면 CONFIRMED 로 저장한다 — 이름은 담지 않는다
+  readonly content?: unknown;
+}
+
+/** 등록 시 인라인으로 고른 관광지 (UI-S2-020 · D8). 코드·좌표·분류만 담는다 (DR-PR-001) */
+export interface MatchedContent {
+  readonly contentId: string;
+  readonly contentTypeId: number;
+  readonly mapx: number | null;
+  readonly mapy: number | null;
+  readonly lcls1: string | null;
+  readonly lcls2: string | null;
+  readonly lcls3: string | null;
 }
 
 export interface CreateDayDto {
@@ -63,6 +76,8 @@ export interface ValidItem {
   readonly endTimeSource: 'INPUT' | 'DWELL_DEFAULT';
   readonly placeLabel: string;
   readonly itemType: ItemType;
+  // 등록 시 고른 관광지. null = 아직 안 고름(PENDING), 있으면 CONFIRMED (UI-S2-020)
+  readonly content: MatchedContent | null;
 }
 
 export interface ValidProduct {
@@ -292,6 +307,27 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
         errors.push(`${dayNo}일차 ${seq}번 항목 유형이 올바르지 않습니다.`);
       }
 
+      // 입력하는 순간 고른 관광지 (UI-S2-020). 있으면 CONFIRMED 로 저장한다. 좌표·분류는 있으면 담는다
+      let content: MatchedContent | null = null;
+      if (typeof item.content === 'object' && item.content !== null) {
+        const c = item.content as Record<string, unknown>;
+        const contentId = str(c.contentId);
+        const contentTypeId = typeof c.contentTypeId === 'number' ? c.contentTypeId : Number(c.contentTypeId);
+        if (contentId === '' || !Number.isInteger(contentTypeId)) {
+          errors.push(`${dayNo}일차 ${seq}번 고른 장소 정보가 올바르지 않습니다.`);
+        } else {
+          content = {
+            contentId,
+            contentTypeId,
+            mapx: numOrNull(c.mapx),
+            mapy: numOrNull(c.mapy),
+            lcls1: strOrNull(c.lcls1),
+            lcls2: strOrNull(c.lcls2),
+            lcls3: strOrNull(c.lcls3),
+          };
+        }
+      }
+
       items.push({
         dayNo,
         seq,
@@ -301,6 +337,7 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
         endTimeSource: endRaw === '' ? 'DWELL_DEFAULT' : 'INPUT',
         placeLabel: place,
         itemType: itemType as ItemType,
+        content,
       });
     });
   });
