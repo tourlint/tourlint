@@ -6,7 +6,7 @@
 // 등록 방식 3종(직접 입력 · 엑셀/CSV · 자연어)이 다 열려 있다 (UI-S2-001).
 // 어느 쪽으로 들어와도 결과는 같은 폼 상태로 모이고 저장 전에 여기서 편집한다 (UI-S2-010).
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Field, Section, Segmented, SelectInput, TextInput } from "./controls";
@@ -70,6 +70,8 @@ export default function ProductNewPage() {
   // 저장하면 이 화면(/products/new)에서 곧바로 기획 화면(장소 담기 오른쪽)을 렌더한다.
   // 다른 경로로 보내지 않는다 — 등록과 기획을 한 흐름으로 잇는다 (개편안 4-2 화면 2).
   const [createdProductId, setCreatedProductId] = useState<number | null>(null);
+  // 자동 생성·버튼이 동시에 상품을 만들지 않도록 한 번만 돌게 막는다
+  const creatingRef = useRef(false);
 
   // 레이더 "이 지역으로 새 상품 기획"에서 넘어오면 지역을 미리 채우고 기획 출처를 남긴다 (FR-PL-001)
   const [planOrigin, setPlanOrigin] = useState<PlanOrigin | null>(null);
@@ -152,10 +154,11 @@ export default function ProductNewPage() {
     [name, region, startDate, nights, schedule],
   );
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitted(true);
-    if (errors.length > 0) return;
+  // 빈 상품(기획 중)을 만든다. 성공하면 같은 경로에서 기획 화면(장소 담기)을 인라인으로 띄운다.
+  // 자동 생성(effect)과 버튼(onSubmit)이 함께 부르므로 creatingRef 로 한 번만 돌게 막는다.
+  const doCreate = useCallback(async (): Promise<void> => {
+    if (creatingRef.current) return;
+    creatingRef.current = true;
     setSaving(true);
     setSaveError(null);
     try {
@@ -173,15 +176,32 @@ export default function ProductNewPage() {
       }
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
-      // 저장하면 같은 화면에서 기획(장소 담기)을 이어 간다 — 경로는 /products/new 그대로 두고
-      // PlanEditor 를 인라인으로 띄운다 (개편안 4-2: 등록·기획이 한 흐름). "자주 넣는 곳" 칩은 openType 으로 전달.
+      // 경로는 /products/new 그대로 두고 PlanEditor 를 인라인으로 띄운다 (개편안 4-2: 등록·기획 한 흐름)
       if (created.productId != null) setCreatedProductId(created.productId);
       else router.push("/");
     } catch {
       setSaveError("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      creatingRef.current = false; // 실패는 재시도 허용
       setSaving(false);
     }
+  }, [name, region, startDate, nights, target, concept, headcount, transport, schedule, planOrigin, method, router]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitted(true);
+    if (errors.length > 0) return;
+    await doCreate();
   }
+
+  // 저장 전에도 장소 담기를 띄운다 — 기본정보(상품명·지역·출발일)가 유효해지면 빈 상품을 즉시
+  // 만든다(개편안 4-2 · #519). 800ms 디바운스로 타이핑 중 성급한 생성을 막고, 한 번만 만든다.
+  useEffect(() => {
+    if (createdProductId !== null || creatingRef.current) return;
+    const ready = name.trim() !== "" && region.regnCode !== "" && startDate !== "";
+    if (!ready) return;
+    const id = window.setTimeout(() => { void doCreate(); }, 800);
+    return () => window.clearTimeout(id);
+  }, [name, region.regnCode, startDate, createdProductId, doCreate]);
 
   // 저장이 끝나면 같은 경로(/products/new)에서 기획 화면(오른쪽 장소 담기)을 인라인으로 보여 준다
   if (createdProductId !== null) {
