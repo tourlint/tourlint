@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
-import { BUDGET_THRESHOLD_RATIO, SYSTEM_SETTING_DEFAULTS } from '@tourlint/shared';
+import { BUDGET_THRESHOLD_RATIO } from '@tourlint/shared';
 import { localDateKey, type CallProvider } from '../external/api-call-log';
 import { evaluateBudget } from '../external/budget-guard';
 import { DB_POOL } from '../persistence/db';
+import { BatchStateRepository } from '../persistence/batch-state.repository';
 import { PgApiCallLogger, type CallUsageRow } from '../persistence/api-call-log.repository';
 
 /**
@@ -46,9 +47,11 @@ export interface CallUsageView {
 @Injectable()
 export class UsageService {
   private readonly logs: PgApiCallLogger;
+  private readonly state: BatchStateRepository;
 
   constructor(@Inject(DB_POOL) pool: Pool) {
     this.logs = new PgApiCallLogger(pool);
+    this.state = new BatchStateRepository(pool);
   }
 
   /**
@@ -58,7 +61,13 @@ export class UsageService {
    * 같이 세면 국문 예산 경계가 엉뚱하게 당겨진다 (API 설계 8-2 주석).
    */
   async budget(now: Date = new Date(), provider: CallProvider = 'KTO'): Promise<BudgetView> {
-    const dailyQuota = SYSTEM_SETTING_DEFAULTS.dailyQuota;
+    /*
+     * **예산 게이트와 같은 출처를 읽는다.** 여기서 코드 상수를 읽던 때는 막는 값(DB)과
+     * 보여주는 값이 갈렸다 — 운영에서 DB 를 8,000 으로 올렸는데 화면은 800 이라 소진율이
+     * 열 배로 보였다 (이슈 #445). 이 표는 공모전 API 활용 증빙이기도 해서(DR-LC-004)
+     * 실제 운영값과 달라서는 안 된다. 행이 없으면 `setting()` 이 기본값을 준다.
+     */
+    const { dailyQuota } = await this.state.setting();
     const used = await this.logs.countToday(provider, now);
     const decision = evaluateBudget({ dailyBudget: dailyQuota, usedToday: used }, 'USER_AUDIT');
 

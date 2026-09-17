@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { SYSTEM_SETTING_DEFAULTS } from '@tourlint/shared';
 import { UsageService } from './usage.service';
 
 /**
@@ -50,6 +51,31 @@ describe.skipIf(URL === undefined)('UsageService', () => {
   describe('예산 (FR-OP-005)', () => {
     // 과거 고정일. 미래 날짜를 쓰면 다른 스펙의 정리 쿼리에 쓸려 간다
   const NOW = new Date('2026-03-15T05:00:00Z'); // KST 14:00
+
+    it('🔴 예산은 DB 값이다 — 코드 상수가 아니다 (이슈 #445)', async () => {
+      /*
+       * **막는 값과 보여주는 값이 같아야 한다.** 여기서 `SYSTEM_SETTING_DEFAULTS` 를 읽던
+       * 때는 운영 DB 를 8,000 으로 올려도 화면이 800 을 보여줬다 — 소진율이 열 배로 보였다.
+       * 예산 게이트는 `BatchStateRepository.setting()` 을 읽으므로 이쪽도 같은 출처여야 한다.
+       *
+       * **상수와 다른 값**으로 본다. 둘 다 기본값이면 갈려 있어도 통과한다.
+       */
+      const ODD = 1234;
+      expect(ODD).not.toBe(SYSTEM_SETTING_DEFAULTS.dailyQuota);
+      const before = await pool.query<{ daily_quota: number }>(
+        `SELECT daily_quota FROM system_setting WHERE key = 'global'`);
+      await pool.query(
+        `INSERT INTO system_setting (key, batch_time, batch_enabled, daily_quota)
+         VALUES ('global', '05:00', FALSE, $1)
+         ON CONFLICT (key) DO UPDATE SET daily_quota = EXCLUDED.daily_quota`, [ODD]);
+      try {
+        expect((await service.budget(NOW)).dailyQuota).toBe(ODD);
+      } finally {
+        const kept = before.rows[0]?.daily_quota;
+        if (kept === undefined) await pool.query(`DELETE FROM system_setting WHERE key = 'global'`);
+        else await pool.query(`UPDATE system_setting SET daily_quota = $1 WHERE key = 'global'`, [kept]);
+      }
+    });
 
     it('당일 공사 호출만 센다 — 카카오·LLM 은 별개 한도다', async () => {
       await seed([
