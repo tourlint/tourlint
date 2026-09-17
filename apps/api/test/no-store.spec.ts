@@ -129,8 +129,8 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
     );
     accountId = Number(acc.rows[0]?.id);
     const prod = await pool.query<{ id: string }>(
-      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-       VALUES ($1,'무저장 검증 1박 2일','51', DATE '2026-01-15', 1, 'CAR') RETURNING id`,
+      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+       VALUES ($1,'무저장 검증 1박 2일','51', DATE '2026-01-15', 1, 'CAR', now()) RETURNING id`,
       [accountId],
     );
     productId = Number(prod.rows[0]?.id);
@@ -164,8 +164,8 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
      * 이때 돈다. 정상 검수만 돌리면 이 자리는 한 번도 안 밟힌다.
      */
     const failProd = await pool.query<{ id: string }>(
-      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-       VALUES ($1,'조회 실패 검증 1박 2일','51', DATE '2026-01-15', 1, 'CAR') RETURNING id`,
+      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+       VALUES ($1,'조회 실패 검증 1박 2일','51', DATE '2026-01-15', 1, 'CAR', now()) RETURNING id`,
       [accountId],
     );
     failProductId = Number(failProd.rows[0]?.id);

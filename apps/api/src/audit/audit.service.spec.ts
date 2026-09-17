@@ -68,8 +68,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
   /** 큐 소비 테스트용 최소 상품 — 항목 1개. 파이프라인을 짧게 유지한다 */
   async function makeProduct(): Promise<number> {
     const prod = await pool.query<{ id: string }>(
-      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-       VALUES ($1,'큐 소비 검증 1박 2일','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+       VALUES ($1,'큐 소비 검증 1박 2일','51', DATE '2026-10-13', 1, 'CAR', now()) RETURNING id`,
       [accountId],
     );
     const id = Number(prod.rows[0]?.id);
@@ -112,8 +112,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
     );
     accountId = Number(acc.rows[0]?.id);
     const prod = await pool.query<{ id: string }>(
-      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-       VALUES ($1,'강릉 1박 2일','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+       VALUES ($1,'강릉 1박 2일','51', DATE '2026-10-13', 1, 'CAR', now()) RETURNING id`,
       [acc.rows[0]?.id],
     );
     productId = Number(prod.rows[0]?.id);
@@ -135,6 +135,25 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(e).toBeInstanceOf(DomainException);
       expect((e as DomainException).reasonCode).toBe('NOT_FOUND');
       expect((e as DomainException).unit).toBe('PRODUCT');
+    });
+
+    it('🔴 기획 중 상품은 검수하지 않는다 (FR-PL-001 · 이슈 #469)', async () => {
+      /*
+       * `planned_at IS NULL` 이 기획 중이고, 검수 시작(handoff)이 그 값을 쓴 뒤 첫 검수를
+       * 요청한다. 이 관문이 없으면 보드는 「검수 시작 전」인데 상세는 점수를 보이는
+       * 상태가 만들어진다 — 2026-09-17 운영에서 실제로 났다.
+       */
+      const planning = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
+         VALUES ($1,'기획 중 상품','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+        [accountId],
+      );
+      const e = await service
+        .requestAudit(Number(planning.rows[0]?.id), 'MANUAL')
+        .catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(DomainException);
+      expect((e as DomainException).reasonCode).toBe('FORBIDDEN_ACTION');
+      expect((e as DomainException).getStatus()).toBe(403);
     });
 
     it('미확정 관광지가 남아 있으면 422 로 거부한다 (EX-AU-001)', async () => {
@@ -364,8 +383,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
        */
       const picks = await runAndPick();
       const other = await pool.query<{ id: string }>(
-        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-         VALUES ($1,'남의 상품','51', DATE '2026-10-13', 1, 'CAR') RETURNING id`,
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+         VALUES ($1,'남의 상품','51', DATE '2026-10-13', 1, 'CAR', now()) RETURNING id`,
         [accountId],
       );
       const otherId = Number(other.rows[0]?.id);

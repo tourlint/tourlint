@@ -143,6 +143,19 @@ export class AuditService {
       throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '상품을 찾을 수 없습니다. 목록에서 다시 선택해 주세요.', 'PRODUCT');
     }
 
+    // FR-PL-001 — 검수는 「검수 시작」을 지난 상품만 돈다.
+    //
+    // 화면은 검수 시작 버튼이 `handoff` 를 부르므로 보통 여기 걸리지 않는다. 다만 API 가
+    // 관문을 강제하지 않으면 보드는 「검수 시작 전」인데 상세는 점수를 보이는 상태가
+    // 만들어진다 — 2026-09-17 리허설이 실제로 그렇게 만들었다 (이슈 #469).
+    // `handoff` 는 `applyHandoff` 로 `planned_at` 을 먼저 쓰므로 그대로 지난다.
+    if ((await this.products.plannedAtOf(productId)) === null) {
+      throw new DomainException(
+        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
+        '기획 중인 상품입니다. 검수 시작을 먼저 눌러 주세요.', 'REQUEST',
+      );
+    }
+
     // EX-AU-001 — 미확정 관광지가 남아 있으면 검수를 시작하지 않는다
     const unresolved = await this.products.findUnresolvedItems(productId);
     if (unresolved.length > 0) {
