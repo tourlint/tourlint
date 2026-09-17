@@ -129,6 +129,14 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
   });
 
   describe('후보 탐색 (FR-MO-018 · 030)', () => {
+    /*
+     * **여기서 보는 두 메서드는 계정을 걸지 않는다.** `watchedProducts` 와
+     * `productsWithContents` 는 배치가 쓰는 것이라 `product` 전체를 읽는다(설계). 그래서
+     * 단정은 **이 스펙이 넣은 상품에 대해서만** 해야 한다 — 전체 개수나 빈 배열에 기대면
+     * 같은 테스트 DB 를 쓰는 다른 스펙이 상품을 넣고 지우는 사이에 간헐적으로 빨개진다.
+     * `125790`(경포대)은 시연 시드와 다른 스펙 여러 곳이 같이 쓰는 contentid 다 (이슈 #431).
+     */
+
     /** 한 콘텐츠 몫만 꺼낸다. 저장소는 여러 개를 한 번에 받는다 */
     const forContent = async (contentId: string, today: string): Promise<readonly ImpactCandidate[]> =>
       (await repo.productsWithContents([contentId], today)).get(contentId) ?? [];
@@ -136,7 +144,8 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
     it('조건 1 — 그 콘텐츠를 넣은 상품을 찾는다', async () => {
       const found = await forContent(CONTENT, '2026-08-27');
       expect(found.map((f) => f.productId)).toContain(productId);
-      expect(found[0]).toMatchObject({ nights: 2, ldongSignguCd: '150' });
+      // 첫 번째가 내 상품이라고 가정하지 않는다 — 남의 상품이 앞에 올 수 있다
+      expect(found.find((f) => f.productId === productId)).toMatchObject({ nights: 2, ldongSignguCd: '150' });
     });
 
     it('🔴 콘텐츠 여러 개를 한 번에 묻고 콘텐츠별로 묶어 준다', async () => {
@@ -160,7 +169,12 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
       const found = await repo.productsWithContents([CONTENT, second, missing, CONTENT], '2026-08-27');
 
       expect([...found.keys()].sort()).toEqual([second, CONTENT].sort());
-      expect(found.get(CONTENT)?.map((f) => f.productId)).toEqual([productId]);
+      /*
+       * 잘못 묶였는지는 **서로 건너가 있는지**로 본다. `125790` 쪽 목록에 남의 상품이 섞일 수
+       * 있어 개수로는 볼 수 없다. `888888888` 은 이 스펙만 쓰는 값이라 단정형으로 둔다.
+       */
+      expect(found.get(CONTENT)?.map((f) => f.productId)).toContain(productId);
+      expect(found.get(CONTENT)?.map((f) => f.productId)).not.toContain(otherId);
       expect(found.get(second)?.map((f) => f.productId)).toEqual([otherId]);
       expect(found.get(missing)).toBeUndefined();
     });
@@ -168,7 +182,8 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
     it('미확정 항목은 세지 않는다', async () => {
       await pool.query(`UPDATE itinerary_item SET match_status = 'PENDING' WHERE id = $1`, [itemId]);
       try {
-        expect(await forContent(CONTENT, '2026-08-27')).toEqual([]);
+        expect((await forContent(CONTENT, '2026-08-27')).map((f) => f.productId))
+          .not.toContain(productId);
       } finally {
         await pool.query(`UPDATE itinerary_item SET match_status = 'CONFIRMED' WHERE id = $1`, [itemId]);
       }
@@ -198,13 +213,21 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
          VALUES ($1, '먼 미래 상품', '51', '2099-12-31', 1, 'CAR') RETURNING id`, [accountId]);
       const farId = Number(far.rows[0]?.id);
 
+      /*
+       * **상한을 전체 개수에서 끌어오지 않는다.** 종전에는 전체를 센 뒤 `all.length - 1` 로
+       * 걸었는데, 두 조회 사이에 다른 스펙이 자기 계정을 지우면 남은 행이 상한보다 적어져
+       * 아무것도 잘리지 않는다 — 먼 미래 상품이 그대로 나와 빨개졌다 (이슈 #431).
+       * `1` 은 테이블이 몇 행이든 결정적이고, 2099-12-31 출발이 거기 남을 수 없다.
+       */
+      const capped = await repo.watchedProducts('2026-08-27', 1);
+      expect(capped).toHaveLength(1);
+      expect(capped.map((c) => c.productId)).not.toContain(farId);
+
+      // 상한이 없으면 먼 미래 상품도 나오고, 순서는 출발일 오름차순이다 (한 번의 조회 안에서 본다)
       const all = await repo.watchedProducts('2026-08-27');
       expect(all.map((c) => c.productId)).toContain(farId);
-
-      const capped = await repo.watchedProducts('2026-08-27', all.length - 1);
-      expect(capped).toHaveLength(all.length - 1);
-      // 가장 늦게 출발하는 것이 잘린다
-      expect(capped.map((c) => c.productId)).not.toContain(farId);
+      const dates = all.map((c) => c.startDate);
+      expect(dates, '출발일 오름차순').toEqual([...dates].sort());
     });
 
     it('출발일 당일과 마지막 날은 아직 감시 대상이다', async () => {
