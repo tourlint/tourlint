@@ -1,7 +1,8 @@
 "use client";
 
 // 화면 2 · 상품 등록 · 편집 (UI-S2 · F01·F02). 1차 = 직접 입력.
-// A 기본정보 + B 상품 성격·이동 + C 일정 입력 + 저장 → 검수 결과(화면 전이 2→3).
+// A 기본정보 + B 상품 성격·이동 + C 일정 입력 + 저장 → 기획 화면(기획 중 · planned_at NULL).
+// 저장은 검수를 돌리지 않는다 — 검수는 기획 화면의 「검수 시작」이 한다 (개편안 결정 1 · 문제 D).
 // 등록 방식 3종(직접 입력 · 엑셀/CSV · 자연어)이 다 열려 있다 (UI-S2-001).
 // 어느 쪽으로 들어와도 결과는 같은 폼 상태로 모이고 저장 전에 여기서 편집한다 (UI-S2-010).
 
@@ -315,7 +316,7 @@ export default function ProductNewPage() {
             disabled={saving}
             className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? "저장 중…" : "저장하고 검수"}
+            {saving ? "저장 중…" : "저장하고 장소 고르기"}
           </button>
         </div>
       </form>
