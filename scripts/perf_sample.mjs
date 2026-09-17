@@ -17,6 +17,12 @@
  * 자격 증명은 환경변수로만 받는다. 파일에 적지 않는다 (PM-TA-008).
  */
 
+import { createRequire } from 'node:module';
+
+// 예산 기본값은 앱이 보는 상수를 읽는다. 여기 박으면 앱만 바뀌었을 때 이 도구가 다른
+// 숫자를 말한다 — 실제로 800 이 8000 이 될 때 그랬다 (#467).
+const { SYSTEM_SETTING_DEFAULTS } = createRequire(new URL('../apps/api/package.json', import.meta.url))('@tourlint/shared');
+
 const BASE = (process.env.API_BASE_URL ?? '').replace(/\/+$/, '');
 const EMAIL = process.env.PERF_EMAIL ?? '';
 const PASSWORD = process.env.PERF_PASSWORD ?? '';
@@ -104,7 +110,10 @@ async function runOnce(productId) {
 const worstPerRun = 43;
 const estimate = products.length * RUNS * worstPerRun;
 console.log(`\n대상 상품 ${products.join(' · ')} · 각 ${RUNS}회`);
-console.log(`예상 호출량 최대 ${estimate}콜 (회당 최대 43콜 기준 · 일일 예산 800)\n`);
+console.log(
+  `예상 호출량 최대 ${estimate}콜 (회당 최대 43콜 기준 · 국문 일일 예산 기본값 `
+  + `${SYSTEM_SETTING_DEFAULTS.dailyQuota} — 운영 실제 값은 system_setting.daily_quota)\n`,
+);
 if (!YES) {
   console.log('실행하려면 --yes 를 붙여라. 붙이기 전에는 아무것도 부르지 않는다.\n');
   process.exit(0);
