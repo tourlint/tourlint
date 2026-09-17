@@ -620,9 +620,30 @@ export interface CheckQuestions {
   incomplete: { reasonCode: string; itemIds: number[] } | null;
 }
 
+/** 고르지 않은 줄의 장소 찾기 제안 (FR-AG-010~012). 고르는 것은 match(AGENT)로 한다 */
+export interface PlaceSuggestion {
+  itemId: number;
+  kind: "FOUND" | "NOT_FOUND" | "NO_NAME";
+  place: { contentId: string; contentTypeId: number; title: string; kindName: string; addr: string | null } | null;
+  alternatives: { contentId: string; title: string; kindName: string; distanceM: number | null }[];
+  reason: string;
+}
+
+export interface PlaceSuggestions {
+  items: PlaceSuggestion[];
+  summary: { found: number; notFound: number; noName: number };
+  incomplete: { reasonCode: string; itemIds: number[] } | null;
+}
+
 export const agentApi = {
   // 사람이 누를 때만 돈다. 서버가 정한 순서를 화면이 다시 정렬하지 않는다 (FR-AG-031)
   today: () => request<TodayBrief>("/radar/today", { method: "POST" }),
+  // 아직 고르지 않은 줄의 장소를 한 번에 찾아 준다. 고르는 것은 사람이 누른다 (FR-AG-012)
+  placeSuggestions: (productId: number, itemIds?: number[]) =>
+    request<PlaceSuggestions>(`/products/${productId}/place-suggestions`, {
+      method: "POST",
+      body: JSON.stringify(itemIds ? { itemIds } : {}),
+    }),
   // 직접 확인할 곳의 전화로 물어볼 내용. 판정하지 않는다 — 확인은 사람이 누른다 (FR-AG-022)
   checkQuestions: (runId: number) => request<CheckQuestions>(`/audit-runs/${runId}/check-questions`, { method: "POST" }),
 };
