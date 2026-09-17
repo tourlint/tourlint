@@ -9,17 +9,31 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  agentApi,
   isApiError,
   notificationApi,
   radarApi,
+  settingsApi,
   type DemandSignal,
   type NotificationKind,
   type RadarNotification,
   type RadarSignals,
   type RadarSummary,
+  type RegionSignal,
+  type TodayBrief,
+  type TodayItem,
 } from "../../lib/api";
 import { StatusBadge } from "../../components/badges";
 import { AuditBasis } from "../../components/audit-basis";
+import { addKeyword, removeKeyword } from "../../lib/radar-keywords";
+import { lastCheckedText, nextCheckText } from "../../lib/radar-time";
+import { RegionSelect, type RegionValue } from "../products/new/region-select";
+
+/** 오늘(로컬) 날짜 YYYY-MM-DD. 확인 시각 문구가 오늘/어제를 가르는 데만 쓴다. */
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 interface ProductLite {
   productId: number;
@@ -131,10 +145,10 @@ export default function RadarPage() {
             관광정보 변경과 수요 신호를 감시합니다. 반영은 수정안에서 합니다.
           </p>
         </div>
-        {/* 마지막 배치 실행 시각 · 처리 기준일 (UI-S7-010) */}
+        {/* 언제 확인했고 다음은 언제인지 (UI-S7-010) */}
         <div className="shrink-0 text-right text-xs text-slate-500 dark:text-slate-400">
-          <p>마지막 배치 {batch?.runAt ? formatStamp(batch.runAt) : "—"}</p>
-          <p>처리 기준일 {batch?.covered ?? "—"}</p>
+          <p>{lastCheckedText(summary?.lastBatchAt ?? null, todayIso())}</p>
+          <p>{nextCheckText(summary?.nextBatchAt ?? null, todayIso())}</p>
         </div>
       </div>
 
@@ -143,6 +157,12 @@ export default function RadarPage() {
           {error}
         </div>
       )}
+
+      {/* 레이더 에이전트 — 오늘 할 일 정리 (FR-AG-030 · 031) */}
+      <TodayAgentCard />
+
+      {/* 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) */}
+      <WatchAndNews onError={setError} />
 
       {/* 위험 · 기회 탭 (UI-S7-001). 검수 등급 색 마커를 쓰지 않는다. */}
       <div className="mt-6 flex gap-2 border-b border-slate-200 dark:border-slate-800">
@@ -423,4 +443,261 @@ function shortHash(h: string | null): string {
 /** ISO 타임스탬프를 "YYYY-MM-DD HH:mm" 로. */
 function formatStamp(iso: string): string {
   return iso.replace("T", " ").slice(0, 16);
+}
+
+// ── 레이더 에이전트 — 오늘 할 일 (FR-AG-030 · 031) ────────────────────────────
+// 사람이 누를 때만 돈다. 서버가 정한 순서를 화면이 다시 정렬하지 않는다. 할 일마다 기존 버튼.
+function TodayAgentCard() {
+  const [brief, setBrief] = useState<TodayBrief | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setErr(null);
+    try {
+      setBrief(await agentApi.today());
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "오늘 할 일을 불러오지 못했어요.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">오늘 할 일</h2>
+        <button
+          type="button"
+          onClick={run}
+          disabled={busy}
+          className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60"
+        >
+          {busy ? "정리하는 중…" : "오늘 할 일 보기"}
+        </button>
+      </div>
+      {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
+      {brief && (
+        <div className="mt-3 space-y-2">
+          {brief.todos.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">오늘 챙길 일이 없어요.</p>
+          ) : (
+            <ul className="space-y-2">
+              {brief.todos.map((t, i) => (
+                <TodoRow key={i} item={t} />
+              ))}
+            </ul>
+          )}
+          {brief.quiet.map((q) => (
+            <p key={q.productId} className="text-xs text-slate-400">{q.text}</p>
+          ))}
+          {brief.incomplete && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">일부만 정리했어요. 잠시 후 다시 시도해 주세요.</p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TodoRow({ item }: { item: TodayItem }) {
+  const href =
+    item.action === "REAUDIT" && item.productId !== null
+      ? `/products/${item.productId}`
+      : item.region
+        ? `/products/new?regnCd=${item.region.regnCd}&signguCd=${item.region.signguCd ?? ""}&month=${item.region.month}&origin=SIGNAL`
+        : "/";
+  const label = item.action === "REAUDIT" ? "다시 검수" : "이 지역으로 새 상품 기획";
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+      <span className="text-sm text-slate-700 dark:text-slate-200">{item.reason}</span>
+      <Link href={href} className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+        {label}
+      </Link>
+    </li>
+  );
+}
+
+// ── 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) ────────────
+function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [regions, setRegions] = useState<{ regnCd: string; signguCd: string | null; month: string }[]>([]);
+  const [signals, setSignals] = useState<RegionSignal[]>([]);
+  const [draft, setDraft] = useState("");
+  const [kwError, setKwError] = useState<string | null>(null);
+  const [region, setRegion] = useState<RegionValue>({ regnCode: "", regnName: "", signguCode: "", signguName: "" });
+  const [month, setMonth] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const [v, s] = await Promise.all([settingsApi.get(), radarApi.regionSignals()]);
+        if (!alive) return;
+        setKeywords(v.watchKeywords);
+        setRegions(v.watchRegions);
+        setSignals(s);
+      } catch (e) {
+        if (alive) onError(isApiError(e) ? e.message : "관심 설정을 불러오지 못했어요.");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [onError]);
+
+  async function saveKeywords(next: string[]) {
+    const prev = keywords;
+    setKeywords(next);
+    try {
+      const v = await settingsApi.update({ watchKeywords: next });
+      setKeywords(v.watchKeywords);
+    } catch (e) {
+      setKeywords(prev);
+      onError(isApiError(e) ? e.message : "키워드를 저장하지 못했어요.");
+    }
+  }
+
+  function onAdd() {
+    const { list, error } = addKeyword(keywords, draft);
+    setKwError(error);
+    if (error === null) {
+      setDraft("");
+      void saveKeywords(list);
+    }
+  }
+
+  async function addRegion() {
+    if (region.regnCode === "" || month === "") return;
+    const next = [
+      ...regions,
+      { regnCd: region.regnCode, signguCd: region.signguCode === "" ? null : region.signguCode, month },
+    ];
+    setRegions(next);
+    setRegion({ regnCode: "", regnName: "", signguCode: "", signguName: "" });
+    setMonth("");
+    try {
+      const v = await settingsApi.update({ watchRegions: next });
+      setRegions(v.watchRegions);
+    } catch (e) {
+      onError(isApiError(e) ? e.message : "관심 지역을 저장하지 못했어요.");
+    }
+  }
+
+  async function removeRegion(idx: number) {
+    const next = regions.filter((_, i) => i !== idx);
+    setRegions(next);
+    try {
+      await settingsApi.update({ watchRegions: next });
+    } catch (e) {
+      onError(isApiError(e) ? e.message : "관심 지역을 저장하지 못했어요.");
+    }
+  }
+
+  return (
+    <section className="mt-8 border-t border-slate-200 pt-6 dark:border-slate-800">
+      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">관심 키워드 · 관심 지역</h2>
+
+      {/* 관심 키워드 */}
+      <div className="mt-3">
+        <div className="flex flex-wrap gap-1.5">
+          {keywords.map((k) => (
+            <span key={k} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+              {k}
+              <button type="button" onClick={() => void saveKeywords(removeKeyword(keywords, k))} className="text-slate-400 hover:text-slate-600">×</button>
+            </span>
+          ))}
+          {keywords.length === 0 && <span className="text-xs text-slate-400">등록한 키워드가 없어요.</span>}
+        </div>
+        <div className="mt-2 flex gap-2">
+          <input
+            value={draft}
+            onChange={(e) => {
+              setKwError(null);
+              setDraft(e.target.value);
+            }}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onAdd())}
+            placeholder="예: 온천"
+            className="w-48 rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+          />
+          <button type="button" onClick={onAdd} className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+            추가
+          </button>
+        </div>
+        {kwError && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{kwError}</p>}
+      </div>
+
+      {/* 관심 지역 편집 */}
+      <div className="mt-5">
+        <h3 className="text-sm font-medium text-slate-700 dark:text-slate-200">관심 지역</h3>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {regions.map((r, i) => (
+            <span key={`${r.regnCd}-${r.signguCd}-${r.month}`} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+              {r.regnCd} {r.signguCd ?? ""} · {r.month}
+              <button type="button" onClick={() => void removeRegion(i)} className="text-slate-400 hover:text-slate-600">×</button>
+            </span>
+          ))}
+          {regions.length === 0 && <span className="text-xs text-slate-400">등록한 지역이 없어요.</span>}
+        </div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+          <RegionSelect value={region} onChange={setRegion} />
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900" />
+          <button type="button" onClick={() => void addRegion()} disabled={region.regnCode === "" || month === ""} className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+            관심 지역 추가
+          </button>
+        </div>
+      </div>
+
+      {/* 관심 지역 새 소식 */}
+      {signals.length > 0 && (
+        <div className="mt-6 grid gap-3 md:grid-cols-2">
+          {signals.map((s, i) => (
+            <RegionNewsCard key={i} signal={s} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RegionNewsCard({ signal: s }: { signal: RegionSignal }) {
+  const newContents = s.t1?.count ?? null;
+  const events = s.t2?.count ?? null;
+  const hits = (s.t1?.keywordHits ?? []).filter((h) => (h.contentIds?.length ?? 0) > 0);
+  return (
+    <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          {s.region.regnCd} {s.region.signguCd ?? ""} · {s.month}
+        </h3>
+        <Link
+          href={`/products/new?regnCd=${s.region.regnCd}&signguCd=${s.region.signguCd ?? ""}&month=${s.month}&origin=SIGNAL`}
+          className="shrink-0 rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          이 지역으로 새 상품 기획
+        </Link>
+      </div>
+
+      <ul className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">
+        {hits.map((h) => (
+          <li key={h.keyword}>‘{h.keyword}’과(와) 맞는 곳 {h.contentIds?.length}곳</li>
+        ))}
+        {events !== null && <li>이달 행사 {events}건</li>}
+        {newContents !== null && <li>새로 등록된 곳 {newContents}곳</li>}
+        {/* t3 는 관측된 방문자 수만. null 이면 아예 적지 않는다 (0 으로 적지 않는다) */}
+        {s.t3 !== null && <li>지난해 {Number(s.t3.basisMonth.slice(5, 7))}월 방문자 {s.t3.count.toLocaleString()}명</li>}
+      </ul>
+
+      {/* 기준 기간 · 출처는 접힌 근거 칸에 (UI-CM-030). 점수 · 인기 · 예측은 쓰지 않는다 */}
+      <details className="mt-2" data-evidence>
+        <summary className="cursor-pointer text-xs text-slate-400">근거 보기</summary>
+        <div className="mt-1 space-y-0.5 text-xs text-slate-400">
+          {s.t1 && <p>새 콘텐츠 기준 기간 {s.t1.window.from} ~ {s.t1.window.to}</p>}
+          {s.t2 && <p>행사 기준 기간 {s.t2.window.from} ~ {s.t2.window.to}</p>}
+          {s.t3 && <p>방문자 기준 {s.t3.basisMonth} · {s.t3.source}</p>}
+        </div>
+      </details>
+    </div>
+  );
 }

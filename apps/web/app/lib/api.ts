@@ -483,6 +483,9 @@ export interface RadarSummary {
   unread: number;
   affectedProducts: number;
   changedContents: number;
+  /** 마지막 확인 시각 · 다음 확인 시각 (UI-S7-010). 배치가 꺼져 있으면 nextBatchAt 이 null */
+  lastBatchAt: string | null;
+  nextBatchAt: string | null;
   lastBatch: null | { runAt: string | null; covered: string | null; status: string; itemCount: number };
 }
 
@@ -531,10 +534,54 @@ export interface NotificationPage {
   unreadCount: number;
 }
 
+/** 키워드별 맞는 곳. contentIds null = 등록한 뒤 배치가 아직 안 봄, [] = 세어 보니 없음 */
+export interface KeywordHit {
+  keyword: string;
+  contentIds: string[] | null;
+}
+
+export interface RegionDemandSignal extends DemandSignal {
+  keywordHits: KeywordHit[];
+}
+
+/** 관심 지역 한 곳의 새 소식 (FR-MO-059~061). t3 는 관측된 방문자 수 · 기준 기간뿐 — 인기·예측 없음 */
+export interface RegionSignal {
+  region: { regnCd: string; signguCd: string | null };
+  month: string;
+  t1: RegionDemandSignal | null;
+  t2: RegionDemandSignal | null;
+  t3: { count: number; basisMonth: string; source: string; computedAt: string } | null;
+}
+
 export const radarApi = {
   summary: () => request<RadarSummary>("/radar/summary"),
   // signals 는 productId 가 필수다 — T2(행사 밀도) 창이 그 상품의 여행일에서 나온다
   signals: (productId: number) => request<RadarSignals>(`/radar/signals?productId=${productId}`),
+  regionSignals: () => request<RegionSignal[]>("/radar/region-signals"),
+  // 배치가 꺼진 기간에만. 켜져 있으면 서버가 403 이다
+  refreshRegionSignals: () => request<RegionSignal[]>("/radar/region-signals/refresh", { method: "POST" }),
+};
+
+// ── 레이더 에이전트 · 오늘 할 일 (F18 · FR-AG-030 · 031) ──────────────────────
+
+export interface TodayItem {
+  kind: "CHANGE" | "NEWS";
+  productId: number | null;
+  region: { regnCd: string; signguCd: string | null; month: string } | null;
+  reason: string;
+  action: "REAUDIT" | "NEW_PLAN";
+}
+
+export interface TodayBrief {
+  basisAt: string;
+  todos: TodayItem[];
+  quiet: { productId: number; text: string }[];
+  incomplete: { reasonCode: string; itemIds: number[] } | null;
+}
+
+export const agentApi = {
+  // 사람이 누를 때만 돈다. 서버가 정한 순서를 화면이 다시 정렬하지 않는다 (FR-AG-031)
+  today: () => request<TodayBrief>("/radar/today", { method: "POST" }),
 };
 
 export const notificationApi = {
