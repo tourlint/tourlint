@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialPickerState, isInserted, pickerReducer } from "./picker-state";
+import { initialPickerState, isInserted, pickerReducer, pickerStateWith } from "./picker-state";
 
 describe("pickerReducer — 장소 담기 상태 (UI-S2-036~043)", () => {
   it("종류를 고르면 lcls2 가 바뀌고, 넣은 목록은 그대로다 (칩은 일정을 안 바꾼다)", () => {
@@ -55,5 +55,16 @@ describe("pickerReducer — 장소 담기 상태 (UI-S2-036~043)", () => {
     expect(s.filters.indoor).toBe(true);
     s = pickerReducer(s, { type: "TOGGLE_FILTER", key: "indoor" });
     expect(s.filters.indoor).toBe(false);
+  });
+});
+
+describe("pickerStateWith — 자주 넣는 곳 칩에서 연다 (UI-S2-030)", () => {
+  it("🔴 openType 이 있으면 그 종류를 골라 둔 채로 시작한다", () => {
+    expect(pickerStateWith("NA01").lcls2).toBe("NA01");
+  });
+
+  it("openType 이 없으면(null · 빈 문자열) 기본 상태다 — 아무 종류도 안 고름", () => {
+    expect(pickerStateWith(null)).toEqual(initialPickerState);
+    expect(pickerStateWith("").lcls2).toBeNull();
   });
 });

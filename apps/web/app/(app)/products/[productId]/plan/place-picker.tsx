@@ -18,7 +18,7 @@ import {
   type PlanWalk,
   type ProductDetail,
 } from "../../../../lib/api";
-import { initialPickerState, isInserted, pickerReducer, type NearKind } from "./picker-state";
+import { isInserted, pickerReducer, pickerStateWith, type NearKind } from "./picker-state";
 
 const NEAR_KINDS: { kind: NearKind; label: string; itemType: string }[] = [
   { kind: "MEAL", label: "식당", itemType: "MEAL" },
@@ -32,8 +32,9 @@ const RELATION_LABEL: Record<PlanEvent["relation"], string> = {
   AFTER: "여행 뒤에 열려요",
 };
 
-export function PlacePicker({ product, onInserted }: { product: ProductDetail; onInserted: () => Promise<void> }) {
-  const [state, dispatch] = useReducer(pickerReducer, initialPickerState);
+export function PlacePicker({ product, onInserted, openType = null }: { product: ProductDetail; onInserted: () => Promise<void>; openType?: string | null }) {
+  // "자주 넣는 곳" 칩에서 넘어오면 그 종류를 골라 둔 채로 연다 (UI-S2-030)
+  const [state, dispatch] = useReducer(pickerReducer, openType, pickerStateWith);
   const [briefing, setBriefing] = useState<PlanBriefing | null>(null);
   const [places, setPlaces] = useState<PlanPlaces | null>(null);
   const [loadingPlaces, setLoadingPlaces] = useState(false);

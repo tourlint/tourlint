@@ -46,6 +46,14 @@ export const initialPickerState: PickerState = {
   inserted: [],
 };
 
+/**
+ * "자주 넣는 곳" 칩에서 넘어온 종류로 장소 담기를 열 때의 초기 상태 (UI-S2-030). openType 이
+ * 있으면 그 중분류를 골라 둔 채로 시작한다 — 없으면 아무 것도 안 고른 기본 상태.
+ */
+export function pickerStateWith(openType: string | null): PickerState {
+  return openType === null || openType === "" ? initialPickerState : { ...initialPickerState, lcls2: openType };
+}
+
 export function pickerReducer(state: PickerState, action: PickerAction): PickerState {
   switch (action.type) {
     case "SELECT_TYPE":
