@@ -88,8 +88,9 @@ const PLACES: Readonly<Record<string, string>> = {
   count: '같은 종류 수',
   threshold: '기준',
   judgedCount: '판정한 곳',
-  mappedCount: '야외로 센 곳',
-  unmappedCount: '종류를 모르는 곳',
+  // 야외 비중의 분모다 — 야외 · 혼재 · 실내를 다 합친 수이지 야외 수가 아니다 (#502)
+  mappedCount: '실내 · 야외를 가린 곳',
+  unmappedCount: '실내 · 야외를 모르는 곳',
   indoorCount: '실내로 센 곳',
 };
 
@@ -155,6 +156,9 @@ function toRow(key: string, raw: unknown): VerdictRow | null {
 
     case 'dayNo': return { label: '일차', value: `${text(raw)}일차` };
     case 'rainSource': return { label: '예보 종류', value: RAIN_SOURCE[text(raw)] ?? text(raw) };
+    // 평년 경로에서만 담긴다. 조건부 스프레드로 들어가 #480 에서 빠졌다 (#502)
+    case 'rainDays': return { label: '평년 강수일수', value: `${text(raw)}일` };
+    case 'normalMonth': return { label: '평년 기준 달', value: `${text(raw)}월` };
     case 'on': {
       // R01 조건부 휴관이 해당하는 날 — `MM-DD` 또는 명절 규칙이다 (DR-NM-022)
       if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -247,5 +251,5 @@ const HANDLED_CASES = new Set([
   'dayOfWeek', 'verdict', 'confidence', 'restItemType', 'targetKey', 'conceptKey',
   'distanceMeters', 'hasNight', 'expectsNight', 'dayNo', 'hours', 'visit',
   'first', 'second', 'span', 'thresholds', 'missingLcls2', 'expectedLcls2',
-  'rainSource', 'showFlagTurnedOff', 'fieldNamesChanged', 'on',
+  'rainSource', 'rainDays', 'normalMonth', 'showFlagTurnedOff', 'fieldNamesChanged', 'on',
 ]);

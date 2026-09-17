@@ -29,6 +29,12 @@ const REAL = {
     expectsNight: true, missingLcls2: ['EX02', 'FD05'], expectedLcls2: ['EX02', 'FD05', 'VE01'],
     nightSlotFrom: '19:00', needsConfirmation: false,
   },
+  /** 운영 run 75 — 비 올 확률이 높은 상품을 만들어 실제로 발동시킨 판정이다 (#502) */
+  R09: {
+    date: '2026-12-05', rainDays: 11.5, rainSource: 'CLIMATE', indoorCount: 1, mappedCount: 5,
+    normalMonth: 12, outdoorRatio: 0.8, rainThreshold: 0.3, unmappedCount: 0,
+    rainProbability: 0.371, needsConfirmation: false, outdoorRatioThreshold: 0.6,
+  },
 };
 
 const valuesOf = (e: unknown): string[] => verdictRows(e).map((r) => r.value);
@@ -50,6 +56,22 @@ describe('판정 입력값을 사람 말로 (#478)', () => {
       { label: '신뢰도', value: '확정' },
       { label: '운영시간', value: '09:00~18:00' },
       { label: '방문 시각', value: '17:30~18:30' },
+    ]);
+  });
+
+  it('🔴 평년 경로도 전부 한글이다 (R09) — 조건부 스프레드 안이라 #480 에서 빠졌다', () => {
+    expect(verdictRows(REAL.R09)).toEqual([
+      { label: '방문일', value: '2026-12-05' },
+      { label: '평년 강수일수', value: '11.5일' },
+      { label: '예보 종류', value: '평년' },
+      { label: '실내로 센 곳', value: '1곳' },
+      { label: '실내 · 야외를 가린 곳', value: '5곳' },
+      { label: '평년 기준 달', value: '12월' },
+      { label: '야외 비중', value: '80%' },
+      { label: '강수확률 기준', value: '30%' },
+      { label: '실내 · 야외를 모르는 곳', value: '0곳' },
+      { label: '강수확률', value: '37%' },
+      { label: '야외 비중 기준', value: '60%' },
     ]);
   });
 
