@@ -55,6 +55,7 @@ function model(over: Partial<AssembleInput> = {}): ReturnType<typeof assembleRep
       homepageUrl: 'https://oj.kr', contact: { tel: '033-640-4457' },
       fields: [{ name: 'restdate', value: '매주 월요일 휴관' }, { name: 'usetime', value: '09:00~18:00' }],
       ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null,
+      contentTypeId: 14, mapx: null, mapy: null, lclsSystm1: null, lclsSystm2: null, lclsSystm3: null,
     }]]),
     walkNames: new Map(),
     dataFingerprint: 'ab12cd34',
