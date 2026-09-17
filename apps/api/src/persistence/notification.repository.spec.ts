@@ -31,8 +31,9 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
     accountId = Number(acc.rows[0]?.id);
 
     const prod = await pool.query<{ id: string }>(
-      `INSERT INTO product (account_id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights, transport)
-       VALUES ($1, '강릉 2박3일', '51', '150', $2, 2, 'CHARTER_BUS') RETURNING id`,
+      // 검수 시작을 누른 상품이라 planned_at 을 채운다 — 기획 중(NULL)이면 후보에서 빠진다 (#492)
+      `INSERT INTO product (account_id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights, transport, planned_at)
+       VALUES ($1, '강릉 2박3일', '51', '150', $2, 2, 'CHARTER_BUS', now()) RETURNING id`,
       [accountId, START],
     );
     productId = Number(prod.rows[0]?.id);
@@ -158,8 +159,8 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
        */
       const second = '888888888';
       const other = await pool.query<{ id: string }>(
-        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-         VALUES ($1, '둘째 상품', '51', '2099-09-10', 2, 'CAR') RETURNING id`, [accountId]);
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+         VALUES ($1, '둘째 상품', '51', '2099-09-10', 2, 'CAR', now()) RETURNING id`, [accountId]);
       const otherId = Number(other.rows[0]?.id);
       await pool.query(
         `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, kto_content_id, match_status)
@@ -209,8 +210,8 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
     it('🔴 상한을 주면 출발일이 임박한 것부터 그만큼만 준다 (FR-MO-020)', async () => {
       // 상한에 걸려 잘려나가는 것은 가장 덜 급한 상품이어야 한다
       const far = await pool.query<{ id: string }>(
-        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport)
-         VALUES ($1, '먼 미래 상품', '51', '2099-12-31', 1, 'CAR') RETURNING id`, [accountId]);
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+         VALUES ($1, '먼 미래 상품', '51', '2099-12-31', 1, 'CAR', now()) RETURNING id`, [accountId]);
       const farId = Number(far.rows[0]?.id);
 
       /*
@@ -236,6 +237,25 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
       expect(found.map((f) => f.productId)).toContain(productId);
       expect((await forContent(CONTENT, '2099-09-13')).map((f) => f.productId))
         .not.toContain(productId);
+    });
+
+    it('🔴 기획 중 상품(planned_at NULL)은 조건 1 · 2 · 3 후보에서 빠진다 (#492 · B6 함정)', async () => {
+      // 아직 검수 시작을 안 누른 상품은 F13 영향 탐색·알림 대상이 아니다
+      const planning = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights, transport)
+         VALUES ($1, '기획 중 상품', '51', '150', '2099-09-10', 2, 'CAR') RETURNING id`, [accountId]);
+      const planningId = Number(planning.rows[0]?.id);
+      await pool.query(
+        `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, kto_content_id, match_status)
+         VALUES ($1, 1, 1, '10:00', 'INPUT', '경포대', 'SIGHT', $2, 'CONFIRMED')`, [planningId, CONTENT]);
+
+      // 조건 1(그 콘텐츠를 넣은 상품)에도, 조건 2·3(감시 대상)에도 안 잡힌다
+      expect((await forContent(CONTENT, '2026-08-27')).map((f) => f.productId)).not.toContain(planningId);
+      expect((await repo.watchedProducts('2026-08-27')).map((c) => c.productId)).not.toContain(planningId);
+
+      // 검수 시작을 누르면(planned_at 채우면) 다시 잡힌다 — 가드가 planned_at 만 본다는 확인
+      await pool.query(`UPDATE product SET planned_at = now() WHERE id = $1`, [planningId]);
+      expect((await forContent(CONTENT, '2026-08-27')).map((f) => f.productId)).toContain(planningId);
     });
   });
 });
