@@ -9,6 +9,7 @@ import {
   validateCreate,
   validateOrder,
   validatePatchItem,
+  validatePickedItem,
   validateUpdate,
   type CreateProductDto,
   type UpdateProductDto,
@@ -218,7 +219,14 @@ export class ProductService {
   async addItem(accountId: number, productId: number, body: unknown): Promise<Record<string, unknown>> {
     const nights = await this.repo.ownedNights(accountId, productId);
     if (nights === null) throw notFound(productId);
-    const { errors, item } = validateAddItem(body as Record<string, unknown> | undefined, nights + 1);
+    const b = body as Record<string, unknown> | undefined;
+    // 장소 담기로 넣으면 content 가 온다 — 이미 고른 콘텐츠라 CONFIRMED 로 넣는다 (FR-PL-013)
+    if (b !== undefined && typeof b.content === 'object' && b.content !== null) {
+      const { errors, picked } = validatePickedItem(b, nights + 1);
+      if (picked === undefined) throw new BadRequestException(errors.join(' '));
+      return { ...(await this.repo.addPickedItem(productId, picked)) };
+    }
+    const { errors, item } = validateAddItem(b, nights + 1);
     if (item === undefined) throw new BadRequestException(errors.join(' '));
     return { ...(await this.repo.addItem(productId, item)) };
   }

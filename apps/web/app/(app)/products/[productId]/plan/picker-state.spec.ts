@@ -1,0 +1,34 @@
+import { describe, expect, it } from "vitest";
+import { initialPickerState, isInserted, pickerReducer } from "./picker-state";
+
+describe("pickerReducer — 장소 담기 상태 (UI-S2-036~043)", () => {
+  it("종류를 고르면 lcls2 가 바뀌고, 넣은 목록은 그대로다 (칩은 일정을 안 바꾼다)", () => {
+    const withInserted = { ...initialPickerState, inserted: ["100"] };
+    const s = pickerReducer(withInserted, { type: "SELECT_TYPE", lcls2: "VE01" });
+    expect(s.lcls2).toBe("VE01");
+    expect(s.inserted).toEqual(["100"]);
+    expect(s.expandedId).toBeNull();
+  });
+
+  it("정렬을 바꿔도 넣은 목록 · 종류는 그대로다", () => {
+    const base = { ...initialPickerState, lcls2: "VE01", inserted: ["100"] };
+    const s = pickerReducer(base, { type: "SET_SORT", sort: "together" });
+    expect(s.sort).toBe("together");
+    expect(s.lcls2).toBe("VE01");
+    expect(s.inserted).toEqual(["100"]);
+  });
+
+  it("자세히는 같은 카드를 다시 누르면 접힌다", () => {
+    const open = pickerReducer(initialPickerState, { type: "TOGGLE_EXPAND", contentId: "1" });
+    expect(open.expandedId).toBe("1");
+    const closed = pickerReducer(open, { type: "TOGGLE_EXPAND", contentId: "1" });
+    expect(closed.expandedId).toBeNull();
+  });
+
+  it("넣으면 그 곳이 '일정에 있음'이 되고 중복으로 쌓이지 않는다", () => {
+    let s = pickerReducer(initialPickerState, { type: "MARK_INSERTED", contentId: "125769" });
+    expect(isInserted(s, "125769")).toBe(true);
+    s = pickerReducer(s, { type: "MARK_INSERTED", contentId: "125769" });
+    expect(s.inserted).toEqual(["125769"]);
+  });
+});
