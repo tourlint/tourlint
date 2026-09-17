@@ -94,7 +94,25 @@ export interface ProductDetail {
   headCount: number | null;
   transport: string;
   releasedAt: string | null;
+  /** 검수 시작을 누른 시각. null 이면 기획 중 (DR-IN-014) */
+  plannedAt: string | null;
+  planOrigin: PlanOrigin | null;
+  /** 직접 입력 · 장소 담기로 넣음 · 직접 정한 곳(검수 제외) 항목 수 */
+  composition: { manual: number; picker: number; excluded: number };
   days: { day: number; items: ProductItem[] }[];
+}
+
+export interface PlanOrigin {
+  startedBy: "MANUAL" | "UPLOAD" | "TEXT" | "CLONE" | "SIGNAL";
+  signal?: { type: string; regnCd: string; signguCd: string | null; from: string; to: string; contentId?: string };
+}
+
+/** 검수 시작 응답 (202 · FR-PL-020) */
+export interface HandoffResult {
+  productId: number;
+  plannedAt: string;
+  jobId: number;
+  excludedCount: number;
 }
 
 /** PATCH 가 받는 것만. 지역·박수는 못 바꾼다 — 확정된 contentid 와 일차 제약이 걸려 있다 */
@@ -303,6 +321,15 @@ export const productApi = {
   /** 출시 승인. 차단이 1건이라도 있으면 서버가 403 으로 막는다 (PM-NG-002) */
   release: (productId: number) =>
     request<{ productId: number; releasedAt: string }>(`/products/${productId}/release`, { method: "POST" }),
+  /**
+   * 검수 시작 (FR-PL-020 · D7). 미확정이 남으면 422 PLACE_UNRESOLVED,
+   * `excludePending:true` 면 제외하고 넘긴다. 예산 100% 면 429 로 되돌아가 기획 중에 남는다.
+   */
+  handoff: (productId: number, excludePending = false) =>
+    request<HandoffResult>(`/products/${productId}/handoff`, {
+      method: "POST",
+      body: JSON.stringify(excludePending ? { excludePending: true } : {}),
+    }),
 };
 
 /** 일정 항목 편집 (FR-IN-014). 등록 이후에도 추가·삭제·시간 변경·순서 변경을 한다 */
