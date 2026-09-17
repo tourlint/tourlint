@@ -62,6 +62,9 @@ export default function ProductNewPage() {
   const [headcount, setHeadcount] = useState("");
   const [transport, setTransport] = useState<Transport>("CAR");
 
+  // "자주 넣는 곳" 칩에서 고른 종류. 생성 후 기획 화면의 장소 담기를 이 종류로 연다 (UI-S2-030)
+  const [openType, setOpenType] = useState<string | null>(null);
+
   // 레이더 "이 지역으로 새 상품 기획"에서 넘어오면 지역을 미리 채우고 기획 출처를 남긴다 (FR-PL-001)
   const [planOrigin, setPlanOrigin] = useState<PlanOrigin | null>(null);
   useEffect(() => {
@@ -162,8 +165,10 @@ export default function ProductNewPage() {
       }
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
-      // 저장 후 기획 화면으로 — 거기서 장소를 고르고 검수로 넘어간다 (FR-PL-004)
-      router.push(created.productId != null ? `/products/${created.productId}/plan` : "/");
+      // 저장 후 기획 화면으로 — 거기서 장소를 고르고 검수로 넘어간다 (FR-PL-004).
+      // "자주 넣는 곳" 칩을 골랐으면 그 종류로 장소 담기가 열리도록 openType 을 실어 보낸다 (UI-S2-030)
+      const suffix = openType !== null ? `?openType=${encodeURIComponent(openType)}` : "";
+      router.push(created.productId != null ? `/products/${created.productId}/plan${suffix}` : "/");
     } catch {
       setSaveError("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       setSaving(false);
@@ -249,7 +254,7 @@ export default function ProductNewPage() {
             </SelectInput>
           </Field>
 
-          <FavoriteTypes target={target} concept={concept} />
+          <FavoriteTypes target={target} concept={concept} selected={openType} onPick={setOpenType} />
 
           <Field label="이동수단">
             <SelectInput value={transport} onChange={(e) => setTransport(e.target.value as Transport)}>
@@ -416,13 +421,22 @@ function buildPayload(
 }
 
 // 타깃 · 콘셉트를 고르면 그 조합에 자주 넣는 종류를 칩으로 보여 준다 (FR-PL-003). R10 표준
-// 프로파일(@tourlint/shared)을 그대로 읽는다 — 기대 · 없음 같은 판정은 붙이지 않는다. 칩을
-// 누르면 장소 담기에서 그 종류를 여는 것은 B8 의 접점이라, 지금은 보여 주기만 한다.
-function FavoriteTypes({ target, concept }: { target: string; concept: string }) {
+// 프로파일(@tourlint/shared)을 그대로 읽는다 — 기대 · 없음 같은 판정은 붙이지 않는다. 종류
+// 칩을 누르면 생성 후 기획 화면의 장소 담기가 그 종류로 열린다 (UI-S2-030). "저녁 일정"은
+// 종류(lcls2)가 아니라 밤을 낀다는 표시라 누를 수 없다.
+function FavoriteTypes({
+  target,
+  concept,
+  selected,
+  onPick,
+}: {
+  target: string;
+  concept: string;
+  selected: string | null;
+  onPick: (lcls2: string | null) => void;
+}) {
   const profile = target !== "" && concept !== "" ? findProfile(target, concept) : null;
   if (profile === null) return null;
-  const names = profile.expectedLcls2.map((c) => LCLS_SYSTM2[c]?.name ?? c);
-  const chips = profile.expectsNight ? [...names, "저녁 일정"] : names;
   const tLabel = TARGET_LABEL[target as keyof typeof TARGET_LABEL] ?? target;
   const cLabel = CONCEPT_LABEL[concept as keyof typeof CONCEPT_LABEL] ?? concept;
   return (
@@ -431,14 +445,30 @@ function FavoriteTypes({ target, concept }: { target: string; concept: string })
         {tLabel} · {cLabel} 여행에 자주 넣는 곳
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {chips.map((n) => (
-          <span
-            key={n}
-            className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-          >
-            {n}
+        {profile.expectedLcls2.map((code) => {
+          const on = selected === code;
+          return (
+            <button
+              key={code}
+              type="button"
+              aria-pressed={on}
+              // 같은 칩을 다시 누르면 선택을 끈다 — 종류 없이 기획 화면으로 간다
+              onClick={() => onPick(on ? null : code)}
+              className={`rounded-md border px-2 py-0.5 text-xs transition ${
+                on
+                  ? "border-indigo-500 bg-indigo-600 text-white"
+                  : "border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              }`}
+            >
+              {LCLS_SYSTM2[code]?.name ?? code}
+            </button>
+          );
+        })}
+        {profile.expectsNight && (
+          <span className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            저녁 일정
           </span>
-        ))}
+        )}
       </div>
     </div>
   );

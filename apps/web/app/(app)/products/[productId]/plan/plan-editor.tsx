@@ -19,7 +19,7 @@ const ITEM_TYPE_LABEL: Record<string, string> = {
   SIGHT: "관광", MEAL: "식사", LODGING: "숙박", REST: "휴식", MOVE: "이동", FREE: "자유",
 };
 
-export function PlanEditor({ productId }: { productId: number }) {
+export function PlanEditor({ productId, openType = null }: { productId: number; openType?: string | null }) {
   const router = useRouter();
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [facts, setFacts] = useState<Map<number, PlaceFacts>>(new Map());
@@ -127,7 +127,7 @@ export function PlanEditor({ productId }: { productId: number }) {
         ))}
       </div>
 
-      <PlacePicker product={product} onInserted={refetch} />
+      <PlacePicker product={product} onInserted={refetch} openType={openType} />
     </>
   );
 }
