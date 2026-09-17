@@ -18,7 +18,7 @@ const WEEKDAY: Record<string, string> = {
 };
 
 const CONFIDENCE: Record<string, string> = {
-  CONFIRMED: "확정", ESTIMATED: "추정", UNPARSED: "확인 불가",
+  CONFIRMED: "확정", ESTIMATED: "확실하지 않아요", UNPARSED: "확인 불가",
 };
 
 /** 문의처가 없으면 "정보 없음". 항목을 숨기지 않는다 (FR-AU-082 · EX-PS-010) */
