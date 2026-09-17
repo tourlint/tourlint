@@ -78,6 +78,9 @@ export interface ProductItem {
   itemType: string;
   ktoContentId: string | null;
   matchStatus: string;
+  /** 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
+  mapx: number | null;
+  mapy: number | null;
 }
 
 export interface ProductDetail {
@@ -349,6 +352,12 @@ export const itemApi = {
       method: "POST",
       body: JSON.stringify({ dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", content: input.content }),
     }),
+  // 걷기 길로 넣기 (D9). 코스 식별자만 보낸다 — 이름은 보내지도 저장하지도 않는다
+  addWalk: (productId: number, input: { dayNo: number; walkId: string }) =>
+    request<ProductItem>(`/products/${productId}/items`, {
+      method: "POST",
+      body: JSON.stringify({ dayNo: input.dayNo, itemType: "SIGHT", origin: "PICKER", excluded: { walkId: input.walkId } }),
+    }),
 };
 
 /** 장소 담기로 넣을 때 서버에 보내는 콘텐츠 참조 — 제목 · 주소(원문)는 보내지 않는다 */
@@ -488,6 +497,27 @@ export interface PlanPlaces {
   notice: string | null;
 }
 
+export interface PlanEvent {
+  contentId: string;
+  contentTypeId: number;
+  title: string;
+  eventStart: string;
+  eventEnd: string;
+  relation: "BEFORE" | "IN" | "AFTER";
+  suggestedStartDate: string | null;
+  firstImage: string | null;
+  mapx: number | null;
+  mapy: number | null;
+}
+
+export interface PlanWalk {
+  walkId: string;
+  name: string;
+  lengthKm: number | null;
+  minutes: number | null;
+  level: 1 | 2 | 3 | null;
+}
+
 export interface BriefingQuery {
   regnCd: string;
   signguCd?: string | null;
@@ -502,13 +532,47 @@ export const planApi = {
     if (q.signguCd) p.set("signguCd", q.signguCd);
     return request<PlanBriefing>(`/plan/briefing?${p.toString()}`);
   },
-  // 종류(중분류)로 시군구 장소 목록 (칩과 같은 조회라 수가 맞는다)
-  places: (q: { regnCd: string; signguCd?: string | null; lcls2: string; sort?: "near" | "together"; page?: number }) => {
-    const p = new URLSearchParams({ regnCd: q.regnCd, lcls2: q.lcls2 });
+  // 종류(중분류)로 시군구 장소 목록, 또는 근처 3km(앵커 기준) 식당 · 카페 · 숙소.
+  // 필터(휠체어 · 반려동물 · 실내만)와 정렬을 얹는다.
+  places: (q: {
+    regnCd: string;
+    signguCd?: string | null;
+    lcls2?: string;
+    scope?: "SIGNGU" | "NEAR3KM";
+    nearKind?: "MEAL" | "CAFE" | "STAY";
+    anchor?: { mapx: number; mapy: number };
+    anchorContentId?: string;
+    sort?: "near" | "together";
+    wheelchair?: boolean;
+    pet?: boolean;
+    indoor?: boolean;
+    page?: number;
+  }) => {
+    const p = new URLSearchParams({ regnCd: q.regnCd });
     if (q.signguCd) p.set("signguCd", q.signguCd);
+    if (q.lcls2) p.set("lcls2", q.lcls2);
+    if (q.scope) p.set("scope", q.scope);
+    if (q.nearKind) p.set("nearKind", q.nearKind);
+    if (q.anchor) p.set("anchor", `${q.anchor.mapx},${q.anchor.mapy}`);
+    if (q.anchorContentId) p.set("anchorContentId", q.anchorContentId);
     if (q.sort) p.set("sort", q.sort);
+    if (q.wheelchair) p.set("wheelchair", "1");
+    if (q.pet) p.set("pet", "1");
+    if (q.indoor) p.set("indoor", "1");
     if (q.page) p.set("page", String(q.page));
     return request<PlanPlaces>(`/plan/places?${p.toString()}`);
+  },
+  // 여행 기간과 겹치거나 앞뒤에 있는 행사 · 공연
+  events: (q: BriefingQuery) => {
+    const p = new URLSearchParams({ regnCd: q.regnCd, startDate: q.startDate, nights: String(q.nights) });
+    if (q.signguCd) p.set("signguCd", q.signguCd);
+    return request<{ window: { from: string; to: string }; items: PlanEvent[] }>(`/plan/events?${p.toString()}`);
+  },
+  // 걷기 길 (넣으면 직접 정한 곳으로 들어간다). 좌표가 없어 앵커가 되지 않는다
+  walks: (q: { regnCd: string; signguCd?: string | null }) => {
+    const p = new URLSearchParams({ regnCd: q.regnCd });
+    if (q.signguCd) p.set("signguCd", q.signguCd);
+    return request<{ items: PlanWalk[]; notice: string }>(`/plan/walks?${p.toString()}`);
   },
   // 고른 직후 그 항목만(또는 고른 항목 전부). 규칙엔진 · audit_run 없음
   placeFacts: (productId: number, itemIds?: number[]) =>

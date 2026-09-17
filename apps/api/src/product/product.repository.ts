@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import { DWELL_MINUTES_SEED, SETTING_DEFAULTS, type ItemType, type MatchStatus, type Transport } from '@tourlint/shared';
 import { withTransaction } from '../persistence/db';
-import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct } from './product.dto';
+import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct, WalkItemInput } from './product.dto';
 
 /** HH:MM 에 분을 더한다 (하루를 넘지 않게 23:59 로 막는다). 장소 담기 끝 시각 계산용. */
 function addMinutes(hhmm: string, minutes: number): string {
@@ -70,6 +70,9 @@ export interface ItemDetail {
   readonly itemType: ItemType;
   readonly ktoContentId: string | null;
   readonly matchStatus: MatchStatus;
+  /** 좌표 — 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
+  readonly mapx: number | null;
+  readonly mapy: number | null;
 }
 
 export interface CreatedProduct {
@@ -178,7 +181,7 @@ export class ProductRepository {
     if (row === undefined) return null;
 
     const items = await this.pool.query<ItemRaw>(
-      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin
+      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -387,6 +390,34 @@ export class ProductRepository {
     return toItemDetail(row);
   }
 
+  /**
+   * 걷기 길로 넣는 항목 (D9 · FR-PL-015). 직접 정한 곳(EXCLUDED)으로 그 날 끝에 붙인다.
+   * 코스 식별자(walk_id)만 저장하고 코스 이름은 저장하지 않는다 — 표시할 때 두루누비에서 찾는다.
+   * `ck_item_walk` 가 walk_id 를 EXCLUDED 에만 허용한다.
+   */
+  async addWalkItem(productId: number, walk: WalkItemInput): Promise<ItemDetail> {
+    const prev = await this.pool.query<{ start_time: string; end_time: string | null }>(
+      `SELECT start_time, end_time FROM itinerary_item
+        WHERE product_id = $1 AND day_no = $2 ORDER BY seq DESC LIMIT 1`,
+      [productId, walk.dayNo],
+    );
+    const start = (prev.rows[0]?.end_time ?? prev.rows[0]?.start_time ?? '09:00').slice(0, 5);
+    const end = addMinutes(start, SETTING_DEFAULTS.dwellFallbackMinutes);
+    const { rows } = await this.pool.query<ItemRaw>(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
+          match_status, origin, walk_id)
+       VALUES ($1, $2,
+               (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
+               $3, $4, 'DWELL_DEFAULT', NULL, $5, 'EXCLUDED', $6, $7)
+       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin`,
+      [productId, walk.dayNo, start, end, walk.itemType, walk.origin, walk.walkId],
+    );
+    const row = rows[0];
+    if (row === undefined) throw new Error('걷기 길 담기 결과가 비어 있다');
+    return toItemDetail(row);
+  }
+
   async addItem(productId: number, item: ValidItemInput): Promise<ItemDetail> {
     const { rows } = await this.pool.query<ItemRaw>(
       `INSERT INTO itinerary_item
@@ -567,6 +598,8 @@ interface ItemRaw {
   kto_content_id: string | null;
   match_status: MatchStatus;
   origin: string | null;
+  mapx?: number | string | null;
+  mapy?: number | string | null;
 }
 
 function toItemDetail(r: ItemRaw): ItemDetail {
@@ -580,5 +613,7 @@ function toItemDetail(r: ItemRaw): ItemDetail {
     itemType: r.item_type,
     ktoContentId: r.kto_content_id,
     matchStatus: r.match_status,
+    mapx: r.mapx == null ? null : Number(r.mapx),
+    mapy: r.mapy == null ? null : Number(r.mapy),
   };
 }

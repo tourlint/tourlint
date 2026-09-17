@@ -5,11 +5,22 @@
 // 근처 3km(앵커) · 필터는 B8-② 에서 더한다.
 
 export type PickerSort = "near" | "together";
+export type NearKind = "MEAL" | "CAFE" | "STAY";
+export interface PickerFilters {
+  wheelchair: boolean;
+  pet: boolean;
+  indoor: boolean;
+}
 
 export interface PickerState {
   /** 고른 종류(중분류). null = 아직 안 고름 */
   lcls2: string | null;
+  /** 근처 3km 종류(식당 · 카페 · 숙소). lcls2 와 배타적이다 */
+  nearKind: NearKind | null;
   sort: PickerSort;
+  filters: PickerFilters;
+  /** 넣을 위치 = 근처 3km 의 앵커가 되는 항목. null 이면 3km 칩은 꺼진다 */
+  anchorItemId: number | null;
   /** [자세히]로 펼친 카드의 contentId */
   expandedId: string | null;
   /** 이미 일정에 넣은 곳 (contentId). "일정에 있음" 표시에 쓴다 */
@@ -18,13 +29,19 @@ export interface PickerState {
 
 export type PickerAction =
   | { type: "SELECT_TYPE"; lcls2: string }
+  | { type: "SELECT_NEAR"; nearKind: NearKind }
   | { type: "SET_SORT"; sort: PickerSort }
+  | { type: "SET_ANCHOR"; anchorItemId: number | null }
+  | { type: "TOGGLE_FILTER"; key: keyof PickerFilters }
   | { type: "TOGGLE_EXPAND"; contentId: string }
   | { type: "MARK_INSERTED"; contentId: string };
 
 export const initialPickerState: PickerState = {
   lcls2: null,
+  nearKind: null,
   sort: "near",
+  filters: { wheelchair: false, pet: false, indoor: false },
+  anchorItemId: null,
   expandedId: null,
   inserted: [],
 };
@@ -32,10 +49,17 @@ export const initialPickerState: PickerState = {
 export function pickerReducer(state: PickerState, action: PickerAction): PickerState {
   switch (action.type) {
     case "SELECT_TYPE":
-      // 종류를 바꿔도 넣은 목록은 그대로다 (칩은 넣기를 바꾸지 않는다)
-      return { ...state, lcls2: action.lcls2, expandedId: null };
+      // 종류를 바꿔도 넣은 목록은 그대로다 (칩은 넣기를 바꾸지 않는다). 근처 3km 와 배타적
+      return { ...state, lcls2: action.lcls2, nearKind: null, expandedId: null };
+    case "SELECT_NEAR":
+      return { ...state, nearKind: action.nearKind, lcls2: null, expandedId: null };
     case "SET_SORT":
       return { ...state, sort: action.sort };
+    case "SET_ANCHOR":
+      // 넣을 위치를 옮기면 근처 3km 를 다시 열어야 한다 — 열린 3km 칩을 닫는다
+      return { ...state, anchorItemId: action.anchorItemId, nearKind: state.nearKind !== null ? null : state.nearKind };
+    case "TOGGLE_FILTER":
+      return { ...state, filters: { ...state.filters, [action.key]: !state.filters[action.key] } };
     case "TOGGLE_EXPAND":
       return { ...state, expandedId: state.expandedId === action.contentId ? null : action.contentId };
     case "MARK_INSERTED":

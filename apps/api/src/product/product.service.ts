@@ -11,6 +11,7 @@ import {
   validatePatchItem,
   validatePickedItem,
   validateUpdate,
+  validateWalkItem,
   type CreateProductDto,
   type UpdateProductDto,
 } from './product.dto';
@@ -220,6 +221,12 @@ export class ProductService {
     const nights = await this.repo.ownedNights(accountId, productId);
     if (nights === null) throw notFound(productId);
     const b = body as Record<string, unknown> | undefined;
+    // 걷기 길로 넣으면 excluded.walkId 가 온다 — 직접 정한 곳(EXCLUDED)으로 넣고 이름은 저장 안 함 (D9)
+    if (b !== undefined && typeof b.excluded === 'object' && b.excluded !== null) {
+      const { errors, walk } = validateWalkItem(b, nights + 1);
+      if (walk === undefined) throw new BadRequestException(errors.join(' '));
+      return { ...(await this.repo.addWalkItem(productId, walk)) };
+    }
     // 장소 담기로 넣으면 content 가 온다 — 이미 고른 콘텐츠라 CONFIRMED 로 넣는다 (FR-PL-013)
     if (b !== undefined && typeof b.content === 'object' && b.content !== null) {
       const { errors, picked } = validatePickedItem(b, nights + 1);
@@ -303,6 +310,8 @@ function toDays(items: ProductDetailRow['items']): { day: number; items: unknown
       itemType: it.itemType,
       ktoContentId: it.ktoContentId,
       matchStatus: it.matchStatus,
+      mapx: it.mapx,
+      mapy: it.mapy,
     });
     byDay.set(it.dayNo, list);
   }

@@ -384,6 +384,28 @@ export function validatePickedItem(body: Record<string, unknown> | undefined, da
   };
 }
 
+/** 걷기 길로 넣는 항목 (D9 · FR-PL-015). 코스 식별자만 저장하고 이름은 저장하지 않는다 */
+export interface WalkItemInput {
+  dayNo: number;
+  itemType: ItemType;
+  origin: 'PICKER';
+  walkId: string;
+}
+
+export function validateWalkItem(body: Record<string, unknown> | undefined, dayCount: number): { errors: string[]; walk?: WalkItemInput } {
+  const errors: string[] = [];
+  const b = body ?? {};
+  const dayNo = typeof b.dayNo === 'number' && Number.isInteger(b.dayNo) ? b.dayNo : 0;
+  if (dayNo < 1 || dayNo > dayCount) errors.push(`일차는 1~${dayCount} 범위여야 합니다.`);
+  const itemType = str(b.itemType) === '' ? 'SIGHT' : str(b.itemType);
+  if (!(ITEM_TYPE as readonly string[]).includes(itemType)) errors.push('항목 유형이 올바르지 않습니다.');
+  const excluded = b.excluded as Record<string, unknown> | undefined;
+  const walkId = str(excluded?.walkId);
+  if (walkId === '') errors.push('걷기 길 식별자가 필요합니다.');
+  if (errors.length > 0) return { errors };
+  return { errors, walk: { dayNo, itemType: itemType as ItemType, origin: 'PICKER', walkId } };
+}
+
 function strOrNull(v: unknown): string | null {
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
