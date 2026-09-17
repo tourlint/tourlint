@@ -38,6 +38,33 @@ describe('validateCreate', () => {
     expect(withEnd?.endTimeSource).toBe('INPUT');
   });
 
+  it('🔴 입력하는 순간 고른 관광지(content)를 CONFIRMED 저장용으로 받는다 (UI-S2-020)', () => {
+    const { errors, product } = validateCreate(base({
+      days: [
+        { day: 1, items: [{ start: '10:00', end: '11:30', place: '경포대', itemType: 'SIGHT',
+          content: { contentId: '125790', contentTypeId: 12, mapx: 128.9, mapy: 37.79, lcls1: 'HS', lcls2: 'HS01', lcls3: 'HS011200' } }] },
+        { day: 2, items: [{ start: '09:00', end: '', place: '오죽헌', itemType: 'SIGHT' }] },
+        { day: 3, items: [{ start: '12:00', end: '13:00', place: '초당순두부', itemType: 'MEAL' }] },
+      ],
+    }));
+    expect(errors).toEqual([]);
+    // 고른 줄은 content 가 붙고, 안 고른 줄은 null 이다 (안 고른 곳은 PENDING 으로 남는다)
+    expect(product?.items[0]?.content).toMatchObject({ contentId: '125790', contentTypeId: 12 });
+    expect(product?.items[1]?.content).toBeNull();
+  });
+
+  it('🔴 고른 장소 정보가 깨졌으면(contentId 없음) 거부한다', () => {
+    const { errors, product } = validateCreate(base({
+      days: [
+        { day: 1, items: [{ start: '10:00', end: '11:30', place: '경포대', itemType: 'SIGHT', content: { contentTypeId: 12 } }] },
+        { day: 2, items: [{ start: '09:00', end: '', place: '오죽헌', itemType: 'SIGHT' }] },
+        { day: 3, items: [{ start: '12:00', end: '13:00', place: '초당순두부', itemType: 'MEAL' }] },
+      ],
+    }));
+    expect(product).toBeNull();
+    expect(errors.some((e) => e.includes('고른 장소 정보'))).toBe(true);
+  });
+
   it('🔴 자유 입력이던 타깃 · 콘셉트는 표준 키만 받는다 (FR-PL-003 · DR-IN-015)', () => {
     // 되돌리기 가드: keyOrNull 검증을 빼면 '20대 커플' 이 통과해 이 검사가 빨개진다
     const bad = validateCreate(base({ targetKey: '20대 커플', conceptKey: '힐링여행' }));

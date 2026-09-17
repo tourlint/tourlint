@@ -573,7 +573,24 @@ async function insertItem(
   productId: number,
   item: ValidItem,
 ): Promise<void> {
-  // 등록 시점에는 관광지 미확정이라 PENDING 이다 — 확정(E)은 후속 단계에서 붙는다.
+  // 입력하는 순간 고른 관광지가 있으면 CONFIRMED 로 넣는다 (UI-S2-020 · D8). place_label 은 사용자가
+  // 친 이름 그대로 두고(공식 명칭은 표시할 때 읽는다 · DR-PR-001) 코드·좌표·분류만 채운다.
+  if (item.content !== null) {
+    await client.query(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
+          kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy,
+          matched_by, match_status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'USER','CONFIRMED')`,
+      [
+        productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType,
+        item.content.contentId, item.content.contentTypeId,
+        item.content.lcls1, item.content.lcls2, item.content.lcls3, item.content.mapx, item.content.mapy,
+      ],
+    );
+    return;
+  }
+  // 안 고른 줄은 PENDING 이다 — 확정은 /plan 에서 이어 붙는다 (UI-S2-020: 못 고른 곳은 그대로 남긴다).
   await client.query(
     `INSERT INTO itinerary_item
        (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status)
