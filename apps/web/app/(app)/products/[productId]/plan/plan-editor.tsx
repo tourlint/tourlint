@@ -82,7 +82,9 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
   if (product === null) return <p className="mt-8 text-sm text-slate-400">불러오는 중…</p>;
 
   const regionLabel = [product.region.regnName, product.region.signguName].filter(Boolean).join(" ") || "이 지역";
-  const pending = product.days.flatMap((d) => d.items).filter((it) => it.matchStatus === "PENDING").length;
+  const allItems = product.days.flatMap((d) => d.items);
+  const pending = allItems.filter((it) => it.matchStatus === "PENDING").length;
+  const empty = allItems.length === 0;
 
   return (
     <>
@@ -118,6 +120,10 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
           regionLabel={regionLabel}
           onResolved={handleSaved}
         />
+      ) : empty ? (
+        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          아직 일정이 없어요. 아래 장소 담기로 장소를 넣어 보세요.
+        </p>
       ) : (
         <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
           모든 장소를 골랐어요. 검수 시작을 누르면 돼요.
