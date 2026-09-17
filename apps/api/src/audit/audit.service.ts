@@ -13,7 +13,8 @@ import { KmaClient, createKmaTransport } from '../external/kma';
 import { createKtoClient } from '../external/kto';
 import { LlmClient, createProvider, readLlmConfig } from '../external/llm';
 import { DB_POOL } from '../persistence/db';
-import { PgApiCallLogger } from '../persistence/api-call-log.repository';
+import { PgApiCallLogger, RunScopedCallLogger } from '../persistence/api-call-log.repository';
+import type { ApiCallLogger } from '../external/api-call-log';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
 import { ClimateNormalRepository } from '../persistence/climate-normal.repository';
 import { UserSettingRepository } from '../persistence/user-setting.repository';
@@ -123,10 +124,10 @@ export class AuditService {
    * **생성자에서 만들지 않는다.** 설정이 비면 생성자가 던져 앱 전체가 못 뜬다 —
    * 공사 클라이언트에서 두 번 겪은 실수다.
    */
-  private normalizeFallback(): ((n: NormalizedOperatingInfo) => Promise<NormalizedOperatingInfo>) {
+  private normalizeFallback(logger: ApiCallLogger = this.callLogger): ((n: NormalizedOperatingInfo) => Promise<NormalizedOperatingInfo>) {
     const config = readLlmConfig();
     const llm = config === null ? null : new LlmClient({
-      provider: createProvider(config), config, logger: this.callLogger,
+      provider: createProvider(config), config, logger,
     });
     return async (n) => applyNormalizeFallback(n, { llm, cache: this.parseCache });
   }
@@ -141,6 +142,19 @@ export class AuditService {
     const product = await this.products.findProduct(productId);
     if (product === null) {
       throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '상품을 찾을 수 없습니다. 목록에서 다시 선택해 주세요.', 'PRODUCT');
+    }
+
+    // FR-PL-001 — 검수는 「검수 시작」을 지난 상품만 돈다.
+    //
+    // 화면은 검수 시작 버튼이 `handoff` 를 부르므로 보통 여기 걸리지 않는다. 다만 API 가
+    // 관문을 강제하지 않으면 보드는 「검수 시작 전」인데 상세는 점수를 보이는 상태가
+    // 만들어진다 — 2026-09-17 리허설이 실제로 그렇게 만들었다 (이슈 #469).
+    // `handoff` 는 `applyHandoff` 로 `planned_at` 을 먼저 쓰므로 그대로 지난다.
+    if ((await this.products.plannedAtOf(productId)) === null) {
+      throw new DomainException(
+        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
+        '기획 중인 상품입니다. 검수 시작을 먼저 눌러 주세요.', 'REQUEST',
+      );
     }
 
     // EX-AU-001 — 미확정 관광지가 남아 있으면 검수를 시작하지 않는다
@@ -673,9 +687,9 @@ export class AuditService {
    * 카카오 키가 없다고 검수 전체가 죽으면 안 된다. R08 만 확인 불가로 남고 나머지 규칙은
    * 그대로 판정한다 (EI-KM-009). 대신 무슨 일이 있었는지는 로그에 남긴다.
    */
-  private buildKakaoClient(): KakaoMobilityClient | undefined {
+  private buildKakaoClient(logger: ApiCallLogger = this.callLogger): KakaoMobilityClient | undefined {
     try {
-      return new KakaoMobilityClient({ transport: createKakaoTransport(), logger: this.callLogger });
+      return new KakaoMobilityClient({ transport: createKakaoTransport(), logger });
     } catch (e) {
       this.logger.warn(`길찾기 클라이언트를 만들지 못했다. R08 은 확인 불가로 처리된다: ${(e as Error).message}`);
       return undefined;
@@ -704,9 +718,9 @@ export class AuditService {
    * 길찾기와 같은 이유다 — 예보 키가 없다고 검수 전체가 죽으면 안 된다. R09 만 확인
    * 불가로 남는다 (EI-WX-006).
    */
-  private buildKmaClient(): KmaClient | undefined {
+  private buildKmaClient(logger: ApiCallLogger = this.callLogger): KmaClient | undefined {
     try {
-      return new KmaClient({ transport: createKmaTransport(), logger: this.callLogger });
+      return new KmaClient({ transport: createKmaTransport(), logger });
     } catch (e) {
       this.logger.warn(`기상청 클라이언트를 만들지 못했다. R09 는 확인 불가로 처리된다: ${(e as Error).message}`);
       return undefined;
@@ -763,19 +777,22 @@ export class AuditService {
 
       await this.jobs.markRunning(jobId, items.length);
 
+      // 이 검수가 낸 호출만 모은다. 저장이 끝나면 `audit_run` 에 이어 붙인다 (#466)
+      const callLog = new RunScopedCallLogger(this.callLogger);
+
       const runner = new AuditRunner({
-        kto: createKtoClient(this.callLogger),
+        kto: createKtoClient(callLog),
         // 동시 실행 수는 AUDIT_CONCURRENCY 로 조정한다 (NF-PF-010). 안 넘기면 러너가 환경을 본다
         onProgress: (done, total) => this.jobs.updateProgress(jobId, done, total),
         // 직전 검수의 지문. 비표출 전환과 판정 필드 변경이 여기서 잡힌다 (FR-MO-004)
         previousFingerprints: await this.results.previousFingerprints(productId),
         // 이동시간 판정. 키가 없어도 검수는 돈다 — R08 만 확인 불가로 남는다 (EI-KM-009)
-        kakao: this.buildKakaoClient(),
+        kakao: this.buildKakaoClient(callLog),
         // 우천 리스크. 평년 표가 비어 있으면 D+11 이상만 확인 불가로 남는다 (이슈 #7)
-        kma: this.buildKmaClient(),
+        kma: this.buildKmaClient(callLog),
         climate: new ClimateNormalRepository(this.pool),
         // 사전 파서가 못 읽은 조각의 LLM 해석. 캐시가 먼저다 (F03 · NF-MT-001)
-        normalizeFallback: this.normalizeFallback(),
+        normalizeFallback: this.normalizeFallback(callLog),
         // 계정 설정. 못 읽으면 기본값으로 돌아간다 — 설정 조회 실패가 검수를 멈추면 안 된다
         settings: await this.loadSettings(product.accountId),
       });
@@ -807,6 +824,14 @@ export class AuditService {
        * 붙일 자리가 없으면 아무 일도 하지 않는다 — 대상은 오른쪽이 비어 있고 되돌리지
        * 않은 가장 최근 이력 1건뿐이다.
        */
+      /*
+       * 이 검수가 낸 호출을 실행에 잇는다 (#466). 실패해도 검수를 멈추지 않는다 —
+       * 증빙 연결이 끊기는 것과 검수 결과를 못 주는 것은 무게가 다르다.
+       */
+      await callLog.linkTo(auditRunId).catch((e: unknown) => {
+        this.logger.warn(`호출 로그를 실행 ${auditRunId} 에 잇지 못했다: ${(e as Error).message}`);
+      });
+
       await this.patchApplications.attachAfterRun(productId, auditRunId);
 
       await this.jobs.markDone(jobId, auditRunId, new Date());

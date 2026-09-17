@@ -15,10 +15,21 @@ export class PgApiCallLogger implements ApiCallLogger, DailyCallCounter {
   constructor(private readonly pool: Pool) {}
 
   async record(entry: ApiCallLogEntry): Promise<void> {
-    await this.pool.query(
+    await this.recordReturningId(entry);
+  }
+
+  /**
+   * 쓰고 그 행의 id 를 준다. `RunScopedCallLogger` 가 검수 하나가 낸 호출을 모으는 데 쓴다.
+   *
+   * 검수를 시작할 때는 `audit_run` 행이 아직 없다 — 집계가 끝나야 INSERT 된다. 그래서
+   * 호출 시점에는 `audit_run_id` 를 채울 수 없고, 끝난 뒤 이 id 들로 이어 붙인다 (#466).
+   */
+  async recordReturningId(entry: ApiCallLogEntry): Promise<number | null> {
+    const { rows } = await this.pool.query<{ id: string }>(
       `INSERT INTO api_call_log
          (provider, operation, called_at, status, http_status, result_code, latency_ms, audit_run_id, quota_date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id`,
       [
         entry.provider, entry.operation, entry.calledAt, entry.status,
         entry.httpStatus, entry.resultCode, entry.latencyMs, entry.auditRunId,
@@ -26,6 +37,23 @@ export class PgApiCallLogger implements ApiCallLogger, DailyCallCounter {
         localDateKey(entry.calledAt),
       ],
     );
+    const id = rows[0]?.id;
+    return id === undefined ? null : Number(id);
+  }
+
+  /**
+   * 이미 쓴 행을 검수 실행에 이어 붙인다 (#466).
+   *
+   * **이미 붙은 행은 건드리지 않는다** (`audit_run_id IS NULL` 조건). 같은 id 로 두 번
+   * 불려도 결과가 같아야 한다.
+   */
+  async linkToRun(ids: readonly number[], auditRunId: number): Promise<number> {
+    if (ids.length === 0) return 0;
+    const { rowCount } = await this.pool.query(
+      `UPDATE api_call_log SET audit_run_id = $1 WHERE id = ANY($2::bigint[]) AND audit_run_id IS NULL`,
+      [auditRunId, ids],
+    );
+    return rowCount ?? 0;
   }
 
   async countToday(provider: CallProvider, now: Date): Promise<number> {
@@ -114,4 +142,36 @@ interface RawUsageRow {
 function isoDate(value: Date): string {
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+}
+
+/**
+ * 검수 하나가 낸 호출을 모아 두는 로거 (#466).
+ *
+ * 쓰기 자체는 그대로 즉시 나간다 — 버퍼에 담았다가 끝에 쓰면 증빙이 프로세스와 함께
+ * 사라지고, 예산 집계가 진행 중인 검수의 호출을 못 센다. 여기서 모으는 것은 **행 id 뿐**
+ * 이고, 검수가 저장된 뒤 `linkTo` 가 한 번에 이어 붙인다.
+ *
+ * 검수가 중간에 죽으면 이어 붙이지 않는다 — 행은 `audit_run_id NULL` 로 남는다. 종전과
+ * 같은 상태이고, 없는 실행에 호출을 달지 않는다 (설계 원칙 4).
+ */
+export class RunScopedCallLogger implements ApiCallLogger {
+  private readonly ids: number[] = [];
+  private readonly pending: Promise<unknown>[] = [];
+
+  constructor(private readonly inner: PgApiCallLogger) {}
+
+  record(entry: ApiCallLogEntry): Promise<void> {
+    const done = this.inner.recordReturningId(entry).then((id) => {
+      if (id !== null) this.ids.push(id);
+    });
+    // 호출자는 이 약속을 `void ... .catch()` 로 흘려보낸다. 끝을 기다리는 것은 `linkTo` 다
+    this.pending.push(done);
+    return done;
+  }
+
+  /** 모은 행을 실행에 잇는다. 아직 안 끝난 쓰기를 먼저 기다린다 */
+  async linkTo(auditRunId: number): Promise<number> {
+    await Promise.allSettled(this.pending);
+    return this.inner.linkToRun(this.ids, auditRunId);
+  }
 }

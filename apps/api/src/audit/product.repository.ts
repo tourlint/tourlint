@@ -11,6 +11,20 @@ import type { ItineraryItemRow, ProductRow } from './audit-runner';
 export class ProductRepository {
   constructor(private readonly pool: Pool) {}
 
+  /**
+   * 검수 시작(handoff)을 지났는지. `null` 이면 기획 중이다 (FR-PL-001 · DR-IN-014).
+   *
+   * `ProductRow` 에 담지 않는 이유는 규칙엔진의 입력이기 때문이다 — 규칙은 상품의
+   * 라이프사이클을 알 필요가 없다.
+   */
+  async plannedAtOf(productId: number): Promise<Date | null> {
+    const { rows } = await this.pool.query<{ planned_at: Date | null }>(
+      `SELECT planned_at FROM product WHERE id = $1`,
+      [productId],
+    );
+    return rows[0]?.planned_at ?? null;
+  }
+
   async findProduct(productId: number): Promise<ProductRow | null> {
     const { rows } = await this.pool.query<{
       id: string; start_date: Date | string; nights: number; transport: Transport;
