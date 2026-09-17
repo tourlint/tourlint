@@ -162,8 +162,8 @@ export default function ProductNewPage() {
       }
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
-      // 저장 후 검수 결과로 (화면 전이 2→3). 관광지 확정은 2차라 자동 검수는 아직 안 돈다.
-      router.push(created.productId != null ? `/products/${created.productId}` : "/");
+      // 저장 후 기획 화면으로 — 거기서 장소를 고르고 검수로 넘어간다 (FR-PL-004)
+      router.push(created.productId != null ? `/products/${created.productId}/plan` : "/");
     } catch {
       setSaveError("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       setSaving(false);

@@ -60,14 +60,16 @@ describe.skipIf(URL === undefined)('PlaceMatchRepository', () => {
       lclsSystm3: 'HS011200',
       mapx: 128.896483,
       mapy: 37.795513,
+      matchedBy: 'USER',
     });
-    const { rows } = await pool.query<{ match_status: string; kto_content_id: string; mapx: string | null }>(
-      `SELECT match_status, kto_content_id, mapx FROM itinerary_item WHERE id = $1`,
+    const { rows } = await pool.query<{ match_status: string; kto_content_id: string; mapx: string | null; matched_by: string | null }>(
+      `SELECT match_status, kto_content_id, mapx, matched_by FROM itinerary_item WHERE id = $1`,
       [itemId],
     );
     expect(rows[0]?.match_status).toBe('CONFIRMED');
     expect(rows[0]?.kto_content_id).toBe('125790');
     expect(Number(rows[0]?.mapx)).toBeCloseTo(128.896483, 4);
+    expect(rows[0]?.matched_by).toBe('USER');
   });
 
   it('제외하면 EXCLUDED 이고 contentid·좌표가 지워진다 (ck_item_match_content)', async () => {
