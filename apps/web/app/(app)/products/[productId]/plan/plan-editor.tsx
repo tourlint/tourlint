@@ -7,8 +7,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { isApiError, productApi, type ProductDetail, type ProductItem } from "../../../../lib/api";
+import { isApiError, planApi, productApi, type PlaceFacts, type ProductDetail, type ProductItem } from "../../../../lib/api";
 import { PlaceAutocomplete } from "./place-autocomplete";
+import { PlaceFactsLine } from "./place-facts-line";
+import { DaySummary } from "./day-summary";
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   SIGHT: "관광", MEAL: "식사", LODGING: "숙박", REST: "휴식", MOVE: "이동", FREE: "자유",
@@ -17,11 +19,22 @@ const ITEM_TYPE_LABEL: Record<string, string> = {
 export function PlanEditor({ productId }: { productId: number }) {
   const router = useRouter();
   const [product, setProduct] = useState<ProductDetail | null>(null);
+  const [facts, setFacts] = useState<Map<number, PlaceFacts>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const d = await productApi.detail(productId);
     setProduct(d);
+    // 고른 곳의 장소 정보 한 줄. 고른 항목이 있을 때만 부른다 (없으면 공사 호출 0)
+    const hasConfirmed = d.days.some((day) => day.items.some((it) => it.matchStatus === "CONFIRMED"));
+    if (hasConfirmed) {
+      try {
+        const res = await planApi.placeFacts(productId);
+        setFacts(new Map(res.items.map((f) => [f.itemId, f])));
+      } catch {
+        // 장소 정보를 못 읽어도 기획은 계속된다 — 한 줄만 비운다
+      }
+    }
   }, [productId]);
 
   useEffect(() => {
@@ -96,10 +109,18 @@ export function PlanEditor({ productId }: { productId: number }) {
       <div className="mt-6 space-y-6">
         {product.days.map((day) => (
           <section key={day.day}>
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{day.day}일차</h2>
+            <DaySummary day={day.day} items={day.items} />
             <ul className="mt-2 space-y-2">
               {day.items.map((it) => (
-                <ItemRow key={it.itemId} item={it} regnCd={product.ldongRegnCd} signguCd={product.ldongSignguCd} regionLabel={regionLabel} onResolved={refetch} />
+                <ItemRow
+                  key={it.itemId}
+                  item={it}
+                  facts={facts.get(it.itemId) ?? null}
+                  regnCd={product.ldongRegnCd}
+                  signguCd={product.ldongSignguCd}
+                  regionLabel={regionLabel}
+                  onResolved={refetch}
+                />
               ))}
             </ul>
           </section>
@@ -111,17 +132,21 @@ export function PlanEditor({ productId }: { productId: number }) {
 
 function ItemRow({
   item,
+  facts,
   regnCd,
   signguCd,
   regionLabel,
   onResolved,
 }: {
   item: ProductItem;
+  facts: PlaceFacts | null;
   regnCd: string;
   signguCd: string | null;
   regionLabel: string;
   onResolved: () => Promise<void>;
 }) {
+  // 숙박은 끝 시간이 없다. 그 밖에 끝 시간을 비운 항목은 검수가 보통 머무는 시간으로 채운다.
+  const endHint = item.matchStatus !== "EXCLUDED" && item.end === null && item.itemType !== "LODGING";
   return (
     <li className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
       <div className="flex items-center justify-between gap-2">
@@ -134,6 +159,11 @@ function ItemRow({
         </div>
         <StatusTag status={item.matchStatus} />
       </div>
+      {item.matchStatus === "CONFIRMED" && facts !== null && <PlaceFactsLine facts={facts} />}
+      {item.matchStatus === "EXCLUDED" && (
+        <p className="mt-1 text-xs text-slate-400">이용시간 정보는 표시되지 않아요.</p>
+      )}
+      {endHint && <p className="mt-1 text-xs text-slate-400">끝 시간을 비우면 보통 머무는 시간으로 채워요.</p>}
       {item.matchStatus === "PENDING" && (
         <PlaceAutocomplete item={item} regnCd={regnCd} signguCd={signguCd} regionLabel={regionLabel} onResolved={onResolved} />
       )}
