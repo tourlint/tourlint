@@ -409,6 +409,32 @@ export const matchApi = {
     request<{ itemId: number; matchStatus: string }>(`/items/${itemId}/exclude`, { method: "POST" }),
 };
 
+// ── 기획 조회 (F17 · FR-PL-005). 규칙 판정 없음 · 저장 없음 ────────────────────
+
+/** 장소 정보 한 줄 (place-facts). 공사 원문 표시값 — 응답으로만 흐르고 저장하지 않는다 */
+export interface PlaceFacts {
+  itemId: number;
+  name: string;
+  kindName: string;
+  hours: string | null;
+  restDays: string | null;
+  fee: string | null;
+  parking: string | null;
+  eventPeriod: string | null;
+  travelFromPrevMinutes: number | null;
+  matchedBy: "AUTO" | "USER" | "AGENT" | null;
+  origin: string | null;
+}
+
+export const planApi = {
+  // 고른 직후 그 항목만(또는 고른 항목 전부). 규칙엔진 · audit_run 없음
+  placeFacts: (productId: number, itemIds?: number[]) =>
+    request<{ items: PlaceFacts[] }>(`/products/${productId}/place-facts`, {
+      method: "POST",
+      body: JSON.stringify(itemIds ? { itemIds } : {}),
+    }),
+};
+
 export const patchApi = {
   // 고른 수정안을 반영하면 어떻게 되는지 미리 본다. 저장하지 않는다 (F08)
   preview: (productId: number, selections: PatchSelection[]) =>
