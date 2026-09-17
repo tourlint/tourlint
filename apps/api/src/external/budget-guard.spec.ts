@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BUDGET_THRESHOLD_RATIO, EXTRA_PROVIDER_DAILY_CAP, SYSTEM_SETTING_DEFAULTS, type CallProvider } from '@tourlint/shared';
+import {
+  BUDGET_THRESHOLD_RATIO, EXTRA_SERVICE_BASE_CAP, EXTRA_SERVICE_QUOTA_RAISED,
+  SYSTEM_SETTING_DEFAULTS, type CallProvider,
+} from '@tourlint/shared';
 import { InMemoryApiCallLogger, localDateKey, type ApiCallLogEntry } from './api-call-log';
 import { BudgetBlockedError, BudgetGuard, evaluateBudget, ktoBudgetGuard } from './budget-guard';
 
@@ -172,17 +175,47 @@ describe('ktoBudgetGuard — 공사 서비스마다 따로 센다 (외부 연동
     fill(logger, 'KTO', 800);
     fill(logger, 'KTO_PET', 800);
     await expect(ktoBudgetGuard('RELATED', { counter: logger, dailyQuota: 800, clock }).snapshot())
-      .resolves.toEqual({ dailyBudget: EXTRA_PROVIDER_DAILY_CAP, usedToday: 0 });
+      .resolves.toEqual({ dailyBudget: EXTRA_SERVICE_BASE_CAP, usedToday: 0 });
     await expect(ktoBudgetGuard('PET', { counter: logger, dailyQuota: 800, clock }).snapshot())
-      .resolves.toEqual({ dailyBudget: EXTRA_PROVIDER_DAILY_CAP, usedToday: 800 });
+      .resolves.toEqual({ dailyBudget: EXTRA_SERVICE_BASE_CAP, usedToday: 800 });
   });
 
-  it('🔴 국문은 daily_quota 를, 새 서비스 5종은 각 800건을 분모로 쓴다', async () => {
+  // 이 블록의 시계는 2026-08-22 — 증설 전이다. 증설 기간의 값은 아래 describe 에서 본다
+  it('🔴 국문은 daily_quota 를, 새 서비스 5종은 각 800건을 분모로 쓴다 (증설 전)', async () => {
     const counter = new InMemoryApiCallLogger();
     expect((await ktoBudgetGuard('KOR', { counter, dailyQuota: 1200, clock }).snapshot()).dailyBudget).toBe(1200);
     for (const service of ['PET', 'WITH', 'RELATED', 'DURUNUBI', 'VISITOR'] as const) {
       expect((await ktoBudgetGuard(service, { counter, dailyQuota: 1200, clock }).snapshot()).dailyBudget).toBe(800);
     }
+  });
+
+  /*
+   * 증설은 기간제다 (#508). 3종만 늘었고, 기간 밖이면 다섯 다 800 으로 돌아간다 —
+   * 위 검사들의 시계(2026-08-22)가 증설 전이라 그쪽은 800 이 맞는 답이다.
+   */
+  describe('트래픽 증설 기간 — 늘어난 것은 5종 중 3종뿐이다 (#508)', () => {
+    const RAISED = ['WITH', 'PET', 'RELATED'] as const;
+    const KEPT = ['DURUNUBI', 'VISITOR'] as const;
+    const budgetOn = async (iso: string, service: Parameters<typeof ktoBudgetGuard>[0]): Promise<number> =>
+      (await ktoBudgetGuard(service, {
+        counter: new InMemoryApiCallLogger(), dailyQuota: 1200, clock: () => new Date(iso),
+      }).snapshot()).dailyBudget;
+
+    it('🔴 기간 안에는 무장애 · 반려동물 · 연관 관광지만 8,000 이다', async () => {
+      for (const service of RAISED) expect(await budgetOn('2026-09-20T05:00:00Z', service)).toBe(8000);
+      for (const service of KEPT) expect(await budgetOn('2026-09-20T05:00:00Z', service)).toBe(EXTRA_SERVICE_BASE_CAP);
+    });
+
+    it('🔴 기간이 끝나면 셋 다 800 으로 돌아간다 — 공사가 거절할 호출을 통과시키지 않는다', async () => {
+      // 2026-10-17 00:00 KST = 2026-10-16 15:00 UTC. 만료 다음 날이다
+      for (const service of RAISED) expect(await budgetOn('2026-10-16T15:00:00Z', service)).toBe(EXTRA_SERVICE_BASE_CAP);
+    });
+
+    it('마지막 날까지는 늘어난 값이다 — 경계는 포함이다', async () => {
+      // 2026-10-16 23:00 KST = 2026-10-16 14:00 UTC
+      expect(await budgetOn('2026-10-16T14:00:00Z', 'WITH')).toBe(8000);
+      expect(EXTRA_SERVICE_QUOTA_RAISED.until).toBe('2026-10-16');
+    });
   });
 
   it('자동 배치는 새 서비스도 80% 에서 멈춘다 — 레이더 T3 방문자수 배치', async () => {
