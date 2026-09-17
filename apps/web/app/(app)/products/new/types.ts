@@ -37,6 +37,17 @@ export const ITEM_TYPE_OPTIONS: { value: ItemType; label: string }[] = [
   { value: "FREE", label: "자유" },
 ];
 
+/** 입력하는 순간 고른 관광지 (UI-S2-020 · D8). create 계약(content)과 같은 모양이다 */
+export interface MatchedContent {
+  contentId: string;
+  contentTypeId: number;
+  mapx: number | null;
+  mapy: number | null;
+  lcls1: string | null;
+  lcls2: string | null;
+  lcls3: string | null;
+}
+
 export interface ScheduleItem {
   id: string; // 클라이언트 전용 키 (저장 시 제외)
   itemId?: number; // 서버 항목 id. 편집 화면에서만 채워진다 (FR-IN-014)
@@ -44,6 +55,8 @@ export interface ScheduleItem {
   end: string;
   place: string;
   itemType: ItemType | ""; // "" = 미선택
+  /** 장소 칸에서 고른 관광지. null = 아직 안 고름(저장 시 PENDING) (UI-S2-020) */
+  content?: MatchedContent | null;
 }
 
 // 일차별 항목 배열. index 0 = 1일차.

@@ -279,7 +279,14 @@ export default function ProductNewPage() {
 
         {/* C. 일정 — 직접 입력이면 편집기, 업로드·자연어면 각자의 입구. 결과는 셋 다 같은 폼 상태로 들어온다 */}
         {method === "direct" && (
-          <ScheduleEditor nights={nights} schedule={schedule} onChange={setSchedule} />
+          <ScheduleEditor
+            nights={nights}
+            schedule={schedule}
+            onChange={setSchedule}
+            regnCd={region.regnCode}
+            signguCd={region.signguCode || null}
+            regionLabel={region.signguName || region.regnName || "이 지역"}
+          />
         )}
         {method === "upload" && (
           <UploadPanel onApplied={applyUpload} onEdit={() => setMethod("direct")} />
@@ -418,6 +425,8 @@ function buildPayload(
         end: it.end || null,
         place: it.place.trim(),
         itemType: it.itemType,
+        // 입력하는 순간 고른 관광지가 있으면 저장 시 CONFIRMED 로 (UI-S2-020 · create content 계약)
+        ...(it.content ? { content: it.content } : {}),
       })),
     })),
   };
