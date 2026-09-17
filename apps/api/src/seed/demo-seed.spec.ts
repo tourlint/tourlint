@@ -87,6 +87,27 @@ describe.skipIf(URL === undefined)('seedDemo', () => {
     expect((await defaults(accountId)).setting).toBe(1);
   });
 
+  // stage-of 와 같은 신호로 각 상품이 선 칸을 판정한다 (planned_at · 최신 blocker · released_at)
+  const stagesOf = async (accountId: number): Promise<Set<string>> => {
+    const { rows } = await pool.query<{ planned_at: Date | null; released_at: Date | null; blocker: number | null }>(
+      `SELECT p.planned_at, p.released_at,
+              (SELECT blocker_cnt FROM audit_run WHERE product_id = p.id ORDER BY executed_at DESC LIMIT 1) AS blocker
+         FROM product p WHERE p.account_id = $1`,
+      [accountId],
+    );
+    return new Set(rows.map((r) => {
+      if (r.planned_at === null) return 'PLANNING';
+      if (r.released_at !== null) return 'RELEASED';
+      if (r.blocker === null || r.blocker > 0) return 'REVIEW';
+      return 'RELEASABLE';
+    }));
+  };
+
+  it('🔴 시드가 보드 4칸을 다 채운다 — 심사에서 어느 칸도 비지 않는다 (PM-TA-003)', async () => {
+    const { accountId } = await seedDemo(pool);
+    expect(await stagesOf(accountId)).toEqual(new Set(['PLANNING', 'REVIEW', 'RELEASABLE', 'RELEASED']));
+  });
+
   it('다시 시드해도 계정은 하나, 상품 수는 그대로다 (복원 멱등)', async () => {
     const first = await seedDemo(pool);
     const second = await seedDemo(pool);
