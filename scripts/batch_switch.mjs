@@ -48,8 +48,22 @@ if (url === undefined || url === '') {
   process.exit(1);
 }
 
-// `pg` 는 루트가 아니라 `apps/api` 에 있다 (pnpm 워크스페이스)
-const { Pool } = createRequire(new URL('../apps/api/package.json', import.meta.url))('pg');
+// `pg` 도 `@tourlint/shared` 도 루트가 아니라 `apps/api` 에 있다 (pnpm 워크스페이스)
+const fromApi = createRequire(new URL('../apps/api/package.json', import.meta.url));
+const { Pool } = fromApi('pg');
+
+/*
+ * 기본값은 앱이 보는 상수를 그대로 읽는다. 여기 박아 두면 앱만 바뀌었을 때 이 도구가
+ * 다른 숫자를 말한다 — 실제로 예산이 800 에서 8000 이 될 때 그랬다 (#450).
+ * `packages/shared/dist` 가 있어야 하므로 없으면 조용히 기본값을 지어내지 않고 멈춘다.
+ */
+let DEFAULTS;
+try {
+  ({ SYSTEM_SETTING_DEFAULTS: DEFAULTS } = fromApi('@tourlint/shared'));
+} catch {
+  console.error('@tourlint/shared 를 못 읽었다 — pnpm build 를 먼저 돌린다');
+  process.exit(1);
+}
 const pool = new Pool({
   connectionString: url,
   ssl: /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false },
@@ -94,7 +108,8 @@ async function show(label) {
   console.log(`\n[${label}]`);
   if (setting.rows.length === 0) {
     // 행이 없으면 앱이 기본값으로 돈다 — batch_enabled 가 false 라 배치는 안 돈다
-    console.log('  system_setting: 행 없음 (앱이 기본값 05:00 · 꺼짐 · 800 으로 본다)');
+    const d = `${DEFAULTS.batchTime} · ${DEFAULTS.batchEnabled ? '켜짐' : '꺼짐'} · ${DEFAULTS.dailyQuota}건/일`;
+    console.log(`  system_setting: 행 없음 (앱이 기본값 ${d} 로 본다)`);
   } else {
     const s = setting.rows[0];
     console.log(`  배치: ${s.batch_enabled ? '켜짐' : '꺼짐'} · 시각 ${String(s.batch_time).slice(0, 5)} KST · 예산 ${s.daily_quota}건/일`);
@@ -131,12 +146,12 @@ try {
    */
   await pool.query(
     `INSERT INTO system_setting (key, batch_time, batch_enabled, daily_quota)
-     VALUES ('global', COALESCE($1::time, '05:00'), COALESCE($2::boolean, FALSE), COALESCE($3::int, 8000))
+     VALUES ('global', COALESCE($1::time, $4::time), COALESCE($2::boolean, $5::boolean), COALESCE($3::int, $6::int))
      ON CONFLICT (key) DO UPDATE SET
        batch_time    = COALESCE($1::time, system_setting.batch_time),
        batch_enabled = COALESCE($2::boolean, system_setting.batch_enabled),
        daily_quota   = COALESCE($3::int, system_setting.daily_quota)`,
-    [time, on ? true : off ? false : null, quota],
+    [time, on ? true : off ? false : null, quota, DEFAULTS.batchTime, DEFAULTS.batchEnabled, DEFAULTS.dailyQuota],
   );
 
   await show('바꾼 뒤');
