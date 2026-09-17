@@ -1,5 +1,6 @@
 import { CONCEPT_LABEL, TARGET_LABEL, type ConceptKey, type TargetKey } from './target-profile';
 import { LCLS_SYSTM2 } from './lcls-systm';
+import { ktoFieldLabel } from './constants';
 
 /**
  * 판정 입력값을 사람 말로 (FR-AU-061 판단 근거 3단 · #478).
@@ -41,6 +42,19 @@ const WEEKDAY: Readonly<Record<string, string>> = {
 const VERDICT: Readonly<Record<string, string>> = {
   CLOSED: '휴무일', OPEN: '영업일', ENDED: '끝난 행사', NOT_STARTED: '아직 열지 않은 행사',
   ONGOING: '기간 안', OUT_OF_HOURS: '운영시간 밖', IN_BREAK: '쉬는 시간',
+  // R06 은 지문 비교 결과를 그대로 담는다
+  HIDDEN: '공사에서 표출 중단', CHANGED: '정보 바뀜',
+  FIRST: '첫 검수', UNCHANGED: '그대로', INCOMPARABLE: '견줄 이력 없음',
+};
+
+/** 명절 · 법정공휴일 (정규화 `HOLIDAY_RULES`) */
+const HOLIDAY: Readonly<Record<string, string>> = {
+  LUNAR_NEW_YEAR: '설날', CHUSEOK: '추석', LEGAL_HOLIDAY: '법정공휴일',
+};
+
+/** R09 강수 판정 근거 (EI-WX · 5-1 3단) */
+const RAIN_SOURCE: Readonly<Record<string, string>> = {
+  SHORT: '단기예보', MID: '중기예보', CLIMATE: '평년',
 };
 
 const CONFIDENCE: Readonly<Record<string, string>> = {
@@ -74,6 +88,17 @@ const PLACES: Readonly<Record<string, string>> = {
   count: '같은 종류 수',
   threshold: '기준',
   judgedCount: '판정한 곳',
+  mappedCount: '야외로 센 곳',
+  unmappedCount: '종류를 모르는 곳',
+  indoorCount: '실내로 센 곳',
+};
+
+/** 비율 — `0.62` 를 `62%` 로 */
+const PERCENT: Readonly<Record<string, string>> = {
+  outdoorRatio: '야외 비중',
+  outdoorRatioThreshold: '야외 비중 기준',
+  rainProbability: '강수확률',
+  rainThreshold: '강수확률 기준',
 };
 
 function timeRange(v: unknown, from: string, to: string): string | null {
@@ -114,6 +139,7 @@ function toRow(key: string, raw: unknown): VerdictRow | null {
   if (key in LABEL) return { label: LABEL[key] as string, value: text(raw) };
   if (key in MINUTES) return { label: MINUTES[key] as string, value: `${text(raw)}분` };
   if (key in PLACES) return { label: PLACES[key] as string, value: `${text(raw)}곳` };
+  if (key in PERCENT) return { label: PERCENT[key] as string, value: `${Math.round(Number(raw) * 100)}%` };
 
   switch (key) {
     case 'dayOfWeek': return { label: '요일', value: WEEKDAY[text(raw)] ?? text(raw) };
@@ -128,6 +154,22 @@ function toRow(key: string, raw: unknown): VerdictRow | null {
     case 'expectsNight': return { label: '저녁 일정 기대', value: raw === true ? '있음' : '없음' };
 
     case 'dayNo': return { label: '일차', value: `${text(raw)}일차` };
+    case 'rainSource': return { label: '예보 종류', value: RAIN_SOURCE[text(raw)] ?? text(raw) };
+    case 'on': {
+      // R01 조건부 휴관이 해당하는 날 — `MM-DD` 또는 명절 규칙이다 (DR-NM-022)
+      if (!Array.isArray(raw) || raw.length === 0) return null;
+      const days = raw
+        .filter((v): v is string => typeof v === 'string')
+        .map((v) => HOLIDAY[v] ?? v);
+      return days.length === 0 ? null : { label: '해당 날짜', value: days.join(' · ') };
+    }
+    case 'showFlagTurnedOff': return { label: '비표출로 바뀜', value: raw === true ? '예' : '아니오' };
+    case 'fieldNamesChanged': {
+      // 바뀐 자리도 사람 말로 — 근거 표와 같은 이름표를 쓴다 (#475)
+      if (!Array.isArray(raw) || raw.length === 0) return null;
+      const names = raw.filter((v): v is string => typeof v === 'string').map(ktoFieldLabel);
+      return names.length === 0 ? null : { label: '바뀐 항목', value: names.join(' · ') };
+    }
 
     case 'hours': {
       const v = timeRange(raw, 'open', 'close');
@@ -187,3 +229,23 @@ function text(v: unknown): string {
   if (Array.isArray(v)) return v.map((x) => text(x)).filter((s) => s !== '').join(' · ');
   return '';
 }
+
+/**
+ * 이 키를 사람 말로 옮길 줄 아는가 (#480).
+ *
+ * 규칙이 새 키를 담았는데 이름표를 빠뜨리면 그 키가 화면에 영어로 찍힌다. 그걸 잡는
+ * 검사가 `apps/api` 에 있다 — 규칙 소스를 긁어 여기에 다 물어본다.
+ */
+export function isHandledVerdictKey(key: string): boolean {
+  if (INTERNAL.has(key)) return true;
+  if (key in LABEL || key in MINUTES || key in PLACES || key in PERCENT) return true;
+  return HANDLED_CASES.has(key);
+}
+
+/** `toRow` 의 `switch` 가 이름으로 다루는 키. 둘이 어긋나면 가드가 거짓을 말한다 */
+const HANDLED_CASES = new Set([
+  'dayOfWeek', 'verdict', 'confidence', 'restItemType', 'targetKey', 'conceptKey',
+  'distanceMeters', 'hasNight', 'expectsNight', 'dayNo', 'hours', 'visit',
+  'first', 'second', 'span', 'thresholds', 'missingLcls2', 'expectedLcls2',
+  'rainSource', 'showFlagTurnedOff', 'fieldNamesChanged', 'on',
+]);
