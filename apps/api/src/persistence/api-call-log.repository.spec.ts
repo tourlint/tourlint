@@ -4,7 +4,7 @@ import { CALL_PROVIDER as SHARED_CALL_PROVIDER } from '@tourlint/shared';
 import { CALL_PROVIDER, type ApiCallLogEntry, type ApiCallLogger } from '../external/api-call-log';
 import { KtoClient } from '../external/kto/kto.client';
 import type { KtoParams, KtoTransport, KtoTransportResult } from '../external/kto/transport';
-import { PgApiCallLogger } from './api-call-log.repository';
+import { PgApiCallLogger, RunScopedCallLogger } from './api-call-log.repository';
 
 describe('호출 로그 제공자 목록', () => {
   it('🔴 usage/calls 가 받는 제공자가 DB CHECK 와 같은 공용 9값이다 — 새 서비스로 거를 수 있다', () => {
@@ -79,5 +79,89 @@ describe.skipIf(URL === undefined)('PgApiCallLogger — 서비스별 제공자 (
     // 국문 예산의 분자는 국문 호출만이다
     expect(await logs.countToday('KTO', NOW)).toBe(1);
     expect(await logs.countToday('KTO_WITH', NOW)).toBe(2);
+  });
+});
+
+
+describe.skipIf(URL === undefined)('RunScopedCallLogger — 검수 하나가 낸 호출 잇기 (#466 · 실 DB)', () => {
+  let pool: Pool;
+  let logs: PgApiCallLogger;
+  let accountId: number;
+  let runId: number;
+  // 다른 스펙이 쓰지 않는 날. 이 날의 행만 지운다
+  const DAY = '2026-01-08';
+  const AT = new Date('2026-01-08T03:00:00Z'); // KST 12:00
+
+  const entry = (operation: string): ApiCallLogEntry => ({
+    provider: 'KTO', operation, calledAt: AT, status: 'OK',
+    httpStatus: 200, resultCode: '0000', latencyMs: 10, auditRunId: null,
+  });
+
+  const rowsOfDay = async (): Promise<[string, number | null][]> => {
+    const { rows } = await pool.query<{ operation: string; audit_run_id: string | null }>(
+      `SELECT operation, audit_run_id FROM api_call_log WHERE quota_date = $1 ORDER BY operation`,
+      [DAY],
+    );
+    return rows.map((r) => [r.operation, r.audit_run_id === null ? null : Number(r.audit_run_id)]);
+  };
+
+  beforeAll(async () => {
+    pool = new Pool({ connectionString: URL });
+    logs = new PgApiCallLogger(pool);
+    await pool.query(`DELETE FROM api_call_log WHERE quota_date = $1`, [DAY]);
+
+    const acc = await pool.query<{ id: string }>(
+      `INSERT INTO account (email, password_hash) VALUES ($1,'x') RETURNING id`,
+      [`calllog-link-${String(process.pid)}@example.com`],
+    );
+    accountId = Number(acc.rows[0]?.id);
+    const prod = await pool.query<{ id: string }>(
+      `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+       VALUES ($1,'호출 잇기 검증','51', DATE '2026-10-13', 1, 'CAR', now()) RETURNING id`,
+      [accountId],
+    );
+    const run = await pool.query<{ id: string }>(
+      `INSERT INTO audit_run (product_id, executed_at, ruleset_version, target_count, weight_snapshot)
+       VALUES ($1, now(), '1.0.0', 1, '{}'::jsonb) RETURNING id`,
+      [prod.rows[0]?.id],
+    );
+    runId = Number(run.rows[0]?.id);
+  });
+
+  afterAll(async () => {
+    await pool.query(`DELETE FROM api_call_log WHERE quota_date = $1`, [DAY]);
+    // 상품 · 실행은 계정에 매달려 있다 (ON DELETE CASCADE)
+    await pool.query(`DELETE FROM account WHERE id = $1`, [accountId]);
+    await pool.end();
+  });
+
+  it('🔴 검수가 낸 호출에 audit_run_id 가 붙는다 — 검수 1건당 호출 수를 센다', async () => {
+    const scoped = new RunScopedCallLogger(logs);
+    // 어댑터는 이 약속을 `void ... .catch()` 로 흘려보낸다. 기다리는 것은 `linkTo` 다
+    void scoped.record(entry('scoped-a'));
+    void scoped.record(entry('scoped-b'));
+
+    expect(await scoped.linkTo(runId)).toBe(2);
+    expect(await rowsOfDay()).toEqual([['scoped-a', runId], ['scoped-b', runId]]);
+  });
+
+  it('검수 밖 호출은 잇지 않는다 — 시간 창으로 긁지 않는다', async () => {
+    const scoped = new RunScopedCallLogger(logs);
+    void scoped.record(entry('scoped-c'));
+    // 같은 날 같은 시각이지만 이 검수가 낸 것이 아니다 (배치 · 기획 화면 호출)
+    await logs.record(entry('outside'));
+
+    expect(await scoped.linkTo(runId)).toBe(1);
+    const rows = await rowsOfDay();
+    expect(rows.find(([op]) => op === 'scoped-c')?.[1]).toBe(runId);
+    expect(rows.find(([op]) => op === 'outside')?.[1]).toBeNull();
+  });
+
+  it('두 번 이어도 결과가 같다 — 이미 붙은 행은 건드리지 않는다', async () => {
+    const scoped = new RunScopedCallLogger(logs);
+    void scoped.record(entry('scoped-d'));
+
+    expect(await scoped.linkTo(runId)).toBe(1);
+    expect(await scoped.linkTo(runId)).toBe(0);
   });
 });
