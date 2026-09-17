@@ -27,12 +27,62 @@ import { StatusBadge } from "../../components/badges";
 import { AuditBasis } from "../../components/audit-basis";
 import { addKeyword, removeKeyword } from "../../lib/radar-keywords";
 import { lastCheckedText, nextCheckText } from "../../lib/radar-time";
+import { EMPTY_REGION_NAMES, regionLabel, type RegionNameMaps } from "../../lib/region-names";
 import { RegionSelect, type RegionValue } from "../products/new/region-select";
+import type { CodeItem } from "../products/new/types";
 
 /** 오늘(로컬) 날짜 YYYY-MM-DD. 확인 시각 문구가 오늘/어제를 가르는 데만 쓴다. */
 function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+async function loadCodes(url: string): Promise<CodeItem[]> {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error("지역 코드를 불러오지 못했습니다.");
+  const json = (await res.json()) as { items?: CodeItem[] };
+  return json.items ?? [];
+}
+
+/**
+ * 관심 지역 · 새 소식에 나온 코드를 이름으로 (UI-S7-014). 시도 목록을 한 번, 나온 시도별로
+ * 시군구를 읽어 이름 지도를 만든다. 조회 실패는 조용히 둔다 — 이름을 못 찾은 코드는 그대로 뜬다.
+ */
+function useRegionNames(pairs: { regnCd: string; signguCd: string | null }[]): RegionNameMaps {
+  const [maps, setMaps] = useState<RegionNameMaps>(EMPTY_REGION_NAMES);
+  // 필요한 시도 집합을 안정된 문자열 키로 — 배열 새 참조로 매번 다시 읽지 않는다
+  const regnKey = Array.from(new Set(pairs.map((p) => p.regnCd).filter((c) => c !== ""))).sort().join(",");
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      if (regnKey === "") {
+        if (alive) setMaps(EMPTY_REGION_NAMES);
+        return;
+      }
+      try {
+        const regnList = regnKey.split(",");
+        const [allRegns, ...perRegn] = await Promise.all([
+          loadCodes("/api/v1/ldong-codes"),
+          ...regnList.map((c) => loadCodes(`/api/v1/ldong-codes?regnCd=${encodeURIComponent(c)}`)),
+        ]);
+        if (!alive) return;
+        const regns = new Map(allRegns.map((r) => [r.code, r.name]));
+        const signgus = new Map<string, string>();
+        regnList.forEach((c, i) => {
+          for (const s of perRegn[i] ?? []) signgus.set(`${c}:${s.code}`, s.name);
+        });
+        setMaps({ regns, signgus });
+      } catch {
+        // 이름 조회 실패는 조용히 둔다 — regionLabel 이 코드를 그대로 보인다
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [regnKey]);
+
+  return maps;
 }
 
 interface ProductLite {
@@ -164,13 +214,13 @@ export default function RadarPage() {
       {/* 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) */}
       <WatchAndNews onError={setError} />
 
-      {/* 위험 · 기회 탭 (UI-S7-001). 검수 등급 색 마커를 쓰지 않는다. */}
+      {/* 바뀐 정보 · 새 소식 탭 (UI-S7-003). 검수 등급 색 마커를 쓰지 않는다. */}
       <div className="mt-6 flex gap-2 border-b border-slate-200 dark:border-slate-800">
-        <TabButton active={tab === "RISK"} onClick={() => setTab("RISK")} label="위험" count={summary?.risk} />
+        <TabButton active={tab === "RISK"} onClick={() => setTab("RISK")} label="바뀐 정보" count={summary?.risk} />
         <TabButton
           active={tab === "OPPORTUNITY"}
           onClick={() => setTab("OPPORTUNITY")}
-          label="기회"
+          label="새 소식"
           count={summary?.opportunity}
         />
       </div>
@@ -179,7 +229,7 @@ export default function RadarPage() {
         <p className="mt-8 text-sm text-slate-400">불러오는 중…</p>
       ) : items.length === 0 ? (
         <div className="mt-8 rounded-2xl border border-dashed border-slate-300 py-14 text-center text-sm text-slate-400 dark:border-slate-700 dark:text-slate-500">
-          {tab === "RISK" ? "위험 알림이 없습니다." : "기회 알림이 없습니다."}
+          {tab === "RISK" ? "바뀐 정보가 없습니다." : "새 소식이 없습니다."}
         </div>
       ) : (
         <ul className="mt-6 space-y-3">
@@ -235,7 +285,7 @@ function TabButton({
   );
 }
 
-// 위험 · 기회 텍스트 배지. 검수 등급(적·주황·황·회) 색을 재사용하지 않는다 (UI-S7-001).
+// 바뀐 정보 · 새 소식 텍스트 배지. 검수 등급(적·주황·황·회) 색을 재사용하지 않는다 (UI-S7-003).
 function KindBadge({ kind }: { kind: NotificationKind }) {
   const risk = kind === "RISK";
   return (
@@ -246,12 +296,12 @@ function KindBadge({ kind }: { kind: NotificationKind }) {
           : "bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300"
       }`}
     >
-      {risk ? "위험" : "기회"}
+      {risk ? "바뀐 정보" : "새 소식"}
     </span>
   );
 }
 
-function NotificationCard({ notification: n, onDismiss }: { notification: RadarNotification; onDismiss: () => void }) {
+export function NotificationCard({ notification: n, onDismiss }: { notification: RadarNotification; onDismiss: () => void }) {
   const [busy, setBusy] = useState(false);
   const hasFingerprint = n.fingerprint.from !== null && n.fingerprint.to !== null;
 
@@ -270,29 +320,33 @@ function NotificationCard({ notification: n, onDismiss }: { notification: RadarN
         <span className="text-xs text-slate-400">{n.startDate} 출발</span>
       </div>
 
+      {/* 바뀐 것과 해당 일정을 먼저 보인다 (UI-S7-003) */}
       <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{n.what}</p>
 
       <dl className="mt-2 space-y-1 text-xs">
-        {hasFingerprint && (
-          <Row label="지문">
-            <span className="font-mono text-slate-500 dark:text-slate-400">
-              {shortHash(n.fingerprint.from)} → {shortHash(n.fingerprint.to)}
-            </span>
-          </Row>
-        )}
         {n.impact && <Row label="영향">{n.impact}</Row>}
         {n.action && <Row label="조치">{n.action}</Row>}
       </dl>
 
+      {/* 지문 비교값은 접힌 근거 칸 안에만 둔다 (UI-CM-030 · UI-S7-003). 밖에 두면 만드는 쪽 말이 샌다 */}
+      {hasFingerprint && (
+        <details className="mt-2" data-evidence>
+          <summary className="cursor-pointer text-xs text-slate-400">근거 보기</summary>
+          <p className="mt-1 font-mono text-xs text-slate-500 dark:text-slate-400">
+            지문 {shortHash(n.fingerprint.from)} → {shortHash(n.fingerprint.to)}
+          </p>
+        </details>
+      )}
+
       <div className="mt-3 flex justify-end gap-2">
-        {/* 수정안 화면 이동 (UI-S7-005 · 009 — 여기서 직접 바꾸지 않는다) */}
+        {/* 바뀐 정보는 [다시 검수], 새 소식은 [수정안 보기]로 상품으로 보낸다 — 여기서 직접 바꾸지 않는다 (UI-S7-005 · 009) */}
         <Link
           href={`/products/${n.productId}`}
           className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500"
         >
-          수정안 보기
+          {n.kind === "RISK" ? "다시 검수" : "수정안 보기"}
         </Link>
-        {/* 비표출 전환 알림에는 무시 수단을 노출하지 않는다 (UI-S7-005) */}
+        {/* 비표출 전환 알림에는 미루기 수단을 노출하지 않는다 (UI-S7-005) */}
         {n.dismissable && (
           <button
             type="button"
@@ -300,7 +354,7 @@ function NotificationCard({ notification: n, onDismiss }: { notification: RadarN
             disabled={busy}
             className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            무시
+            나중에
           </button>
         )}
       </div>
@@ -595,6 +649,12 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
     }
   }
 
+  // 관심 지역 · 새 소식에 나온 코드를 이름으로 (UI-S7-014)
+  const regionNames = useRegionNames([
+    ...regions.map((r) => ({ regnCd: r.regnCd, signguCd: r.signguCd })),
+    ...signals.map((s) => ({ regnCd: s.region.regnCd, signguCd: s.region.signguCd })),
+  ]);
+
   return (
     <section className="mt-8 border-t border-slate-200 pt-6 dark:border-slate-800">
       <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">관심 키워드 · 관심 지역</h2>
@@ -634,7 +694,7 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
         <div className="mt-2 flex flex-wrap gap-1.5">
           {regions.map((r, i) => (
             <span key={`${r.regnCd}-${r.signguCd}-${r.month}`} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
-              {r.regnCd} {r.signguCd ?? ""} · {r.month}
+              {regionLabel(regionNames, r.regnCd, r.signguCd)} · {r.month}
               <button type="button" onClick={() => void removeRegion(i)} className="text-slate-400 hover:text-slate-600">×</button>
             </span>
           ))}
@@ -653,7 +713,7 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
       {signals.length > 0 && (
         <div className="mt-6 grid gap-3 md:grid-cols-2">
           {signals.map((s, i) => (
-            <RegionNewsCard key={i} signal={s} />
+            <RegionNewsCard key={i} signal={s} regionName={regionLabel(regionNames, s.region.regnCd, s.region.signguCd)} />
           ))}
         </div>
       )}
@@ -661,7 +721,7 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
   );
 }
 
-function RegionNewsCard({ signal: s }: { signal: RegionSignal }) {
+function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal; regionName: string }) {
   const newContents = s.t1?.count ?? null;
   const events = s.t2?.count ?? null;
   const hits = (s.t1?.keywordHits ?? []).filter((h) => (h.contentIds?.length ?? 0) > 0);
@@ -669,7 +729,7 @@ function RegionNewsCard({ signal: s }: { signal: RegionSignal }) {
     <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
       <div className="flex items-baseline justify-between">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          {s.region.regnCd} {s.region.signguCd ?? ""} · {s.month}
+          {regionName} · {s.month}
         </h3>
         <Link
           href={`/products/new?regnCd=${s.region.regnCd}&signguCd=${s.region.signguCd ?? ""}&month=${s.month}&origin=SIGNAL`}
