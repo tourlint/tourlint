@@ -442,6 +442,39 @@ export const INTRO_FIELDS: Readonly<
 };
 
 /**
+ * 판정 필드 이름표 (외부 연동 3-3 소개정보 분기표 · #475).
+ *
+ * 값은 공사 원문이라 손대지 않고 **열 이름만** 사람 말로 바꾼다. 실무자가 받는 문서에
+ * `restdate` 가 찍히면 내부 코드로 읽힌다. 리포트 PDF 와 검수 결과 화면이 이 표를 같이 쓴다.
+ *
+ * 이름은 분기표의 열 이름(휴무일 · 운영시간)을 그대로 쓴다. 유형마다 필드가 갈릴 뿐
+ * 사람에게는 같은 것이다 — `restdatefood` 도 음식점의 휴무일이다.
+ */
+export const KTO_FIELD_LABEL: Readonly<Record<string, string>> = {
+  restdate: '휴무일',
+  restdateculture: '휴무일',
+  restdateleports: '휴무일',
+  restdateshopping: '휴무일',
+  restdatefood: '휴무일',
+  usetime: '운영시간',
+  usetimeculture: '운영시간',
+  usetimeleports: '운영시간',
+  opentime: '운영시간',
+  opentimefood: '운영시간',
+  playtime: '운영시간',
+  checkintime: '입실 시각',
+  checkouttime: '퇴실 시각',
+  eventstartdate: '행사 시작일',
+  eventenddate: '행사 종료일',
+  modifiedtime: '공사 최종 수정일',
+};
+
+/** 이름표가 없으면 필드명 그대로 — 이름이 없다고 근거를 숨기지 않는다 */
+export function ktoFieldLabel(name: string): string {
+  return KTO_FIELD_LABEL[name] ?? name;
+}
+
+/**
  * 공사 서비스 6개 (외부 연동 3-1). 활용신청과 하루 한도가 서비스마다 따로다.
  * 반려동물(PET)은 국문 관광정보와 다른 서비스 `KorPetTourService2` 다 (2026.09.15 확인).
  */

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import PDFDocument from 'pdfkit';
-import { TRANSPORT_LABEL, ruleName, type Transport } from '@tourlint/shared';
+import { TRANSPORT_LABEL, ktoFieldLabel, ruleName, type Transport } from '@tourlint/shared';
 import type { ContentEvidence, ReportFinding, ReportModel } from './report-model';
 
 /**
@@ -374,8 +374,9 @@ function drawEvidence(doc: Doc, e: ContentEvidence | null): void {
     return;
   }
 
-  const rows: (readonly string[])[] = e.fields.map((f) => [f.name, f.value === '' ? '(값 없음)' : f.value]);
-  if (e.ktoModifiedTime !== null) rows.push(['modifiedtime', e.ktoModifiedTime]);
+  const rows: (readonly string[])[] = e.fields.map((f) => [ktoFieldLabel(f.name), f.value === '' ? '(값 없음)' : f.value]);
+  // 7장이 같은 값을 `2026-06-15` 로 보인다. 같은 문서 안에서 같은 값은 같은 꼴이어야 한다
+  if (e.ktoModifiedTime !== null) rows.push([ktoFieldLabel('modifiedtime'), ktoStamp(e.ktoModifiedTime)]);
   if (rows.length > 0) {
     table(doc, [
       { header: '판정 필드', width: 132 },
