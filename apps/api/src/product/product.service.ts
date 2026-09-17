@@ -2,6 +2,7 @@ import { BadRequestException, HttpStatus } from '@nestjs/common';
 import type { AuditService } from '../audit/audit.service';
 import type { PlaceNameResolver } from '../audit/place-name';
 import type { CatalogService } from '../catalog/catalog.service';
+import type { WalkNameResolver } from '../plan/walk-names';
 import { DomainException } from '../common/domain.exception';
 import type { PatchApplicationRepository } from '../persistence/patch-application.repository';
 import {
@@ -36,6 +37,7 @@ export class ProductService {
     private readonly patches: PatchApplicationRepository,
     private readonly placeNames: PlaceNameResolver,
     private readonly audit: AuditService,
+    private readonly walkNames: WalkNameResolver,
   ) {}
 
   async create(accountId: number, dto: CreateProductDto): Promise<CreatedProduct> {
@@ -126,7 +128,7 @@ export class ProductService {
       planOrigin: row.planOrigin,
       composition: row.composition,
       createdAt: row.createdAt,
-      days: toDays(await this.withCurrentNames(productId, row.items)),
+      days: toDays(await this.withDisplayNames(await this.withCurrentNames(productId, row.items))),
     };
   }
 
@@ -200,6 +202,44 @@ export class ProductService {
     } catch {
       return items;
     }
+  }
+
+  /**
+   * 저장된 라벨이 빈 항목의 표시 이름을 볼 때 채운다 (D1 · D9).
+   *
+   * 장소 담기(CONFIRMED)와 걷기 길(EXCLUDED)은 이름을 저장하지 않는다 — `place_label` 이
+   * 비어 있다. 콘텐츠면 공식 명칭을, 걷기 길이면 코스 이름을 찾아 얹고, **못 찾으면 걷기 길은
+   * "걷기 길" 로 두고 콘텐츠는 빈 채로 둔다**(지어내지 않는다). 조회 실패는 삼킨다.
+   */
+  private async withDisplayNames(items: readonly ItemDetail[]): Promise<readonly ItemDetail[]> {
+    const emptyContent = items
+      .filter((it) => it.place === '' && it.walkId === null && it.ktoContentId !== null)
+      .map((it) => it.ktoContentId as string);
+    const emptyWalk = items
+      .filter((it) => it.place === '' && it.walkId !== null)
+      .map((it) => it.walkId as string);
+    if (emptyContent.length === 0 && emptyWalk.length === 0) return items;
+
+    let contentNames: ReadonlyMap<string, string> = new Map();
+    let walkNames: ReadonlyMap<string, string> = new Map();
+    try {
+      [contentNames, walkNames] = await Promise.all([
+        emptyContent.length > 0 ? this.placeNames.resolve(emptyContent) : Promise.resolve(new Map()),
+        emptyWalk.length > 0 ? this.walkNames.resolve(emptyWalk) : Promise.resolve(new Map()),
+      ]);
+    } catch {
+      // 못 읽어도 걷기 길은 아래에서 "걷기 길" 로 채운다. 콘텐츠는 빈 채로 둔다
+    }
+
+    return items.map((it) => {
+      if (it.place !== '') return it;
+      if (it.walkId !== null) return { ...it, place: walkNames.get(it.walkId) ?? '걷기 길' };
+      if (it.ktoContentId !== null) {
+        const name = contentNames.get(it.ktoContentId);
+        return name === undefined ? it : { ...it, place: name };
+      }
+      return it;
+    });
   }
 
   async update(accountId: number, productId: number, dto: UpdateProductDto): Promise<{ productId: number; updated: true }> {

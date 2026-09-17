@@ -39,11 +39,11 @@ function model(over: Partial<AssembleInput> = {}): ReturnType<typeof assembleRep
     items: [
       {
         itemId: 11, dayNo: 1, seq: 1, start: '10:00', end: '11:30', place: '오죽헌',
-        itemType: 'SIGHT', matchStatus: 'CONFIRMED', ktoContentId: '126508',
+        itemType: 'SIGHT', matchStatus: 'CONFIRMED', ktoContentId: '126508', walkId: null,
       },
       {
         itemId: 12, dayNo: 1, seq: 2, start: '12:00', end: '13:00', place: '동네 카페',
-        itemType: 'MEAL', matchStatus: 'EXCLUDED', ktoContentId: null,
+        itemType: 'MEAL', matchStatus: 'EXCLUDED', ktoContentId: null, walkId: null,
       },
     ],
     patches: [{
@@ -56,6 +56,7 @@ function model(over: Partial<AssembleInput> = {}): ReturnType<typeof assembleRep
       fields: [{ name: 'restdate', value: '매주 월요일 휴관' }, { name: 'usetime', value: '09:00~18:00' }],
       ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null,
     }]]),
+    walkNames: new Map(),
     dataFingerprint: 'ab12cd34',
     ktoModifiedAt: '20260801120000',
     generatedAt: new Date('2026-08-29T02:00:00.000Z'),
@@ -166,7 +167,7 @@ describe('리포트 렌더', () => {
       items: Array.from({ length: 60 }, (_, i) => ({
         itemId: 100 + i, dayNo: Math.floor(i / 8) + 1, seq: (i % 8) + 1,
         start: '10:00', end: '11:00', place: `장소 ${i}`,
-        itemType: 'SIGHT', matchStatus: 'CONFIRMED', ktoContentId: null,
+        itemType: 'SIGHT', matchStatus: 'CONFIRMED', ktoContentId: null, walkId: null,
       })),
     });
     expect(pageCount(await renderReport(many))).toBeGreaterThan(1);

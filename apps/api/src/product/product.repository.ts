@@ -73,6 +73,8 @@ export interface ItemDetail {
   /** 좌표 — 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
   readonly mapx: number | null;
   readonly mapy: number | null;
+  /** 걷기 길 식별자 (D9). 이름은 표시할 때 두루누비에서 찾는다 */
+  readonly walkId: string | null;
 }
 
 export interface CreatedProduct {
@@ -181,7 +183,7 @@ export class ProductRepository {
     if (row === undefined) return null;
 
     const items = await this.pool.query<ItemRaw>(
-      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy
+      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy, walk_id
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -593,13 +595,14 @@ interface ItemRaw {
   seq: number;
   start_time: string;
   end_time: string | null;
-  place_label: string;
+  place_label: string | null;
   item_type: ItemType;
   kto_content_id: string | null;
   match_status: MatchStatus;
   origin: string | null;
   mapx?: number | string | null;
   mapy?: number | string | null;
+  walk_id?: string | null;
 }
 
 function toItemDetail(r: ItemRaw): ItemDetail {
@@ -609,11 +612,12 @@ function toItemDetail(r: ItemRaw): ItemDetail {
     seq: r.seq,
     start: r.start_time.slice(0, 5),
     end: r.end_time === null ? null : r.end_time.slice(0, 5),
-    place: r.place_label,
+    place: r.place_label ?? '',
     itemType: r.item_type,
     ktoContentId: r.kto_content_id,
     matchStatus: r.match_status,
     mapx: r.mapx == null ? null : Number(r.mapx),
     mapy: r.mapy == null ? null : Number(r.mapy),
+    walkId: r.walk_id ?? null,
   };
 }

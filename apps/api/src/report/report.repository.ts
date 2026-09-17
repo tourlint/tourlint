@@ -36,6 +36,8 @@ export interface ItemRow {
   readonly ktoContentId: string | null;
   readonly contentTypeId: number | null;
   readonly matchStatus: string;
+  /** 걷기 길 코스 식별자 (D9). 이름은 저장하지 않으므로 표시할 때 이것으로 찾는다 */
+  readonly walkId: string | null;
 }
 
 export interface FingerprintRow {
@@ -118,11 +120,11 @@ export class ReportRepository {
   async items(productId: number): Promise<readonly ItemRow[]> {
     const { rows } = await this.pool.query<{
       id: string; day_no: number; seq: number; start_time: string; end_time: string | null;
-      place_label: string; item_type: string; kto_content_id: string | null;
-      content_type_id: number | null; match_status: string;
+      place_label: string | null; item_type: string; kto_content_id: string | null;
+      content_type_id: number | null; match_status: string; walk_id: string | null;
     }>(
       `SELECT id, day_no, seq, start_time, end_time, place_label, item_type,
-              kto_content_id, content_type_id, match_status
+              kto_content_id, content_type_id, match_status, walk_id
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -132,11 +134,12 @@ export class ReportRepository {
       seq: Number(r.seq),
       start: String(r.start_time).slice(0, 5),
       end: r.end_time === null ? null : String(r.end_time).slice(0, 5),
-      place: r.place_label,
+      place: r.place_label ?? '',
       itemType: r.item_type,
       ktoContentId: r.kto_content_id,
       contentTypeId: r.content_type_id === null ? null : Number(r.content_type_id),
       matchStatus: r.match_status,
+      walkId: r.walk_id,
     }));
   }
 

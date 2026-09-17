@@ -8,6 +8,7 @@ import { CatalogService } from '../catalog/catalog.service';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { FixtureKtoTransport, KtoClient } from '../external/kto';
 import { PatchApplicationRepository } from '../persistence/patch-application.repository';
+import { WalkNameResolver } from '../plan/walk-names';
 import { validateCreate } from './product.dto';
 import { ProductRepository } from './product.repository';
 import { ProductService } from './product.service';
@@ -42,6 +43,7 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
       patches,
       new PlaceNameResolver({ kto }),
       {} as never, // 이 스펙은 handoff 를 부르지 않는다
+      new WalkNameResolver({ kto, budget: async () => ({ allowed: true, ratio: 0, reasonCode: null, warn: false, remaining: 800 }) }),
     );
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO account (email, password_hash) VALUES ($1, 'x')
@@ -143,6 +145,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
   it('🔴 차단이 1건이면 403 FORBIDDEN_ACTION 이다 — 화면 버튼만으로 충족하지 않는다', async () => {
@@ -197,7 +200,7 @@ describe('검수 시작 handoff (FR-PL-020 · D7) — 저장소 · 검수는 스
         return { job: { id: 42 }, created: true };
       },
     } as unknown as import('../audit/audit.service').AuditService;
-    const svc = new ProductService(repo, {} as never, {} as never, {} as never, audit);
+    const svc = new ProductService(repo, {} as never, {} as never, {} as never, audit, {} as never);
     return { svc, calls };
   }
 
