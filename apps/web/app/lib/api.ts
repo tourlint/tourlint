@@ -852,6 +852,13 @@ export interface ContentDetail {
   ktoRaw: Record<string, string>;
   ktoModifiedTime: string | null;
   unavailableReason: string | null;
+  /** 좌표 · 분류 · 유형 — 등록 인라인 매칭이 pick 시 잡아 저장에 싣는다 (UI-S2-020) */
+  contentTypeId: number | null;
+  mapx: number | null;
+  mapy: number | null;
+  lclsSystm1: string | null;
+  lclsSystm2: string | null;
+  lclsSystm3: string | null;
 }
 
 export const contentApi = {

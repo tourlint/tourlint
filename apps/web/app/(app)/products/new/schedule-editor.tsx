@@ -6,16 +6,24 @@
 
 import { useRef, useState } from "react";
 import { Section, SelectInput, TextInput } from "./controls";
+import { SchedulePlaceInput } from "./schedule-place-input";
 import { ITEM_TYPE_OPTIONS, dayCount, type ItemType, type Nights, type Schedule, type ScheduleItem } from "./types";
 
 export function ScheduleEditor({
   nights,
   schedule,
   onChange,
+  regnCd = "",
+  signguCd = null,
+  regionLabel = "이 지역",
 }: {
   nights: Nights;
   schedule: Schedule;
   onChange: (s: Schedule) => void;
+  // 입력하는 순간 목록에서 고르기(UI-S2-020)용 지역. 등록 폼의 여행 지역에서 온다
+  regnCd?: string;
+  signguCd?: string | null;
+  regionLabel?: string;
 }) {
   const [activeDay, setActiveDay] = useState(0);
   const idSeq = useRef(0);
@@ -112,15 +120,16 @@ export function ScheduleEditor({
                 onChange={(e) => patchItem(activeIdx, it.id, { end: e.target.value })}
               />
             </label>
-            <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
-              장소명
-              <TextInput
-                type="text"
-                value={it.place}
-                placeholder="예: 중앙시장"
-                onChange={(e) => patchItem(activeIdx, it.id, { place: e.target.value })}
-              />
-            </label>
+            <SchedulePlaceInput
+              value={it.place}
+              content={it.content ?? null}
+              regnCd={regnCd}
+              signguCd={signguCd}
+              regionLabel={regionLabel}
+              // 고른 상태에선 입력칸이 ✓ 뷰라 타이핑이 안 되고, 다시 고르기로만 매칭을 지운다.
+              // 그래서 patch 를 그대로 병합하면 된다(pick=place+content, 편집=place, 해제=content:null)
+              onChange={(patch) => patchItem(activeIdx, it.id, patch)}
+            />
             <label className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
               유형
               <SelectInput
