@@ -43,6 +43,24 @@ describe('관광지 1건 조달 (FR-AU-013 · 061 · 081)', () => {
     expect(calls.sort()).toEqual(['common:7', 'intro:7:12']);
   });
 
+  it('🔴 좌표 · 분류 · 유형을 detailCommon2 원문 그대로 낸다 (등록 인라인 매칭 저장용 · UI-S2-020)', async () => {
+    const { kto } = stub({
+      common: { title: '경포대', mapx: '128.896483966593', mapy: '37.7955136762197', lclsSystm1: 'HS', lclsSystm2: 'HS01', lclsSystm3: 'HS011200' },
+    });
+    const v = await fetchContentView({ kto, ktoContentId: '5', contentTypeId: 12 });
+    expect(v.mapx).toBeCloseTo(128.896483966593);
+    expect(v.mapy).toBeCloseTo(37.7955136762197);
+    expect(v.contentTypeId).toBe(12);
+    expect(v.lclsSystm2).toBe('HS01');
+  });
+
+  it('좌표가 비면 지어내지 않고 null 이다', async () => {
+    const { kto } = stub({ common: { title: '어딘가', mapx: '', mapy: '' } });
+    const v = await fetchContentView({ kto, ktoContentId: '6', contentTypeId: 12 });
+    expect(v.mapx).toBeNull();
+    expect(v.mapy).toBeNull();
+  });
+
   it('유형을 모르면 공통정보로 먼저 알아낸다', async () => {
     const { kto, calls } = stub({ common: { contenttypeid: '38' }, intro: { opentime: '09:00~18:00' } });
     const v = await fetchContentView({ kto, ktoContentId: '9', contentTypeId: null });

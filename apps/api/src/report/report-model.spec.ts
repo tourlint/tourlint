@@ -47,7 +47,8 @@ function evidence(over: Partial<ContentEvidence> = {}): ContentEvidence {
     ktoContentId: '126508', officialName: '오죽헌', imageUrl: 'https://x/a.jpg',
     homepageUrl: null, contact: { tel: '033-640-4457' },
     fields: [{ name: 'restdate', value: '연중무휴' }],
-    ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null, ...over,
+    ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null,
+    contentTypeId: 14, mapx: null, mapy: null, lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, ...over,
   };
 }
 

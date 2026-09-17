@@ -44,6 +44,13 @@ export class ContentService {
       ktoRaw: Object.fromEntries(view.fields.map((f) => [f.name, f.value])),
       ktoModifiedTime: view.ktoModifiedTime,
       unavailableReason: view.unavailableReason,
+      // 좌표 · 분류 · 유형 — 등록 인라인 매칭이 pick 시 잡아 저장에 싣는다 (UI-S2-020 · #513 계약)
+      contentTypeId: view.contentTypeId,
+      mapx: view.mapx,
+      mapy: view.mapy,
+      lclsSystm1: view.lclsSystm1,
+      lclsSystm2: view.lclsSystm2,
+      lclsSystm3: view.lclsSystm3,
       ...(await this.conditionsOf(contentId, want)),
     };
   }
