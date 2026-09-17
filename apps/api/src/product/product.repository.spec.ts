@@ -85,6 +85,33 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     expect((await repo.detail(accountA, created.productId))?.name).toBe('수정됨');
   });
 
+  it('🔴 입력하는 순간 고른 관광지는 CONFIRMED 로 저장한다 — 안 고른 줄은 PENDING (UI-S2-020)', async () => {
+    const { product } = validateCreate({
+      name: '강릉 인라인 매칭 스펙', ldongRegnCd: '51', ldongSignguCd: '150',
+      startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        { start: '10:00', end: '11:30', place: '경포대', itemType: 'SIGHT',
+          content: { contentId: '125790', contentTypeId: 12, mapx: 128.9, mapy: 37.79, lcls1: 'HS', lcls2: 'HS01', lcls3: 'HS011200' } },
+        { start: '12:00', end: '13:00', place: '초당순두부', itemType: 'MEAL' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await repo.create(accountA, product);
+
+    const detail = await repo.detail(accountA, productId);
+    const byLabel = new Map(detail?.items.map((i) => [i.place, i]));
+    const matched = byLabel.get('경포대');
+    expect(matched?.matchStatus).toBe('CONFIRMED');
+    expect(matched?.ktoContentId).toBe('125790');
+    // 안 고른 줄은 그대로 PENDING 으로 남아 /plan 에서 이어 고른다
+    expect(byLabel.get('초당순두부')?.matchStatus).toBe('PENDING');
+
+    // matched_by 는 사용자가 고른 것이라 USER 다 (D8)
+    const row = await pool.query<{ matched_by: string | null }>(
+      `SELECT matched_by FROM itinerary_item WHERE product_id = $1 AND place_label = '경포대'`, [productId]);
+    expect(row.rows[0]?.matched_by).toBe('USER');
+  });
+
   it('삭제하면 일정 항목도 CASCADE 로 함께 지워진다', async () => {
     const created = await repo.create(accountA, sample());
     expect(await repo.remove(accountA, created.productId)).toBe(true);
