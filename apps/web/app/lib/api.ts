@@ -579,9 +579,25 @@ export interface TodayBrief {
   incomplete: { reasonCode: string; itemIds: number[] } | null;
 }
 
+/** 직접 확인할 곳 하나 · 전화로 물어볼 내용 (FR-AG-020~022 · API 4-11) */
+export interface CheckQuestionPlace {
+  findingIds: number[];
+  itemId: number;
+  visit: { dayNo: number; date: string; start: string | null };
+  tel: string | null;
+  questions: string[];
+}
+
+export interface CheckQuestions {
+  places: CheckQuestionPlace[];
+  incomplete: { reasonCode: string; itemIds: number[] } | null;
+}
+
 export const agentApi = {
   // 사람이 누를 때만 돈다. 서버가 정한 순서를 화면이 다시 정렬하지 않는다 (FR-AG-031)
   today: () => request<TodayBrief>("/radar/today", { method: "POST" }),
+  // 직접 확인할 곳의 전화로 물어볼 내용. 판정하지 않는다 — 확인은 사람이 누른다 (FR-AG-022)
+  checkQuestions: (runId: number) => request<CheckQuestions>(`/audit-runs/${runId}/check-questions`, { method: "POST" }),
 };
 
 export const notificationApi = {

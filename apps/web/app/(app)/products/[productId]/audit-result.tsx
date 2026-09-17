@@ -36,6 +36,9 @@ import { DISMISS_REASON_PRESET, SETTING_DEFAULTS } from "@tourlint/shared";
 import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
 import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
+import { ruleName } from "../../../lib/rule-names";
+import { scoreSentence } from "../../../lib/score-sentence";
+import { CheckQuestionsCard } from "./check-questions-card";
 
 const CONTENT_TYPE_LABEL: Record<number, string> = {
   12: "관광지",
@@ -358,7 +361,7 @@ export function AuditResult({ productId }: { productId: number }) {
             onChanged={refresh}
             busy={patchBusy !== null || running}
           />
-          <UnverifiedSection items={data.unverified} itemLabel={labelOf} onChanged={refresh} />
+          <UnverifiedSection items={data.unverified} itemLabel={labelOf} onChanged={refresh} runId={data.run.auditRunId} />
 
           {preview && (
             <PatchPreviewPanel
@@ -758,8 +761,10 @@ function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string 
               <span className="ml-1 text-base font-normal text-slate-400">점</span>
             </p>
           )}
-          {!run.isPartial && run.scoreBreakdown.formula && (
-            <p className="mt-1 font-mono text-xs text-slate-400">{run.scoreBreakdown.formula}</p>
+          {!run.isPartial && run.readinessScore !== null && (
+            <p className="mt-1 text-xs text-slate-400">
+              {scoreSentence(run.counts, run.scoreBreakdown.weights as never)}
+            </p>
           )}
         </div>
         <GradeCounts counts={run.counts} variant="tile" />
@@ -914,9 +919,10 @@ function FindingCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
+          {/* 머리는 등급 · 규칙 이름 — 규칙 번호는 근거 보기 안으로 (UI-S3-013 · CM-031) */}
           <div className="flex flex-wrap items-center gap-2">
             <GradeBadge grade={finding.severity} />
-            <span className="text-xs text-slate-400">{finding.ruleCode}</span>
+            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{ruleName(finding.ruleCode)}</span>
             <SourceBadge source={finding.sourceBadge} externalName={finding.externalSource} />
             {dismissed && <StatusBadge status="DISMISSED" />}
           </div>
@@ -937,7 +943,7 @@ function FindingCard({
           {dismissed && finding.dismissReason && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">무시 사유: {finding.dismissReason}</p>
           )}
-          <EvidencePanel contentId={contentId} view={finding.evidenceView} />
+          <EvidencePanel contentId={contentId} view={finding.evidenceView} ruleCode={finding.ruleCode} />
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
         </div>
         {canDismiss &&
@@ -1181,20 +1187,24 @@ function UnverifiedSection({
   items,
   itemLabel,
   onChanged,
+  runId,
 }: {
   items: UnverifiedItem[];
   itemLabel: (itemId: number | null) => string;
   onChanged: () => Promise<void>;
+  runId: number;
 }) {
   if (items.length === 0) return null;
   return (
     <section>
       <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-        확인 필요 <span className="text-slate-400">{items.length}</span>
+        직접 확인할 곳 <span className="text-slate-400">{items.length}</span>
       </h2>
       <p className="mt-1 text-xs text-slate-400">
-        정보가 없어 판정하지 못한 항목입니다. 운영기관에 확인한 뒤 체크하세요.
+        정보가 없어 판정하지 못한 곳입니다. 운영기관에 확인한 뒤 확인했어요를 눌러 주세요.
       </p>
+      {/* 전화로 물어볼 내용 정리 (FR-AG-020~022) */}
+      <CheckQuestionsCard runId={runId} itemLabel={itemLabel} />
       <ul className="mt-3 space-y-2">
         {items.map((item) => (
           <UnverifiedRow key={item.findingId} item={item} itemLabel={itemLabel} onChanged={onChanged} />
@@ -1247,7 +1257,7 @@ function UnverifiedRow({
         disabled={busy || confirmed}
         className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
       >
-        {confirmed ? "확인함" : "확인"}
+        {confirmed ? "확인함" : "확인했어요"}
       </button>
     </li>
   );
@@ -1446,11 +1456,14 @@ function EvidencePanel({
   contentId,
   view,
   extra,
+  ruleCode,
 }: {
   contentId: string | null;
   view?: EvidenceView;
   /** 확인 필요 목록은 문의처·홈페이지를 함께 보인다 (FR-AU-081 · 082) */
   extra?: boolean;
+  /** 규칙 번호는 머리에 두지 않고 이 근거 칸 안에서만 보인다 (UI-CM-031) */
+  ruleCode?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<ContentDetail | null>(
@@ -1491,6 +1504,7 @@ function EvidencePanel({
 
       {open && (
         <div className="mt-2 space-y-3 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900/60">
+          {ruleCode !== undefined && <p className="text-slate-400">규칙 {ruleCode}</p>}
           <EvidenceBlock label="공사 원문" badge="KTO_ORIGINAL">
             {busy && <p className="text-slate-400">불러오는 중…</p>}
             {err !== null && <p className="text-slate-500 dark:text-slate-400">{err}</p>}
