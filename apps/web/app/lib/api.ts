@@ -164,6 +164,8 @@ export interface RunSummary {
   releasable: boolean;
   releaseBlockedReason: string | null;
   evidence: AuditEvidence;
+  /** 이 검수에 적용한 기준 (A1 · API 5-5). 회사 기준 배지 · 리포트 머리글이 쓴다. 옛 검수는 null */
+  settingSnapshot: { standardVersion: string; r07SpanHours: number; r07MealMinutes: number } | null;
 }
 
 /** 판정 근거 2단. 공사 원문은 여기 없다 — 펼칠 때 contentApi 로 조달한다 (5-6 · 5-12) */
@@ -375,10 +377,11 @@ export const auditApi = {
       body: JSON.stringify({ triggerType }),
     }),
   getJob: (jobId: number) => request<AuditJob>(`/audit-jobs/${jobId}`),
-  dismissFinding: (findingId: number, reason?: string) =>
+  // 무시 사유는 필수다 (FR-AU-068) — 서버도 400 DISMISS_REASON_REQUIRED 로 막는다.
+  dismissFinding: (findingId: number, reason: string) =>
     request<void>(`/findings/${findingId}/dismiss`, {
       method: "POST",
-      body: JSON.stringify(reason ? { reason } : {}),
+      body: JSON.stringify({ reason }),
     }),
   undismissFinding: (findingId: number) =>
     request<void>(`/findings/${findingId}/dismiss`, { method: "DELETE" }),
