@@ -110,48 +110,56 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
         </div>
       </div>
 
-      {pending > 0 ? (
-        <PendingBar
-          productId={productId}
-          pendingCount={pending}
-          items={product.days.flatMap((d) => d.items)}
-          regnCd={product.ldongRegnCd}
-          signguCd={product.ldongSignguCd}
-          regionLabel={regionLabel}
-          onResolved={handleSaved}
-        />
-      ) : empty ? (
-        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          아직 일정이 없어요. 아래 장소 담기로 장소를 넣어 보세요.
-        </p>
-      ) : (
-        <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-          모든 장소를 골랐어요. 검수 시작을 누르면 돼요.
-        </p>
-      )}
+      {/* 편집기(왼쪽) · 장소 담기(오른쪽) 2단 (UI-S2-036). 좁은 화면에선 세로로 쌓인다 */}
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[1fr_22rem]">
+        <div className="min-w-0">
+          {pending > 0 ? (
+            <PendingBar
+              productId={productId}
+              pendingCount={pending}
+              items={product.days.flatMap((d) => d.items)}
+              regnCd={product.ldongRegnCd}
+              signguCd={product.ldongSignguCd}
+              regionLabel={regionLabel}
+              onResolved={handleSaved}
+            />
+          ) : empty ? (
+            <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              아직 일정이 없어요. 오른쪽 장소 담기로 장소를 넣어 보세요.
+            </p>
+          ) : (
+            <p className="rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+              모든 장소를 골랐어요. 검수 시작을 누르면 돼요.
+            </p>
+          )}
 
-      <div className="mt-6 space-y-6">
-        {product.days.map((day) => (
-          <section key={day.day}>
-            <DaySummary day={day.day} items={day.items} />
-            <ul className="mt-2 space-y-2">
-              {day.items.map((it) => (
-                <ItemRow
-                  key={it.itemId}
-                  item={it}
-                  facts={facts.get(it.itemId) ?? null}
-                  regnCd={product.ldongRegnCd}
-                  signguCd={product.ldongSignguCd}
-                  regionLabel={regionLabel}
-                  onResolved={handleSaved}
-                />
-              ))}
-            </ul>
-          </section>
-        ))}
+          <div className="mt-6 space-y-6">
+            {product.days.map((day) => (
+              <section key={day.day}>
+                <DaySummary day={day.day} items={day.items} />
+                <ul className="mt-2 space-y-2">
+                  {day.items.map((it) => (
+                    <ItemRow
+                      key={it.itemId}
+                      item={it}
+                      facts={facts.get(it.itemId) ?? null}
+                      regnCd={product.ldongRegnCd}
+                      signguCd={product.ldongSignguCd}
+                      regionLabel={regionLabel}
+                      onResolved={handleSaved}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        </div>
+
+        {/* 오른쪽 장소 담기 도우미 — 넓은 화면에선 스크롤해도 붙어 있게 (UI-S2-036) */}
+        <aside className="lg:sticky lg:top-4">
+          <PlacePicker product={product} onInserted={handleSaved} openType={openType} />
+        </aside>
       </div>
-
-      <PlacePicker product={product} onInserted={handleSaved} openType={openType} />
     </>
   );
 }
