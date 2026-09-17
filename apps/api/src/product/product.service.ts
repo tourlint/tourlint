@@ -1,4 +1,5 @@
 import { BadRequestException, HttpStatus } from '@nestjs/common';
+import type { AuditService } from '../audit/audit.service';
 import type { PlaceNameResolver } from '../audit/place-name';
 import type { CatalogService } from '../catalog/catalog.service';
 import { DomainException } from '../common/domain.exception';
@@ -32,6 +33,7 @@ export class ProductService {
     private readonly catalog: CatalogService,
     private readonly patches: PatchApplicationRepository,
     private readonly placeNames: PlaceNameResolver,
+    private readonly audit: AuditService,
   ) {}
 
   async create(accountId: number, dto: CreateProductDto): Promise<CreatedProduct> {
@@ -53,6 +55,8 @@ export class ProductService {
         latestAudit: r.latestAudit,
         unreadNotifications: r.unreadNotifications,
         pendingMatches: r.pendingMatches,
+        plannedAt: r.plannedAt,
+        releasedAt: r.releasedAt,
       })),
       page,
       size,
@@ -116,9 +120,50 @@ export class ProductService {
       headCount: row.headCount,
       transport: row.transport,
       releasedAt: row.releasedAt,
+      plannedAt: row.plannedAt,
+      planOrigin: row.planOrigin,
+      composition: row.composition,
       createdAt: row.createdAt,
       days: toDays(await this.withCurrentNames(productId, row.items)),
     };
+  }
+
+  /**
+   * 검수 시작 (handoff · FR-PL-020 · D7). 기획 중 상품을 검수 중으로 넘긴다.
+   *
+   * 미확정이 남았는데 `excludePending` 이 아니면 422 로 건수를 알려 준다. `excludePending` 이면
+   * 남은 미확정을 검수 제외로 바꾸고 `planned_at` 을 찍은 뒤 검수를 요청한다. 검수 요청이
+   * 거절되면(예산 100% 429 등) 방금 바꾼 것을 되돌려 상품을 기획 중에 남긴다 — 반쯤 바뀐
+   * 상품을 만들지 않는다.
+   */
+  async handoff(
+    accountId: number,
+    productId: number,
+    excludePending: boolean,
+  ): Promise<{ productId: number; plannedAt: string; jobId: number; excludedCount: number }> {
+    const state = await this.repo.handoffState(accountId, productId);
+    if (state === null) throw notFound(productId);
+
+    if (state.pendingIds.length > 0 && !excludePending) {
+      throw new DomainException(
+        HttpStatus.UNPROCESSABLE_ENTITY, 'PLACE_UNRESOLVED',
+        `아직 고르지 않은 장소가 ${state.pendingIds.length}곳 있습니다. 장소를 고르거나 이대로 검수 시작을 눌러 주세요.`,
+        'PRODUCT',
+        [{ field: 'pendingCount', message: String(state.pendingIds.length) }],
+      );
+    }
+
+    const excludeIds = excludePending ? state.pendingIds : [];
+    const wasPlanned = state.plannedAt !== null;
+    const plannedAt = await this.repo.applyHandoff(productId, excludeIds);
+    try {
+      const { job } = await this.audit.requestAudit(productId, 'MANUAL');
+      return { productId, plannedAt, jobId: job.id, excludedCount: excludeIds.length };
+    } catch (err) {
+      // 검수 요청이 거절됐다 — 방금 넘긴 것을 되돌려 기획 중에 남긴다
+      await this.repo.revertHandoff(productId, excludeIds, !wasPlanned);
+      throw err;
+    }
   }
 
   /**

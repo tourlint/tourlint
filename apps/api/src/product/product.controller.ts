@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Po
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
-import type { CreateProductDto, UpdateProductDto } from './product.dto';
+import { validateHandoff, type CreateProductDto, type UpdateProductDto } from './product.dto';
 import { ProductService } from './product.service';
 
 /**
@@ -32,6 +32,22 @@ export class ProductController {
     @Param('productId', ParseIntPipe) productId: number,
   ): Promise<Record<string, unknown>> {
     return { ...(await this.service.release(account.accountId, productId)) };
+  }
+
+  /**
+   * 검수 시작 (handoff · FR-PL-020 · D7). 기획 중 상품을 검수 중으로 넘긴다.
+   * 미확정이 남으면 422 `PLACE_UNRESOLVED`, `{excludePending:true}` 면 제외하고 넘긴다.
+   * 예산 100% 면 429 로 되돌아가 기획 중에 남는다.
+   */
+  @Post(':productId/handoff')
+  @HttpCode(202)
+  async handoff(
+    @CurrentAccount() account: SessionAccount,
+    @Param('productId', ParseIntPipe) productId: number,
+    @Body() body: unknown,
+  ): Promise<Record<string, unknown>> {
+    const { excludePending } = validateHandoff(body);
+    return { ...(await this.service.handoff(account.accountId, productId, excludePending)) };
   }
 
   /** 일정 항목 목록 (FR-IN-009) */

@@ -94,7 +94,25 @@ export interface ProductDetail {
   headCount: number | null;
   transport: string;
   releasedAt: string | null;
+  /** 검수 시작을 누른 시각. null 이면 기획 중 (DR-IN-014) */
+  plannedAt: string | null;
+  planOrigin: PlanOrigin | null;
+  /** 직접 입력 · 장소 담기로 넣음 · 직접 정한 곳(검수 제외) 항목 수 */
+  composition: { manual: number; picker: number; excluded: number };
   days: { day: number; items: ProductItem[] }[];
+}
+
+export interface PlanOrigin {
+  startedBy: "MANUAL" | "UPLOAD" | "TEXT" | "CLONE" | "SIGNAL";
+  signal?: { type: string; regnCd: string; signguCd: string | null; from: string; to: string; contentId?: string };
+}
+
+/** 검수 시작 응답 (202 · FR-PL-020) */
+export interface HandoffResult {
+  productId: number;
+  plannedAt: string;
+  jobId: number;
+  excludedCount: number;
 }
 
 /** PATCH 가 받는 것만. 지역·박수는 못 바꾼다 — 확정된 contentid 와 일차 제약이 걸려 있다 */
@@ -146,6 +164,8 @@ export interface RunSummary {
   releasable: boolean;
   releaseBlockedReason: string | null;
   evidence: AuditEvidence;
+  /** 이 검수에 적용한 기준 (A1 · API 5-5). 회사 기준 배지 · 리포트 머리글이 쓴다. 옛 검수는 null */
+  settingSnapshot: { standardVersion: string; r07SpanHours: number; r07MealMinutes: number } | null;
 }
 
 /** 판정 근거 2단. 공사 원문은 여기 없다 — 펼칠 때 contentApi 로 조달한다 (5-6 · 5-12) */
@@ -303,6 +323,15 @@ export const productApi = {
   /** 출시 승인. 차단이 1건이라도 있으면 서버가 403 으로 막는다 (PM-NG-002) */
   release: (productId: number) =>
     request<{ productId: number; releasedAt: string }>(`/products/${productId}/release`, { method: "POST" }),
+  /**
+   * 검수 시작 (FR-PL-020 · D7). 미확정이 남으면 422 PLACE_UNRESOLVED,
+   * `excludePending:true` 면 제외하고 넘긴다. 예산 100% 면 429 로 되돌아가 기획 중에 남는다.
+   */
+  handoff: (productId: number, excludePending = false) =>
+    request<HandoffResult>(`/products/${productId}/handoff`, {
+      method: "POST",
+      body: JSON.stringify(excludePending ? { excludePending: true } : {}),
+    }),
 };
 
 /** 일정 항목 편집 (FR-IN-014). 등록 이후에도 추가·삭제·시간 변경·순서 변경을 한다 */
@@ -348,10 +377,11 @@ export const auditApi = {
       body: JSON.stringify({ triggerType }),
     }),
   getJob: (jobId: number) => request<AuditJob>(`/audit-jobs/${jobId}`),
-  dismissFinding: (findingId: number, reason?: string) =>
+  // 무시 사유는 필수다 (FR-AU-068) — 서버도 400 DISMISS_REASON_REQUIRED 로 막는다.
+  dismissFinding: (findingId: number, reason: string) =>
     request<void>(`/findings/${findingId}/dismiss`, {
       method: "POST",
-      body: JSON.stringify(reason ? { reason } : {}),
+      body: JSON.stringify({ reason }),
     }),
   undismissFinding: (findingId: number) =>
     request<void>(`/findings/${findingId}/dismiss`, { method: "DELETE" }),
@@ -367,11 +397,12 @@ export const matchApi = {
     if (signguCd) q.set("signguCd", signguCd);
     return request<ContentSearchResult>(`/contents/search?${q.toString()}`);
   },
-  // contentid 확정 → 항목이 CONFIRMED 가 되고 좌표·분류가 붙는다
-  match: (itemId: number, contentid: string) =>
+  // contentid 확정 → 항목이 CONFIRMED 가 되고 좌표·분류가 붙는다. matchedBy 로 누가 골랐는지
+  // 남긴다 (D8): AUTO(1곳 자동) · USER(직접) · AGENT(에이전트 카드). 기본은 USER.
+  match: (itemId: number, contentid: string, matchedBy: "AUTO" | "USER" | "AGENT" = "USER") =>
     request<{ itemId: number; matchStatus: string; content: ContentCandidate & { mapx: number | null } }>(
       `/items/${itemId}/match`,
-      { method: "POST", body: JSON.stringify({ contentid }) },
+      { method: "POST", body: JSON.stringify({ contentid, matchedBy }) },
     ),
   // 해당 없음 → 검수 제외
   exclude: (itemId: number) =>
@@ -453,6 +484,9 @@ export interface RadarSummary {
   unread: number;
   affectedProducts: number;
   changedContents: number;
+  /** 마지막 확인 시각 · 다음 확인 시각 (UI-S7-010). 배치가 꺼져 있으면 nextBatchAt 이 null */
+  lastBatchAt: string | null;
+  nextBatchAt: string | null;
   lastBatch: null | { runAt: string | null; covered: string | null; status: string; itemCount: number };
 }
 
@@ -501,10 +535,70 @@ export interface NotificationPage {
   unreadCount: number;
 }
 
+/** 키워드별 맞는 곳. contentIds null = 등록한 뒤 배치가 아직 안 봄, [] = 세어 보니 없음 */
+export interface KeywordHit {
+  keyword: string;
+  contentIds: string[] | null;
+}
+
+export interface RegionDemandSignal extends DemandSignal {
+  keywordHits: KeywordHit[];
+}
+
+/** 관심 지역 한 곳의 새 소식 (FR-MO-059~061). t3 는 관측된 방문자 수 · 기준 기간뿐 — 인기·예측 없음 */
+export interface RegionSignal {
+  region: { regnCd: string; signguCd: string | null };
+  month: string;
+  t1: RegionDemandSignal | null;
+  t2: RegionDemandSignal | null;
+  t3: { count: number; basisMonth: string; source: string; computedAt: string } | null;
+}
+
 export const radarApi = {
   summary: () => request<RadarSummary>("/radar/summary"),
   // signals 는 productId 가 필수다 — T2(행사 밀도) 창이 그 상품의 여행일에서 나온다
   signals: (productId: number) => request<RadarSignals>(`/radar/signals?productId=${productId}`),
+  regionSignals: () => request<RegionSignal[]>("/radar/region-signals"),
+  // 배치가 꺼진 기간에만. 켜져 있으면 서버가 403 이다
+  refreshRegionSignals: () => request<RegionSignal[]>("/radar/region-signals/refresh", { method: "POST" }),
+};
+
+// ── 레이더 에이전트 · 오늘 할 일 (F18 · FR-AG-030 · 031) ──────────────────────
+
+export interface TodayItem {
+  kind: "CHANGE" | "NEWS";
+  productId: number | null;
+  region: { regnCd: string; signguCd: string | null; month: string } | null;
+  reason: string;
+  action: "REAUDIT" | "NEW_PLAN";
+}
+
+export interface TodayBrief {
+  basisAt: string;
+  todos: TodayItem[];
+  quiet: { productId: number; text: string }[];
+  incomplete: { reasonCode: string; itemIds: number[] } | null;
+}
+
+/** 직접 확인할 곳 하나 · 전화로 물어볼 내용 (FR-AG-020~022 · API 4-11) */
+export interface CheckQuestionPlace {
+  findingIds: number[];
+  itemId: number;
+  visit: { dayNo: number; date: string; start: string | null };
+  tel: string | null;
+  questions: string[];
+}
+
+export interface CheckQuestions {
+  places: CheckQuestionPlace[];
+  incomplete: { reasonCode: string; itemIds: number[] } | null;
+}
+
+export const agentApi = {
+  // 사람이 누를 때만 돈다. 서버가 정한 순서를 화면이 다시 정렬하지 않는다 (FR-AG-031)
+  today: () => request<TodayBrief>("/radar/today", { method: "POST" }),
+  // 직접 확인할 곳의 전화로 물어볼 내용. 판정하지 않는다 — 확인은 사람이 누른다 (FR-AG-022)
+  checkQuestions: (runId: number) => request<CheckQuestions>(`/audit-runs/${runId}/check-questions`, { method: "POST" }),
 };
 
 export const notificationApi = {

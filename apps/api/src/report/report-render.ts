@@ -268,6 +268,8 @@ function drawSummary(doc: Doc, m: ReportModel): void {
     `${s.counts.UNVERIFIED}건`, `${s.targetCount}곳`, `${s.failedCount}곳`,
   ]]);
 
+  // FR-PA-064 · FR-OP-023 — 적용한 표준 · 회사 기준 · 무시 내역을 머리글에 명시한다
+  paragraph(doc, `적용 기준 ${s.appliedBasis}`);
   // FR-PA-064 · UI-S6-004 — 두 건수를 반드시 명시한다
   paragraph(doc,
     `무시된 항목 ${s.dismissedCount}건 · 검수 제외 항목 ${s.excludedItemCount}건 · `
@@ -334,7 +336,7 @@ function drawFindingBlock(doc: Doc, f: ReportFinding): void {
   ensure(doc, 54);
   const badge = SEVERITY_LABEL[f.severity] ?? f.severity;
   const marks = [
-    f.dismissed ? '무시됨' : '',
+    f.dismissed ? (f.dismissReason ? `무시됨 — ${f.dismissReason}` : '무시됨') : '',
     f.confirmed ? '확인함' : '',
     f.excludedFromScore ? '감점 없음' : '',
   ].filter((s) => s !== '');

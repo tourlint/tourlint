@@ -13,11 +13,9 @@ import {
   contentApi,
   EXTERNAL_UNAVAILABLE,
   isApiError,
-  matchApi,
   patchApi,
   productApi,
   reportApi,
-  type ContentCandidate,
   type ContentDetail,
   type EvidenceView,
   type Finding,
@@ -32,20 +30,13 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
+import { DISMISS_REASON_PRESET, SETTING_DEFAULTS } from "@tourlint/shared";
 import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
 import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
-
-const CONTENT_TYPE_LABEL: Record<number, string> = {
-  12: "관광지",
-  14: "문화시설",
-  15: "축제",
-  25: "여행코스",
-  28: "레포츠",
-  32: "숙박",
-  38: "쇼핑",
-  39: "음식점",
-};
+import { ruleName } from "../../../lib/rule-names";
+import { scoreSentence } from "../../../lib/score-sentence";
+import { CheckQuestionsCard } from "./check-questions-card";
 
 // 배지·건수·라벨은 공통 컴포넌트(components/badges)가 등급 토큰으로 그린다.
 // 여기서는 finding 카드의 좌측 테두리 색과 정렬 순서만 등급별로 둔다.
@@ -326,7 +317,7 @@ export function AuditResult({ productId }: { productId: number }) {
           {error}
         </div>
       ) : product && pendingItems.length > 0 ? (
-        <MatchStage product={product} items={pendingItems} onResolved={refetchProduct} />
+        <PendingNotice productId={productId} count={pendingItems.length} />
       ) : data === null ? (
         <EmptyState running={running} progress={progress} onRun={runAudit} />
       ) : (
@@ -346,6 +337,7 @@ export function AuditResult({ productId }: { productId: number }) {
               }}
             />
           )}
+          {product && <LifecycleBar product={product} run={data.run} />}
           <SummaryCard run={data.run} releasedAt={product?.releasedAt ?? null} />
           <FindingsSection
             findings={data.findings}
@@ -356,7 +348,7 @@ export function AuditResult({ productId }: { productId: number }) {
             onChanged={refresh}
             busy={patchBusy !== null || running}
           />
-          <UnverifiedSection items={data.unverified} itemLabel={labelOf} onChanged={refresh} />
+          <UnverifiedSection items={data.unverified} itemLabel={labelOf} onChanged={refresh} runId={data.run.auditRunId} />
 
           {preview && (
             <PatchPreviewPanel
@@ -403,191 +395,17 @@ function EmptyState({ running, progress, onRun }: { running: boolean; progress: 
   );
 }
 
-function MatchStage({
-  product,
-  items,
-  onResolved,
-}: {
-  product: ProductDetail;
-  items: ProductItem[];
-  onResolved: () => Promise<void>;
-}) {
+function PendingNotice({ productId, count }: { productId: number; count: number }) {
   return (
-    <div className="mt-6 space-y-4 pb-10">
-      <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-        관광지 <strong>{items.length}</strong>곳을 확정해야 검수할 수 있습니다. 장소마다 공사 콘텐츠를 선택하거나 검수에서 제외하세요.
-      </div>
-      <ul className="space-y-3">
-        {items.map((it) => (
-          <MatchItemRow
-            key={it.itemId}
-            item={it}
-            regnCd={product.ldongRegnCd}
-            signguCd={product.ldongSignguCd}
-            onResolved={onResolved}
-          />
-        ))}
-      </ul>
+    <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+      <p>아직 고르지 않은 장소가 {count}곳 있어요. 기획 화면에서 장소를 고른 뒤 검수할 수 있어요.</p>
+      <Link
+        href={`/products/${productId}/plan`}
+        className="mt-3 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
+      >
+        기획 화면으로
+      </Link>
     </div>
-  );
-}
-
-function MatchItemRow({
-  item,
-  regnCd,
-  signguCd,
-  onResolved,
-}: {
-  item: ProductItem;
-  regnCd: string;
-  signguCd: string | null;
-  onResolved: () => Promise<void>;
-}) {
-  const [keyword, setKeyword] = useState(item.place);
-  const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
-  const [regionFilter, setRegionFilter] = useState(true);
-  const [searching, setSearching] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function runSearch(kw: string, useRegion: boolean) {
-    setSearching(true);
-    setErr(null);
-    try {
-      const res = await matchApi.search(kw, useRegion ? regnCd : null, useRegion ? signguCd : null);
-      setCandidates(res.candidates);
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : EXTERNAL_UNAVAILABLE);
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  // 장소명으로 1회 자동 검색. setState 는 await 뒤에서만 (effect 안 동기 setState 금지)
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await matchApi.search(item.place, regnCd, signguCd);
-        if (!cancelled) setCandidates(res.candidates);
-      } catch {
-        if (!cancelled) setCandidates([]);
-      } finally {
-        if (!cancelled) setSearching(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [item.place, regnCd, signguCd]);
-
-  async function confirm(contentid: string) {
-    setBusy(true);
-    setErr(null);
-    try {
-      await matchApi.match(item.itemId, contentid);
-      await onResolved();
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : "확정에 실패했습니다.");
-      setBusy(false);
-    }
-  }
-
-  async function exclude() {
-    setBusy(true);
-    setErr(null);
-    try {
-      await matchApi.exclude(item.itemId);
-      await onResolved();
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : "제외에 실패했습니다.");
-      setBusy(false);
-    }
-  }
-
-  return (
-    <li className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.place}</span>
-          <span className="ml-2 text-xs text-slate-400">
-            {item.start}
-            {item.end ? `~${item.end}` : ""} · {ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={exclude}
-          disabled={busy}
-          className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-        >
-          검수 제외
-        </button>
-      </div>
-
-      <div className="mt-3 flex gap-2">
-        <input
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void runSearch(keyword, regionFilter);
-          }}
-          placeholder="장소명으로 검색"
-          className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
-        />
-        <button
-          type="button"
-          onClick={() => void runSearch(keyword, regionFilter)}
-          disabled={searching}
-          className="rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-200 disabled:opacity-60 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
-          {searching ? "검색 중…" : "검색"}
-        </button>
-      </div>
-      <label className="mt-1.5 flex w-fit cursor-pointer items-center gap-1.5 text-xs text-slate-400">
-        <input
-          type="checkbox"
-          checked={regionFilter}
-          onChange={(e) => {
-            setRegionFilter(e.target.checked);
-            void runSearch(keyword, e.target.checked);
-          }}
-        />
-        이 상품 지역으로 좁히기
-      </label>
-
-      {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
-
-      {candidates &&
-        (candidates.length === 0 ? (
-          <p className="mt-2 text-xs text-slate-400">검색 결과가 없습니다. 검색어를 바꾸거나 검수에서 제외하세요.</p>
-        ) : (
-          <ul className="mt-2 space-y-1.5">
-            {candidates.map((c) => (
-              <li
-                key={c.contentid}
-                className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/50"
-              >
-                <div className="min-w-0">
-                  <span className="text-sm text-slate-800 dark:text-slate-100">{c.title}</span>
-                  {c.contenttypeid !== null && (
-                    <span className="ml-2 text-xs text-slate-400">{CONTENT_TYPE_LABEL[c.contenttypeid] ?? ""}</span>
-                  )}
-                  {c.addr1 && <p className="truncate text-xs text-slate-400">{c.addr1}</p>}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void confirm(c.contentid)}
-                  disabled={busy}
-                  className="shrink-0 rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60"
-                >
-                  확정
-                </button>
-              </li>
-            ))}
-          </ul>
-        ))}
-    </li>
   );
 }
 
@@ -690,6 +508,58 @@ function ApplyResultBanner({
   );
 }
 
+// 상단 라이프사이클 바 (UI-S1-011 · 기획 → 검수 → 레이더). 기획 출처 · 구성, 검수 요약,
+// 출시 후 레이더 안내를 한 줄로 보여 준다. 출시 버튼은 아래 요약 카드에 있다.
+const STARTED_BY_LABEL: Record<string, string> = {
+  MANUAL: "직접 입력으로 시작",
+  UPLOAD: "엑셀로 시작",
+  TEXT: "메모 붙여넣기로 시작",
+  CLONE: "복제로 시작",
+  SIGNAL: "레이더 소식으로 시작",
+};
+
+function planCell(product: ProductDetail): string {
+  const started = product.planOrigin ? (STARTED_BY_LABEL[product.planOrigin.startedBy] ?? "기획으로 시작") : "직접 기획";
+  const c = product.composition;
+  const total = c.manual + c.picker + c.excluded;
+  const places = c.excluded > 0 ? `장소 ${total}곳 (직접 정한 곳 ${c.excluded})` : `장소 ${total}곳`;
+  return `${started} · ${places}`;
+}
+
+function reviewCell(run: RunSummary): string {
+  if (run.isPartial) return "부분 검수";
+  if (run.readinessScore === null) return "검수 전";
+  return `${run.readinessScore}점 · ${run.releasable ? "출시할 수 있어요" : `차단 ${run.counts.blocker}건`}`;
+}
+
+function LifecycleBar({ product, run }: { product: ProductDetail; run: RunSummary }) {
+  const released = product.releasedAt !== null;
+  const cells: { title: string; text: string }[] = [
+    { title: "기획", text: planCell(product) },
+    { title: "검수", text: reviewCell(run) },
+    { title: "레이더", text: released ? "바뀐 정보를 알려 드려요" : "출시하면 바뀐 정보를 알려 드려요" },
+  ];
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      {cells.map((c) => (
+        <div key={c.title} className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-800">
+          <p className="text-xs text-slate-400">{c.title}</p>
+          <p className="mt-0.5 text-sm text-slate-700 dark:text-slate-200">{c.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 이 검수에 적용한 회사 기준이 표준과 다른 값만 짧게. 없으면 빈 문자열이라 배지를 숨긴다.
+function companyBasisText(snapshot: RunSummary["settingSnapshot"]): string {
+  if (snapshot === null) return "";
+  const parts: string[] = [];
+  if (snapshot.r07SpanHours !== SETTING_DEFAULTS.r07SpanHours) parts.push(`연속 일정 ${snapshot.r07SpanHours}시간`);
+  if (snapshot.r07MealMinutes !== SETTING_DEFAULTS.r07MealMinutes) parts.push(`식사 ${snapshot.r07MealMinutes}분`);
+  return parts.join(" · ");
+}
+
 function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string | null }) {
   return (
     <section className="rounded-2xl border border-slate-200 p-6 dark:border-slate-800">
@@ -704,12 +574,25 @@ function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string 
               <span className="ml-1 text-base font-normal text-slate-400">점</span>
             </p>
           )}
-          {!run.isPartial && run.scoreBreakdown.formula && (
-            <p className="mt-1 font-mono text-xs text-slate-400">{run.scoreBreakdown.formula}</p>
+          {!run.isPartial && run.readinessScore !== null && (
+            <p className="mt-1 text-xs text-slate-400">
+              {scoreSentence(run.counts, run.scoreBreakdown.weights as never)}
+            </p>
           )}
         </div>
         <GradeCounts counts={run.counts} variant="tile" />
       </div>
+
+      {(companyBasisText(run.settingSnapshot) || run.counts.dismissed > 0) && (
+        <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          {companyBasisText(run.settingSnapshot) && (
+            <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300">
+              회사 기준 {companyBasisText(run.settingSnapshot)}
+            </span>
+          )}
+          {run.counts.dismissed > 0 && <span>무시 {run.counts.dismissed}건 제외</span>}
+        </p>
+      )}
 
       {!run.releasable && run.releaseBlockedReason && (
         <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
@@ -798,18 +681,41 @@ function FindingCard({
 }) {
   const [dismissBusy, setDismissBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 무시하려면 사유를 골라야 한다 (FR-AU-068). 무시 버튼을 누르면 사유 창을 편다.
+  const [dismissOpen, setDismissOpen] = useState(false);
+  const [reasonChoice, setReasonChoice] = useState<string | null>(null);
+  const [customReason, setCustomReason] = useState("");
   const meta = SEVERITY_META[finding.severity];
   // 차단은 무시할 수 없다 — 서버가 판단해 `dismissible` 로 준다 (API 설계 5-6)
   const canDismiss = finding.dismissible;
   const dismissed = finding.dismissedAt !== null;
   const hasPatches = finding.patches.length > 0 && !dismissed;
 
-  async function toggleDismiss() {
+  const isCustom = reasonChoice === "__custom__";
+  const finalReason = (isCustom ? customReason : (reasonChoice ?? "")).trim();
+
+  async function confirmDismiss() {
+    if (finalReason === "") return;
     setDismissBusy(true);
     setErr(null);
     try {
-      if (dismissed) await auditApi.undismissFinding(finding.findingId);
-      else await auditApi.dismissFinding(finding.findingId);
+      await auditApi.dismissFinding(finding.findingId, finalReason);
+      setDismissOpen(false);
+      setReasonChoice(null);
+      setCustomReason("");
+      await onChanged();
+    } catch (e) {
+      setErr(isApiError(e) ? e.message : "처리하지 못했습니다.");
+    } finally {
+      setDismissBusy(false);
+    }
+  }
+
+  async function undismiss() {
+    setDismissBusy(true);
+    setErr(null);
+    try {
+      await auditApi.undismissFinding(finding.findingId);
       await onChanged();
     } catch (e) {
       setErr(isApiError(e) ? e.message : "처리하지 못했습니다.");
@@ -826,9 +732,10 @@ function FindingCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
+          {/* 머리는 등급 · 규칙 이름 — 규칙 번호는 근거 보기 안으로 (UI-S3-013 · CM-031) */}
           <div className="flex flex-wrap items-center gap-2">
             <GradeBadge grade={finding.severity} />
-            <span className="text-xs text-slate-400">{finding.ruleCode}</span>
+            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{ruleName(finding.ruleCode)}</span>
             <SourceBadge source={finding.sourceBadge} externalName={finding.externalSource} />
             {dismissed && <StatusBadge status="DISMISSED" />}
           </div>
@@ -840,20 +747,105 @@ function FindingCard({
           {finding.requiresExternal && finding.externalSource && (
             <p className="mt-1 text-xs text-slate-400">외부 참고: {finding.externalSource}</p>
           )}
-          <EvidencePanel contentId={contentId} view={finding.evidenceView} />
+          {/* 회사 기준으로 조일 수 있는 규칙은 검수 기준 설명으로 보낸다 (UI-S3-027) */}
+          {finding.ruleCode === "R07" && (
+            <Link href={`/standard?rule=${finding.ruleCode}`} className="mt-1 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-300">
+              규칙 설명 보기
+            </Link>
+          )}
+          {dismissed && finding.dismissReason && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">무시 사유: {finding.dismissReason}</p>
+          )}
+          <EvidencePanel contentId={contentId} view={finding.evidenceView} ruleCode={finding.ruleCode} />
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
         </div>
-        {canDismiss && (
-          <button
-            type="button"
-            onClick={toggleDismiss}
-            disabled={dismissBusy}
-            className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            {dismissed ? "무시 해제" : "무시"}
-          </button>
-        )}
+        {canDismiss &&
+          (dismissed ? (
+            <button
+              type="button"
+              onClick={undismiss}
+              disabled={dismissBusy}
+              className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              무시 해제
+            </button>
+          ) : (
+            !dismissOpen && (
+              <button
+                type="button"
+                onClick={() => setDismissOpen(true)}
+                disabled={dismissBusy}
+                className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                무시
+              </button>
+            )
+          ))}
       </div>
+
+      {canDismiss && !dismissed && dismissOpen && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/40">
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-300">무시 사유를 골라 주세요</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {DISMISS_REASON_PRESET.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setReasonChoice(preset)}
+                className={`rounded-md border px-2 py-1 text-xs transition ${
+                  reasonChoice === preset
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                    : "border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                }`}
+              >
+                {preset}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setReasonChoice("__custom__")}
+              className={`rounded-md border px-2 py-1 text-xs transition ${
+                isCustom
+                  ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              기타
+            </button>
+          </div>
+          {isCustom && (
+            <input
+              type="text"
+              value={customReason}
+              maxLength={200}
+              onChange={(e) => setCustomReason(e.target.value)}
+              placeholder="사유를 적어 주세요"
+              className="mt-2 w-full rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+            />
+          )}
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDismissOpen(false);
+                setReasonChoice(null);
+                setCustomReason("");
+              }}
+              className="rounded-md px-2.5 py-1 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={confirmDismiss}
+              disabled={dismissBusy || finalReason === ""}
+              className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              무시
+            </button>
+          </div>
+        </div>
+      )}
 
       {hasPatches && (
         <fieldset className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800" disabled={busy}>
@@ -1008,20 +1000,24 @@ function UnverifiedSection({
   items,
   itemLabel,
   onChanged,
+  runId,
 }: {
   items: UnverifiedItem[];
   itemLabel: (itemId: number | null) => string;
   onChanged: () => Promise<void>;
+  runId: number;
 }) {
   if (items.length === 0) return null;
   return (
     <section>
       <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-        확인 필요 <span className="text-slate-400">{items.length}</span>
+        직접 확인할 곳 <span className="text-slate-400">{items.length}</span>
       </h2>
       <p className="mt-1 text-xs text-slate-400">
-        정보가 없어 판정하지 못한 항목입니다. 운영기관에 확인한 뒤 체크하세요.
+        정보가 없어 판정하지 못한 곳입니다. 운영기관에 확인한 뒤 확인했어요를 눌러 주세요.
       </p>
+      {/* 전화로 물어볼 내용 정리 (FR-AG-020~022) */}
+      <CheckQuestionsCard runId={runId} itemLabel={itemLabel} />
       <ul className="mt-3 space-y-2">
         {items.map((item) => (
           <UnverifiedRow key={item.findingId} item={item} itemLabel={itemLabel} onChanged={onChanged} />
@@ -1074,7 +1070,7 @@ function UnverifiedRow({
         disabled={busy || confirmed}
         className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
       >
-        {confirmed ? "확인함" : "확인"}
+        {confirmed ? "확인함" : "확인했어요"}
       </button>
     </li>
   );
@@ -1273,11 +1269,14 @@ function EvidencePanel({
   contentId,
   view,
   extra,
+  ruleCode,
 }: {
   contentId: string | null;
   view?: EvidenceView;
   /** 확인 필요 목록은 문의처·홈페이지를 함께 보인다 (FR-AU-081 · 082) */
   extra?: boolean;
+  /** 규칙 번호는 머리에 두지 않고 이 근거 칸 안에서만 보인다 (UI-CM-031) */
+  ruleCode?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<ContentDetail | null>(
@@ -1318,6 +1317,7 @@ function EvidencePanel({
 
       {open && (
         <div className="mt-2 space-y-3 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900/60">
+          {ruleCode !== undefined && <p className="text-slate-400">규칙 {ruleCode}</p>}
           <EvidenceBlock label="공사 원문" badge="KTO_ORIGINAL">
             {busy && <p className="text-slate-400">불러오는 중…</p>}
             {err !== null && <p className="text-slate-500 dark:text-slate-400">{err}</p>}

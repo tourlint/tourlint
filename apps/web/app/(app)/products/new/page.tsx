@@ -29,6 +29,7 @@ import {
   TARGET_LABEL,
   findProfile,
 } from "@tourlint/shared";
+import type { PlanOrigin } from "../../../lib/api";
 
 type Method = "direct" | "upload" | "nl";
 
@@ -60,6 +61,26 @@ export default function ProductNewPage() {
   const [concept, setConcept] = useState("");
   const [headcount, setHeadcount] = useState("");
   const [transport, setTransport] = useState<Transport>("CAR");
+
+  // 레이더 "이 지역으로 새 상품 기획"에서 넘어오면 지역을 미리 채우고 기획 출처를 남긴다 (FR-PL-001)
+  const [planOrigin, setPlanOrigin] = useState<PlanOrigin | null>(null);
+  useEffect(() => {
+    // 쿼리 읽기는 클라이언트에서만. setState 는 비동기 콜백 안에서 한다(effect 본문 동기 setState 금지)
+    void (async () => {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("origin") !== "SIGNAL") return;
+      const regnCd = q.get("regnCd") ?? "";
+      const signguCd = q.get("signguCd") ?? "";
+      const month = q.get("month") ?? "";
+      if (regnCd !== "") setRegion((r) => (r.regnCode === "" ? { ...r, regnCode: regnCd, signguCode: signguCd } : r));
+      setPlanOrigin({
+        startedBy: "SIGNAL",
+        ...(regnCd !== "" && month !== ""
+          ? { signal: { type: "NEWS", regnCd, signguCd: signguCd === "" ? null : signguCd, from: `${month}-01`, to: `${month}-01` } }
+          : {}),
+      });
+    })();
+  }, []);
 
   // C. 일정 (일수 = 박수 + 1)
   const [schedule, setSchedule] = useState<Schedule>([[]]);
@@ -131,7 +152,7 @@ export default function ProductNewPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload({ name, region, startDate, nights, target, concept, headcount, transport, schedule })),
+        body: JSON.stringify(buildPayload({ name, region, startDate, nights, target, concept, headcount, transport, schedule, planOrigin })),
       });
       if (res.status === 401) {
         // 세션 만료 — 작성분을 담아 두고 재로그인으로 유도한다 (EX-SY-002). 돌아오면 복원된다.
@@ -141,8 +162,8 @@ export default function ProductNewPage() {
       }
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
-      // 저장 후 검수 결과로 (화면 전이 2→3). 관광지 확정은 2차라 자동 검수는 아직 안 돈다.
-      router.push(created.productId != null ? `/products/${created.productId}` : "/");
+      // 저장 후 기획 화면으로 — 거기서 장소를 고르고 검수로 넘어간다 (FR-PL-004)
+      router.push(created.productId != null ? `/products/${created.productId}/plan` : "/");
     } catch {
       setSaveError("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       setSaving(false);
@@ -367,6 +388,7 @@ function buildPayload(
     concept: string;
     headcount: string;
     transport: Transport;
+    planOrigin?: PlanOrigin | null;
   },
 ) {
   // 필드명·enum 은 API 정본(설계 5-1)을 따른다. 이동수단은 공용 TRANSPORT 값을 그대로 보낸다.
@@ -380,6 +402,7 @@ function buildPayload(
     conceptKey: f.concept.trim() || null,
     headCount: f.headcount ? Number(f.headcount) : null,
     transport: f.transport,
+    planOrigin: f.planOrigin ?? null,
     days: f.schedule.map((items, i) => ({
       day: i + 1,
       items: items.map((it) => ({

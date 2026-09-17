@@ -78,6 +78,26 @@ describe('리포트 모델 조립', () => {
     expect(m.summary.excludedItemCount).toBe(1);
   });
 
+  it('🔴 적용 기준 머리글에 표준 · 회사 기준 · 무시 사유를 담는다 (FR-PA-064 · FR-OP-023)', () => {
+    const m = assembleReport(input({
+      run: run(
+        [
+          finding(),
+          finding({ id: 2, severity: 'WARNING', dismissed: true, dismissReason: '고객 요청 사항' }),
+        ],
+        { settingSnapshot: { standardVersion: '2026.09', r07SpanHours: 6, r07MealMinutes: 90 } },
+      ),
+    }));
+    expect(m.summary.appliedBasis).toBe('표준 2026.09 · 회사 기준 1건 (식사 90분) · 무시 1건 — 고객 요청 사항');
+  });
+
+  it('회사 기준이 표준과 같고 무시가 없으면 머리글은 표준 버전만 담는다', () => {
+    const m = assembleReport(input({
+      run: run([finding()], { settingSnapshot: { standardVersion: '2026.09', r07SpanHours: 6, r07MealMinutes: 60 } }),
+    }));
+    expect(m.summary.appliedBasis).toBe('표준 2026.09');
+  });
+
   it('🔴 출처 표기를 문자 그대로 담는다 (FR-PA-062)', () => {
     expect(assembleReport(input()).provenance.source).toBe('출처: ⓒ한국관광공사');
   });

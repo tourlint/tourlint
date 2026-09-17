@@ -1,4 +1,4 @@
-import type { Severity } from '@tourlint/shared';
+import { SETTING_DEFAULTS, STANDARD_VERSION, type Severity } from '@tourlint/shared';
 import type { ContentView } from '../external/kto';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 
@@ -41,6 +41,11 @@ export interface ReportSummary {
   readonly releasable: boolean;
   readonly releaseBlockedReason: string | null;
   readonly counts: Readonly<Record<Severity, number>>;
+  /**
+   * 적용 기준 머리글 (FR-PA-064 · FR-OP-023). "표준 2026.09 · 회사 기준 1건 (식사 90분) ·
+   * 무시 1건 — 고객 요청 사항" 처럼, 이 검수에 적용한 표준 버전 · 회사 기준 · 무시 내역을 적는다.
+   */
+  readonly appliedBasis: string;
   /** 무시된 항목 건수 (FR-PA-064) */
   readonly dismissedCount: number;
   /** 검수 제외 항목 건수 (FR-PA-064 · FR-IN-026) */
@@ -72,6 +77,8 @@ export interface ReportFinding {
   readonly severity: Severity;
   readonly message: string;
   readonly dismissed: boolean;
+  /** 무시 사유 (FR-AU-068). 무시된 항목만 채워진다 */
+  readonly dismissReason: string | null;
   readonly confirmed: boolean;
   /** 감점에서 빠지는 항목 (FR-AU-016) */
   readonly excludedFromScore: boolean;
@@ -166,6 +173,41 @@ function span(i: DiffableItem): string {
   return i.endTime === null ? i.startTime : `${i.startTime}~${i.endTime}`;
 }
 
+/**
+ * 적용 기준 머리글을 만든다 (FR-PA-064 · FR-OP-023).
+ *
+ * 이 검수에 적용한 표준 버전과, 표준보다 엄격했던 회사 기준(R07 두 값), 무시 건수 · 사유를
+ * 적는다. 회사 기준은 검수 당시 스냅샷(`setting_snapshot`)을 쓴다 — 나중에 회사 기준을 바꿔도
+ * 이 리포트는 그대로다. 스냅샷이 없는 옛 검수는 표준 버전만 적는다.
+ */
+export function describeAppliedBasis(run: StoredAuditRun, dismissedCount: number): string {
+  const snap = run.settingSnapshot ?? null;
+  const version = snap?.standardVersion ?? STANDARD_VERSION;
+
+  const overrides: string[] = [];
+  if (snap) {
+    if (snap.r07SpanHours !== SETTING_DEFAULTS.r07SpanHours) overrides.push(`연속 일정 ${snap.r07SpanHours}시간`);
+    if (snap.r07MealMinutes !== SETTING_DEFAULTS.r07MealMinutes) overrides.push(`식사 ${snap.r07MealMinutes}분`);
+  }
+
+  const reasons = [
+    ...new Set(
+      run.findings
+        .filter((f) => f.dismissed)
+        .map((f) => f.dismissReason?.trim())
+        .filter((r): r is string => r !== undefined && r !== ''),
+    ),
+  ];
+
+  let basis = `표준 ${version}`;
+  if (overrides.length > 0) basis += ` · 회사 기준 ${overrides.length}건 (${overrides.join(' · ')})`;
+  if (dismissedCount > 0) {
+    basis += ` · 무시 ${dismissedCount}건`;
+    if (reasons.length > 0) basis += ` — ${reasons.join(' · ')}`;
+  }
+  return basis;
+}
+
 /** 확인 필요 목록에 들어가는 조건. `toUnverifiedResponse` 와 같아야 화면과 리포트가 안 갈린다 */
 export function needsAttention(f: StoredFinding): boolean {
   return f.severity === 'UNVERIFIED' || f.needsConfirmation;
@@ -202,6 +244,7 @@ export interface AssembleInput {
 export function assembleReport(input: AssembleInput): ReportModel {
   const { run, evidence } = input;
   const c = run.current;
+  const appliedBasis = describeAppliedBasis(run, c.dismissedCount);
 
   const nameOf = (contentId: string | null, fallback: string): string => {
     if (contentId === null) return fallback;
@@ -236,6 +279,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
       severity: f.severity,
       message: f.message,
       dismissed: f.dismissed,
+      dismissReason: f.dismissed ? f.dismissReason : null,
       confirmed: f.confirmed,
       excludedFromScore: f.reasonCode === 'PRE_DEPARTURE_CHECK',
       targetPlace: f.targetItemId === null ? null : placeOf.get(f.targetItemId) ?? null,
@@ -253,6 +297,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
       releasable: !c.releaseBlocked,
       releaseBlockedReason: c.releaseBlocked ? `차단 ${c.counts.BLOCKER}건` : null,
       counts: c.counts,
+      appliedBasis,
       dismissedCount: c.dismissedCount,
       excludedItemCount,
       needsConfirmationCount: c.needsConfirmationCount,

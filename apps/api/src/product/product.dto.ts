@@ -33,7 +33,26 @@ export interface CreateProductDto {
   readonly headCount?: unknown;
   readonly transport?: unknown;
   readonly days?: unknown;
+  readonly planOrigin?: unknown;
 }
+
+/**
+ * 기획 출처 (DR-PR-009). 어떻게 시작했는지 · 신호 종류 · 지역 코드 · 기간 · contentid 만 담는다.
+ * 공사 원문(제목 · 주소)은 넣지 않는다.
+ */
+export interface PlanOrigin {
+  readonly startedBy: 'MANUAL' | 'UPLOAD' | 'TEXT' | 'CLONE' | 'SIGNAL';
+  readonly signal?: {
+    readonly type: string;
+    readonly regnCd: string;
+    readonly signguCd: string | null;
+    readonly from: string;
+    readonly to: string;
+    readonly contentId?: string;
+  };
+}
+
+const STARTED_BY = ['MANUAL', 'UPLOAD', 'TEXT', 'CLONE', 'SIGNAL'] as const;
 
 /** 검증을 통과한 항목 — 저장 계층이 그대로 쓴다 */
 export interface ValidItem {
@@ -56,6 +75,7 @@ export interface ValidProduct {
   readonly conceptKey: string | null;
   readonly headCount: number | null;
   readonly transport: Transport;
+  readonly planOrigin: PlanOrigin | null;
   readonly items: readonly ValidItem[];
 }
 
@@ -129,6 +149,7 @@ export function validateCreate(dto: CreateProductDto): { errors: string[]; produ
       nights,
       targetKey,
       conceptKey,
+      planOrigin: parsePlanOrigin(dto.planOrigin),
       headCount,
       transport: transport as Transport,
       items,
@@ -152,6 +173,43 @@ export interface ValidUpdate {
   readonly headCount?: number | null;
   readonly transport?: Transport;
   readonly startDate?: string;
+}
+
+/**
+ * 기획 출처를 걸러 담는다. 모양이 틀리면 조용히 null — 출처는 기록일 뿐이라 상품 생성을
+ * 막지 않는다. 알려진 필드만 옮겨 공사 원문이 새지 않게 한다 (DR-PR-009).
+ */
+function parsePlanOrigin(v: unknown): PlanOrigin | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const startedBy = o.startedBy;
+  if (typeof startedBy !== 'string' || !(STARTED_BY as readonly string[]).includes(startedBy)) return null;
+  const out: PlanOrigin = { startedBy: startedBy as PlanOrigin['startedBy'] };
+  const s = o.signal;
+  if (typeof s === 'object' && s !== null) {
+    const sig = s as Record<string, unknown>;
+    if (typeof sig.type === 'string' && typeof sig.regnCd === 'string'
+        && typeof sig.from === 'string' && typeof sig.to === 'string') {
+      return {
+        startedBy: out.startedBy,
+        signal: {
+          type: sig.type,
+          regnCd: sig.regnCd,
+          signguCd: typeof sig.signguCd === 'string' ? sig.signguCd : null,
+          from: sig.from,
+          to: sig.to,
+          ...(typeof sig.contentId === 'string' ? { contentId: sig.contentId } : {}),
+        },
+      };
+    }
+  }
+  return out;
+}
+
+/** 검수 시작(handoff) 본문. `excludePending: true` 면 남은 미확정을 검수 제외로 넘긴다 (D7) */
+export function validateHandoff(body: unknown): { excludePending: boolean } {
+  const b = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+  return { excludePending: b.excludePending === true };
 }
 
 /** 기본정보 부분 수정 검증. 준 필드만 본다 — 박수·일정 구조는 여기서 바꾸지 않는다 */
