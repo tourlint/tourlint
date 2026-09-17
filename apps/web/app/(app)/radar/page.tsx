@@ -23,6 +23,7 @@ import {
   type TodayBrief,
   type TodayItem,
 } from "../../lib/api";
+import { WorkspaceIcon } from "../../components/workspace-icon";
 import { StatusBadge } from "../../components/badges";
 import { AuditBasis } from "../../components/audit-basis";
 import { addKeyword, removeKeyword } from "../../lib/radar-keywords";
@@ -188,12 +189,11 @@ export default function RadarPage() {
 
   return (
     <>
-      <div className="flex items-start justify-between gap-4">
+      <div className="workspace-heading">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">수요 · 변경 레이더</h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            관광정보 변경과 수요 신호를 감시합니다. 반영은 수정안에서 합니다.
-          </p>
+          <p className="eyebrow">KEEP YOUR JOURNEYS UP TO DATE</p>
+          <h1>여행의 변화에, 한발 먼저</h1>
+          <p className="page-description">내 상품에 영향을 주는 변화와 관심 지역의 새로운 기회를 살펴보세요.</p>
         </div>
         {/* 언제 확인했고 다음은 언제인지 (UI-S7-010) */}
         <div className="shrink-0 text-right text-xs text-slate-500 dark:text-slate-400">
@@ -208,6 +208,12 @@ export default function RadarPage() {
         </div>
       )}
 
+      <section className="radar-overview" aria-label="레이더 현황">
+        <div className="radar-overview-intro"><WorkspaceIcon name="radar" width="32" height="32" /><div><h2>수요 · 변경 레이더</h2><p>바뀐 정보를 살피고, 다음 여행의 영감을 찾아보세요.</p></div></div>
+        <button type="button" className="radar-metric" onClick={() => { setTab("RISK"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>바뀐 정보</span><strong>{summary?.risk ?? "—"}<small>건</small></strong></button>
+        <button type="button" className="radar-metric" onClick={() => { setTab("OPPORTUNITY"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>새 소식</span><strong>{summary?.opportunity ?? "—"}<small>건</small></strong></button>
+      </section>
+
       {/* 레이더 에이전트 — 오늘 할 일 정리 (FR-AG-030 · 031) */}
       <TodayAgentCard />
 
@@ -215,7 +221,7 @@ export default function RadarPage() {
       <WatchAndNews onError={setError} />
 
       {/* 바뀐 정보 · 새 소식 탭 (UI-S7-003). 검수 등급 색 마커를 쓰지 않는다. */}
-      <div className="mt-6 flex gap-2 border-b border-slate-200 dark:border-slate-800">
+      <div id="notifications" className="mt-6 flex gap-2 border-b border-slate-200 dark:border-slate-800">
         <TabButton active={tab === "RISK"} onClick={() => setTab("RISK")} label="바뀐 정보" count={summary?.risk} />
         <TabButton
           active={tab === "OPPORTUNITY"}
@@ -416,6 +422,7 @@ function DemandSignalSection({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">수요 신호</h2>
         <select
+          aria-label="수요 신호를 확인할 상품"
           value={productId ?? ""}
           onChange={(e) => setProductId(e.target.value === "" ? null : Number(e.target.value))}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -519,9 +526,9 @@ function TodayAgentCard() {
   }
 
   return (
-    <section className="mt-6 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">오늘 할 일</h2>
+    <section className="radar-today mt-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">오늘 할 일</h2><p className="mt-1 text-sm text-slate-500">다시 확인할 상품과 관심 지역 소식을 한 번에 정리해 드려요.</p></div>
         <button
           type="button"
           onClick={run}
@@ -656,7 +663,7 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
   ]);
 
   return (
-    <section className="mt-8 border-t border-slate-200 pt-6 dark:border-slate-800">
+    <section className="radar-watch mt-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
       <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">관심 키워드 · 관심 지역</h2>
 
       {/* 관심 키워드 */}
@@ -678,6 +685,7 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
               setDraft(e.target.value);
             }}
             onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), onAdd())}
+            aria-label="관심 키워드"
             placeholder="예: 온천"
             className="w-48 rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
           />
@@ -702,7 +710,7 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
         </div>
         <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
           <RegionSelect value={region} onChange={setRegion} />
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900" />
+          <input aria-label="관심 지역 기준 월" type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900" />
           <button type="button" onClick={() => void addRegion()} disabled={region.regnCode === "" || month === ""} className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             관심 지역 추가
           </button>

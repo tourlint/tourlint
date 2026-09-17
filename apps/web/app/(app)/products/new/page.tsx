@@ -72,6 +72,8 @@ export default function ProductNewPage() {
     // 쿼리 읽기는 클라이언트에서만. setState 는 비동기 콜백 안에서 한다(effect 본문 동기 setState 금지)
     void (async () => {
       const q = new URLSearchParams(window.location.search);
+      const inputMethod = q.get("method");
+      if (inputMethod === "upload" || inputMethod === "nl") setMethod(inputMethod);
       if (q.get("origin") !== "SIGNAL") return;
       const regnCd = q.get("regnCd") ?? "";
       const signguCd = q.get("signguCd") ?? "";
@@ -179,8 +181,8 @@ export default function ProductNewPage() {
   return (
     <>
       <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-        <Link href="/" className="hover:underline">
-          대시보드
+        <Link href="/planning" className="hover:underline">
+          기획
         </Link>
         <span className="mx-2">/</span>
         <span className="text-slate-700 dark:text-slate-300">신규 등록</span>
@@ -188,7 +190,7 @@ export default function ProductNewPage() {
 
       <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">상품 등록</h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        여행 일정을 입력하면 관광정보로 검수할 수 있습니다. (F01)
+        여행 일정을 입력하면 관광정보로 검수할 수 있습니다.
       </p>
 
       {/* 등록 방식 선택 (UI-S2-001). 자연어 붙여넣기는 후속 단계. */}
@@ -306,7 +308,7 @@ export default function ProductNewPage() {
 
         <div className="flex items-center justify-end gap-3">
           <Link
-            href="/"
+            href="/planning"
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             취소

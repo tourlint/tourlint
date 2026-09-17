@@ -1,20 +1,22 @@
 "use client";
 
-// 전역 헤더 (UI-CM-002). 인증 후 모든 화면이 공유한다. 주 메뉴는 세 축의 순서 — 기획 →
-// 검수 → 레이더 — 를 그대로 보여 주고, 검수 기준은 보조로 둔다. 오늘 호출량은 헤더에
+// 전역 헤더 (UI-CM-002). 홈과 세 업무 화면(기획 → 검수 → 레이더)을 분리한다.
+// 검수 기준은 보조로 둔다. 오늘 호출량은 헤더에
 // 상시로 두지 않고 계정 메뉴 "오늘 사용량"에서만 본다 (UI-S1-004 · PM-DA-006).
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { authApi, isApiError, usageApi, type AccountView, type BudgetView } from "../lib/api";
+import {
+  authApi,
+  isApiError,
+  usageApi,
+  type AccountView,
+  type BudgetView,
+} from "../lib/api";
 
-// 세 축의 순서. 기획 · 검수는 홈 보드의 단계 뷰로, 레이더는 자기 화면으로 간다.
-const STAGES = [
-  { href: "/?stage=planning", label: "기획", stage: "planning" },
-  { href: "/?stage=review", label: "검수", stage: "review" },
-  { href: "/radar", label: "레이더", stage: null },
-] as const;
+import { MAIN_NAV, activeSection } from "../lib/workspace";
+import { WorkspaceIcon } from "./workspace-icon";
 
 export function AppHeader() {
   const router = useRouter();
@@ -37,62 +39,50 @@ export function AppHeader() {
     };
   }, [router]);
 
-  // 정확한 단계 강조는 쿼리를 봐야 하지만, useSearchParams 는 홈이 정적 렌더라 빌드를 막는다.
-  // 경로만으로 짚는다 — 레이더 · 홈(기획 · 검수 묶음)만 강조하고 순서는 항상 보인다.
-  const isStageActive = (item: (typeof STAGES)[number]): boolean =>
-    item.href === "/radar" ? pathname.startsWith("/radar") : pathname === "/" && item.stage === "planning";
-
   return (
-    <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-        <div className="flex items-center gap-6">
-          <Link
-            href="/"
-            className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50"
-          >
-            TourLint
-          </Link>
-          <nav className="flex items-center gap-1 text-sm">
-            {STAGES.map((item) => {
-              const active = isStageActive(item);
-              return (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  className={`rounded-md px-3 py-1.5 font-medium transition ${
-                    active
-                      ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-50"
-                      : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="flex items-center gap-3 text-sm">
-          {/* 검수 기준은 세 축의 보조 (UI-S8) */}
+    <header className="app-header">
+      <a href="#main-content" className="skip-link">
+        본문으로 건너뛰기
+      </a>
+      <div className="header-inner">
+        <Link href="/" className="brand" aria-label="TourLint 홈">
+          <span className="brand-mark">
+            <WorkspaceIcon name="check" width="22" height="22" />
+          </span>
+          TourLint
+          <span className="brand-divider" />
+        </Link>
+        <nav className="main-nav" aria-label="주 메뉴">
+          {MAIN_NAV.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={
+                activeSection(pathname) === item.href ? "page" : undefined
+              }
+            >
+              <WorkspaceIcon name={item.icon} />
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="header-tools">
           <Link
             href="/standard"
+            className="standard-link"
             aria-current={pathname.startsWith("/standard") ? "page" : undefined}
-            className={`rounded-md px-3 py-1.5 font-medium transition ${
-              pathname.startsWith("/standard")
-                ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-50"
-                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
-            }`}
           >
-            검수 기준
+            <WorkspaceIcon name="book" width="17" height="17" />
+            <span>검수 기준</span>
           </Link>
-          <button
-            type="button"
+          <Link
+            href="/radar#notifications"
+            className="notification-link"
             aria-label="알림"
-            className="rounded-md border border-slate-300 px-2 py-1 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+            title="레이더 알림 보기"
           >
-            알림
-          </button>
+            <WorkspaceIcon name="bell" />
+          </Link>
           <AccountMenu account={account} onLogout={() => void logout(router)} />
         </div>
       </div>
@@ -111,14 +101,21 @@ async function logout(router: ReturnType<typeof useRouter>): Promise<void> {
  * 상시로 두지 않는 이유 — 예산은 서비스 전체 단일 인증키 기준이라 상시 노출이 계정 정보처럼
  * 읽힌다 (PM-DA-006). 사용량은 열어 볼 때 한 번 읽는다.
  */
-function AccountMenu({ account, onLogout }: { account: AccountView | null; onLogout: () => void }) {
+function AccountMenu({
+  account,
+  onLogout,
+}: {
+  account: AccountView | null;
+  onLogout: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current !== null && !ref.current.contains(e.target as Node))
+        setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -130,9 +127,18 @@ function AccountMenu({ account, onLogout }: { account: AccountView | null; onLog
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        aria-label={account ? `${account.email} 계정 메뉴` : "계정 메뉴"}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setOpen(false);
+        }}
+        className="account-trigger"
       >
-        <span className="max-w-[12rem] truncate">{account?.email ?? "계정"}</span>
+        <span className="account-avatar" aria-hidden="true">
+          {account?.email.slice(0, 1).toUpperCase() ?? "T"}
+        </span>
+        <span className="account-email max-w-[12rem] truncate">
+          {account?.email ?? "계정"}
+        </span>
         {account?.isDemo === true && (
           <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
             데모
@@ -187,9 +193,13 @@ function UsageRow() {
       {budget === null ? (
         <p className="text-sm text-slate-400">—</p>
       ) : (
-        <p className={`text-sm font-medium tabular-nums ${BUDGET_TONE[budget.state]}`}>
+        <p
+          className={`text-sm font-medium tabular-nums ${BUDGET_TONE[budget.state]}`}
+        >
           {budget.used}/{budget.dailyQuota}
-          <span className="ml-1 text-xs font-normal text-slate-400">({Math.round(budget.usageRatio * 100)}%)</span>
+          <span className="ml-1 text-xs font-normal text-slate-400">
+            ({Math.round(budget.usageRatio * 100)}%)
+          </span>
         </p>
       )}
     </div>

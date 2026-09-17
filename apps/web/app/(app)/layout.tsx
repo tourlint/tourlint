@@ -7,9 +7,9 @@ import { AppFooter } from "../components/app-footer";
 // body(min-h-dvh flex-col) 안에서 flex-1 로 늘어나 푸터가 바닥에 붙는다.
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-1 flex-col bg-slate-50 dark:bg-slate-950">
+    <div className="app-shell flex flex-1 flex-col">
       <AppHeader />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">{children}</main>
+      <main id="main-content" className="app-main mx-auto w-full flex-1">{children}</main>
       <AppFooter />
     </div>
   );
