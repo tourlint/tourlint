@@ -50,11 +50,17 @@ describe("AI 해석 읽기 (FR-AU-013 · 061)", () => {
 });
 
 describe("판정 입력값 읽기", () => {
-  it("규칙이 담은 것을 그대로 펼친다 — 의미를 지어내지 않는다", () => {
+  it("이름표와 값을 사람 말로 옮긴다 (#478)", () => {
+    // 종전에는 `verdict: CLOSED` 처럼 규칙이 담은 그대로였다. 뜻을 더하는 것이 아니라
+    // 같은 사실을 실무자 말로 적는 것이고, 어휘는 `@tourlint/shared` 에 있다.
     expect(readVerdict({ verdict: "CLOSED", dayOfWeek: "TUE" })).toEqual([
-      { label: "verdict", value: "CLOSED" },
-      { label: "dayOfWeek", value: "TUE" },
+      { label: "판정", value: "휴무일" },
+      { label: "요일", value: "화요일" },
     ]);
+  });
+
+  it("모르는 키는 키 이름 그대로 — 이름이 없다고 근거를 숨기지 않는다", () => {
+    expect(readVerdict({ somethingNew: "값" })).toEqual([{ label: "somethingNew", value: "값" }]);
   });
 
   it("빈 값은 줄을 만들지 않는다", () => {
