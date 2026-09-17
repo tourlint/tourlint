@@ -134,24 +134,36 @@ describe('[1단계] 휴무 판정 — 위에서부터, 걸리면 즉시 CLOSED (
     expect(spot('연중무휴', '09:00~18:00', '2026-10-08')).toHaveLength(0);
   });
 
-  describe('휴무일 필드가 없는 유형 — 결측이 아니라 해당 없음이다 (이슈 #436)', () => {
+  describe('휴무일 필드가 없는 유형은 R01 대상이 아니다 (FR-RU-015 · 이슈 #436)', () => {
     /** 축제공연행사(15). 공사 소개정보에 휴무일 필드가 없고 `playtime` 만 있다 */
     const festival = (playtime: string, date: string, start?: string, end?: string | null) =>
       evaluate({ contentTypeId: 15, raw: { playtime }, date, start, end, placeLabel: '강릉 경포벚꽃축제' });
 
-    it('🔴 축제는 휴무일 확인 불가를 내지 않는다', () => {
+    it('🔴 축제는 R01 finding 을 하나도 내지 않는다 — 읽을 수 있는 운영시간이 있어도', () => {
       /*
-       * `INTRO_FIELDS[15].rest` 가 `null` 이다 — 축제는 개최 기간이 곧 운영 기간이라 휴무일
-       * 개념이 없다. 이걸 「모른다」로 읽으면 이미 R02 로 차단된 항목이 확인 불가로 한 번 더
-       * 깎이고, 화면에는 「축제인데 휴무일을 확인할 수 없습니다」가 뜬다.
+       * **휴무 단계만 건너뛰는 것으로는 부족하다.** v1.0.2 가 그렇게 고쳤더니 운영시간
+       * 단계로 흘러가 거기서 확인 불가가 났다 — 사유코드만 바뀌고 점수는 그대로였다.
+       * 축제는 개최 기간이 운영 정보의 본체이고 그 판정은 R02 가 한다.
        */
       expect(festival('10:00~18:00', '2026-11-18', '11:00', '12:00')).toHaveLength(0);
+      // 시각이 운영시간 밖이어도 R01 은 손대지 않는다
+      expect(festival('10:00~18:00', '2026-11-18', '08:00', '09:00')).toHaveLength(0);
     });
 
-    it('🔴 축제도 운영시간 판정은 그대로 받는다 — 휴무 단계만 건너뛴다', () => {
-      // `playtime` 은 있는 필드다. 휴무가 없다고 시각까지 안 보면 R01 이 축제에 아무 일도 안 한다
-      const [f] = festival('10:00~18:00', '2026-11-18', '08:00', '09:00');
-      expect(f).toMatchObject({ severity: 'BLOCKER', reasonCode: 'OPEN_HOUR_CONFLICT' });
+    it('🔴 파서가 못 읽는 `playtime` 이어도 확인 불가를 만들지 않는다', () => {
+      /*
+       * 실측 경포벚꽃축제(695592). 평일 · 주말 구분에 괄호와 별표 주석이 섞여 파서가 통째로
+       * 못 읽는다(`confidence: UNPARSED`). 운영에서 이것이 `PARSE_MISSING` 확인 불가로
+       * 잡혀 시연 상품이 29점이 아니라 26점이었다.
+       */
+      const raw = '평일 13:00~18:00(주말 11:00~18:00 *벚꽃길은 상시 개방)';
+      expect(festival(raw, '2026-11-18', '09:00', '10:00')).toHaveLength(0);
+    });
+
+    it('숙박도 종전대로 R01 대상이 아니다 (FR-AU-011)', () => {
+      // 하드코딩 32 를 `INTRO_FIELDS` 로 바꿨다. 숙박이 빠지는 것은 그대로여야 한다
+      expect(evaluate({ contentTypeId: 32, raw: { checkintime: '15:00', checkouttime: '11:00' },
+        date: '2026-11-18', itemType: 'LODGING' })).toHaveLength(0);
     });
 
     it('관광지는 종전대로 확인 불가다 — 그쪽은 있어야 할 값이 빈 것이다', () => {
