@@ -1,18 +1,19 @@
 "use client";
 
-// 전역 헤더 (UI-CM-002). 인증 후 모든 화면이 공유한다 — 서비스명, 주요 화면 이동
-// (대시보드 · 레이더 · 설정), 알림 진입점, 오늘 호출량 위젯, 로그아웃.
-// 호출량 위젯(UI-S1-004)은 usage/budget 실엔진에 붙는다 — 알림 건수(UI-CM-008)만 아직 자리표시.
+// 전역 헤더 (UI-CM-002). 인증 후 모든 화면이 공유한다. 주 메뉴는 세 축의 순서 — 기획 →
+// 검수 → 레이더 — 를 그대로 보여 주고, 검수 기준은 보조로 둔다. 오늘 호출량은 헤더에
+// 상시로 두지 않고 계정 메뉴 "오늘 사용량"에서만 본다 (UI-S1-004 · PM-DA-006).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { authApi, isApiError, usageApi, type AccountView, type BudgetView } from "../lib/api";
 
-const NAV = [
-  { href: "/", label: "대시보드" },
-  { href: "/radar", label: "레이더" },
-  { href: "/standard", label: "검수 기준" },
+// 세 축의 순서. 기획 · 검수는 홈 보드의 단계 뷰로, 레이더는 자기 화면으로 간다.
+const STAGES = [
+  { href: "/?stage=planning", label: "기획", stage: "planning" },
+  { href: "/?stage=review", label: "검수", stage: "review" },
+  { href: "/radar", label: "레이더", stage: null },
 ] as const;
 
 export function AppHeader() {
@@ -36,11 +37,10 @@ export function AppHeader() {
     };
   }, [router]);
 
-  async function onLogout() {
-    await authApi.logout().catch(() => undefined);
-    router.replace("/login");
-    router.refresh();
-  }
+  // 정확한 단계 강조는 쿼리를 봐야 하지만, useSearchParams 는 홈이 정적 렌더라 빌드를 막는다.
+  // 경로만으로 짚는다 — 레이더 · 홈(기획 · 검수 묶음)만 강조하고 순서는 항상 보인다.
+  const isStageActive = (item: (typeof STAGES)[number]): boolean =>
+    item.href === "/radar" ? pathname.startsWith("/radar") : pathname === "/" && item.stage === "planning";
 
   return (
     <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -53,11 +53,11 @@ export function AppHeader() {
             TourLint
           </Link>
           <nav className="flex items-center gap-1 text-sm">
-            {NAV.map((item) => {
-              const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            {STAGES.map((item) => {
+              const active = isStageActive(item);
               return (
                 <Link
-                  key={item.href}
+                  key={item.label}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={`rounded-md px-3 py-1.5 font-medium transition ${
@@ -74,8 +74,18 @@ export function AppHeader() {
         </div>
 
         <div className="flex items-center gap-3 text-sm">
-          {/* 오늘 호출량 위젯 (UI-S1-004) · 알림 진입점은 아직 자리표시 (UI-CM-008) */}
-          <BudgetWidget />
+          {/* 검수 기준은 세 축의 보조 (UI-S8) */}
+          <Link
+            href="/standard"
+            aria-current={pathname.startsWith("/standard") ? "page" : undefined}
+            className={`rounded-md px-3 py-1.5 font-medium transition ${
+              pathname.startsWith("/standard")
+                ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-50"
+                : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
+            }`}
+          >
+            검수 기준
+          </Link>
           <button
             type="button"
             aria-label="알림"
@@ -83,76 +93,105 @@ export function AppHeader() {
           >
             알림
           </button>
-          {account && (
-            <span className="text-slate-500 dark:text-slate-400">
-              {account.email}
-              {account.isDemo && (
-                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-                  데모
-                </span>
-              )}
-            </span>
-          )}
-          <button
-            onClick={onLogout}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            로그아웃
-          </button>
+          <AccountMenu account={account} onLogout={() => void logout(router)} />
         </div>
       </div>
     </header>
   );
 }
 
-// 상태별 테두리·글자색. WARN(80%)·EXHAUSTED(100%) 경계를 눈으로 밟을 수 있어야 한다 (FR-OP-003)
+async function logout(router: ReturnType<typeof useRouter>): Promise<void> {
+  await authApi.logout().catch(() => undefined);
+  router.replace("/login");
+  router.refresh();
+}
+
+/**
+ * 계정 메뉴. 이메일을 누르면 열리고, 오늘 사용량과 로그아웃을 담는다. 오늘 호출량을 헤더에
+ * 상시로 두지 않는 이유 — 예산은 서비스 전체 단일 인증키 기준이라 상시 노출이 계정 정보처럼
+ * 읽힌다 (PM-DA-006). 사용량은 열어 볼 때 한 번 읽는다.
+ */
+function AccountMenu({ account, onLogout }: { account: AccountView | null; onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current !== null && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+      >
+        <span className="max-w-[12rem] truncate">{account?.email ?? "계정"}</span>
+        {account?.isDemo === true && (
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+            데모
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-800 dark:bg-slate-900">
+          <UsageRow />
+          <button
+            type="button"
+            onClick={onLogout}
+            className="mt-1 w-full rounded-md px-3 py-1.5 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            로그아웃
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const BUDGET_TONE: Record<BudgetView["state"], string> = {
-  NORMAL: "border-slate-300 text-slate-500 dark:border-slate-700 dark:text-slate-400",
-  WARN: "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
-  EXHAUSTED: "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300",
+  NORMAL: "text-slate-500 dark:text-slate-400",
+  WARN: "text-amber-700 dark:text-amber-300",
+  EXHAUSTED: "text-red-700 dark:text-red-300",
 };
 
 /**
- * 오늘 공사 호출 소진 위젯 (UI-S1-004 · F15).
- *
- * 예산은 서비스 전체 단일 인증키 기준이라 계정과 무관하다 (PM-DA-006). 2분마다 폴링해
- * 시연 중 예산 경계를 눈으로 확인한다 (FR-OP-005). 조회 실패해도 헤더는 죽지 않는다 —
- * 직전 값을 그대로 두고 다음 폴링을 기다린다.
+ * 오늘 공사 호출 사용량 (UI-S1-004 · F15). 계정 메뉴를 열 때 한 번 읽는다. 조회 실패해도
+ * 메뉴는 죽지 않는다.
  */
-function BudgetWidget() {
+function UsageRow() {
   const [budget, setBudget] = useState<BudgetView | null>(null);
 
   useEffect(() => {
     let alive = true;
-    const load = () =>
-      usageApi
-        .budget()
-        .then((b) => {
-          if (alive) setBudget(b);
-        })
-        .catch(() => undefined);
-    load();
-    const id = setInterval(load, 120_000);
+    usageApi
+      .budget()
+      .then((b) => {
+        if (alive) setBudget(b);
+      })
+      .catch(() => undefined);
     return () => {
       alive = false;
-      clearInterval(id);
     };
   }, []);
 
-  if (!budget) {
-    return (
-      <span className="hidden rounded-md border border-dashed border-slate-300 px-2 py-1 text-xs text-slate-400 sm:inline dark:border-slate-700 dark:text-slate-500">
-        호출량 —
-      </span>
-    );
-  }
-
   return (
-    <span
-      title={`오늘 공사 호출 ${budget.used}/${budget.dailyQuota} (${Math.round(budget.usageRatio * 100)}%)`}
-      className={`hidden rounded-md border px-2 py-1 text-xs font-medium tabular-nums sm:inline ${BUDGET_TONE[budget.state]}`}
-    >
-      호출량 {budget.used}/{budget.dailyQuota}
-    </span>
+    <div className="rounded-md px-3 py-1.5">
+      <p className="text-xs text-slate-400">오늘 사용량</p>
+      {budget === null ? (
+        <p className="text-sm text-slate-400">—</p>
+      ) : (
+        <p className={`text-sm font-medium tabular-nums ${BUDGET_TONE[budget.state]}`}>
+          {budget.used}/{budget.dailyQuota}
+          <span className="ml-1 text-xs font-normal text-slate-400">({Math.round(budget.usageRatio * 100)}%)</span>
+        </p>
+      )}
+    </div>
   );
 }
