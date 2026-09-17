@@ -1,7 +1,10 @@
 import { BadRequestException, HttpStatus } from '@nestjs/common';
+import { DWELL_MINUTES_SEED, SETTING_DEFAULTS } from '@tourlint/shared';
 import type { AuditService } from '../audit/audit.service';
 import type { PlaceNameResolver } from '../audit/place-name';
 import type { CatalogService } from '../catalog/catalog.service';
+import type { KakaoMobilityClient } from '../external/kakao';
+import { coordinateOf, estimateTravelMinutes } from '../plan/travel-estimate';
 import type { WalkNameResolver } from '../plan/walk-names';
 import { DomainException } from '../common/domain.exception';
 import type { PatchApplicationRepository } from '../persistence/patch-application.repository';
@@ -14,9 +17,11 @@ import {
   validateUpdate,
   validateWalkItem,
   type CreateProductDto,
+  type PickedItemInput,
   type UpdateProductDto,
 } from './product.dto';
 import {
+  addMinutes,
   ProductRepository,
   type CreatedProduct,
   type ItemDetail,
@@ -38,6 +43,8 @@ export class ProductService {
     private readonly placeNames: PlaceNameResolver,
     private readonly audit: AuditService,
     private readonly walkNames: WalkNameResolver,
+    // 장소 담기 시각을 앞 항목과의 이동시간으로 채운다 (FR-PL-013 · 4-3). 없으면 이동시간 없이 붙인다
+    private readonly kakao: () => KakaoMobilityClient | null,
   ) {}
 
   async create(accountId: number, dto: CreateProductDto): Promise<CreatedProduct> {
@@ -267,15 +274,44 @@ export class ProductService {
       if (walk === undefined) throw new BadRequestException(errors.join(' '));
       return { ...(await this.repo.addWalkItem(productId, walk)) };
     }
-    // 장소 담기로 넣으면 content 가 온다 — 이미 고른 콘텐츠라 CONFIRMED 로 넣는다 (FR-PL-013)
+    // 장소 담기로 넣으면 content 가 온다 — 이미 고른 콘텐츠라 CONFIRMED 로 넣는다 (FR-PL-013 · 4-3)
     if (b !== undefined && typeof b.content === 'object' && b.content !== null) {
       const { errors, picked } = validatePickedItem(b, nights + 1);
       if (picked === undefined) throw new BadRequestException(errors.join(' '));
-      return { ...(await this.repo.addPickedItem(productId, picked)) };
+      return { ...(await this.insertPicked(productId, picked)) };
     }
     const { errors, item } = validateAddItem(b, nights + 1);
     if (item === undefined) throw new BadRequestException(errors.join(' '));
     return { ...(await this.repo.addItem(productId, item)) };
+  }
+
+  /**
+   * 장소 담기 삽입 (FR-PL-013 · 4-3). 넣을 위치(`afterItemId`) 다음에 끼우고, 시작 시각은
+   * **앞 항목 끝 + 이동시간**으로 채운다.
+   *
+   * 이동시간은 카카오 길찾기로 잰다 — **못 재면(좌표 없음 · 대중교통 · 조회 실패) 이동시간을
+   * 짓지 않고** 앞 항목 끝에 바로 붙인다(FR-RU-051 · R08 과 같은 원칙). 끝 시각은 표준
+   * 체류시간으로 채운다(숙박은 끝 시각 없음).
+   */
+  private async insertPicked(productId: number, picked: PickedItemInput): Promise<ItemDetail> {
+    const { transport, anchor } = await this.repo.pickPlacement(productId, picked.dayNo, picked.afterItemId);
+
+    let start = '09:00';
+    if (anchor !== null) {
+      const travel = await estimateTravelMinutes({
+        kakao: this.kakao(),
+        from: coordinateOf(anchor.mapx, anchor.mapy),
+        to: coordinateOf(picked.content.mapx, picked.content.mapy),
+        transport,
+      });
+      start = addMinutes(anchor.availableFrom, travel ?? 0);
+    }
+
+    const dwell = picked.itemType === 'LODGING' ? null
+      : (picked.content.lcls2 !== null ? DWELL_MINUTES_SEED[picked.content.lcls2] : undefined) ?? SETTING_DEFAULTS.dwellFallbackMinutes;
+    const end = dwell === null ? null : addMinutes(start, dwell);
+
+    return this.repo.insertPickedItem(productId, picked, { start, end, afterSeq: anchor?.seq ?? null });
   }
 
   async patchItem(accountId: number, itemId: number, body: unknown): Promise<Record<string, unknown>> {

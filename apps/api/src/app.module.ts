@@ -166,17 +166,29 @@ import { SettingsRepository } from './settings/settings.repository';
     {
       // 상품 CRUD. 목록의 지역명 조회에 CatalogService 를 재사용한다 (fixture 리플레이라 예산 0)
       provide: ProductService,
-      useFactory: (pool: Pool, catalog: CatalogService, audit: AuditService, walkNames: WalkNameResolver) => new ProductService(
-        new ProductRepository(pool),
-        catalog,
-        new PatchApplicationRepository(pool),
-        // 대체·추가된 항목의 이름은 표시할 때 읽는다 (FR-PA-003 · DR-PR-001)
-        new PlaceNameResolver({ kto: () => createKtoClient(new PgApiCallLogger(pool)) }),
-        // 검수 시작(handoff)이 검수를 요청한다 (D7)
-        audit,
-        // 걷기 길(walk_id)의 표시 이름은 저장하지 않고 볼 때 찾는다 (D9)
-        walkNames,
-      ),
+      useFactory: (pool: Pool, catalog: CatalogService, audit: AuditService, walkNames: WalkNameResolver) => {
+        const logs = new PgApiCallLogger(pool);
+        return new ProductService(
+          new ProductRepository(pool),
+          catalog,
+          new PatchApplicationRepository(pool),
+          // 대체·추가된 항목의 이름은 표시할 때 읽는다 (FR-PA-003 · DR-PR-001)
+          new PlaceNameResolver({ kto: () => createKtoClient(logs) }),
+          // 검수 시작(handoff)이 검수를 요청한다 (D7)
+          audit,
+          // 걷기 길(walk_id)의 표시 이름은 저장하지 않고 볼 때 찾는다 (D9)
+          walkNames,
+          // 장소 담기 시각을 앞 항목과의 이동시간으로 채운다 (FR-PL-013 · 4-3).
+          // 카카오 키가 없으면 이동시간만 비운다 — 담기 자체는 막지 않는다 (EI-KM-009)
+          () => {
+            try {
+              return new KakaoMobilityClient({ transport: createKakaoTransport(), logger: logs });
+            } catch {
+              return null;
+            }
+          },
+        );
+      },
       inject: [DB_POOL, CatalogService, AuditService, WalkNameResolver],
     },
     {
