@@ -1,0 +1,132 @@
+import { stageOf, type Stage } from "./stage-of";
+
+export interface LatestAudit {
+  executedAt: string;
+  readinessScore: number | null;
+  isPartial: boolean;
+  releasable: boolean;
+  counts: {
+    blocker: number;
+    error: number;
+    warning: number;
+    unverified: number;
+  };
+}
+
+export interface WorkspaceProduct {
+  productId: number;
+  name: string;
+  startDate: string;
+  nights: number;
+  region?: { regnName?: string; signguName?: string };
+  latestAudit?: LatestAudit | null;
+  plannedAt?: string | null;
+  releasedAt?: string | null;
+  pendingMatches?: number;
+}
+
+export type Workspace = "home" | "planning" | "review";
+export type SortKey = "startDate" | "readiness" | "audited";
+
+export const MAIN_NAV = [
+  { href: "/", label: "홈", icon: "home" },
+  { href: "/planning", label: "기획", icon: "plan" },
+  { href: "/review", label: "검수", icon: "check" },
+  { href: "/radar", label: "레이더", icon: "radar" },
+] as const;
+
+export function activeSection(pathname: string): string | null {
+  if (pathname === "/") return "/";
+  if (
+    pathname === "/planning" ||
+    pathname === "/products/new" ||
+    /^\/products\/[^/]+\/plan(?:\/|$)/.test(pathname)
+  )
+    return "/planning";
+  if (pathname === "/review" || pathname.startsWith("/products/"))
+    return "/review";
+  if (pathname === "/radar") return "/radar";
+  return null;
+}
+
+export function productStage(p: WorkspaceProduct): Stage {
+  return stageOf({
+    plannedAt: p.plannedAt ?? null,
+    releasedAt: p.releasedAt ?? null,
+    latestAudit: p.latestAudit ?? null,
+  });
+}
+
+export function productHref(p: WorkspaceProduct): string {
+  return `/products/${p.productId}${productStage(p) === "PLANNING" ? "/plan" : ""}`;
+}
+
+export function belongsTo(p: WorkspaceProduct, workspace: Workspace): boolean {
+  return (
+    workspace === "home" ||
+    (workspace === "planning"
+      ? productStage(p) === "PLANNING"
+      : productStage(p) !== "PLANNING")
+  );
+}
+
+export function sortProducts(
+  list: WorkspaceProduct[],
+  key: SortKey,
+): WorkspaceProduct[] {
+  return [...list].sort((a, b) => {
+    const date =
+      a.startDate.localeCompare(b.startDate) || a.productId - b.productId;
+    if (key === "readiness")
+      return (
+        (b.latestAudit?.readinessScore ?? -1) -
+          (a.latestAudit?.readinessScore ?? -1) || date
+      );
+    if (key === "audited")
+      return (
+        (b.latestAudit?.executedAt ?? "").localeCompare(
+          a.latestAudit?.executedAt ?? "",
+        ) || date
+      );
+    return date;
+  });
+}
+
+export function productHint(p: WorkspaceProduct): string {
+  const a = p.latestAudit;
+  switch (productStage(p)) {
+    case "PLANNING":
+      return (p.pendingMatches ?? 0) > 0
+        ? `아직 고르지 않은 장소 ${p.pendingMatches}곳`
+        : "일정을 이어서 완성해 보세요";
+    case "REVIEW":
+      return !a
+        ? "첫 검수를 기다리고 있어요"
+        : a.isPartial
+          ? "부분 검수 · 결과를 확인해 주세요"
+          : `차단 ${a.counts.blocker}건 · 확인이 필요해요`;
+    case "RELEASABLE":
+      return a?.isPartial
+        ? "부분 검수 · 결과를 확인해 주세요"
+        : a?.readinessScore != null
+          ? `${a.readinessScore}점 · 출시할 수 있어요`
+          : "출시할 수 있어요";
+    case "RELEASED":
+      return p.releasedAt ? `${p.releasedAt.slice(0, 10)} 출시` : "출시함";
+  }
+}
+
+export function regionText(p: WorkspaceProduct): string {
+  return (
+    [p.region?.regnName, p.region?.signguName].filter(Boolean).join(" ") ||
+    "지역 미지정"
+  );
+}
+
+export function reviewFilter(
+  value: string | string[] | undefined,
+): Stage | "ALL" {
+  return value === "REVIEW" || value === "RELEASABLE" || value === "RELEASED"
+    ? value
+    : "ALL";
+}

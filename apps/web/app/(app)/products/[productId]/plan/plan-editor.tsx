@@ -87,7 +87,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
   return (
     <>
       <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-        <Link href="/" className="hover:underline">내 상품</Link>
+        <Link href="/planning" className="hover:underline">기획</Link>
         <span className="mx-1">/</span>
         <span className="text-slate-700 dark:text-slate-200">{product.name}</span>
       </nav>
