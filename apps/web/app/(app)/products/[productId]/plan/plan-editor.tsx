@@ -11,6 +11,8 @@ import { isApiError, planApi, productApi, type PlaceFacts, type ProductDetail, t
 import { PlaceAutocomplete } from "./place-autocomplete";
 import { PlaceFactsLine } from "./place-facts-line";
 import { DaySummary } from "./day-summary";
+import { PendingBar } from "./pending-bar";
+import { StartAuditSheet } from "./start-audit-sheet";
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   SIGHT: "관광", MEAL: "식사", LODGING: "숙박", REST: "휴식", MOVE: "이동", FREE: "자유",
@@ -86,23 +88,20 @@ export function PlanEditor({ productId }: { productId: number }) {
             {regionLabel} · {product.startDate} · 장소를 고르면 이용시간과 쉬는 날을 볼 수 있어요.
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="hidden text-xs text-slate-400 sm:inline">자동 저장됨</span>
           <Link href={`/products/${productId}/edit`} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             일정 편집
           </Link>
-          <Link href={`/products/${productId}`} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500">
-            검수로
-          </Link>
+          <StartAuditSheet productId={productId} pendingCount={pending} />
         </div>
       </div>
 
       {pending > 0 ? (
-        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          아직 고르지 않은 장소가 {pending}곳 있어요.
-        </p>
+        <PendingBar productId={productId} pendingCount={pending} onResolved={refetch} />
       ) : (
         <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-          모든 장소를 골랐어요. 검수로 넘어갈 수 있어요.
+          모든 장소를 골랐어요. 검수 시작을 누르면 돼요.
         </p>
       )}
 
