@@ -14,6 +14,7 @@ import { RegionSelect } from "./region-select";
 import { ScheduleEditor } from "./schedule-editor";
 import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
+import { PlanEditor } from "../[productId]/plan/plan-editor";
 import {
   NIGHTS_OPTIONS,
   TRANSPORT_OPTIONS,
@@ -65,6 +66,10 @@ export default function ProductNewPage() {
 
   // "자주 넣는 곳" 칩에서 고른 종류. 생성 후 기획 화면의 장소 담기를 이 종류로 연다 (UI-S2-030)
   const [openType, setOpenType] = useState<string | null>(null);
+
+  // 저장하면 이 화면(/products/new)에서 곧바로 기획 화면(장소 담기 오른쪽)을 렌더한다.
+  // 다른 경로로 보내지 않는다 — 등록과 기획을 한 흐름으로 잇는다 (개편안 4-2 화면 2).
+  const [createdProductId, setCreatedProductId] = useState<number | null>(null);
 
   // 레이더 "이 지역으로 새 상품 기획"에서 넘어오면 지역을 미리 채우고 기획 출처를 남긴다 (FR-PL-001)
   const [planOrigin, setPlanOrigin] = useState<PlanOrigin | null>(null);
@@ -168,14 +173,19 @@ export default function ProductNewPage() {
       }
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
-      // 저장 후 기획 화면으로 — 거기서 장소를 고르고 검수로 넘어간다 (FR-PL-004).
-      // "자주 넣는 곳" 칩을 골랐으면 그 종류로 장소 담기가 열리도록 openType 을 실어 보낸다 (UI-S2-030)
-      const suffix = openType !== null ? `?openType=${encodeURIComponent(openType)}` : "";
-      router.push(created.productId != null ? `/products/${created.productId}/plan${suffix}` : "/");
+      // 저장하면 같은 화면에서 기획(장소 담기)을 이어 간다 — 경로는 /products/new 그대로 두고
+      // PlanEditor 를 인라인으로 띄운다 (개편안 4-2: 등록·기획이 한 흐름). "자주 넣는 곳" 칩은 openType 으로 전달.
+      if (created.productId != null) setCreatedProductId(created.productId);
+      else router.push("/");
     } catch {
       setSaveError("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       setSaving(false);
     }
+  }
+
+  // 저장이 끝나면 같은 경로(/products/new)에서 기획 화면(오른쪽 장소 담기)을 인라인으로 보여 준다
+  if (createdProductId !== null) {
+    return <PlanEditor productId={createdProductId} openType={openType} />;
   }
 
   return (
