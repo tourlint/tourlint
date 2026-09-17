@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import PDFDocument from 'pdfkit';
-import { TRANSPORT_LABEL, type Transport } from '@tourlint/shared';
+import { TRANSPORT_LABEL, ktoFieldLabel, ruleName, type Transport } from '@tourlint/shared';
 import type { ContentEvidence, ReportFinding, ReportModel } from './report-model';
 
 /**
@@ -343,7 +343,7 @@ function drawFindingBlock(doc: Doc, f: ReportFinding): void {
 
   doc.font('bold').fontSize(SMALL).fillColor(GRAY);
   doc.text(
-    `[${badge}] ${f.ruleCode}${f.targetPlace === null ? '' : ` · ${f.targetPlace}`}`
+    `[${badge}] ${ruleName(f.ruleCode)}${f.targetPlace === null ? '' : ` · ${f.targetPlace}`}`
     + (marks.length === 0 ? '' : `   (${marks.join(' · ')})`),
     MARGIN, doc.y, { width: contentWidth(doc) },
   );
@@ -374,8 +374,9 @@ function drawEvidence(doc: Doc, e: ContentEvidence | null): void {
     return;
   }
 
-  const rows: (readonly string[])[] = e.fields.map((f) => [f.name, f.value === '' ? '(값 없음)' : f.value]);
-  if (e.ktoModifiedTime !== null) rows.push(['modifiedtime', e.ktoModifiedTime]);
+  const rows: (readonly string[])[] = e.fields.map((f) => [ktoFieldLabel(f.name), f.value === '' ? '(값 없음)' : f.value]);
+  // 7장이 같은 값을 `2026-06-15` 로 보인다. 같은 문서 안에서 같은 값은 같은 꼴이어야 한다
+  if (e.ktoModifiedTime !== null) rows.push([ktoFieldLabel('modifiedtime'), ktoStamp(e.ktoModifiedTime)]);
   if (rows.length > 0) {
     table(doc, [
       { header: '판정 필드', width: 132 },
@@ -426,6 +427,16 @@ function drawProvenance(doc: Doc, m: ReportModel): void {
     ['데이터 최종 수정일', ktoStamp(p.ktoModifiedAt)],
   ]);
   doc.moveDown(0.2);
+  /*
+   * 지문 · 규칙셋 버전은 UI-CM-031 · FR-PA-062 가 요구하는 값이라 뺄 수 없다. 다만 값만
+   * 있으면 내부 코드로 읽히므로 무엇에 쓰는지 한 줄을 붙인다 (#473). 같은 자리의 D+1
+   * 안내와 같은 꼴이다.
+   */
+  paragraph(
+    doc,
+    '데이터 지문과 규칙셋 버전은 이 판정을 나중에 그대로 다시 확인하기 위한 값입니다.',
+    { color: GRAY, size: SMALL },
+  );
   paragraph(doc, p.delayNotice, { color: GRAY, size: SMALL });
   doc.moveDown(0.2);
   doc.font('bold').fontSize(SMALL).fillColor('#111827')

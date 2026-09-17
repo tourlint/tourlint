@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
+import { RULE_NAMES, SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
 import { calculateReadiness } from '../engine/score';
 import type { StoredFinding } from '../persistence/audit-result.repository';
 import { assembleReport, type AssembleInput } from './report-model';
@@ -80,8 +80,30 @@ describe('리포트 렌더', () => {
 
   it('리포트에 쓰는 문자를 전부 그릴 수 있다', () => {
     const sample = '검수 리포트 R01 2026-08-29 (BLOCKER) 93점 · 86km ~ 차단 오류 주의 확인 불가'
-      + ' 무시됨 검수 제외 09:00~18:00 매주 월요일 휴관 일차 순서 장소 유형 상태';
+      + ' 무시됨 검수 제외 09:00~18:00 매주 월요일 휴관 일차 순서 장소 유형 상태'
+      + ' 데이터 지문과 규칙셋 버전은 이 판정을 나중에 그대로 다시 확인하기 위한 값입니다.';
     expect(missingGlyphs(sample)).toEqual([]);
+  });
+
+  it('🔴 판정 머리에 규칙 번호 대신 이름을 쓴다 (UI-S3-010 · #473)', () => {
+    /*
+     * 실무자가 받는 문서에 `R04` 가 그대로 찍히면 내부 코드로 읽힌다. 화면은 이미
+     * 이름(「종류 쏠림」)을 쓰는데 리포트만 번호였다.
+     *
+     * 산출물로는 못 본다 — 한글이 CID 글리프로 들어가 `latin1` 로 긁히지 않는다.
+     * 그래서 이미지 삽입 검사(FR-PA-063)와 같은 방식으로 소스를 본다.
+     */
+    const src = readFileSync(join(__dirname, 'report-render.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(src).toMatch(/ruleName\(f\.ruleCode\)/);
+    expect(src).not.toMatch(/\$\{f\.ruleCode\}/);
+  });
+
+  it('🔴 규칙 이름 열 가지를 전부 그릴 수 있다 — 판정 머리는 굵은 글꼴이다', () => {
+    const names = Object.values(RULE_NAMES).join(' ');
+    expect(missingGlyphs(names)).toEqual([]);
+    expect(missingGlyphs(names, FONT_BOLD)).toEqual([]);
   });
 
   it('A4 세로 PDF 가 나온다 (UI-S6-008)', async () => {

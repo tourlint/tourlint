@@ -30,7 +30,7 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
-import { DISMISS_REASON_PRESET, SETTING_DEFAULTS } from "@tourlint/shared";
+import { DISMISS_REASON_PRESET, SETTING_DEFAULTS, ktoFieldLabel } from "@tourlint/shared";
 import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
 import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
@@ -1333,7 +1333,7 @@ function EvidencePanel({
               <dl className="grid gap-1">
                 {Object.entries(content.ktoRaw).map(([name, value]) => (
                   <div key={name} className="flex gap-2">
-                    <dt className="shrink-0 text-slate-400">{name}</dt>
+                    <dt className="shrink-0 text-slate-400">{ktoFieldLabel(name)}</dt>
                     {/* 원문 그대로 — 다듬지 않는다 */}
                     <dd className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{value || "—"}</dd>
                   </div>
