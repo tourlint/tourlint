@@ -19,6 +19,7 @@ import {
   type Schedule,
   type ScheduleItem,
 } from "../../new/types";
+import { CONCEPT_KEY, CONCEPT_LABEL, TARGET_KEY, TARGET_LABEL } from "@tourlint/shared";
 
 interface Basic {
   name: string;
@@ -167,10 +168,24 @@ export function EditForm({ productId }: { productId: number }) {
 
         <Section title="상품 성격 · 이동">
           <Field label="타깃 고객">
-            <TextInput value={basic.targetKey} onChange={(e) => setBasic({ ...basic, targetKey: e.target.value })} />
+            <SelectInput value={basic.targetKey} onChange={(e) => setBasic({ ...basic, targetKey: e.target.value })}>
+              <option value="">선택 안 함</option>
+              {TARGET_KEY.map((k) => (
+                <option key={k} value={k}>
+                  {TARGET_LABEL[k]}
+                </option>
+              ))}
+            </SelectInput>
           </Field>
           <Field label="상품 콘셉트">
-            <TextInput value={basic.conceptKey} onChange={(e) => setBasic({ ...basic, conceptKey: e.target.value })} />
+            <SelectInput value={basic.conceptKey} onChange={(e) => setBasic({ ...basic, conceptKey: e.target.value })}>
+              <option value="">선택 안 함</option>
+              {CONCEPT_KEY.map((k) => (
+                <option key={k} value={k}>
+                  {CONCEPT_LABEL[k]}
+                </option>
+              ))}
+            </SelectInput>
           </Field>
           <Field label="예상 인원">
             <TextInput type="number" value={basic.headCount} onChange={(e) => setBasic({ ...basic, headCount: e.target.value })} />
