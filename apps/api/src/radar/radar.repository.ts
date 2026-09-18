@@ -90,7 +90,8 @@ export class RadarRepository {
          count(DISTINCT n.kto_content_id)               AS contents
        FROM notification n
        JOIN product p ON p.id = n.product_id
-      WHERE p.account_id = $1 AND n.dismissed_at IS NULL`,
+      WHERE p.account_id = $1 AND p.start_date + p.nights >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+          AND n.dismissed_at IS NULL`,
       [accountId],
     );
     const r = rows[0];
@@ -146,7 +147,8 @@ export class RadarRepository {
     const total = await this.pool.query<{ n: string }>(
       `SELECT count(*) AS n FROM notification n
          JOIN product p ON p.id = n.product_id
-        WHERE p.account_id = $1 AND n.dismissed_at IS NULL AND n.kto_content_id IS NOT NULL`,
+        WHERE p.account_id = $1 AND p.start_date + p.nights >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+          AND n.dismissed_at IS NULL AND n.kto_content_id IS NOT NULL`,
       [accountId],
     );
 
@@ -177,7 +179,8 @@ export class RadarRepository {
                         AND fa.kto_content_id = n.kto_content_id AND fa.rn = 1
          LEFT JOIN fp fb ON fb.product_id = n.product_id
                         AND fb.kto_content_id = n.kto_content_id AND fb.rn = 2
-        WHERE p.account_id = $1 AND n.dismissed_at IS NULL AND n.kto_content_id IS NOT NULL
+        WHERE p.account_id = $1 AND p.start_date + p.nights >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+          AND n.dismissed_at IS NULL AND n.kto_content_id IS NOT NULL
         ORDER BY n.created_at DESC, n.id DESC
         LIMIT $2 OFFSET $3`,
       [accountId, size, page * size],

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   activeSection,
+  isPastTrip,
+  koreaToday,
   reviewFilter,
   belongsTo,
   productHref,
@@ -129,4 +131,17 @@ describe("workspace product loading", () => {
       ).rejects.toMatchObject({ status });
     },
   );
+});
+
+describe("여행 종료일 기준의 목록", () => {
+  it("한국 자정 전후에만 날짜가 바뀐다", () => {
+    expect(koreaToday(new Date("2026-09-18T14:59:59Z"))).toBe("2026-09-18");
+    expect(koreaToday(new Date("2026-09-18T15:00:00Z"))).toBe("2026-09-19");
+  });
+  it("당일 종료 다음 날은 과거지만, 진행 중인 1박 2일은 남는다", () => {
+    expect(isPastTrip({ startDate: "2026-09-18", nights: 0 }, "2026-09-19")).toBe(true);
+    expect(isPastTrip({ startDate: "2026-09-18", nights: 1 }, "2026-09-19")).toBe(false);
+    expect(isPastTrip({ startDate: "2026-09-18", nights: 1 }, "2026-09-20")).toBe(true);
+    expect(isPastTrip({ startDate: "2026-12-31", nights: 2 }, "2027-01-02")).toBe(false);
+  });
 });

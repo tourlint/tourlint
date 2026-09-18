@@ -23,6 +23,8 @@ import {
   type TodayBrief,
   type TodayItem,
 } from "../../lib/api";
+import { loadWorkspaceProducts } from "../../lib/workspace-products";
+import { isPastTrip } from "../../lib/workspace";
 import { WorkspaceIcon } from "../../components/workspace-icon";
 import { StatusBadge } from "../../components/badges";
 import { AuditBasis } from "../../components/audit-basis";
@@ -124,27 +126,26 @@ export default function RadarPage() {
     [router],
   );
 
-  // 요약 · 상품 목록은 진입 시 한 번.
+  // 요약과 신호 선택도 종료되지 않은 여행만 표시한다.
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
     void (async () => {
       try {
         const [s, res] = await Promise.all([
           radarApi.summary(),
-          fetch("/api/v1/products", { credentials: "include" }),
+          loadWorkspaceProducts(controller.signal),
         ]);
         if (!alive) return;
         setSummary(s);
-        if (res.ok) {
-          const json = (await res.json()) as { content?: ProductLite[] };
-          if (alive) setProducts(json.content ?? []);
-        }
+        setProducts(res.filter((p) => !isPastTrip(p)));
       } catch (err) {
         if (!onAuthError(err)) setError(isApiError(err) ? err.message : "레이더를 불러오지 못했습니다.");
       }
     })();
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [onAuthError]);
 
@@ -193,7 +194,7 @@ export default function RadarPage() {
         <div>
           <p className="eyebrow">KEEP YOUR JOURNEYS UP TO DATE</p>
           <h1>여행의 변화에, 한발 먼저</h1>
-          <p className="page-description">내 상품에 영향을 주는 변화와 관심 지역의 새로운 기회를 살펴보세요.</p>
+          <p className="page-description">여행이 끝나지 않은 상품의 변화와 관심 지역의 새로운 기회를 살펴보세요.</p>
         </div>
         {/* 언제 확인했고 다음은 언제인지 (UI-S7-010) */}
         <div className="shrink-0 text-right text-xs text-slate-500 dark:text-slate-400">
@@ -235,7 +236,9 @@ export default function RadarPage() {
         <p className="mt-8 text-sm text-slate-400">불러오는 중…</p>
       ) : items.length === 0 ? (
         <div className="mt-8 rounded-2xl border border-dashed border-slate-300 py-14 text-center text-sm text-slate-400 dark:border-slate-700 dark:text-slate-500">
-          {tab === "RISK" ? "바뀐 정보가 없습니다." : "새 소식이 없습니다."}
+          <p>{tab === "RISK" ? "현재 여행에 확인할 바뀐 정보가 없습니다." : "현재 여행에 확인할 새 소식이 없습니다."}</p>
+          <p className="mt-2">여행이 끝난 상품의 알림은 표시하지 않아요.</p>
+          <Link href="/review" className="mt-3 inline-block text-emerald-700 underline">검수에서 지난 상품 보기</Link>
         </div>
       ) : (
         <ul className="mt-6 space-y-3">

@@ -130,3 +130,14 @@ export function reviewFilter(
     ? value
     : "ALL";
 }
+
+/** 한국 날짜의 여행 종료일까지는 진행 중이다. 브라우저 시간대와 무관하다. */
+export function koreaToday(now: Date = new Date()): string {
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+export function isPastTrip(p: Pick<WorkspaceProduct, "startDate" | "nights">, today = koreaToday()): boolean {
+  const end = new Date(`${p.startDate}T00:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + p.nights);
+  return end.toISOString().slice(0, 10) < today;
+}
