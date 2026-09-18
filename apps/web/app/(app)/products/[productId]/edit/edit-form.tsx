@@ -101,7 +101,7 @@ export function EditForm({ productId }: { productId: number }) {
           await itemApi.reorder(productId, order);
         }
       }
-      router.push(`/products/${productId}`);
+      router.push(`/products/${productId}${loaded.plannedAt === null ? "/plan" : ""}`);
     } catch (e) {
       setErr(isApiError(e) ? e.message : "저장하지 못했습니다.");
       setBusy(false);
@@ -135,7 +135,7 @@ export function EditForm({ productId }: { productId: number }) {
       <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
         <Link href="/" className="hover:underline">대시보드</Link>
         <span className="mx-1">/</span>
-        <Link href={`/products/${productId}`} className="hover:underline">{loaded.name}</Link>
+        <Link href={`/products/${productId}${loaded.plannedAt === null ? "/plan" : ""}`} className="hover:underline">{loaded.name}</Link>
         <span className="mx-1">/</span>
         <span className="text-slate-700 dark:text-slate-200">편집</span>
       </nav>
@@ -224,7 +224,7 @@ export function EditForm({ productId }: { productId: number }) {
           )}
 
           <div className="flex gap-2">
-            <Link href={`/products/${productId}`}
+            <Link href={`/products/${productId}${loaded.plannedAt === null ? "/plan" : ""}`}
               className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
               취소
             </Link>
