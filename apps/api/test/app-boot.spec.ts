@@ -61,6 +61,9 @@ describe('앱 부팅', () => {
     const routes = registeredRoutes(app);
     for (const r of [
       'GET /',
+      'POST /api/v1/auth/signup-code',
+      'POST /api/v1/auth/signup',
+      'POST /api/v1/auth/login',
       'GET /api/v1/usage/budget',
       'GET /api/v1/usage/calls',
       'POST /api/v1/products/:productId/audit-jobs',

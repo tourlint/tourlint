@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { withTransaction } from '../persistence/db';
 
 /**
@@ -49,32 +49,21 @@ export class AccountRepository {
     return { id: Number(row.id), email: row.email, passwordHash: row.password_hash, isDemo: row.is_demo };
   }
 
-  /**
-   * 계정을 만든다. 같은 트랜잭션에서 `user_setting` 1행과 **기대 콘텐츠 프로파일 63행**을
-   * 함께 만든다 — 설정이 없는 계정을 허용하지 않는다 (DR-CF-002).
-   *
-   * 프로파일이 하나라도 비면 그 조합의 상품이 R10 을 영영 확인 불가로 남긴다. 그래서
-   * 타깃 7 × 콘셉트 9 를 빠짐없이 넣는다 (FR-RU-100).
-   *
-   * 실내외 59행과 체류시간 47행도 함께 넣는다 (2026.08.27). 체류시간이 47행인 것은
-   * 숙박 6종과 추천코스 6종을 뺀 수다 — 숙박은 입실 · 퇴실만 해석하고(FR-AU-011),
-   * 추천코스는 일정 항목 유형이 아니다.
-   *
-   * 이메일 중복이면 UNIQUE 제약(23505)이 잡는다. 서비스 계층이 이걸 "가입할 수 없음"
-   * 으로만 바꿔 던져, 이미 가입된 계정인지 노출하지 않는다 (EX-SY-007).
-   */
+  /** 계정과 기본 설정을 같은 트랜잭션에서 생성한다. 중복은 서비스가 일반 가입 오류로 바꾼다. */
   async create(email: string, passwordHash: string, isDemo = false): Promise<AccountRow> {
-    return withTransaction(this.pool, async (client) => {
-      const { rows } = await client.query<{ id: string; email: string; is_demo: boolean }>(
-        `INSERT INTO account (email, password_hash, is_demo)
-         VALUES ($1, $2, $3)
-         RETURNING id, email, is_demo`,
-        [email, passwordHash, isDemo],
-      );
-      const row = rows[0];
-      if (row === undefined) throw new Error('계정 생성 결과가 비어 있다');
-      await seedAccountDefaults(client, Number(row.id));
-      return { id: Number(row.id), email: row.email, passwordHash, isDemo: row.is_demo };
-    });
+    return withTransaction(this.pool, (client) => this.createWithClient(client, email, passwordHash, isDemo));
+  }
+
+  async createWithClient(client: PoolClient, email: string, passwordHash: string, isDemo = false): Promise<AccountRow> {
+    const { rows } = await client.query<{ id: string; email: string; is_demo: boolean }>(
+      `INSERT INTO account (email, password_hash, is_demo)
+       VALUES ($1, $2, $3)
+       RETURNING id, email, is_demo`,
+      [email, passwordHash, isDemo],
+    );
+    const row = rows[0];
+    if (row === undefined) throw new Error('계정 생성 결과가 비어 있다');
+    await seedAccountDefaults(client, Number(row.id));
+    return { id: Number(row.id), email: row.email, passwordHash, isDemo: row.is_demo };
   }
 }
