@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import { PLAN_NEAR_KIND, type PlanNearKind } from '@tourlint/shared';
-import type { BriefingQuery, PlacesQuery } from './plan.service';
+import { CONTENT_TYPE_ID, PLAN_NEAR_KIND, type PlanNearKind } from '@tourlint/shared';
+import type { BriefingQuery, PlaceDetailQuery, PlacesQuery } from './plan.service';
 
 /**
  * 기획 조회 질의 읽기 (API 4-10).
@@ -63,6 +63,22 @@ export function readPlacesQuery(raw: RawPlacesQuery): PlacesQuery {
     indoor: raw.indoor === '1',
     page: readPage(raw.page),
   };
+}
+
+export interface RawPlaceDetailQuery {
+  contentId?: string;
+  contentTypeId?: string;
+}
+
+/** 카드 「자세히」 조회 — contentId 와 지원 유형(contentTypeId)이 있어야 한다 */
+export function readPlaceDetailQuery(raw: RawPlaceDetailQuery): PlaceDetailQuery {
+  const contentId = (raw.contentId ?? '').trim();
+  if (contentId === '') throw new BadRequestException('contentId 가 필요합니다.');
+  const contentTypeId = Number(raw.contentTypeId);
+  if (!Number.isInteger(contentTypeId) || !(CONTENT_TYPE_ID as readonly number[]).includes(contentTypeId)) {
+    throw new BadRequestException(`contentTypeId 는 ${CONTENT_TYPE_ID.join(' · ')} 중 하나여야 합니다.`);
+  }
+  return { contentId, contentTypeId };
 }
 
 /** 지역만 받는 조회(걷기 길) */
