@@ -155,6 +155,19 @@ export class ProductService {
     const state = await this.repo.handoffState(accountId, productId);
     if (state === null) throw notFound(productId);
 
+    // 검수 시작 관문 — 박수↔일정 완성도를 여기서 본다 (EX-IN-005 개정: 저장이 아니라 검수 시작이 검사).
+    // 기획 중에는 빈 일차를 허용하지만, 검수는 모든 일차에 일정이 있어야 시작한다.
+    const missingDays = Array.from({ length: state.nights + 1 }, (_, i) => i + 1)
+      .filter((d) => !state.daysWithItems.includes(d));
+    if (missingDays.length > 0) {
+      throw new DomainException(
+        HttpStatus.UNPROCESSABLE_ENTITY, 'DAY_COUNT_MISMATCH',
+        `아직 일정이 없는 일차가 있습니다 (${missingDays.join(' · ')}일차). 모든 일차에 일정을 넣어야 검수를 시작할 수 있습니다.`,
+        'PRODUCT',
+        [{ field: 'missingDays', message: missingDays.join(',') }],
+      );
+    }
+
     if (state.pendingIds.length > 0 && !excludePending) {
       throw new DomainException(
         HttpStatus.UNPROCESSABLE_ENTITY, 'PLACE_UNRESOLVED',

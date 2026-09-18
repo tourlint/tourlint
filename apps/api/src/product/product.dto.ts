@@ -270,28 +270,27 @@ export function validateUpdate(dto: UpdateProductDto): { errors: string[]; updat
 }
 
 /**
- * 일정 검증. 박수와 일수(=박수+1)가 맞아야 하고 빈 일차가 없어야 한다 (EX-IN-005 · 빈 상품 생성 금지).
+ * 일정 검증 (기획 중 저장 · EX-IN-005 개정). 저장 시점에는 빈 일차 · 빈 일정을 허용한다 —
+ * 상품을 기획 중으로 일찍 만들고 항목을 이어서 채우기 때문이다(빈 상품 즉시 생성). **박수↔일정
+ * 완성도(빈 일차 없음)는 검수 시작(handoff)이 검사한다** — 저장이 아니라 그 시점의 관문이다.
+ * 여기서는 있는 항목만 검증하고, 박수 범위를 넘는 일차의 항목은 거부한다(데이터 정합).
  */
 function validateDays(rawDays: unknown, nights: number, errors: string[]): ValidItem[] {
   const items: ValidItem[] = [];
-  if (!Array.isArray(rawDays)) {
-    errors.push('일정을 입력하세요.');
-    return items;
-  }
+  if (!Array.isArray(rawDays)) return items; // 빈 초안 — 일정 없이 기획 중으로 저장
 
   const expectedDays = Number.isInteger(nights) && nights >= 0 ? nights + 1 : rawDays.length;
-  if (rawDays.length !== expectedDays) {
-    errors.push(`일정은 ${expectedDays}일치여야 합니다 (박수 ${nights}).`);
-  }
 
   rawDays.forEach((rawDay, index) => {
     const dayNo = index + 1;
     const day = (rawDay ?? {}) as CreateDayDto;
     const rawItems = Array.isArray(day.items) ? day.items : [];
-    if (rawItems.length === 0) {
-      errors.push(`${dayNo}일차 일정을 1개 이상 입력하세요.`);
+    // 박수 범위를 넘는 일차에 항목이 있으면 거부한다 (예: 2박 3일에 4일차)
+    if (dayNo > expectedDays) {
+      if (rawItems.length > 0) errors.push(`${dayNo}일차는 박수(${nights}) 범위를 벗어납니다.`);
       return;
     }
+    // 빈 일차는 그냥 건너뛴다 — 검수 시작에서 완성도를 본다
     rawItems.forEach((rawItem, itemIndex) => {
       const item = (rawItem ?? {}) as CreateItemDto;
       const seq = itemIndex + 1;

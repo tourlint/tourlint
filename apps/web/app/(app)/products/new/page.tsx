@@ -6,12 +6,13 @@
 // 등록 방식 3종(직접 입력 · 엑셀/CSV · 자연어)이 다 열려 있다 (UI-S2-001).
 // 어느 쪽으로 들어와도 결과는 같은 폼 상태로 모이고 저장 전에 여기서 편집한다 (UI-S2-010).
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Field, Section, Segmented, SelectInput, TextInput } from "./controls";
 import { RegionSelect } from "./region-select";
 import { ScheduleEditor } from "./schedule-editor";
+import { RegisterPlacePicker } from "./register-place-picker";
 import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
 import {
@@ -20,8 +21,10 @@ import {
   dayCount,
   type Nights,
   type Schedule,
+  type ScheduleItem,
   type Transport,
 } from "./types";
+import type { PlanPlace } from "../../../lib/api";
 import {
   CONCEPT_KEY,
   CONCEPT_LABEL,
@@ -65,6 +68,10 @@ export default function ProductNewPage() {
 
   // "자주 넣는 곳" 칩에서 고른 종류. 생성 후 기획 화면의 장소 담기를 이 종류로 연다 (UI-S2-030)
   const [openType, setOpenType] = useState<string | null>(null);
+
+  // 오른쪽 장소 담기의 "근처 3km" 기준이 되는 일정 줄(고른 줄). 일정 편집기의 체크로 고른다.
+  // 좌표가 있는(관광지를 고른) 줄만 기준이 될 수 있다 — id 로만 들고, 좌표는 렌더 때 찾는다.
+  const [anchorId, setAnchorId] = useState<string | null>(null);
 
   // 레이더 "이 지역으로 새 상품 기획"에서 넘어오면 지역을 미리 채우고 기획 출처를 남긴다 (FR-PL-001)
   const [planOrigin, setPlanOrigin] = useState<PlanOrigin | null>(null);
@@ -147,6 +154,38 @@ export default function ProductNewPage() {
     [name, region, startDate, nights, schedule],
   );
 
+  // 고른 줄(체크한 일정)의 좌표. 관광지를 골라 좌표가 있는 줄만 근처 3km 기준이 된다.
+  // 스케줄은 작아 매 렌더 훑어도 부담이 없다 — 오른쪽 picker 는 anchor.contentId 로만 다시 부른다.
+  const anchorRow = schedule.flat().find(
+    (it) => it.id === anchorId && it.content?.mapx != null && it.content?.mapy != null && it.content.contentId,
+  );
+  const anchor = anchorRow?.content
+    ? { contentId: anchorRow.content.contentId, mapx: anchorRow.content.mapx as number, mapy: anchorRow.content.mapy as number, label: anchorRow.place || "고른 장소" }
+    : null;
+
+  // 장소 담기에서 고른 곳을 폼 일정에 끼운다. 저장 전이라 상품 없이 폼 상태만 바꾼다.
+  // dayIdx = 0 기반 일차, insertAt = 그 날 항목 배열에 끼울 위치(0 = 맨 앞, 길이 = 맨 뒤).
+  const insertSeq = useRef(0);
+  function handleInsert(p: PlanPlace, dayIdx: number, insertAt: number, itemType: ScheduleItem["itemType"]) {
+    insertSeq.current += 1;
+    const item: ScheduleItem = {
+      id: `pk-${insertSeq.current}`,
+      start: "",
+      end: "",
+      place: p.title,
+      itemType,
+      content: { contentId: p.contentId, contentTypeId: p.contentTypeId, mapx: p.mapx, mapy: p.mapy, lcls1: p.lcls1, lcls2: p.lcls2, lcls3: null },
+    };
+    setSchedule((prev) =>
+      prev.map((items, i) => {
+        if (i !== dayIdx) return items;
+        const next = [...items];
+        next.splice(Math.max(0, Math.min(insertAt, next.length)), 0, item);
+        return next;
+      }),
+    );
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitted(true);
@@ -168,8 +207,7 @@ export default function ProductNewPage() {
       }
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
-      // 저장 후 기획 화면으로 — 거기서 장소를 고르고 검수로 넘어간다 (FR-PL-004).
-      // "자주 넣는 곳" 칩을 골랐으면 그 종류로 장소 담기가 열리도록 openType 을 실어 보낸다 (UI-S2-030)
+      // 저장 후 기획 화면으로 — 거기서 이어서 장소를 고르고 검수로 넘어간다 (FR-PL-004)
       const suffix = openType !== null ? `?openType=${encodeURIComponent(openType)}` : "";
       router.push(created.productId != null ? `/products/${created.productId}/plan${suffix}` : "/");
     } catch {
@@ -193,12 +231,16 @@ export default function ProductNewPage() {
         여행 일정을 입력하면 관광정보로 검수할 수 있습니다.
       </p>
 
+      {/* 왼쪽 등록 폼 · 오른쪽 장소 담기 2단 (UI-S2-036). 좁은 화면에선 세로로 쌓인다.
+          장소 담기는 저장 전에도 지역만 있으면 그 지역의 장소를 보여 준다 — 폼은 그대로 둔다. */}
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[1fr_24rem]">
+        <div className="min-w-0">
       {/* 등록 방식 선택 (UI-S2-001). 자연어 붙여넣기는 후속 단계. */}
-      <div className="mt-6">
+      <div className="mt-0">
         <Segmented value={method} options={METHODS} onChange={setMethod} ariaLabel="등록 방식" />
         {method === "direct" && (
           <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-            엑셀·CSV 업로드나 자연어 붙여넣기로 일정을 한 번에 채울 수도 있습니다. 어느 쪽이든 저장 전에 여기서 편집합니다.
+            일정은 비워 두고 저장해도 됩니다 — 다음 기획 화면에서 장소 담기로 채울 수 있어요. 엑셀·CSV 업로드나 자연어 붙여넣기로 한 번에 채울 수도 있습니다.
           </p>
         )}
       </div>
@@ -279,7 +321,16 @@ export default function ProductNewPage() {
 
         {/* C. 일정 — 직접 입력이면 편집기, 업로드·자연어면 각자의 입구. 결과는 셋 다 같은 폼 상태로 들어온다 */}
         {method === "direct" && (
-          <ScheduleEditor nights={nights} schedule={schedule} onChange={setSchedule} />
+          <ScheduleEditor
+            nights={nights}
+            schedule={schedule}
+            onChange={setSchedule}
+            regnCd={region.regnCode}
+            signguCd={region.signguCode || null}
+            regionLabel={region.signguName || region.regnName || "이 지역"}
+            anchorId={anchorId}
+            onAnchorChange={setAnchorId}
+          />
         )}
         {method === "upload" && (
           <UploadPanel onApplied={applyUpload} onEdit={() => setMethod("direct")} />
@@ -322,6 +373,23 @@ export default function ProductNewPage() {
           </button>
         </div>
       </form>
+        </div>
+
+        {/* 오른쪽 장소 담기 — 지역이 없으면 기본 템플릿, 지역을 넣으면 그 지역 장소로 채운다 */}
+        <aside className="lg:sticky lg:top-4">
+          <RegisterPlacePicker
+            regnCd={region.regnCode}
+            signguCd={region.signguCode || null}
+            startDate={startDate}
+            nights={nights}
+            regionLabel={region.signguName || region.regnName || "이 지역"}
+            openType={openType}
+            anchor={anchor}
+            schedule={schedule}
+            onInsert={handleInsert}
+          />
+        </aside>
+      </div>
     </>
   );
 }
@@ -378,15 +446,13 @@ interface FormState {
   schedule: Schedule;
 }
 
-// UI-S2-012 — 박수와 일자별 일정 수가 불일치하면(빈 일차가 있으면) 저장을 막는다.
+// 기본정보만 있으면 기획 중으로 저장한다 (EX-IN-005 개정 · #519). 일정은 비워 두고 저장해
+// 다음 기획 화면에서 장소 담기로 채울 수 있다. 박수↔일정 완성도는 검수 시작에서 본다.
 function validate(f: FormState): string[] {
   const errs: string[] = [];
   if (!f.name.trim()) errs.push("상품명을 입력하세요.");
   if (!f.region.regnCode) errs.push("여행 지역(시도)을 선택하세요.");
   if (!f.startDate) errs.push("출발일을 선택하세요.");
-  for (let d = 0; d < dayCount(f.nights); d++) {
-    if ((f.schedule[d]?.length ?? 0) === 0) errs.push(`${d + 1}일차 일정을 1개 이상 입력하세요.`);
-  }
   return errs;
 }
 
@@ -418,6 +484,8 @@ function buildPayload(
         end: it.end || null,
         place: it.place.trim(),
         itemType: it.itemType,
+        // 입력하는 순간 고른 관광지가 있으면 저장 시 CONFIRMED 로 (UI-S2-020 · create content 계약)
+        ...(it.content ? { content: it.content } : {}),
       })),
     })),
   };
