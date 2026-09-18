@@ -2,6 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Client } from 'pg';
 import { Public } from '../auth/public.decorator';
+import { signupMailConfig } from '../auth/signup-email.sender';
 
 /**
  * `/health` — 애플리케이션 · DB · 설정 상태 확인 (NF-AV-004).
@@ -123,7 +124,7 @@ export class HealthController {
         kakaoRestApiKey: kakaoKey,
         kmaServiceKey: kmaKey,
         llmApiKey: llmKey,
-        signupEmail: hasValue(process.env.RESEND_API_KEY) && hasValue(process.env.AUTH_EMAIL_FROM) ? 'ok' : 'missing',
+        signupEmail: signupMailConfig() !== null ? 'ok' : 'missing',
       },
       // 배포본이 최신인지 대조하는 값. `git rev-parse --short HEAD` 와 비교한다
       commit: buildCommit(),

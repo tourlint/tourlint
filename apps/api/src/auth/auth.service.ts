@@ -15,7 +15,7 @@ export interface AuthedSession {
   expiresAt: Date;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
 const PASSWORD_MIN = 8;
 
 /**

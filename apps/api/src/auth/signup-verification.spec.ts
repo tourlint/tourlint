@@ -217,7 +217,7 @@ describe.skipIf(!URL)('이메일 인증 가입 — HTTP · 실제 DB', () => {
     expect((await post('login', { email, password })).status).toBe(401);
   });
   it('잘못된 이메일·과도한 비밀번호 거부', async () => {
-    for (const address of ['invalid', 'a'.repeat(255) + '@example.test', {}]) {
+    for (const address of ['invalid', 'a,b@example.test', 'a'.repeat(255) + '@example.test', {}]) {
       expect((await post('signup-code', { email: address })).status).toBe(400);
     }
     expect((await post('signup', { email, password: 'x'.repeat(129) })).status).toBe(400);

@@ -49,7 +49,7 @@ export default function LoginPage() {
 
   async function sendCode() {
     if (busy) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.trim().length > 254) {
+    if (!/^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/.test(email.trim()) || email.trim().length > 254) {
       setError("이메일 주소를 확인해 주세요.");
       return;
     }
