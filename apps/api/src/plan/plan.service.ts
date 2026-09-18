@@ -19,7 +19,7 @@ import {
 import { DomainException } from '../common/domain.exception';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import type { BudgetDecision } from '../external/budget-guard';
-import { isKtoError, type KtoClient, type KtoListPage } from '../external/kto';
+import { isKtoError, KtoFetchError, type KtoClient, type KtoListPage } from '../external/kto';
 import { PlanCache } from './plan-cache';
 import { factFields } from './place-facts.service';
 import { isCourseInRegion, toWalk } from './plan-region';
@@ -96,7 +96,7 @@ export interface PlaceDetailResult {
 
 /** 시군구 목록 한 번에 받는 행 수. 칩의 `totalCount` 와 같은 조회다 */
 export const PLAN_LIST_ROWS = 100;
-/** 근처 3km 는 한 번에 다 받는다 — 강릉 3km 음식점이 185건이었다 (2026.09.15 실호출) */
+/** 근처 3km 원본의 페이지 크기 — 강릉 3km 음식점이 185건이었다 (2026.09.15 실호출) */
 export const PLAN_NEAR_ROWS = 1000;
 /** 가까운 순 정렬용 반경 (API 4-10) */
 export const PLAN_SORT_NEAR_RADIUS_M = 20_000;
@@ -167,8 +167,8 @@ export class PlanService {
   /**
    * 장소 목록 (FR-PL-010 · 011).
    *
-   * 시군구 전체는 칩과 **같은 조건**의 목록 1콜이라 칩 숫자와 목록 수가 맞는다. 근처 3km 는
-   * 앵커 기준 1콜을 종류로 거른 것이고, 앵커가 없으면 부르지 않는다.
+   * 시군구 전체는 칩과 **같은 조건**의 전체 원본 목록을 페이지 조회한다. 근처 3km 는
+   * 앵커 기준 전체 목록을 종류로 거른 것이고, 앵커가 없으면 부르지 않는다.
    */
   async places(query: PlacesQuery): Promise<PlacesResult> {
     if (query.scope === 'NEAR3KM') return this.nearPlaces(query);
@@ -252,12 +252,12 @@ export class PlanService {
     }
     const region = await this.regionOf(query);
     const page = await this.cache.getOrLoad(`list:${regionKey(query)}:${lcls2}`, async () =>
-      this.kto().areaBasedList({
+      this.allPlacePages('areaBasedList2', (pageNo) => this.kto().areaBasedList({
         ...ldongParams(query),
         lclsSystm2: lcls2,
         numOfRows: PLAN_LIST_ROWS,
-        pageNo: 1,
-      }));
+        pageNo,
+      })));
 
     const [accessible, pet] = await Promise.all([
       this.contentIdSet(query, 'WITH'),
@@ -277,7 +277,7 @@ export class PlanService {
 
     const filtered = places.filter((p) => matchesFilters(p, query));
     return {
-      scope: { kind: query.sort === 'near' ? 'NEAR' : 'SIGNGU', label: scopeLabel(query, region) },
+      scope: { kind: query.sort === 'near' && query.anchor !== null ? 'NEAR' : 'SIGNGU', label: scopeLabel(query, region) },
       totalCount: filtered.length,
       items: pageOf(filtered, query.page),
       disabled: null,
@@ -386,14 +386,14 @@ export class PlanService {
 
     const lcls1 = PLAN_NEAR_KIND[nearKind].lcls1;
     const page = await this.cache.getOrLoad(`near:${anchorKey(query.anchor)}:${lcls1}`, async () =>
-      this.kto().locationBasedList({
+      this.allPlacePages('locationBasedList2', (pageNo) => this.kto().locationBasedList({
         mapX: query.anchor?.mapx ?? 0,
         mapY: query.anchor?.mapy ?? 0,
         radius: PLAN_NEAR_RADIUS_M,
         lclsSystm1: lcls1,
         numOfRows: PLAN_NEAR_ROWS,
-        pageNo: 1,
-      }));
+        pageNo,
+      })));
 
     const [accessible, pet] = await Promise.all([
       this.contentIdSet(query, 'WITH'),
@@ -417,6 +417,27 @@ export class PlanService {
   }
 
   // ── 조회 조각 ───────────────────────────────────────────────────
+
+  /** 전체 원본을 받은 뒤 정렬·필터·화면 페이징한다. 부분 결과는 캐시하지 않는다. */
+  private async allPlacePages(
+    operation: 'areaBasedList2' | 'locationBasedList2',
+    load: (pageNo: number) => Promise<KtoListPage>,
+  ): Promise<KtoListPage> {
+    const first = await load(1);
+    const items = new Map(first.items.map((item) => [String(item.contentid), item]));
+    let received = first.items.length;
+    for (let pageNo = 2; first.totalCount !== null && received < first.totalCount; pageNo++) {
+      await this.assertKorBudget();
+      const last = await load(pageNo);
+      const before = items.size;
+      for (const item of last.items) items.set(String(item.contentid), item);
+      if (last.items.length === 0 || items.size === before) {
+        throw new KtoFetchError(operation, '장소 목록의 다음 페이지를 받지 못했습니다. 다시 시도해 주세요.');
+      }
+      received += last.items.length;
+    }
+    return { ...first, items: [...items.values()] };
+  }
 
   /** 중분류 등록 수 — 목록과 같은 조건으로 `numOfRows=1` 1콜 (D6) */
   private async countOf(region: PlanRegion, lcls2: string): Promise<number | null> {
@@ -671,7 +692,7 @@ function pageOf(places: readonly PlanPlace[], page: number): readonly PlanPlace[
 }
 
 function scopeLabel(query: PlacesQuery, region: { name: string }): string {
-  if (query.sort === 'near') return '고른 줄 반경 20km';
+  if (query.sort === 'near' && query.anchor !== null) return '시군구 전체 · 고른 줄에서 가까운 순';
   return region.name === '' ? '전체' : `${region.name} 전체`;
 }
 

@@ -14,11 +14,11 @@ import {
   type PlanBriefing,
   type PlanEvent,
   type PlanPlace,
-  type PlanPlaces,
   type PlanWalk,
   type ProductDetail,
 } from "../../../../lib/api";
 import { isInserted, pickerReducer, pickerStateWith, type NearKind } from "./picker-state";
+import { PlaceResults } from "../../place-results";
 import { PlaceDetailView } from "../../place-detail-view";
 
 const NEAR_KINDS: { kind: NearKind; label: string; itemType: string }[] = [
@@ -37,8 +37,6 @@ export function PlacePicker({ product, onInserted, openType = null }: { product:
   // "자주 넣는 곳" 칩에서 넘어오면 그 종류를 골라 둔 채로 연다 (UI-S2-030)
   const [state, dispatch] = useReducer(pickerReducer, openType, pickerStateWith);
   const [briefing, setBriefing] = useState<PlanBriefing | null>(null);
-  const [places, setPlaces] = useState<PlanPlaces | null>(null);
-  const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [day, setDay] = useState(1);
   const [err, setErr] = useState<string | null>(null);
 
@@ -60,34 +58,14 @@ export function PlacePicker({ product, onInserted, openType = null }: { product:
     };
   }, [product.ldongRegnCd, product.ldongSignguCd, product.startDate, product.nights]);
 
-  // 종류 · 근처 3km · 정렬 · 필터가 바뀌면 목록을 다시 읽는다
-  useEffect(() => {
-    const { lcls2, nearKind, sort, filters } = state;
-    // 아무것도 안 고르면 목록을 부르지 않는다 (렌더가 선택 여부로 가려 준다)
-    if (lcls2 === null && nearKind === null) return;
-    if (nearKind !== null && (anchor === null || anchor.mapx === null || anchor.mapy === null)) return;
-    let alive = true;
-    void (async () => {
-      setLoadingPlaces(true);
-      setErr(null);
-      try {
-        const res =
-          nearKind !== null && anchor !== null && anchor.mapx !== null && anchor.mapy !== null
-            ? await planApi.places({ regnCd: product.ldongRegnCd, signguCd: product.ldongSignguCd, scope: "NEAR3KM", nearKind, anchor: { mapx: anchor.mapx, mapy: anchor.mapy }, wheelchair: filters.wheelchair, pet: filters.pet, indoor: filters.indoor })
-            : await planApi.places({ regnCd: product.ldongRegnCd, signguCd: product.ldongSignguCd, lcls2: lcls2 as string, sort, wheelchair: filters.wheelchair, pet: filters.pet, indoor: filters.indoor });
-        if (alive) setPlaces(res);
-      } catch (e) {
-        if (alive) setErr(isApiError(e) ? e.message : "장소를 불러오지 못했어요.");
-      } finally {
-        if (alive) setLoadingPlaces(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-    // anchor 객체가 아니라 id 로만 다시 부른다 (같은 앵커면 재조회 안 함)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.lcls2, state.nearKind, state.sort, state.filters, state.anchorItemId, product.ldongRegnCd, product.ldongSignguCd]);
+  const placeQuery = (state.lcls2 === null && state.nearKind === null) || (state.nearKind !== null && anchor === null) ? null : {
+    regnCd: product.ldongRegnCd, signguCd: product.ldongSignguCd,
+    ...(state.nearKind !== null
+      ? { scope: "NEAR3KM" as const, nearKind: state.nearKind }
+      : { lcls2: state.lcls2 as string, sort: state.sort }),
+    ...(anchor && anchor.mapx !== null && anchor.mapy !== null ? { anchor: { mapx: anchor.mapx, mapy: anchor.mapy }, anchorContentId: anchor.ktoContentId ?? undefined } : {}),
+    wheelchair: state.filters.wheelchair, pet: state.filters.pet, indoor: state.filters.indoor,
+  };
 
   async function insert(p: PlanPlace, itemType: string) {
     setErr(null);
@@ -185,7 +163,7 @@ export function PlacePicker({ product, onInserted, openType = null }: { product:
       {(state.lcls2 !== null || state.nearKind !== null) && (
         <div className="mt-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-400">{places?.scope.label ?? ""} {places !== null && `${places.totalCount}곳`}</p>
+
             {state.nearKind === null && (
               <div className="flex gap-1 text-xs">
                 {(["near", "together"] as const).map((s) => (
@@ -198,18 +176,12 @@ export function PlacePicker({ product, onInserted, openType = null }: { product:
             )}
           </div>
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
-          {loadingPlaces ? (
-            <p className="mt-3 text-sm text-slate-400">불러오는 중…</p>
-          ) : places === null || places.items.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-400">{places?.notice ?? "이 종류의 장소가 없어요."}</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {places.items.map((p) => (
+          <PlaceResults query={placeQuery}>
+            {(p) => (
                 <PlaceCard key={p.contentId} place={p} expanded={state.expandedId === p.contentId} inserted={isInserted(state, p.contentId)}
                   onToggle={() => dispatch({ type: "TOGGLE_EXPAND", contentId: p.contentId })} onInsert={() => void insert(p, nearItemType)} />
-              ))}
-            </ul>
-          )}
+            )}
+          </PlaceResults>
         </div>
       )}
 
