@@ -1,0 +1,38 @@
+.plan-day { min-width: 0; }
+.plan-day > p { font-size: .875rem; font-weight: 600; color: var(--ws-muted, #617870); padding: 0 0 .65rem; }
+.plan-timeline { display: grid; gap: .85rem; }
+.plan-stop { background: white; border: 1px solid #e0e9e5; border-radius: 16px; padding: 1.25rem; box-shadow: 0 2px 5px #203e3203; }
+.plan-stop-header { display: flex; align-items: center; gap: .85rem; }
+.plan-stop-number { display: grid; place-items: center; flex: 0 0 38px; height: 38px; border-radius: 12px; background: #edf5f1; color: #287361; font-size: .85rem; font-weight: 700; }
+.plan-stop-heading { min-width: 0; flex: 1; }
+.plan-stop-heading h3 { font-size: 1rem; font-weight: 700; color: #243c34; overflow-wrap: anywhere; }
+.plan-stop-time { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; font-size: .8rem; font-weight: 600; color: #2c7766; margin-bottom: .25rem; font-variant-numeric: tabular-nums; }
+.plan-stop-time span { font-size: .7rem; font-weight: 400; color: #76877f; }
+.plan-place-meta { display: flex; flex-wrap: wrap; gap: .4rem; margin: .9rem 0 .65rem; font-size: .7rem; color: #647b71; }
+.plan-place-meta span { background: #f2f6f4; padding: .2rem .5rem; border-radius: 5px; }
+.plan-facts-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: .65rem; }
+.plan-facts-grid > div { background: #f7f9f8; padding: .8rem .9rem; border-radius: 10px; min-width: 0; }
+.plan-facts-grid dt { font-size: .7rem; font-weight: 600; color: #75877e; margin-bottom: .3rem; }
+.plan-facts-grid dd { font-size: .8rem; line-height: 1.7; color: #344a41; white-space: pre-line; overflow-wrap: anywhere; }
+.plan-facts-wide { grid-column: 1 / -1; }
+.plan-extra-facts { margin-top: .7rem; color: #687c72; font-size: .75rem; }
+.plan-extra-facts summary { cursor: pointer; padding: .3rem 0; }
+.plan-extra-facts[open] summary { margin-bottom: .5rem; }
+.plan-transfer { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .15rem 1.25rem 1rem; color: #5e766b; font-size: .75rem; }
+.plan-transfer > span:first-child { color: #8ba89a; font-size: 1rem; }
+.plan-transfer-note { color: #82948a; font-size: .65rem; }
+@media (max-width: 600px) {
+  .plan-stop { padding: 1rem; }
+  .plan-facts-grid { grid-template-columns: minmax(0,1fr); }
+  .plan-stop-header { align-items: flex-start; gap: .6rem; }
+  .plan-stop-number { flex-basis: 30px; height: 32px; border-radius: 9px; }
+  .plan-stop-heading h3 { font-size: .9rem; }
+}
+@media (prefers-color-scheme: dark) {
+  .plan-stop { background: #15221d; border-color: #2a3c32; }
+  .plan-stop-heading h3, .plan-facts-grid dd { color: #d9e7df; }
+  .plan-stop-number, .plan-place-meta span { background: #213c31; color: #a7d5c0; }
+  .plan-facts-grid > div { background: #1a2b22; }
+  .plan-stop-time { color: #91ccb5; }
+  .plan-transfer, .plan-day > p { color: #a4bcb0; }
+}

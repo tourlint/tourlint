@@ -12,6 +12,7 @@ import {
   type TargetProfileLookup,
 } from './audit-runner';
 import { FixtureKmaTransport, KmaClient } from '../external/kma';
+import { FixtureKakaoTransport, KakaoMobilityClient } from '../external/kakao';
 import { RULESET_VERSION } from './rule-registry';
 
 /**
@@ -773,5 +774,30 @@ describe('외부 조회 상한을 굶는 finding 에 먼저 준다 (NF-PF-014)',
     expect((r01?.patches ?? []).map((p) => p.type)).toContain('TIME_SHIFT');
     // R10 은 외부 조회뿐이다. 상한 한 콜은 이쪽이 써야 한다
     expect((r10?.patches ?? []).length, 'R10 이 수정안 없이 남았다').toBeGreaterThan(0);
+  });
+});
+
+
+describe('이동 조회 → 겹침 수정안 관통 (#554)', () => {
+  it('조회된 이동 분이 R08과 R03 수정안 모두에 전달된다', async () => {
+    const r = new AuditRunner({
+      kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV), clock,
+      kakao: new KakaoMobilityClient({
+        transport: new FixtureKakaoTransport(join(__dirname, '../../../../fixtures/kakao')),
+        logger: new InMemoryApiCallLogger(),
+      }),
+    });
+    const result = await r.run({ ...product, startDate: '2026-11-12', nights: 0 }, [
+      item({ id: 501, dayNo: 1, seq: 1, startTime: '10:00', endTime: '11:30',
+        placeLabel: '경포대', ktoContentId: '125790', contentTypeId: 12, mapX: 128.89648, mapY: 37.79551 }),
+      item({ id: 502, dayNo: 1, seq: 2, startTime: '11:00', endTime: '12:30',
+        placeLabel: '오죽헌', ktoContentId: '129784', contentTypeId: 14, mapX: 128.87966, mapY: 37.77913 }),
+    ]);
+    const travel = result.findings.find(f => f.ruleCode === 'R08');
+    expect(travel?.evidence).toMatchObject({neededMinutes: 6, shortfallMinutes: 36});
+    const overlap = result.findings.find(f => f.ruleCode === 'R03');
+    expect(overlap?.patches?.map(p => p.payload)).toEqual([
+      {newStartTime: '12:00', newEndTime: '13:30'}, {newEndTime: '10:54'},
+    ]);
   });
 });

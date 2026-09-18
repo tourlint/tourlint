@@ -7,6 +7,7 @@ import { pointOf, straightMeters } from '../engine/geo';
 import { toMinutes } from '../engine/normalize/primitives';
 import type { TimeOfDay } from '../engine/normalize/types';
 import type { AuditItem, Finding } from '../engine/rules/types';
+import { segmentKey, type TravelSegment } from '../engine/rules/r08-travel';
 import { patchId, type Patch } from './patch-types';
 
 /**
@@ -22,6 +23,7 @@ export interface LocalPatchInput {
   readonly finding: Finding;
   readonly items: readonly AuditItem[];
   readonly holidays: HolidayCalendar;
+  readonly travelTimes?: ReadonlyMap<string, TravelSegment>;
   /**
    * 중분류별 실내 · 야외 구분 (FR-OP-021). R09 순서 교체가 쓴다.
    *
@@ -53,7 +55,7 @@ export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
   switch (finding.ruleCode) {
     case 'R01': return r01(finding, target, items, input.holidays);
     case 'R02': return r02(finding, target);
-    case 'R03': return r03(finding, items);
+    case 'R03': return r03(finding, items, input.travelTimes);
     case 'R08': return r08(finding, items);
     default: return [];
   }
@@ -202,23 +204,33 @@ function r02(finding: Finding, target: AuditItem): readonly Patch[] {
  * 겹친 두 항목을 `evidence` 에서 꺼낸다. 어느 쪽을 고칠지는 사용자가 고르게 두고
  * 양쪽을 다 제시한다.
  */
-function r03(finding: Finding, items: readonly AuditItem[]): readonly Patch[] {
+function r03(
+  finding: Finding,
+  items: readonly AuditItem[],
+  travelTimes?: ReadonlyMap<string, TravelSegment>,
+): readonly Patch[] {
   const first = items.find((i) => i.id === finding.targetItemId);
   const second = items.find((i) => i.id === finding.targetItemId2);
   if (first === undefined || second === undefined || first.endTime === null || second.endTime === null) return [];
+  const overlap = toMinutes(first.endTime) - toMinutes(second.startTime);
+  if (overlap <= 0) return [];
 
+  // 러너가 이미 조회한 연속 구간만 사용한다. 미조회 구간의 소요시간은 지어내지 않는다.
+  const segment = travelTimes?.get(segmentKey(first.id, second.id));
+  const travel = segment?.ok ? Math.ceil(segment.durationSeconds / 60) : 0;
+  const shift = travel > 0 ? roundedShift(second.startTime, overlap + travel) : overlap;
   const out: Patch[] = [];
-  const shift = toMinutes(first.endTime) - toMinutes(second.startTime);
-  if (shift > 0) {
-    // ① 뒤 일정을 겹친 만큼 미룬다
+  if (toMinutes(second.endTime) + shift < 24 * 60) {
     out.push({
       patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: second.id,
-      payload: { newStartTime: first.endTime, newEndTime: addMinutes(second.endTime, shift) },
+      payload: { newStartTime: addMinutes(second.startTime, shift), newEndTime: addMinutes(second.endTime, shift) },
     });
-    // ② 앞 일정을 뒤 일정 시작까지로 줄인다
+  }
+  const shortenedEnd = toMinutes(second.startTime) - travel;
+  if (shortenedEnd > toMinutes(first.startTime)) {
     out.push({
       patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: first.id,
-      payload: { newEndTime: second.startTime },
+      payload: { newEndTime: fromMinutes(shortenedEnd) },
     });
   }
   return out;
