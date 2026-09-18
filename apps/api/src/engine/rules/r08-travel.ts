@@ -16,7 +16,7 @@ import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
  * 대체해 제시하지 않는다.
  */
 
-export const R08_VERSION = '1.0.0';
+export const R08_VERSION = '1.1.0';
 
 /** 구간 하나의 이동 산출값. 러너가 채운다 */
 export type TravelSegment =
@@ -86,14 +86,10 @@ export class R08TravelTimeRule implements AuditRule {
       const allowed = allowedMinutes(from, to);
       if (allowed === null) continue;
 
-      /*
-       * 배정 시간이 음수면 두 일정이 겹친 것이다. 그건 R03 이 이미 지적한다.
-       * 여기서 또 내면 같은 결함으로 두 번 감점되고, 사용자는 문제가 둘인 줄 안다.
-       * 겹침을 먼저 풀어야 이동시간을 따질 수 있다.
-       */
-      if (allowed < 0) continue;
-
+      // 겹침과 이동은 별개다. 음수 간격도 포함해야 실제 도착에 필요한 지연을 알 수 있다.
       const needed = Math.ceil(segment.durationSeconds / 60);
+      // 같은 위치로 이동이 없는 구간의 시간 겹침은 R03만 지적한다.
+      if (needed === 0) continue;
       const shortfall = needed - (allowed + RULE_CONSTANTS.R08_TRAVEL_BUFFER_MINUTES);
       if (shortfall <= 0) continue;
 
@@ -106,7 +102,9 @@ export class R08TravelTimeRule implements AuditRule {
         targetItemId2: to.id,
         message:
           `${from.placeLabel} → ${to.placeLabel} 이동에 약 ${needed}분이 걸리는데 ` +
-          `배정된 시간은 ${allowed}분입니다. ${shortfall}분이 모자랍니다.` +
+          (allowed < 0
+            ? `일정이 ${-allowed}분 겹쳐 이동할 시간이 없습니다. 겹침 해소와 이동을 위해 ${shortfall}분이 더 필요합니다.`
+            : `배정된 시간은 ${allowed}분입니다. ${shortfall}분이 모자랍니다.`) +
           (segment.futureBased ? '' : ' (현재 시각 기준으로 산출한 값입니다)'),
         evidence: {
           allowedMinutes: allowed,

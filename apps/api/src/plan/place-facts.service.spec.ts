@@ -154,8 +154,8 @@ describe.skipIf(URL === undefined)('PlaceFactsService — 실 DB', () => {
     await addItem({ dayNo: 1, seq: 3, contentId: '129784', contentTypeId: 14, mapx: null, mapy: null });
 
     const facts = await service({ withKakao: true }).factsOf(accountId, productId, null);
-    // 길찾기 픽스처는 296초다
-    expect(facts.map((f) => f.travelFromPrevMinutes)).toEqual([null, 5, null]);
+    // 미래 길찾기 픽스처 323초 → 검수와 같은 올림으로 6분.
+    expect(facts.map((f) => f.travelFromPrevMinutes)).toEqual([null, 6, null]);
   });
 
   it('🔴 앞 항목이 직접 정한 곳이면 시간을 적지 않는다', async () => {

@@ -24,7 +24,7 @@ export async function estimateTravelMinutes(options: {
 
   try {
     const route = await kakao.route(from, to, options.departureAt ?? null);
-    return Math.round(route.durationSeconds / 60);
+    return Math.ceil(route.durationSeconds / 60);
   } catch (e) {
     if (!isKakaoError(e)) throw e;
     return null;

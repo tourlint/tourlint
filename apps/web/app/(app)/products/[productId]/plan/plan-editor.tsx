@@ -96,7 +96,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">기획</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">{product.name}</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {regionLabel} · {product.startDate} · 장소를 고르면 이용시간과 쉬는 날을 볼 수 있어요.
           </p>
@@ -135,13 +135,14 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
 
           <div className="mt-6 space-y-6">
             {product.days.map((day) => (
-              <section key={day.day}>
+              <section key={day.day} className="plan-day">
                 <DaySummary day={day.day} items={day.items} />
-                <ul className="mt-2 space-y-2">
-                  {day.items.map((it) => (
+                <ul className="plan-timeline">
+                  {day.items.map((it, index) => (
                     <ItemRow
                       key={it.itemId}
                       item={it}
+                      position={index + 1}
                       facts={facts.get(it.itemId) ?? null}
                       regnCd={product.ldongRegnCd}
                       signguCd={product.ldongSignguCd}
@@ -166,6 +167,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
 
 function ItemRow({
   item,
+  position,
   facts,
   regnCd,
   signguCd,
@@ -173,6 +175,7 @@ function ItemRow({
   onResolved,
 }: {
   item: ProductItem;
+  position: number;
   facts: PlaceFacts | null;
   regnCd: string;
   signguCd: string | null;
@@ -182,17 +185,25 @@ function ItemRow({
   // 숙박은 끝 시간이 없다. 그 밖에 끝 시간을 비운 항목은 검수가 보통 머무는 시간으로 채운다.
   const endHint = item.matchStatus !== "EXCLUDED" && item.end === null && item.itemType !== "LODGING";
   return (
-    <li className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.place}</span>
-          <span className="ml-2 text-xs text-slate-400">
-            {item.start}
-            {item.end !== null ? `~${item.end}` : ""} · {ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}
-          </span>
+    <li className="plan-timeline-item">
+      {position > 1 && (
+        <div className="plan-transfer">
+          <span aria-hidden="true">↓</span>
+          {facts?.travelFromPrevMinutes != null
+            ? `앞 장소에서 차로 ${facts.travelFromPrevMinutes === 0 ? "1분 미만" : `약 ${facts.travelFromPrevMinutes}분`}`
+            : "이 구간의 이동시간은 직접 확인해 주세요"}
+          <span className="plan-transfer-note">예상 소요시간</span>
+        </div>
+      )}
+      <article className="plan-stop">
+      <header className="plan-stop-header">
+        <span className="plan-stop-number" aria-label={`${position}번째 장소`}>{String(position).padStart(2, "0")}</span>
+        <div className="plan-stop-heading">
+          <p className="plan-stop-time">{item.start}{item.end !== null ? ` – ${item.end}` : ""}<span>{ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}</span></p>
+          <h3>{item.place || "장소를 골라 주세요"}</h3>
         </div>
         <StatusTag status={item.matchStatus} />
-      </div>
+      </header>
       {item.matchStatus === "CONFIRMED" && facts !== null && <PlaceFactsLine facts={facts} />}
       {item.matchStatus === "EXCLUDED" && (
         <p className="mt-1 text-xs text-slate-400">이용시간 정보는 표시되지 않아요.</p>
@@ -201,6 +212,7 @@ function ItemRow({
       {item.matchStatus === "PENDING" && (
         <PlaceAutocomplete item={item} regnCd={regnCd} signguCd={signguCd} regionLabel={regionLabel} onResolved={onResolved} />
       )}
+      </article>
     </li>
   );
 }
