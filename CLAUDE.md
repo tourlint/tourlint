@@ -3,6 +3,10 @@
 코드 작업 전에 읽는다. 이슈·PR·커밋 규칙 전문은 [`.github/ISSUE_PR_PLAYBOOK.md`](.github/ISSUE_PR_PLAYBOOK.md),
 이 저장소에 맞춰 적용한 것은 [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).
 
+사용자가 지정한 공모전 참고 문서와 확인된 핵심 조건은
+[`docs/공모전_프로젝트메모리.md`](docs/공모전_프로젝트메모리.md)에 기록한다.
+공모전·제출·데이터 이용·출처 표기 관련 작업 전에 읽고, 변경 가능한 조건은 최신 공식 자료와 대조한다.
+
 ## 절대 하지 않는 것
 
 **커밋 트레일러를 넣지 않는다.**
