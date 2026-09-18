@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { isApiError, planApi, type PlanBriefing, type PlanPlace, type PlanPlaces } from "../../../lib/api";
+import { PlaceDetailView } from "../place-detail-view";
 import { dayCount, type Nights, type Schedule, type ScheduleItem } from "./types";
 
 type NearKind = "MEAL" | "CAFE" | "STAY";
@@ -309,13 +310,7 @@ function PlaceCard({
           <button type="button" onClick={onToggle} className="text-xs text-slate-400 hover:text-slate-600">{expanded ? "접기" : "자세히"}</button>
         </div>
       </div>
-      {expanded && (
-        <dl className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          {p.addr1 !== null && <div>{p.addr1}</div>}
-          {p.wheelchair === true && <div>무장애 편의 있음</div>}
-          {p.pet === true && <div>반려동물 동반 가능</div>}
-        </dl>
-      )}
+      {expanded && <PlaceDetailView place={p} />}
       {inserting && <InsertForm nights={nights} schedule={schedule} onConfirm={onInsert} />}
     </li>
   );
