@@ -36,6 +36,8 @@ import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } fr
 import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
 import { ruleName } from "../../../lib/rule-names";
 import { scoreSentence } from "../../../lib/score-sentence";
+import { WorkspaceIcon } from "../../../components/workspace-icon";
+import { FINDING_FILTERS, filterFindings, type FindingFilter } from "./finding-filter";
 import { CheckQuestionsCard } from "./check-questions-card";
 
 // 배지·건수·라벨은 공통 컴포넌트(components/badges)가 등급 토큰으로 그린다.
@@ -81,6 +83,13 @@ export function AuditResult({ productId }: { productId: number }) {
   const [undoBusy, setUndoBusy] = useState(false);
   const [undoMsg, setUndoMsg] = useState<string | null>(null);
   const alive = useRef(true);
+  const previewRegion = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (preview !== null) {
+      previewRegion.current?.scrollIntoView({ behavior: "instant", block: "start" });
+      previewRegion.current?.focus({ preventScroll: true });
+    }
+  }, [preview]);
 
   useEffect(() => {
     alive.current = true;
@@ -271,8 +280,8 @@ export function AuditResult({ productId }: { productId: number }) {
     : [];
 
   return (
-    <>
-      <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
+    <div className="audit-page">
+      <nav aria-label="현재 위치" className="mb-6 text-sm text-slate-500 dark:text-slate-400">
         <Link href="/review" className="hover:underline">
           검수
         </Link>
@@ -280,29 +289,30 @@ export function AuditResult({ productId }: { productId: number }) {
         <span className="text-slate-700 dark:text-slate-300">{product?.name ?? `상품 #${productId}`}</span>
       </nav>
 
-      <div className="flex items-start justify-between gap-4">
+      <div className="audit-heading">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">검수 결과</h1>
+          <p className="eyebrow">검수 결과</p>
+          <h1>{product?.name ?? "검수 결과"}</h1>
           {product && (
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {product.name} · {[product.region.regnName, product.region.signguName].filter(Boolean).join(" ")} ·{" "}
+              {[product.region.regnName, product.region.signguName].filter(Boolean).join(" ")} ·{" "}
               {product.startDate}
             </p>
           )}
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="audit-header-actions">
           <Link
             href={`/products/${productId}/edit`}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="button-secondary"
           >
-            편집
+            <WorkspaceIcon name="plan" width="16" height="16" /> 일정 편집
           </Link>
           {data && (
             <button
               type="button"
               onClick={runAudit}
               disabled={running || patchBusy !== null}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              className="button-primary disabled:opacity-60"
             >
               {running ? "검수 중…" : "지금 재검수"}
             </button>
@@ -338,8 +348,20 @@ export function AuditResult({ productId }: { productId: number }) {
             />
           )}
           {product && <LifecycleBar product={product} run={data.run} />}
-          <SummaryCard run={data.run} releasedAt={product?.releasedAt ?? null} />
-          <FindingsSection
+          <SummaryCard run={data.run} confirmationCount={data.unverified.length} />
+          <nav className="audit-section-nav" aria-label="검수 결과 바로 가기">
+            <a href="#audit-findings"><span>01</span> 문제와 수정안 <b>{data.findings.length}</b></a>
+            <a href="#audit-confirmations"><span>02</span> 직접 확인할 곳 <b>{data.unverified.length}</b></a>
+            <a href="#audit-release"><span>03</span> 출시 · 리포트 <WorkspaceIcon name="arrow" width="16" height="16" /></a>
+          </nav>
+          {running && <p role="status" className="audit-progress">{progress ?? "최신 정보로 다시 검수하고 있습니다…"}</p>}
+          {preview && (
+            <div ref={previewRegion} tabIndex={-1} className="audit-anchor" aria-label="수정안 미리보기">
+              <PatchPreviewPanel preview={preview} applying={patchBusy === "apply"} progress={progress}
+                onApply={doApply} onClose={() => setPreview(null)} />
+            </div>
+          )}
+          <FindingsSection key={data.run.auditRunId}
             findings={data.findings}
             itemLabel={labelOf}
             contentOf={contentOf}
@@ -350,15 +372,24 @@ export function AuditResult({ productId }: { productId: number }) {
           />
           <UnverifiedSection items={data.unverified} itemLabel={labelOf} onChanged={refresh} runId={data.run.auditRunId} />
 
-          {preview && (
-            <PatchPreviewPanel
-              preview={preview}
-              applying={patchBusy === "apply"}
-              progress={progress}
-              onApply={doApply}
-              onClose={() => setPreview(null)}
-            />
-          )}
+          <section id="audit-release" className="audit-tools audit-anchor">
+            <div className="audit-section-title"><span className="audit-step">03</span><div>
+              <h2>준비를 마쳤다면, 출시하기</h2>
+              <p>출시하면 출발일까지 바뀐 정보를 레이더에서 알려 드려요.</p>
+            </div></div>
+            <div className="audit-tool-grid">
+              <div><WorkspaceIcon name="check" /><h3>출시 승인</h3>
+                <p>{data.run.releasable ? "검수 결과와 직접 확인할 내용을 살펴본 뒤 출시를 결정하세요." : data.run.releaseBlockedReason ?? "검수를 완료하고 차단 항목을 해결해 주세요."}</p>
+                <ReleaseButton productId={productId} releasable={data.run.releasable && !running && patchBusy === null}
+                  blockedReason={data.run.releaseBlockedReason} releasedAt={product?.releasedAt ?? null} />
+              </div>
+              <div><WorkspaceIcon name="file" /><h3>검수 리포트</h3>
+                <p>최신 검수 결과와 판정 근거를 PDF로 확인하고 내려받으세요.</p>
+                <ReportButton key={data.run.auditRunId} runId={data.run.auditRunId} releasable={data.run.releasable && !running && patchBusy === null} />
+                {!data.run.releasable && <p className="audit-tool-note">출시 가능한 검수 결과가 준비되면 리포트를 만들 수 있어요.</p>}
+              </div>
+            </div>
+          </section>
         </div>
       )}
 
@@ -372,7 +403,7 @@ export function AuditResult({ productId }: { productId: number }) {
           onClear={() => resetPatchState()}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -540,7 +571,7 @@ function LifecycleBar({ product, run }: { product: ProductDetail; run: RunSummar
     { title: "레이더", text: released ? "바뀐 정보를 알려 드려요" : "출시하면 바뀐 정보를 알려 드려요" },
   ];
   return (
-    <div className="grid gap-2 sm:grid-cols-3">
+    <div className="audit-lifecycle grid gap-2 sm:grid-cols-3">
       {cells.map((c) => (
         <div key={c.title} className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-800">
           <p className="text-xs text-slate-400">{c.title}</p>
@@ -560,56 +591,33 @@ function companyBasisText(snapshot: RunSummary["settingSnapshot"]): string {
   return parts.join(" · ");
 }
 
-function SummaryCard({ run, releasedAt }: { run: RunSummary; releasedAt: string | null }) {
+export function SummaryCard({ run, confirmationCount }: { run: RunSummary; confirmationCount: number }) {
+  const status = run.isPartial ? "검수가 일부 완료됐어요" : run.releasable ? "출시할 수 있는 상품이에요" : "출시 전, 해결할 항목이 있어요";
   return (
-    <section className="rounded-2xl border border-slate-200 p-6 dark:border-slate-800">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">출시 준비도</p>
-          {run.isPartial ? (
-            <StatusBadge status="PARTIAL" className="mt-1" />
-          ) : (
-            <p className="mt-1 text-3xl font-bold text-slate-900 dark:text-slate-50">
-              {run.readinessScore ?? "-"}
-              <span className="ml-1 text-base font-normal text-slate-400">점</span>
-            </p>
-          )}
-          {!run.isPartial && run.readinessScore !== null && (
-            <p className="mt-1 text-xs text-slate-400">
-              {scoreSentence(run.counts, run.scoreBreakdown.weights as never)}
-            </p>
-          )}
+    <section className="audit-overview" aria-label="검수 결과 요약">
+      <div className="audit-overview-main">
+        <div className="audit-score">
+          <p>출시 준비도</p>
+          {run.isPartial ? <StatusBadge status="PARTIAL" /> : <div><strong>{run.readinessScore ?? "—"}</strong><span> / 100점</span></div>}
+          <span>검수 대상 {run.targetCount}곳</span>
         </div>
-        <GradeCounts counts={run.counts} variant="tile" />
+        <div className="audit-verdict">
+          <span className={`audit-verdict-label ${run.isPartial ? "is-partial" : run.releasable ? "is-ready" : "needs-work"}`}>
+            {run.isPartial ? "부분 검수" : run.releasable ? "출시 가능" : "출시 불가"}
+          </span>
+          <h2>{status}</h2>
+          <p>{run.isPartial ? `조회하지 못한 콘텐츠 ${run.failedCount}곳이 있어요. 다시 검수해 주세요.`
+            : run.releasable ? "남은 주의 사항과 직접 확인할 곳도 함께 살펴보세요."
+            : run.releaseBlockedReason ?? "아래 발견 항목에서 필요한 조치를 확인해 주세요."}</p>
+          <GradeCounts counts={run.counts} variant="tile" />
+        </div>
       </div>
-
-      {(companyBasisText(run.settingSnapshot) || run.counts.dismissed > 0) && (
-        <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-          {companyBasisText(run.settingSnapshot) && (
-            <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300">
-              회사 기준 {companyBasisText(run.settingSnapshot)}
-            </span>
-          )}
-          {run.counts.dismissed > 0 && <span>무시 {run.counts.dismissed}건 제외</span>}
-        </p>
-      )}
-
-      {!run.releasable && run.releaseBlockedReason && (
-        <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
-          출시 불가 — {run.releaseBlockedReason}
-        </p>
-      )}
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <ReleaseButton
-          productId={run.productId}
-          releasable={run.releasable}
-          blockedReason={run.releaseBlockedReason}
-          releasedAt={releasedAt}
-        />
-        <ReportButton runId={run.auditRunId} releasable={run.releasable} />
+      <div className="audit-summary-notes">
+        <p>{!run.isPartial && run.readinessScore !== null && scoreSentence(run.counts, run.scoreBreakdown.weights as never)}</p>
+        <p><a href="#audit-confirmations">직접 확인 필요 <strong>{confirmationCount}건</strong></a><span> · 확인 표시는 점수를 바꾸지 않아요.</span></p>
+        {companyBasisText(run.settingSnapshot) && <p>회사 기준: {companyBasisText(run.settingSnapshot)}</p>}
+        {run.counts.dismissed > 0 && <p>무시 {run.counts.dismissed}건은 감점에서 제외됐어요.</p>}
       </div>
-
       <AuditBasis rows={basisRows(run.evidence)} notice={run.evidence.delayNotice} source={run.evidence.source} />
     </section>
   );
@@ -632,16 +640,21 @@ function FindingsSection({
   onChanged: () => Promise<void>;
   busy: boolean;
 }) {
-  const sorted = [...findings].sort(
-    (a, b) => SEVERITY_META[a.severity].order - SEVERITY_META[b.severity].order || a.findingId - b.findingId,
-  );
+  const [filter, setFilter] = useState<FindingFilter>("ALL");
+  const sorted = filterFindings(findings, filter);
   return (
-    <section>
-      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-        발견 항목 <span className="text-slate-400">{findings.length}</span>
-      </h2>
+    <section id="audit-findings" className="audit-findings audit-anchor">
+      <div className="audit-section-title"><span className="audit-step">01</span><div>
+        <h2>문제를 확인하고, 수정안을 골라보세요</h2>
+        <p>판단 근거를 확인한 뒤 수정안을 선택하세요. 미리보기에서 비교하고 확정해야 일정에 반영됩니다.</p>
+      </div></div>
+      <div className="finding-filters" role="group" aria-label="발견 항목 필터">
+        {FINDING_FILTERS.map(({ value, label }) => <button key={value} type="button" aria-pressed={filter === value}
+          onClick={() => setFilter(value)}>{label}<span>{filterFindings(findings, value).length}</span></button>)}
+      </div>
+      <p className="finding-result-count" role="status">{sorted.length}건 표시 · 수정안 {Object.keys(selected).length}개 선택됨</p>
       {sorted.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">발견된 문제가 없습니다.</p>
+        <p className="audit-empty">{filter === "ALL" ? "발견된 문제가 없습니다." : "이 분류에 해당하는 항목이 없습니다. 다른 분류도 확인해 주세요."}</p>
       ) : (
         <ul className="mt-3 space-y-3">
           {sorted.map((f) => (
@@ -726,7 +739,7 @@ function FindingCard({
 
   return (
     <li
-      className={`rounded-xl border border-l-4 border-slate-200 p-4 dark:border-slate-800 ${meta.bar} ${
+      className={`finding-card rounded-xl border border-l-4 border-slate-200 p-4 dark:border-slate-800 ${meta.bar} ${
         dismissed ? "opacity-60" : ""
       }`}
     >
@@ -849,10 +862,10 @@ function FindingCard({
 
       {hasPatches && (
         <fieldset className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800" disabled={busy}>
-          <legend className="text-xs font-medium text-slate-500 dark:text-slate-400">수정안 (골라서 미리보기)</legend>
+          <legend className="text-xs font-medium text-slate-500 dark:text-slate-400">수정안 선택 · 미리보기 후 반영</legend>
           <div className="mt-2 space-y-1.5">
             {finding.patches.map((p) => (
-              <label key={p.patchId} className="flex cursor-pointer items-start gap-2 text-sm">
+              <label key={p.patchId} className={`patch-option ${selectedPatchId === p.patchId ? "is-selected" : ""}`}>
                 <input
                   type="radio"
                   name={`patch-${finding.findingId}`}
@@ -1007,17 +1020,15 @@ function UnverifiedSection({
   onChanged: () => Promise<void>;
   runId: number;
 }) {
-  if (items.length === 0) return null;
   return (
-    <section>
-      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">
-        직접 확인할 곳 <span className="text-slate-400">{items.length}</span>
-      </h2>
-      <p className="mt-1 text-xs text-slate-400">
-        정보가 없어 판정하지 못한 곳입니다. 운영기관에 확인한 뒤 확인했어요를 눌러 주세요.
-      </p>
+    <section id="audit-confirmations" className="audit-confirmations audit-anchor">
+      <div className="audit-section-title"><span className="audit-step">02</span><div>
+        <h2>직접 확인할 곳 <span>{items.length}건</span></h2>
+        <p>정보가 부족하거나 운영기관 확인이 필요한 항목이에요. 확인 표시는 점수를 바꾸지 않습니다.</p>
+      </div></div>
+      {items.length === 0 && <p className="audit-empty">이번 검수에서 별도로 확인할 항목이 없습니다.</p>}
       {/* 전화로 물어볼 내용 정리 (FR-AG-020~022) */}
-      <CheckQuestionsCard runId={runId} itemLabel={itemLabel} />
+      {items.length > 0 && <CheckQuestionsCard runId={runId} itemLabel={itemLabel} />}
       <ul className="mt-3 space-y-2">
         {items.map((item) => (
           <UnverifiedRow key={item.findingId} item={item} itemLabel={itemLabel} onChanged={onChanged} />
@@ -1310,7 +1321,8 @@ function EvidencePanel({
       <button
         type="button"
         onClick={toggle}
-        className="text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
+        aria-expanded={open}
+        className="evidence-toggle text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
       >
         {open ? "판단 근거 접기" : "판단 근거 보기"}
       </button>
