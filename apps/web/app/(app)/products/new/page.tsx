@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Field, Section, Segmented, SelectInput, TextInput } from "./controls";
 import { RegionSelect } from "./region-select";
+import { canAnchor } from "./schedule-place-search";
 import { ScheduleEditor } from "./schedule-editor";
 import { RegisterPlacePicker } from "./register-place-picker";
 import { NlPanel } from "./nl-panel";
@@ -123,7 +124,10 @@ export default function ProductNewPage() {
   }, []);
 
   // 업로드 파싱 결과를 폼에 채운다 (UI-S2-010). 박수와 일정만 채우고 나머지는 편집으로 둔다.
+  const importSeq = useRef(0);
   function applyUpload(nights: number, items: ParsedItemDTO[]) {
+    importSeq.current += 1;
+    setAnchorId(null);
     const n = Math.max(0, Math.min(2, nights)) as Nights;
     setNights(n);
     const days = dayCount(n);
@@ -133,7 +137,7 @@ export default function ProductNewPage() {
       const d = it.day - 1;
       if (d < 0 || d >= days) continue;
       seq += 1;
-      sched[d].push({ id: `up-${seq}`, start: it.start, end: it.end ?? "", place: it.place, itemType: it.itemType });
+      sched[d].push({ id: `up-${importSeq.current}-${seq}`, start: it.start, end: it.end ?? "", place: it.place, itemType: it.itemType });
     }
     setSchedule(sched);
   }
@@ -157,7 +161,7 @@ export default function ProductNewPage() {
   // 고른 줄(체크한 일정)의 좌표. 관광지를 골라 좌표가 있는 줄만 근처 3km 기준이 된다.
   // 스케줄은 작아 매 렌더 훑어도 부담이 없다 — 오른쪽 picker 는 anchor.contentId 로만 다시 부른다.
   const anchorRow = schedule.flat().find(
-    (it) => it.id === anchorId && it.content?.mapx != null && it.content?.mapy != null && it.content.contentId,
+    (it) => it.id === anchorId && canAnchor(it.content),
   );
   const anchor = anchorRow?.content
     ? { contentId: anchorRow.content.contentId, mapx: anchorRow.content.mapx as number, mapy: anchorRow.content.mapy as number, label: anchorRow.place || "고른 장소" }
