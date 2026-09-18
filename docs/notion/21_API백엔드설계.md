@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.14</td>
+<td>API · 백엔드 설계 v2.15</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -995,11 +995,11 @@ GET /api/v1/plan/briefing?regnCd=51&signguCd=150&startDate=2026-10-23&nights=1(&
 GET /api/v1/plan/places?regnCd&signguCd&lcls2=VE01&sort=near|together&anchor=128.89,37.79&anchorContentId=125769&wheelchair=1&pet=1&indoor=1&page=1
   → { "scope": { "kind": "SIGNGU" | "NEAR", "label": "강릉시 전체" | "고른 줄 반경 20km" }, "totalCount": 6, "items": PlanPlace[], "disabled": null, "notice": "..." }
     totalCount 는 거른 뒤 곳 수이고 items 는 한 쪽 20곳(page)이다. 목록은 칩과 같은 조건이라 필터를 걸지 않으면 칩 숫자와 맞는다
-    칩과 같은 조건(lclsSystm2 · 시군구)의 areaBasedList2 목록 1콜(numOfRows=100 · 10분 캐시) — 칩의 totalCount 와 같은 조회라 수가 맞는다. 정렬 · 필터는 그 위에서.
+    칩과 같은 조건(lclsSystm2 · 시군구)의 areaBasedList2를 100행씩 totalCount까지 페이지 조회한다. 전체 목록을 10분 메모리 캐시하고 중복 contentid를 제거한 뒤 정렬·필터를 적용한다. 추가 원본 페이지마다 예산을 확인한다. 중간 조회가 실패하면 일부를 전체로 반환하거나 캐시하지 않는다. 응답 totalCount는 필터 후 전체 수이며 page(1부터)에 따라 20곳씩 items로 반환한다.
     near 는 locationBasedList2(radius 20000) 1콜. together 는 searchKeyword1(앵커 이름 · 시군구 · 기준 연월) 1콜 · 연관 관광지 응답에 contentid 가 없어 이름 · 시군구 대조가 하나로 정해질 때만 순위 · 관광지 순위만 · 기준 연월 표기 · 기준은 넣을 위치 앞의 고른 항목(앵커). 앵커가 없으면 이 정렬은 비활성
 GET /api/v1/plan/places?scope=NEAR3KM&nearKind=MEAL|CAFE|STAY&anchor=128.89,37.79&page=1
   → { "scope": { "kind": "NEAR3KM", "label": "해변 K 근처 3km" }, "totalCount": 12, "items": PlanPlace[] }   거리순 · togetherRank 는 늘 null
-    locationBasedList2(mapX, mapY, radius=PLAN_NEAR_RADIUS_M, lclsSystm1=FD|AC, numOfRows=1000) 1콜을 PLAN_NEAR_KIND 로 거른다(식당 = FD 중 주점 FD04 · 카페 FD05 제외, 카페 = FD05, 숙소 = AC). 거른 개수가 칩 숫자다. 응답이 거리순으로 오지 않아 dist 로 정렬한다.
+    locationBasedList2(mapX, mapY, radius=PLAN_NEAR_RADIUS_M, lclsSystm1=FD|AC, numOfRows=1000) 목록을 totalCount까지 페이지 조회하고 중복을 제거한 후 PLAN_NEAR_KIND 로 거른다(식당 = FD 중 주점 FD04 · 카페 FD05 제외, 카페 = FD05, 숙소 = AC). 거른 개수가 칩 숫자다. 응답이 거리순으로 오지 않아 dist 로 정렬한다.
     앵커가 없거나 앞 항목이 직접 정한 곳이면 부르지 않고 { "disabled": "ANCHOR_REQUIRED" }
 GET /api/v1/plan/events?regnCd&signguCd&startDate&nights   → { "window": { "from", "to" }, "items": PlanEvent[] }
 GET /api/v1/plan/walks?regnCd&signguCd                     → { "items": PlanWalk[], "notice": "넣으면 직접 정한 곳으로 들어가요" }
@@ -2997,4 +2997,5 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 
 <callout color="gray_bg">
 	v2.14 (2026.09.18) — #559: 한국 날짜의 여행 종료일 기준으로 홈·기획·검수·레이더·알림 배지 표시를 통일. 진행 중인 1박 2일은 유지하고 종료된 상품의 기록은 보존한다. 기능·화면·API 명세 연쇄 개정.
+	v2.15 (2026.09.19) — 4-10 장소 목록: 원본 첫 페이지 제한 제거, 전체 조회 후 필터·정렬·20곳 페이징 명시. UI v2.8과 연쇄 개정 (#564).
 </callout>
