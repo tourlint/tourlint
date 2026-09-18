@@ -301,6 +301,9 @@ export function AuditResult({ productId }: { productId: number }) {
           )}
         </div>
         <div className="audit-header-actions">
+          <Link href={`/products/${productId}/plan`} className="button-secondary">
+            장소 담기
+          </Link>
           <Link
             href={`/products/${productId}/edit`}
             className="button-secondary"

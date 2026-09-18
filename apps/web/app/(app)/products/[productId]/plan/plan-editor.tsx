@@ -106,7 +106,13 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
           <Link href={`/products/${productId}/edit`} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             일정 편집
           </Link>
-          <StartAuditSheet productId={productId} pendingCount={pending} />
+          {product.plannedAt === null ? (
+            <StartAuditSheet productId={productId} pendingCount={pending} />
+          ) : (
+            <Link href={`/products/${productId}`} className="button-primary">
+              검수 결과로 돌아가기
+            </Link>
+          )}
         </div>
       </div>
 
@@ -129,7 +135,9 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
             </p>
           ) : (
             <p className="rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-              모든 장소를 골랐어요. 검수 시작을 누르면 돼요.
+              {product.plannedAt === null
+                ? "모든 장소를 골랐어요. 검수 시작을 누르면 돼요."
+                : "장소를 보완했다면 검수 결과로 돌아가 ‘지금 재검수’를 눌러 주세요."}
             </p>
           )}
 
