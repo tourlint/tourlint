@@ -18,6 +18,7 @@ export const EXTERNAL_UNAVAILABLE = EXTERNAL_UNAVAILABLE_MESSAGE;
 
 export interface ApiError {
   status: number;
+  retryAfterSeconds?: number;
   reasonCode?: string;
   message: string;
 }
@@ -43,6 +44,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const err: ApiError = {
       status: res.status,
       reasonCode: b.reasonCode,
+      ...(res.status === 429 && res.headers.has("Retry-After")
+        ? { retryAfterSeconds: Number(res.headers.get("Retry-After")) }
+        : {}),
       // 서버가 준 단일 문구를 그대로 쓴다 — 화면이 사유를 지어내지 않는다 (EX-SY-004)
       message: b.message ?? "요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.",
     };
@@ -56,9 +60,17 @@ export interface AccountView {
   isDemo: boolean;
 }
 
+export interface SignupChallenge {
+  verificationId: string;
+  expiresAt: string;
+  resendAfterSeconds: number;
+}
+
 export const authApi = {
-  signup: (email: string, password: string) =>
-    request<AccountView>("/auth/signup", { method: "POST", body: JSON.stringify({ email, password }) }),
+  requestSignupCode: (email: string) =>
+    request<SignupChallenge>("/auth/signup-code", { method: "POST", body: JSON.stringify({ email }) }),
+  signup: (email: string, password: string, verificationId: string, code: string) =>
+    request<AccountView>("/auth/signup", { method: "POST", body: JSON.stringify({ email, password, verificationId, code }) }),
   login: (email: string, password: string) =>
     request<AccountView>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
