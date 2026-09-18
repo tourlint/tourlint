@@ -6,6 +6,7 @@ import { PlaceNameResolver } from './audit/place-name';
 import { AuditController } from './audit/audit.controller';
 import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
+import { SignupEmailSender } from './auth/signup-email.sender';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
 import { AgentLock } from './agent/agent-lock';
@@ -409,6 +410,7 @@ import { SettingsRepository } from './settings/settings.repository';
       inject: [SyncBatchJob, DB_POOL, SignalBatchJob],
     },
     AuthService,
+    SignupEmailSender,
     AuditService,
     UsageService,
     // 지역 코드를 이름으로 바꾸는 데 CatalogService 를 쓴다 (fixture 리플레이라 예산 0)

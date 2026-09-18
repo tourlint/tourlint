@@ -1,13 +1,13 @@
 "use client";
 
 // S0 인증 (UI-S0-001~006 · FR-CM-001~002).
-// 로그인/회원가입을 한 화면에서 전환한다. 입력은 이메일+비밀번호뿐 —
+// 로그인/회원가입을 한 화면에서 전환한다. 신규 가입은 이메일 인증코드를 확인한다.
 // 이름·소속·연락처를 요구하지 않고(PM-AC-009), 비밀번호 재설정·소셜 로그인
 // 진입점을 두지 않는다(UI-S0-006).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { authApi, isApiError } from "../lib/api";
+import { authApi, isApiError, type SignupChallenge } from "../lib/api";
 
 type Mode = "login" | "signup";
 
@@ -19,19 +19,85 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [challenge, setChallenge] = useState<SignupChallenge | null>(null);
+  const [code, setCode] = useState("");
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    if (challenge === null && resendAt === 0) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [challenge, resendAt]);
+
+  const cooldown = Math.max(0, Math.ceil((resendAt - now) / 1000));
+  const remaining = challenge === null ? 0 : Math.max(0, Math.ceil((Date.parse(challenge.expiresAt) - now) / 1000));
+
+  function resetVerification() {
+    setChallenge(null);
+    setCode("");
+    setResendAt(0);
+    setError(null);
+  }
+
   function switchMode(next: Mode) {
+    if (busy || next === mode) return;
+    resetVerification();
     setMode(next);
     setError(null);
+  }
+
+  async function sendCode() {
+    if (busy) return;
+    if (!/^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/.test(email.trim()) || email.trim().length > 254) {
+      setError("이메일 주소를 확인해 주세요.");
+      return;
+    }
+    if (password.length < 8 || password.length > 128) {
+      setError("비밀번호는 8자 이상 128자 이하로 입력해 주세요.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await authApi.requestSignupCode(email.trim());
+      const sentAt = Date.now();
+      setChallenge(result);
+      setCode("");
+      setNow(sentAt);
+      setResendAt(sentAt + result.resendAfterSeconds * 1000);
+    } catch (err) {
+      if (isApiError(err) && err.status === 429 && Number.isFinite(err.retryAfterSeconds)) {
+        const receivedAt = Date.now();
+        setNow(receivedAt);
+        setResendAt(receivedAt + (err.retryAfterSeconds ?? 60) * 1000);
+      } else {
+        // 재전송 실패로 이전 코드가 무효화됐을 수 있으므로 새 코드 요청으로 돌아간다.
+        setChallenge(null);
+        setCode("");
+      }
+      setError(isApiError(err) ? err.message : "인증메일을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (busy) return;
+    if (mode === "signup" && challenge === null) {
+      await sendCode();
+      return;
+    }
+    if (mode === "signup" && !/^\d{6}$/.test(code)) {
+      setError("이메일로 받은 6자리 인증코드를 입력해 주세요.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       if (mode === "login") await authApi.login(email, password);
-      else await authApi.signup(email, password);
+      else if (challenge !== null) await authApi.signup(email, password, challenge.verificationId, code);
       router.replace("/");
       router.refresh();
     } catch (err) {
@@ -64,10 +130,10 @@ export default function LoginPage() {
             aria-label="로그인 또는 회원가입"
             className="mb-6 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800"
           >
-            <SegButton active={mode === "login"} onClick={() => switchMode("login")}>
+            <SegButton disabled={busy} active={mode === "login"} onClick={() => switchMode("login")}>
               로그인
             </SegButton>
-            <SegButton active={mode === "signup"} onClick={() => switchMode("signup")}>
+            <SegButton disabled={busy} active={mode === "signup"} onClick={() => switchMode("signup")}>
               회원가입
             </SegButton>
           </div>
@@ -80,6 +146,7 @@ export default function LoginPage() {
               autoComplete="email"
               placeholder="you@example.com"
               onChange={setEmail}
+              disabled={busy || challenge !== null}
             />
             <Field
               label="비밀번호"
@@ -88,7 +155,44 @@ export default function LoginPage() {
               autoComplete={mode === "login" ? "current-password" : "new-password"}
               placeholder={mode === "signup" ? "8자 이상" : "비밀번호"}
               onChange={setPassword}
+              disabled={busy}
             />
+
+            {mode === "signup" && challenge === null && (
+              <p className="text-xs leading-5 text-slate-500">이메일 소유 확인 후 가입이 완료됩니다. 입력한 주소로 인증코드를 보내드립니다.</p>
+            )}
+
+            {mode === "signup" && challenge !== null && (
+              <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+                <p role="status" className="text-sm leading-6 text-slate-700 dark:text-slate-200">
+                  <strong className="break-all">{email.trim()}</strong>로 인증코드를 보냈습니다. 메일이 보이지 않으면 스팸함도 확인해 주세요.
+                </p>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  이메일 인증코드
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={code}
+                    disabled={busy}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                    placeholder="6자리 숫자"
+                    aria-describedby="code-expiry"
+                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-lg tracking-widest text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-50"
+                  />
+                </label>
+                <p id="code-expiry" className="text-xs text-slate-500">
+                  {remaining > 0 ? `유효시간 ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")} · 5회 틀리면 새 코드가 필요합니다.` : "인증코드가 만료되었습니다. 새 코드를 받아 주세요."}
+                </p>
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <button type="button" disabled={busy || cooldown > 0} onClick={() => void sendCode()} className="font-semibold text-indigo-700 underline underline-offset-4 disabled:text-slate-400 disabled:no-underline dark:text-indigo-300">
+                    {cooldown > 0 ? `${cooldown}초 후 재전송 가능` : "인증코드 다시 받기"}
+                  </button>
+                  <button type="button" disabled={busy} onClick={resetVerification} className="text-slate-600 underline underline-offset-4 dark:text-slate-300">이메일 주소 수정</button>
+                </div>
+              </div>
+            )}
 
             {error !== null && (
               <p
@@ -101,10 +205,10 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={busy}
+              disabled={busy || (mode === "signup" && challenge === null && cooldown > 0)}
               className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {busy ? "처리 중…" : mode === "login" ? "로그인" : "회원가입"}
+              {busy ? "처리 중…" : mode === "login" ? "로그인" : challenge === null ? cooldown > 0 ? `${cooldown}초 후 인증코드 받기` : "인증코드 받기" : "인증하고 가입 완료"}
             </button>
           </form>
         </div>
@@ -120,10 +224,12 @@ export default function LoginPage() {
 
 function SegButton({
   active,
+  disabled,
   onClick,
   children,
 }: {
   active: boolean;
+  disabled: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -132,6 +238,7 @@ function SegButton({
       type="button"
       role="tab"
       aria-selected={active}
+      disabled={disabled}
       onClick={onClick}
       className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
         active
@@ -151,6 +258,7 @@ function Field({
   placeholder,
   autoComplete,
   onChange,
+  disabled,
 }: {
   label: string;
   type: string;
@@ -158,6 +266,7 @@ function Field({
   placeholder?: string;
   autoComplete?: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -168,6 +277,7 @@ function Field({
         placeholder={placeholder}
         autoComplete={autoComplete}
         required
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-50 dark:placeholder:text-slate-600"
       />

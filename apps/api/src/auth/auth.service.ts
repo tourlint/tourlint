@@ -1,4 +1,7 @@
 import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
+import { SignupEmailSender } from './signup-email.sender';
+import { SignupVerificationRepository, type SignupChallenge } from './signup-verification.repository';
 import type { Pool } from 'pg';
 import { DB_POOL } from '../persistence/db';
 import { AccountRepository, type AccountRow } from './account.repository';
@@ -12,7 +15,7 @@ export interface AuthedSession {
   expiresAt: Date;
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
 const PASSWORD_MIN = 8;
 
 /**
@@ -26,6 +29,7 @@ const PASSWORD_MIN = 8;
 export class AuthService {
   private readonly accounts: AccountRepository;
   private readonly sessions: SessionRepository;
+  private readonly verification: SignupVerificationRepository;
 
   /**
    * 계정이 없을 때도 비밀번호 검증을 한 번 돌려, 존재 여부가 응답 시간으로 새지 않게
@@ -33,18 +37,39 @@ export class AuthService {
    */
   private dummyHash: Promise<string> | null = null;
 
-  constructor(@Inject(DB_POOL) pool: Pool) {
+  constructor(@Inject(DB_POOL) pool: Pool, private readonly mail: SignupEmailSender) {
     this.accounts = new AccountRepository(pool);
     this.sessions = new SessionRepository(pool);
+    this.verification = new SignupVerificationRepository(pool);
   }
 
-  async signup(email: string, password: string): Promise<AuthedSession> {
+  async requestSignupCode(email: string): Promise<SignupChallenge> {
+    const normalizedEmail = this.requireEmail(email);
+    this.mail.requireConfigured();
+    const { code, ...challenge } = await this.verification.reserve(normalizedEmail);
+    try {
+      await this.mail.send(normalizedEmail, code, challenge.verificationId);
+      await this.verification.markDelivered(challenge.verificationId);
+    } catch (error) {
+      await this.verification.invalidate(challenge.verificationId);
+      throw error;
+    }
+    return challenge;
+  }
+
+  @Interval(60 * 60_000)
+  async cleanupSignupCodes(): Promise<void> {
+    await this.verification.cleanup();
+  }
+
+  async signup(email: string, password: string, verificationId: string, code: string): Promise<AuthedSession> {
     const normalizedEmail = this.requireEmail(email);
     this.requirePassword(password);
 
     let account: AccountRow;
     try {
-      account = await this.accounts.create(normalizedEmail, await hashPassword(password));
+      account = await this.verification.consume(normalizedEmail, verificationId, code,
+        async (client) => this.accounts.createWithClient(client, normalizedEmail, await hashPassword(password)));
     } catch (e) {
       if (isUniqueViolation(e)) {
         throw new BadRequestException('이 이메일로는 가입할 수 없습니다. 다른 이메일을 사용해 주세요.');
@@ -94,15 +119,15 @@ export class AuthService {
 
   private requireEmail(email: unknown): string {
     const value = typeof email === 'string' ? email.trim().toLowerCase() : '';
-    if (!EMAIL_RE.test(value)) {
+    if (value.length > 254 || !EMAIL_RE.test(value)) {
       throw new BadRequestException('이메일 형식이 올바르지 않습니다.');
     }
     return value;
   }
 
   private requirePassword(password: unknown): void {
-    if (typeof password !== 'string' || password.length < PASSWORD_MIN) {
-      throw new BadRequestException(`비밀번호는 ${PASSWORD_MIN}자 이상이어야 합니다.`);
+    if (typeof password !== 'string' || password.length < PASSWORD_MIN || password.length > 128) {
+      throw new BadRequestException(`비밀번호는 ${PASSWORD_MIN}자 이상 128자 이하여야 합니다.`);
     }
   }
 

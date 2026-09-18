@@ -2,6 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Client } from 'pg';
 import { Public } from '../auth/public.decorator';
+import { signupMailConfig } from '../auth/signup-email.sender';
 
 /**
  * `/health` — 애플리케이션 · DB · 설정 상태 확인 (NF-AV-004).
@@ -19,7 +20,7 @@ import { Public } from '../auth/public.decorator';
 /**
  * `db/schema.sql` 의 `CREATE TABLE` 수. 이보다 적으면 스키마가 덜 적용된 것이다.
  *
- * DB 명세서 2-3 의 엔터티 17종 + 로그인 세션 1종 = 18. 계정별 기준표 3종은 릴리즈 2 에서
+ * DB 명세서 2-3 의 엔터티 17종 + 로그인 세션 1종 + 가입 인증·발송 한도 2종 = 20. 계정별 기준표 3종은 릴리즈 2 에서
  * 지웠다 — 표준이 `@tourlint/shared` 시드에 있다 (DR-CF-008).
  *
  * ⚠️ **표를 늘리면 여기도 올린다.** 비교가 `>=` 라 안 올리면 새 표가 통째로 없어도
@@ -29,7 +30,7 @@ import { Public } from '../auth/public.decorator';
  * 비교가 `>=` 라 아직 지우지 않은 운영 DB(21개)도 `ok` 다. 코드가 먼저 나가고 DROP 이
  * 뒤따르는 순서를 그대로 받아 준다.
  */
-export const EXPECTED_TABLE_COUNT = 18;
+export const EXPECTED_TABLE_COUNT = 20;
 
 /**
  * 지금 돌고 있는 빌드의 커밋 (7자리). 모르면 `null`.
@@ -123,6 +124,7 @@ export class HealthController {
         kakaoRestApiKey: kakaoKey,
         kmaServiceKey: kmaKey,
         llmApiKey: llmKey,
+        signupEmail: signupMailConfig() !== null ? 'ok' : 'missing',
       },
       // 배포본이 최신인지 대조하는 값. `git rev-parse --short HEAD` 와 비교한다
       commit: buildCommit(),

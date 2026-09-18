@@ -593,3 +593,22 @@ INSERT INTO system_setting (key) VALUES ('global');
 -- 데모 계정의 상품 · 일정은 리포지토리의 시드 스크립트로 정의한다.
 -- 복원(POST /api/v1/demo/reset)은 데모 계정 데이터 삭제 후 시드 재실행이며,
 -- DB에 별도 스냅샷 테이블을 두지 않는다.
+
+-- 신규 가입에만 적용. 기존 계정·세션·상품 데이터 변경 없음.
+CREATE TABLE signup_verification (
+    email TEXT PRIMARY KEY,
+    verification_id UUID NOT NULL UNIQUE,
+    code_hash TEXT,
+    expires_at TIMESTAMPTZ NOT NULL,
+    attempts SMALLINT NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 5),
+    delivered BOOLEAN NOT NULL DEFAULT FALSE,
+    last_sent_at TIMESTAMPTZ NOT NULL,
+    window_started_at TIMESTAMPTZ NOT NULL,
+    send_count INT NOT NULL CHECK (send_count BETWEEN 1 AND 5)
+);
+CREATE INDEX idx_signup_verification_retention ON signup_verification(last_sent_at);
+CREATE TABLE auth_email_rate_limit (
+    bucket TEXT PRIMARY KEY,
+    count INT NOT NULL CHECK (count > 0),
+    expires_at TIMESTAMPTZ NOT NULL
+);

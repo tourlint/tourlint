@@ -19,13 +19,22 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @Post('signup-code')
+  @HttpCode(200)
+  requestSignupCode(@Body() body: AuthBody | undefined) {
+    return this.auth.requestSignupCode(readEmail(body));
+  }
+
+  @Public()
   @Post('signup')
   @HttpCode(201)
   async signup(
     @Body() body: AuthBody | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AccountView> {
-    return this.issue(await this.auth.signup(readEmail(body), readPassword(body)), res);
+    return this.issue(await this.auth.signup(readEmail(body), readPassword(body),
+      typeof body?.verificationId === 'string' ? body.verificationId : '',
+      typeof body?.code === 'string' ? body.code : ''), res);
   }
 
   @Public()
@@ -66,6 +75,8 @@ export class AuthController {
 interface AuthBody {
   email?: unknown;
   password?: unknown;
+  verificationId?: unknown;
+  code?: unknown;
 }
 
 interface AccountView {
