@@ -589,6 +589,20 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
   const [kwError, setKwError] = useState<string | null>(null);
   const [region, setRegion] = useState<RegionValue>({ regnCode: "", regnName: "", signguCode: "", signguName: "" });
   const [month, setMonth] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function refreshNews() {
+    if (refreshing) return;
+    setRefreshing(true);
+    onError(null);
+    try {
+      setSignals(await radarApi.refreshRegionSignals());
+    } catch (e) {
+      onError(isApiError(e) ? e.message : "새 소식을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -664,7 +678,12 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
 
   return (
     <section className="radar-watch mt-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
-      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">관심 키워드 · 관심 지역</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">관심 키워드 · 관심 지역</h2>
+        <button type="button" onClick={() => void refreshNews()} disabled={refreshing || regions.length === 0} aria-busy={refreshing} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+          {refreshing ? "새 소식 확인 중…" : "새 소식 확인"}
+        </button>
+      </div>
 
       {/* 관심 키워드 */}
       <div className="mt-3">
