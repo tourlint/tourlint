@@ -6,23 +6,25 @@
 // 등록 방식 3종(직접 입력 · 엑셀/CSV · 자연어)이 다 열려 있다 (UI-S2-001).
 // 어느 쪽으로 들어와도 결과는 같은 폼 상태로 모이고 저장 전에 여기서 편집한다 (UI-S2-010).
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Field, Section, Segmented, SelectInput, TextInput } from "./controls";
 import { RegionSelect } from "./region-select";
 import { ScheduleEditor } from "./schedule-editor";
+import { RegisterPlacePicker } from "./register-place-picker";
 import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
-import { PlanEditor } from "../[productId]/plan/plan-editor";
 import {
   NIGHTS_OPTIONS,
   TRANSPORT_OPTIONS,
   dayCount,
   type Nights,
   type Schedule,
+  type ScheduleItem,
   type Transport,
 } from "./types";
+import type { PlanPlace } from "../../../lib/api";
 import {
   CONCEPT_KEY,
   CONCEPT_LABEL,
@@ -67,11 +69,9 @@ export default function ProductNewPage() {
   // "자주 넣는 곳" 칩에서 고른 종류. 생성 후 기획 화면의 장소 담기를 이 종류로 연다 (UI-S2-030)
   const [openType, setOpenType] = useState<string | null>(null);
 
-  // 저장하면 이 화면(/products/new)에서 곧바로 기획 화면(장소 담기 오른쪽)을 렌더한다.
-  // 다른 경로로 보내지 않는다 — 등록과 기획을 한 흐름으로 잇는다 (개편안 4-2 화면 2).
-  const [createdProductId, setCreatedProductId] = useState<number | null>(null);
-  // 자동 생성·버튼이 동시에 상품을 만들지 않도록 한 번만 돌게 막는다
-  const creatingRef = useRef(false);
+  // 오른쪽 장소 담기의 "근처 3km" 기준이 되는 일정 줄(고른 줄). 일정 편집기의 체크로 고른다.
+  // 좌표가 있는(관광지를 고른) 줄만 기준이 될 수 있다 — id 로만 들고, 좌표는 렌더 때 찾는다.
+  const [anchorId, setAnchorId] = useState<string | null>(null);
 
   // 레이더 "이 지역으로 새 상품 기획"에서 넘어오면 지역을 미리 채우고 기획 출처를 남긴다 (FR-PL-001)
   const [planOrigin, setPlanOrigin] = useState<PlanOrigin | null>(null);
@@ -154,11 +154,42 @@ export default function ProductNewPage() {
     [name, region, startDate, nights, schedule],
   );
 
-  // 빈 상품(기획 중)을 만든다. 성공하면 같은 경로에서 기획 화면(장소 담기)을 인라인으로 띄운다.
-  // 자동 생성(effect)과 버튼(onSubmit)이 함께 부르므로 creatingRef 로 한 번만 돌게 막는다.
-  const doCreate = useCallback(async (): Promise<void> => {
-    if (creatingRef.current) return;
-    creatingRef.current = true;
+  // 고른 줄(체크한 일정)의 좌표. 관광지를 골라 좌표가 있는 줄만 근처 3km 기준이 된다.
+  // 스케줄은 작아 매 렌더 훑어도 부담이 없다 — 오른쪽 picker 는 anchor.contentId 로만 다시 부른다.
+  const anchorRow = schedule.flat().find(
+    (it) => it.id === anchorId && it.content?.mapx != null && it.content?.mapy != null && it.content.contentId,
+  );
+  const anchor = anchorRow?.content
+    ? { contentId: anchorRow.content.contentId, mapx: anchorRow.content.mapx as number, mapy: anchorRow.content.mapy as number, label: anchorRow.place || "고른 장소" }
+    : null;
+
+  // 장소 담기에서 고른 곳을 폼 일정에 끼운다. 저장 전이라 상품 없이 폼 상태만 바꾼다.
+  // dayIdx = 0 기반 일차, insertAt = 그 날 항목 배열에 끼울 위치(0 = 맨 앞, 길이 = 맨 뒤).
+  const insertSeq = useRef(0);
+  function handleInsert(p: PlanPlace, dayIdx: number, insertAt: number, itemType: ScheduleItem["itemType"]) {
+    insertSeq.current += 1;
+    const item: ScheduleItem = {
+      id: `pk-${insertSeq.current}`,
+      start: "",
+      end: "",
+      place: p.title,
+      itemType,
+      content: { contentId: p.contentId, contentTypeId: p.contentTypeId, mapx: p.mapx, mapy: p.mapy, lcls1: p.lcls1, lcls2: p.lcls2, lcls3: null },
+    };
+    setSchedule((prev) =>
+      prev.map((items, i) => {
+        if (i !== dayIdx) return items;
+        const next = [...items];
+        next.splice(Math.max(0, Math.min(insertAt, next.length)), 0, item);
+        return next;
+      }),
+    );
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSubmitted(true);
+    if (errors.length > 0) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -176,36 +207,13 @@ export default function ProductNewPage() {
       }
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
-      // 경로는 /products/new 그대로 두고 PlanEditor 를 인라인으로 띄운다 (개편안 4-2: 등록·기획 한 흐름)
-      if (created.productId != null) setCreatedProductId(created.productId);
-      else router.push("/");
+      // 저장 후 기획 화면으로 — 거기서 이어서 장소를 고르고 검수로 넘어간다 (FR-PL-004)
+      const suffix = openType !== null ? `?openType=${encodeURIComponent(openType)}` : "";
+      router.push(created.productId != null ? `/products/${created.productId}/plan${suffix}` : "/");
     } catch {
       setSaveError("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-      creatingRef.current = false; // 실패는 재시도 허용
       setSaving(false);
     }
-  }, [name, region, startDate, nights, target, concept, headcount, transport, schedule, planOrigin, method, router]);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitted(true);
-    if (errors.length > 0) return;
-    await doCreate();
-  }
-
-  // 저장 전에도 장소 담기를 띄운다 — 기본정보(상품명·지역·출발일)가 유효해지면 빈 상품을 즉시
-  // 만든다(개편안 4-2 · #519). 800ms 디바운스로 타이핑 중 성급한 생성을 막고, 한 번만 만든다.
-  useEffect(() => {
-    if (createdProductId !== null || creatingRef.current) return;
-    const ready = name.trim() !== "" && region.regnCode !== "" && startDate !== "";
-    if (!ready) return;
-    const id = window.setTimeout(() => { void doCreate(); }, 800);
-    return () => window.clearTimeout(id);
-  }, [name, region.regnCode, startDate, createdProductId, doCreate]);
-
-  // 저장이 끝나면 같은 경로(/products/new)에서 기획 화면(오른쪽 장소 담기)을 인라인으로 보여 준다
-  if (createdProductId !== null) {
-    return <PlanEditor productId={createdProductId} openType={openType} />;
   }
 
   return (
@@ -223,8 +231,12 @@ export default function ProductNewPage() {
         여행 일정을 입력하면 관광정보로 검수할 수 있습니다.
       </p>
 
+      {/* 왼쪽 등록 폼 · 오른쪽 장소 담기 2단 (UI-S2-036). 좁은 화면에선 세로로 쌓인다.
+          장소 담기는 저장 전에도 지역만 있으면 그 지역의 장소를 보여 준다 — 폼은 그대로 둔다. */}
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[1fr_24rem]">
+        <div className="min-w-0">
       {/* 등록 방식 선택 (UI-S2-001). 자연어 붙여넣기는 후속 단계. */}
-      <div className="mt-6">
+      <div className="mt-0">
         <Segmented value={method} options={METHODS} onChange={setMethod} ariaLabel="등록 방식" />
         {method === "direct" && (
           <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
@@ -316,6 +328,8 @@ export default function ProductNewPage() {
             regnCd={region.regnCode}
             signguCd={region.signguCode || null}
             regionLabel={region.signguName || region.regnName || "이 지역"}
+            anchorId={anchorId}
+            onAnchorChange={setAnchorId}
           />
         )}
         {method === "upload" && (
@@ -359,6 +373,23 @@ export default function ProductNewPage() {
           </button>
         </div>
       </form>
+        </div>
+
+        {/* 오른쪽 장소 담기 — 지역이 없으면 기본 템플릿, 지역을 넣으면 그 지역 장소로 채운다 */}
+        <aside className="lg:sticky lg:top-4">
+          <RegisterPlacePicker
+            regnCd={region.regnCode}
+            signguCd={region.signguCode || null}
+            startDate={startDate}
+            nights={nights}
+            regionLabel={region.signguName || region.regnName || "이 지역"}
+            openType={openType}
+            anchor={anchor}
+            schedule={schedule}
+            onInsert={handleInsert}
+          />
+        </aside>
+      </div>
     </>
   );
 }

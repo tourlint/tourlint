@@ -16,6 +16,8 @@ export function ScheduleEditor({
   regnCd = "",
   signguCd = null,
   regionLabel = "이 지역",
+  anchorId = null,
+  onAnchorChange,
 }: {
   nights: Nights;
   schedule: Schedule;
@@ -24,6 +26,9 @@ export function ScheduleEditor({
   regnCd?: string;
   signguCd?: string | null;
   regionLabel?: string;
+  // 오른쪽 장소 담기의 "근처 3km" 기준 줄(고른 줄). 관광지를 골라 좌표가 있는 줄만 고를 수 있다.
+  anchorId?: string | null;
+  onAnchorChange?: (id: string | null) => void;
 }) {
   const [activeDay, setActiveDay] = useState(0);
   const idSeq = useRef(0);
@@ -68,7 +73,7 @@ export function ScheduleEditor({
   return (
     <Section
       title="일정"
-      description="일차별로 방문 항목을 입력합니다. 종료시간을 비우면 중분류별 기본 체류시간이 적용됩니다."
+      description="일차별로 방문 항목을 입력합니다. 종료시간을 비우면 중분류별 기본 체류시간이 적용됩니다. 장소를 목록에서 고른 줄은 왼쪽 「기준」을 체크해 오른쪽 장소 담기의 근처 3km 기준으로 삼을 수 있습니다."
     >
       <div role="tablist" aria-label="일차 선택" className="flex flex-wrap gap-1">
         {Array.from({ length: days }, (_, d) => {
@@ -102,8 +107,31 @@ export function ScheduleEditor({
         {items.map((it, index) => (
           <div
             key={it.id}
-            className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+            className={`flex flex-wrap items-end gap-2 rounded-lg border p-3 ${
+              anchorId === it.id
+                ? "border-indigo-400 bg-indigo-50/40 dark:border-indigo-500 dark:bg-indigo-950/20"
+                : "border-slate-200 dark:border-slate-800"
+            }`}
           >
+            {/* 고른 줄 체크 — 이 줄을 오른쪽 장소 담기의 근처 3km 기준으로 삼는다.
+                관광지를 골라 좌표가 있는 줄만 기준이 될 수 있다 (없으면 근처를 잴 수 없다). */}
+            <label
+              className="flex flex-col items-center gap-1 self-stretch justify-center text-[10px] text-slate-500 dark:text-slate-400"
+              title={
+                it.content?.mapx != null
+                  ? "이 줄을 기준으로 근처 3km 장소를 봅니다"
+                  : "관광지를 고른 줄만 근처 3km 기준이 될 수 있어요"
+              }
+            >
+              <input
+                type="checkbox"
+                checked={anchorId === it.id}
+                disabled={it.content?.mapx == null || onAnchorChange === undefined}
+                onChange={(e) => onAnchorChange?.(e.target.checked ? it.id : null)}
+                className="h-4 w-4 accent-indigo-600 disabled:opacity-30"
+              />
+              기준
+            </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
               시작
               <TextInput
