@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.12</td>
+<td>API · 백엔드 설계 v2.13</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -374,6 +374,12 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <td>Path</td>
 <td>설명</td>
 <td>요구사항</td>
+</tr>
+<tr>
+<td>POST</td>
+<td>`/api/v1/auth/signup-code`</td>
+<td>공개 인증코드 요청. email → verificationId · expiresAt · resendAfterSeconds. 계정·세션 미생성. 발송 한도 초과 429 및 Retry-After, 발송 실패·미설정 503.</td>
+<td>FR-CM-001 · PM-AC-008 · EI-MA</td>
 </tr>
 <tr>
 <td>POST</td>
@@ -753,7 +759,7 @@ R07 finding.message 예: "12:00 점심 60분은 회사 기준 90분보다 짧습
 </table>
 <callout icon="🗂" color="orange_bg">
 	**`reportId`**** 는 테이블 행이 아닙니다** (2026.08.29 · F11 구현)
-	DB 명세서 6-4 가 PDF 를 서버에 남기지 못하게 하고 `report` 테이블은 엔터티 17종에 없습니다. `POST` 가 렌더까지 끝내고 결과를 **프로세스 메모리에 5분** 들고 있으며 `reportId` 는 그 보관 키입니다. `GET .../download` 는 그것을 스트리밍하고, 수명이 지났거나 소유자가 아니면 404 입니다 (존재 여부 비노출).
+	DB 명세서 6-4 가 PDF 를 서버에 남기지 못하게 하고 `report` 테이블은 물리 테이블 20종에 없습니다. `POST` 가 렌더까지 끝내고 결과를 **프로세스 메모리에 5분** 들고 있으며 `reportId` 는 그 보관 키입니다. `GET .../download` 는 그것을 스트리밍하고, 수명이 지났거나 소유자가 아니면 404 입니다 (존재 여부 비노출).
 	두 단계를 합치지 않은 이유는 PM-DA-007 의 인수조건이 "리포트 다운로드 URL 을 로그아웃 상태에서 열면" 이라 열어 볼 URL 이 있어야 하기 때문입니다. 매번 재생성하지 않는 이유는 공사 재조회가 다운로드마다 나가기 때문입니다.
 	⚠️ 인스턴스를 늘리면 만든 곳과 받는 곳이 갈려 깨집니다. 다중화 시 이 절을 다시 봅니다.
 </callout>
@@ -2979,4 +2985,8 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 
 <callout color="gray_bg">
 	v2.12 (2026.09.18) — 추가 도메인 비용 없이 운영하려는 사용자 요청에 따라 Resend를 Gmail · Google Apps Script 발송으로 교체. 신규 가입 검증 정책은 유지한다.
+</callout>
+
+<callout icon="📝" color="gray_bg">
+	v2.13 (2026.09.18) — 인증코드 요청을 4-1 전체 엔드포인트 목록에도 추가하고 DB 물리 테이블 수 참조를 20종으로 맞춤. EI-MA 외부 연동 계약과 DB v2.9 연쇄 정리.
 </callout>
