@@ -223,10 +223,10 @@ export default function ProductNewPage() {
           기획
         </Link>
         <span className="mx-2">/</span>
-        <span className="text-slate-700 dark:text-slate-300">신규 등록</span>
+        <span className="text-slate-700 dark:text-slate-300">새 상품 기획</span>
       </nav>
 
-      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">상품 등록</h1>
+      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">상품 기획</h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
         여행 일정을 입력하면 관광정보로 검수할 수 있습니다.
       </p>
