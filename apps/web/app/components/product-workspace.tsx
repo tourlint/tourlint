@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isApiError } from "../lib/api";
 import { loadWorkspaceProducts } from "../lib/workspace-products";
+import { DeleteProductDialog } from "./delete-product-dialog";
 import { GradeCounts, StatusBadge } from "./badges";
 import { WorkspaceIcon, type IconName } from "./workspace-icon";
 import { STAGE_LABEL, STAGE_ORDER, type Stage } from "../lib/stage-of";
@@ -64,6 +65,8 @@ export function ProductWorkspace({
   );
   const [sort, setSort] = useState<SortKey>("startDate");
   const [filter, setFilter] = useState<Stage | "ALL">(initialFilter);
+  const [deleting, setDeleting] = useState<WorkspaceProduct | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [showPast, setShowPast] = useState(false);
 
   useEffect(() => {
@@ -125,6 +128,12 @@ export function ProductWorkspace({
 
   return (
     <div className="workspace-page">
+      {notice && <p className="workspace-notice" role="status">{notice}</p>}
+      {deleting && <DeleteProductDialog product={deleting} onClose={() => setDeleting(null)} onDeleted={(id) => {
+        setProducts((current) => current.filter((product) => product.productId !== id));
+        setDeleting(null);
+        setNotice("상품을 삭제했습니다.");
+      }} /> }
       <div className="workspace-heading">
         <div>
           <p className="eyebrow">{copy.eyebrow}</p>
@@ -431,7 +440,7 @@ export function ProductWorkspace({
           ) : workspace === "planning" ? (
             <div className="planning-products">
               {visible.map((p) => (
-                <ProductCard key={p.productId} product={p} />
+                <ProductCard key={p.productId} product={p} onDelete={setDeleting} />
               ))}
             </div>
           ) : view === "board" ? (
@@ -454,7 +463,7 @@ export function ProductWorkspace({
                     {visible
                       .filter((p) => productStage(p) === s)
                       .map((p) => (
-                        <ProductCard key={p.productId} product={p} />
+                        <ProductCard key={p.productId} product={p} onDelete={setDeleting} />
                       ))}
                     {!visible.some((p) => productStage(p) === s) && (
                       <div className="column-empty">
@@ -475,7 +484,7 @@ export function ProductWorkspace({
               ))}
             </div>
           ) : (
-            <ProductTable products={visible} />
+            <ProductTable products={visible} onDelete={setDeleting} />
           )}
           {available && past.length > 0 && (
             <button
@@ -559,13 +568,11 @@ function MethodCard({
   );
 }
 
-function ProductCard({ product: p }: { product: WorkspaceProduct }) {
+export function ProductCard({ product: p, onDelete }: { product: WorkspaceProduct; onDelete: (p: WorkspaceProduct) => void }) {
   const stage = productStage(p);
   return (
-    <Link
-      href={productHref(p)}
-      className={`product-card stage-${stage.toLowerCase()}`}
-    >
+    <article className={`product-card stage-${stage.toLowerCase()}`}>
+      <Link href={productHref(p)} className="product-card-content">
       <span className="product-duration">
         {NIGHTS[p.nights] ?? `${p.nights}박`}
       </span>
@@ -580,9 +587,10 @@ function ProductCard({ product: p }: { product: WorkspaceProduct }) {
       </p>
       <div className="product-card-bottom">
         <span>{productHint(p)}</span>
-        <WorkspaceIcon name="arrow" width="15" height="15" />
       </div>
-    </Link>
+      </Link>
+      <ProductActions product={p} onDelete={onDelete} />
+    </article>
   );
 }
 
@@ -626,7 +634,7 @@ function NextActions({ products }: { products: WorkspaceProduct[] }) {
   );
 }
 
-function ProductTable({ products }: { products: WorkspaceProduct[] }) {
+export function ProductTable({ products, onDelete }: { products: WorkspaceProduct[]; onDelete: (p: WorkspaceProduct) => void }) {
   return (
     <div
       className="product-table-scroll"
@@ -655,6 +663,7 @@ function ProductTable({ products }: { products: WorkspaceProduct[] }) {
                     {p.name}
                   </Link>
                   <span className="table-subtext">{regionText(p)}</span>
+                  <ProductActions product={p} onDelete={onDelete} />
                 </td>
                 <td>
                   <span
@@ -699,4 +708,16 @@ function ProductTable({ products }: { products: WorkspaceProduct[] }) {
       </table>
     </div>
   );
+}
+
+function ProductActions({ product, onDelete }: { product: WorkspaceProduct; onDelete: (p: WorkspaceProduct) => void }) {
+  const label = productStage(product) === "PLANNING" ? "기획 이어하기" : "검수 결과 보기";
+  return <div className="product-actions">
+    <Link href={productHref(product)} className="product-open" aria-label={`${product.name} ${label}`}>
+      {label}<WorkspaceIcon name="arrow" width="15" height="15" />
+    </Link>
+    <button type="button" className="product-delete" aria-label={`${product.name} 삭제`} onClick={() => onDelete(product)}>
+      삭제
+    </button>
+  </div>;
 }
