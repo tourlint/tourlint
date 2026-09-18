@@ -24,7 +24,15 @@ const placesQuery = (over: Partial<PlacesQuery> = {}): PlacesQuery => ({
 });
 
 function fixtureService(budget: Partial<Record<string, BudgetDecision>> = {}): PlanService {
-  const transport = new FixtureKtoTransport(FIXTURES);
+  const fixtures = new FixtureKtoTransport(FIXTURES);
+  // 이 지역 목록 스냅샷은 대표 행만 담았다. 페이징은 아래 전용 transport로 검증한다.
+  const transport: KtoTransport = { kind: 'fixture', async request(operation, params) {
+    const result = await fixtures.request(operation, params);
+    if (operation !== 'areaBasedList2') return result;
+    const parsed = JSON.parse(result.body);
+    parsed.response.body.totalCount = parsed.response.body.items.item.length;
+    return { ...result, body: JSON.stringify(parsed) };
+  } };
   return new PlanService({
     kto: () => new KtoClient({ transport, logger: new InMemoryApiCallLogger() }),
     budget: async (service) => budget[service] ?? allowed,
@@ -158,7 +166,7 @@ const place = (over: Record<string, unknown> = {}): Record<string, unknown> => (
   mapx: '128.9', mapy: '37.75', ...over,
 });
 
-function service(transport: RecordingTransport, budget: Partial<Record<string, BudgetDecision>> = {}): PlanService {
+function service(transport: KtoTransport, budget: Partial<Record<string, BudgetDecision>> = {}): PlanService {
   return new PlanService({
     // 실패 경로도 기다리지 않는다 — 재시도 간격은 KtoClient spec 이 본다
     kto: () => new KtoClient({ transport, logger: new InMemoryApiCallLogger(), sleep: async () => undefined }),
@@ -169,7 +177,7 @@ function service(transport: RecordingTransport, budget: Partial<Record<string, B
 
 describe('PlanService — 조회 조건과 경계', () => {
   it('🔴 칩 숫자와 목록은 같은 조건으로 부른다 — 수가 어긋나면 화면이 거짓말을 한다', async () => {
-    const transport = new RecordingTransport({ areaBasedList2: listBody([place()], 7) });
+    const transport = new RecordingTransport({ areaBasedList2: listBody(Array.from({ length: 7 }, (_, i) => place({ contentid: String(i) }))) });
     const svc = service(transport);
     await svc.briefing(briefingQuery());
     await svc.places(placesQuery({ lcls2: 'VE01' }));
@@ -399,5 +407,80 @@ describe('카드 자세히 (placeDetail · FR-PL-012)', () => {
     const transport = new RecordingTransport({ detailIntro2: new KtoFetchError('detailIntro2', 'HTTP 503') });
     const d = await service(transport).placeDetail({ contentId: '1', contentTypeId: 12 });
     expect(d).toEqual({ contentId: '1', hours: null, restDays: null, fee: null, parking: null, eventPeriod: null });
+  });
+});
+
+
+describe('장소 담기 전체 페이지 (#564)', () => {
+  class PagedTransport extends RecordingTransport {
+    failSecond = false;
+    constructor(readonly count: number, readonly operation: string = 'areaBasedList2') { super(); }
+    override async request(operation: Parameters<KtoTransport['request']>[0], params: KtoParams): Promise<KtoTransportResult> {
+      if (operation !== this.operation) return super.request(operation, params);
+      this.calls.push({ operation, params });
+      const page = Number(params.pageNo ?? 1);
+      if (page === 2 && this.failSecond) throw new KtoFetchError(operation, 'test failure');
+      const size = Number(params.numOfRows);
+      const rows = Array.from({ length: this.count }, (_, i) => place({
+        contentid: String(i + 1), lclsSystm1: 'FD', lclsSystm2: 'FD01', dist: this.count - i,
+      })).slice((page - 1) * size, page * size);
+      return { body: envelope(listBody(rows, this.count)), httpStatus: 200 };
+    }
+  }
+
+  it('34곳을 20+14곳으로 빠짐·중복 없이 탐색한다', async () => {
+    const transport = new PagedTransport(34);
+    const svc = service(transport);
+    const first = await svc.places(placesQuery());
+    const last = await svc.places(placesQuery({ page: 2 }));
+    expect(first.totalCount).toBe(34);
+    expect(first.items).toHaveLength(20);
+    expect(last.items).toHaveLength(14);
+    expect(new Set([...first.items, ...last.items].map(p => p.contentId)).size).toBe(34);
+    expect(transport.paramsOf('areaBasedList2')).toHaveLength(1);
+  });
+
+  it('원본 100곳 너머도 7페이지까지 보이고 다시 읽을 때 캐시를 쓴다', async () => {
+    const transport = new PagedTransport(125);
+    const svc = service(transport);
+    const all = [];
+    for (let page = 1; page <= 7; page++) {
+      const result = await svc.places(placesQuery({ page }));
+      expect(result.totalCount).toBe(125);
+      all.push(...result.items.map(p => p.contentId));
+    }
+    expect(all).toHaveLength(125);
+    expect(new Set(all).size).toBe(125);
+    expect(transport.paramsOf('areaBasedList2').map(p => p.pageNo)).toEqual([1, 2]);
+  });
+
+  it('근처 원본 1000곳 너머도 전체 거리순으로 정렬한 뒤 페이지를 나눈다', async () => {
+    const transport = new PagedTransport(1003, 'locationBasedList2');
+    const svc = service(transport);
+    const result = await svc.places(placesQuery({ scope: 'NEAR3KM', nearKind: 'MEAL', anchor: { mapx: 128.9, mapy: 37.75 } }));
+    expect(result.totalCount).toBe(1003);
+    expect(result.items[0]?.contentId).toBe('1003');
+    const last = await svc.places(placesQuery({ scope: 'NEAR3KM', nearKind: 'MEAL', anchor: { mapx: 128.9, mapy: 37.75 }, page: 51 }));
+    expect(last.items.map(p => p.contentId)).toEqual(['3', '2', '1']);
+  });
+
+  it('중간 실패를 일부 성공으로 캐시하지 않아 재시도로 전체를 받는다', async () => {
+    const transport = new PagedTransport(125);
+    transport.failSecond = true;
+    const svc = service(transport);
+    await expect(svc.places(placesQuery())).rejects.toBeInstanceOf(KtoFetchError);
+    transport.failSecond = false;
+    expect((await svc.places(placesQuery({ page: 7 }))).items).toHaveLength(5);
+  });
+
+  it('원본이 같은 페이지를 반복하면 잘린 전체 수를 반환하지 않는다', async () => {
+    const transport = new RecordingTransport({ areaBasedList2: listBody([place()], 34) });
+    await expect(service(transport).places(placesQuery())).rejects.toThrow('다음 페이지');
+  });
+
+  it('앵커가 없으면 반경 20km가 아닌 시군구 전체로 설명한다', async () => {
+    const result = await service(new PagedTransport(34)).places(placesQuery({ sort: 'near' }));
+    expect(result.scope.kind).toBe('SIGNGU');
+    expect(result.scope.label).not.toContain('반경');
   });
 });
