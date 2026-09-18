@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.10</td>
+<td>API · 백엔드 설계 v2.11</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -378,7 +378,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>POST</td>
 <td>`/api/v1/auth/signup`</td>
-<td>회원가입. 이메일 중복 시 상세 사유를 알리지 않고 거부</td>
+<td>회원가입. email · password · verificationId · code 필수. 이메일에 연결된 미만료 인증코드를 확인하고 같은 트랜잭션에서 코드 소비·계정·기본 설정 생성. 중복은 상세 사유 없이 거부. 성공 시 기존 세션 쿠키 발급.</td>
 <td>FR-CM-001 · EX-SY-007</td>
 </tr>
 <tr>
@@ -2965,4 +2965,14 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 </callout>
 <callout icon="©️" color="gray_bg">
 	출처: ⓒ한국관광공사
+</callout>
+
+## 2026.09.18 가입 인증 API
+- `POST /api/v1/auth/signup-code` (공개): `{email}` → 200 `{verificationId, expiresAt, resendAfterSeconds:60}`. 계정 존재 여부와 무관하게 같은 형식으로 인증메일을 발송하며 계정·세션을 만들지 않는다. 코드 원문은 응답·로그에 없다.
+- `POST /api/v1/auth/signup` (공개): `{email,password,verificationId,code}` → 201 기존 AccountView + 세션 쿠키. 코드 불일치·만료·소비·5회 초과는 400 단일 인증 오류. 잘못된 코드의 시도 횟수는 트랜잭션 커밋 후 오류를 반환한다.
+- 재전송 60초·이메일당 시간당 5회·서비스 전체 분당 10회·UTC 일일 100회 제한은 DB에 저장하며 429 및 Retry-After 반환. 발송 실패·미설정은 503이며 가입 인증을 우회하지 않는다.
+- Resend HTTPS API를 서버에서 호출한다. 환경변수는 `RESEND_API_KEY`, 인증된 발신 주소 `AUTH_EMAIL_FROM`. 운영 발송 설정 완료 및 실제 수신 확인 후 활성화한다. 기존 계정 로그인 계약은 그대로다.
+
+<callout color="gray_bg">
+	v2.11 (2026.09.18) — 사용자 요청 #539에 따라 신규 가입 이메일 인증을 필수화. FR-CM-001 · UI-S0-002 · PM-AC-008 · DB · API 연쇄 개정. 기존 계정 및 심사용 계정 로그인 유지.
 </callout>
