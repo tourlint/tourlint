@@ -218,7 +218,7 @@ export default function RadarPage() {
       <TodayAgentCard />
 
       {/* 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) */}
-      <WatchAndNews onError={setError} />
+      <WatchAndNews onError={setError} automatic={summary?.nextBatchAt != null} />
 
       {/* 바뀐 정보 · 새 소식 탭 (UI-S7-003). 검수 등급 색 마커를 쓰지 않는다. */}
       <div id="notifications" className="mt-6 flex gap-2 border-b border-slate-200 dark:border-slate-800">
@@ -581,7 +581,7 @@ function TodoRow({ item }: { item: TodayItem }) {
 }
 
 // ── 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) ────────────
-function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
+function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => void; automatic: boolean }) {
   const [keywords, setKeywords] = useState<string[]>([]);
   const [regions, setRegions] = useState<{ regnCd: string; signguCd: string | null; month: string }[]>([]);
   const [signals, setSignals] = useState<RegionSignal[]>([]);
@@ -596,7 +596,9 @@ function WatchAndNews({ onError }: { onError: (m: string | null) => void }) {
     setRefreshing(true);
     onError(null);
     try {
-      setSignals(await radarApi.refreshRegionSignals());
+      // 자동 확인이 켜져 있으면 배치가 저장한 최신 결과를 읽는다.
+      // 수동 집계 API는 자동 확인이 꺼진 기간에만 허용된다.
+      setSignals(await (automatic ? radarApi.regionSignals() : radarApi.refreshRegionSignals()));
     } catch (e) {
       onError(isApiError(e) ? e.message : "새 소식을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
