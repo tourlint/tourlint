@@ -127,7 +127,7 @@ export class NotificationRepository {
    * 지운 것이 아니라 접어 둔 것이기 때문이다.
    */
   async listFor(accountId: number, filter: NotificationFilter): Promise<NotificationPage> {
-    const where = ['p.account_id = $1'];
+    const where = ['p.account_id = $1', "p.start_date + p.nights >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date"];
     const params: unknown[] = [accountId];
     if (filter.kind !== undefined) {
       params.push(filter.kind);
@@ -217,7 +217,8 @@ export class NotificationRepository {
     const { rows } = await this.pool.query<{ n: string }>(
       `SELECT count(*) AS n FROM notification n
          JOIN product p ON p.id = n.product_id
-        WHERE p.account_id = $1 AND n.read_at IS NULL AND n.dismissed_at IS NULL`,
+        WHERE p.account_id = $1 AND n.read_at IS NULL AND n.dismissed_at IS NULL
+          AND p.start_date + p.nights >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date`,
       [accountId],
     );
     return Number(rows[0]?.n ?? 0);

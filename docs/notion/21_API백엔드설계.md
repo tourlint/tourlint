@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.13</td>
+<td>API · 백엔드 설계 v2.14</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -2254,7 +2254,7 @@ public interface AuditRule {
         │
 [4단계] 영향 상품 탐색 (6조건) → notification 생성
         동일 contentid + 동일 변경 지문 쌍은 재노출하지 않음
-        출발일이 지난 상품(출발일+1일 이후)은 알림 미생성
+        한국 날짜 기준 여행 종료일(출발일+박수)이 지난 상품은 알림 미생성
         │
 [성공]  last_covered 갱신 · batch_state 기록
 [실패]  last_covered 미갱신 → 다음 회차가 누락 구간 자동 재조회
@@ -2989,4 +2989,12 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 
 <callout icon="📝" color="gray_bg">
 	v2.13 (2026.09.18) — 인증코드 요청을 4-1 전체 엔드포인트 목록에도 추가하고 DB 물리 테이블 수 참조를 20종으로 맞춤. EI-MA 외부 연동 계약과 DB v2.9 연쇄 정리.
+</callout>
+
+### 현재 알림의 여행 기간 범위 (#559)
+
+`notifications` 목록·totalElements·unreadCount, `radar/summary` 모든 알림 건수, `radar/changes` 목록·totalElements는 소유 계정 범위 안에서 `start_date + nights >= 한국 오늘 날짜`인 상품만 포함한다. `includeDismissed`는 무시 여부만 해제하며 종료된 상품을 되살리지 않는다. 저장된 알림의 읽음·무시와 상품 상세·수동 검수는 기존 권한을 유지한다. 상품 삭제 시 관련 알림은 기존 외래키 연쇄 삭제를 따른다.
+
+<callout color="gray_bg">
+	v2.14 (2026.09.18) — #559: 한국 날짜의 여행 종료일 기준으로 홈·기획·검수·레이더·알림 배지 표시를 통일. 진행 중인 1박 2일은 유지하고 종료된 상품의 기록은 보존한다. 기능·화면·API 명세 연쇄 개정.
 </callout>

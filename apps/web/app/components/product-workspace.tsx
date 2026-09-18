@@ -11,6 +11,8 @@ import { WorkspaceIcon, type IconName } from "./workspace-icon";
 import { STAGE_LABEL, STAGE_ORDER, type Stage } from "../lib/stage-of";
 import {
   belongsTo,
+  isPastTrip,
+  koreaToday,
   productHref,
   productHint,
   productStage,
@@ -96,12 +98,11 @@ export function ProductWorkspace({
     return () => controller.abort();
   }, [router, retry]);
 
-  const d = new Date();
-  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const upcoming = products.filter((p) => p.startDate >= today);
+  const today = koreaToday();
+  const upcoming = products.filter((p) => !isPastTrip(p, today));
   const scoped = products.filter((p) => belongsTo(p, workspace));
-  const current = scoped.filter((p) => p.startDate >= today);
-  const past = scoped.filter((p) => p.startDate < today);
+  const current = scoped.filter((p) => !isPastTrip(p, today));
+  const past = scoped.filter((p) => isPastTrip(p, today));
   const search = query.trim().toLocaleLowerCase();
   const visible = sortProducts(
     (showPast ? scoped : current).filter(
