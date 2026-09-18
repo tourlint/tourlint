@@ -6,7 +6,8 @@
 // 점수 · 추천 · 인기 표현은 쓰지 않는다. 근처 3km 는 왼쪽에서 체크한 "고른 줄" 좌표를 기준으로 한다.
 
 import { useEffect, useMemo, useState } from "react";
-import { isApiError, planApi, type PlanBriefing, type PlanPlace, type PlanPlaces } from "../../../lib/api";
+import { isApiError, planApi, type PlanBriefing, type PlanPlace } from "../../../lib/api";
+import { PlaceResults } from "../place-results";
 import { PlaceDetailView } from "../place-detail-view";
 import { dayCount, type Nights, type Schedule, type ScheduleItem } from "./types";
 
@@ -59,8 +60,6 @@ export function RegisterPlacePicker({
   const [insertingId, setInsertingId] = useState<string | null>(null);
 
   const [briefing, setBriefing] = useState<PlanBriefing | null>(null);
-  const [places, setPlaces] = useState<PlanPlaces | null>(null);
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   // 지역과 출발일이 모두 있어야 장소를 부른다 (브리핑이 출발일 · 박수로 행사 창을 잡는다)
@@ -86,32 +85,14 @@ export function RegisterPlacePicker({
     };
   }, [ready, regnCd, signguCd, startDate, nights]);
 
-  // 종류 · 근처 3km · 정렬 · 필터가 바뀌면 목록을 다시 읽는다
-  useEffect(() => {
-    if (!ready) return;
-    if (lcls2 === null && activeNear === null) return;
-    let alive = true;
-    void (async () => {
-      setLoading(true);
-      setErr(null);
-      try {
-        const res =
-          activeNear !== null && anchor !== null
-            ? await planApi.places({ regnCd, signguCd, scope: "NEAR3KM", nearKind: activeNear, anchor: { mapx: anchor.mapx, mapy: anchor.mapy }, wheelchair: filters.wheelchair, pet: filters.pet, indoor: filters.indoor })
-            : await planApi.places({ regnCd, signguCd, lcls2: lcls2 as string, sort, wheelchair: filters.wheelchair, pet: filters.pet, indoor: filters.indoor });
-        if (alive) setPlaces(res);
-      } catch (e) {
-        if (alive) setErr(isApiError(e) ? e.message : "장소를 불러오지 못했어요.");
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-    // anchor 는 좌표가 아니라 존재 여부 · contentId 로만 다시 부른다
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, regnCd, signguCd, lcls2, activeNear, sort, filters, anchor?.contentId]);
+  const placeQuery = !ready || (lcls2 === null && activeNear === null) ? null : {
+    regnCd, signguCd,
+    ...(activeNear !== null && anchor !== null
+      ? { scope: "NEAR3KM" as const, nearKind: activeNear }
+      : { lcls2: lcls2 as string, sort }),
+    ...(anchor ? { anchor: { mapx: anchor.mapx, mapy: anchor.mapy }, anchorContentId: anchor.contentId } : {}),
+    wheelchair: filters.wheelchair, pet: filters.pet, indoor: filters.indoor,
+  };
 
   const lclsChips = (briefing?.types ?? []).filter((t) => t.kind === "LCLS2");
   const nearItemType = activeNear !== null ? (NEAR_KINDS.find((n) => n.kind === activeNear)?.itemType ?? "SIGHT") : "SIGHT";
@@ -209,7 +190,7 @@ export function RegisterPlacePicker({
       {ready && (lcls2 !== null || activeNear !== null) && (
         <div className="mt-3">
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-400">{places?.scope.label ?? ""} {places !== null && `${places.totalCount}곳`}</p>
+
             {activeNear === null && (
               <div className="flex gap-1 text-xs">
                 {(["near", "together"] as const).map((s) => (
@@ -222,13 +203,8 @@ export function RegisterPlacePicker({
             )}
           </div>
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
-          {loading ? (
-            <p className="mt-3 text-sm text-slate-400">불러오는 중…</p>
-          ) : places === null || places.items.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-400">{places?.notice ?? "이 종류의 장소가 없어요."}</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {places.items.map((p) => (
+          <PlaceResults query={placeQuery}>
+            {(p) => (
                 <PlaceCard
                   key={p.contentId}
                   place={p}
@@ -243,9 +219,8 @@ export function RegisterPlacePicker({
                     setInsertingId(null);
                   }}
                 />
-              ))}
-            </ul>
-          )}
+            )}
+          </PlaceResults>
         </div>
       )}
 
