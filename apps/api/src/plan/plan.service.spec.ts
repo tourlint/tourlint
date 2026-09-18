@@ -368,3 +368,36 @@ describe('PlanService — 조회 조건과 경계', () => {
     expect(transport.paramsOf('locationBasedList2')[0]).toMatchObject({ radius: 20_000 });
   });
 });
+
+describe('카드 자세히 (placeDetail · FR-PL-012)', () => {
+  it('detailIntro2 로 이용시간 · 쉬는 날 · 주차를 채운다', async () => {
+    const transport = new RecordingTransport({
+      detailIntro2: listBody([{ usetime: '09:00~18:00', restdate: '월요일 휴무', parking: '가능' }]),
+    });
+    const d = await service(transport).placeDetail({ contentId: '1', contentTypeId: 12 });
+    expect(d).toMatchObject({ contentId: '1', hours: '09:00~18:00', restDays: '월요일 휴무', parking: '가능' });
+    expect(transport.paramsOf('detailIntro2')).toHaveLength(1);
+  });
+
+  it('🔴 캐시가 없어 펼칠 때마다 실호출한다', async () => {
+    const transport = new RecordingTransport({ detailIntro2: listBody([{ usetime: '09:00~18:00' }]) });
+    const svc = service(transport);
+    await svc.placeDetail({ contentId: '1', contentTypeId: 12 });
+    await svc.placeDetail({ contentId: '1', contentTypeId: 12 });
+    expect(transport.paramsOf('detailIntro2')).toHaveLength(2);
+  });
+
+  it('🔴 국문 관광정보 예산이 다 찼으면 부르기 전에 429 다', async () => {
+    const transport = new RecordingTransport();
+    const e = await service(transport, { KOR: blocked }).placeDetail({ contentId: '1', contentTypeId: 12 }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(DomainException);
+    expect((e as DomainException).getStatus()).toBe(429);
+    expect(transport.calls).toEqual([]);
+  });
+
+  it('소개정보를 못 받으면 값은 다 null 이고 카드는 열린다 (EX-PL-004)', async () => {
+    const transport = new RecordingTransport({ detailIntro2: new KtoFetchError('detailIntro2', 'HTTP 503') });
+    const d = await service(transport).placeDetail({ contentId: '1', contentTypeId: 12 });
+    expect(d).toEqual({ contentId: '1', hours: null, restDays: null, fee: null, parking: null, eventPeriod: null });
+  });
+});

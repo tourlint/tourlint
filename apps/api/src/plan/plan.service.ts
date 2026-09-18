@@ -7,6 +7,7 @@ import {
   PLAN_NEAR_KIND,
   PLAN_NEAR_RADIUS_M,
   matchesNearKind,
+  type ContentTypeId,
   type KtoService,
   type PlanBriefing,
   type PlanEvent,
@@ -20,6 +21,7 @@ import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import type { BudgetDecision } from '../external/budget-guard';
 import { isKtoError, type KtoClient, type KtoListPage } from '../external/kto';
 import { PlanCache } from './plan-cache';
+import { factFields } from './place-facts.service';
 import { isCourseInRegion, toWalk } from './plan-region';
 
 /**
@@ -75,6 +77,21 @@ export interface PlacesResult {
   readonly items: readonly PlanPlace[];
   readonly disabled: 'ANCHOR_REQUIRED' | null;
   readonly notice: string | null;
+}
+
+export interface PlaceDetailQuery {
+  readonly contentId: string;
+  readonly contentTypeId: number;
+}
+
+/** 카드 「자세히」 값 — 공사 원문 표시값이라 응답으로만 흐른다 (DB 명세서 6-4) */
+export interface PlaceDetailResult {
+  readonly contentId: string;
+  readonly hours: string | null;
+  readonly restDays: string | null;
+  readonly fee: string | null;
+  readonly parking: string | null;
+  readonly eventPeriod: string | null;
 }
 
 /** 시군구 목록 한 번에 받는 행 수. 칩의 `totalCount` 와 같은 조회다 */
@@ -197,6 +214,32 @@ export class PlanService {
       .map(toWalk)
       .filter((w) => w.walkId !== '' && w.name !== '');
     return { items, notice: '넣으면 직접 정한 곳으로 들어가요.' };
+  }
+
+  /**
+   * 카드 「자세히」 — 그 콘텐츠의 이용시간 · 쉬는 날 · 요금 · 주차 · 행사 기간 (FR-PL-012).
+   * `detailIntro2` 1콜을 그때그때 실호출한다(캐시 없음). 소개정보를 못 받으면 값은 비운다.
+   * 예산은 국문 관광정보와 같은 문이다 — 100% 면 429 로 막는다 (FR-PL-018).
+   */
+  async placeDetail(query: PlaceDetailQuery): Promise<PlaceDetailResult> {
+    await this.assertKorBudget();
+    let intro: Record<string, unknown> | null = null;
+    try {
+      intro = await this.kto().detailIntro(query.contentId, query.contentTypeId as ContentTypeId);
+    } catch (e) {
+      if (!isKtoError(e)) throw e;
+      // 소개정보를 못 받아도 카드는 열린다 — 값만 비운다 (EX-PL-004 와 같은 결)
+      intro = null;
+    }
+    const fields = intro === null ? null : factFields(query.contentTypeId, intro);
+    return {
+      contentId: query.contentId,
+      hours: fields?.hours ?? null,
+      restDays: fields?.restDays ?? null,
+      fee: fields?.fee ?? null,
+      parking: fields?.parking ?? null,
+      eventPeriod: fields?.eventPeriod ?? null,
+    };
   }
 
   // ── 시군구 전체 ─────────────────────────────────────────────────
