@@ -1,8 +1,7 @@
 "use client";
 
 // 전역 헤더 (UI-CM-002). 홈과 세 업무 화면(기획 → 검수 → 레이더)을 분리한다.
-// 검수 기준은 보조로 둔다. 오늘 호출량은 헤더에
-// 상시로 두지 않고 계정 메뉴 "오늘 사용량"에서만 본다 (UI-S1-004 · PM-DA-006).
+// 검수 기준은 보조로 둔다. 계정 메뉴에는 사용자 계정과 로그아웃만 표시한다.
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -10,9 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   authApi,
   isApiError,
-  usageApi,
   type AccountView,
-  type BudgetView,
 } from "../lib/api";
 
 import { MAIN_NAV, activeSection } from "../lib/workspace";
@@ -96,11 +93,7 @@ async function logout(router: ReturnType<typeof useRouter>): Promise<void> {
   router.refresh();
 }
 
-/**
- * 계정 메뉴. 이메일을 누르면 열리고, 오늘 사용량과 로그아웃을 담는다. 오늘 호출량을 헤더에
- * 상시로 두지 않는 이유 — 예산은 서비스 전체 단일 인증키 기준이라 상시 노출이 계정 정보처럼
- * 읽힌다 (PM-DA-006). 사용량은 열어 볼 때 한 번 읽는다.
- */
+/** 이메일을 누르면 로그아웃 메뉴가 열린다. */
 function AccountMenu({
   account,
   onLogout,
@@ -139,15 +132,10 @@ function AccountMenu({
         <span className="account-email max-w-[12rem] truncate">
           {account?.email ?? "계정"}
         </span>
-        {account?.isDemo === true && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-            데모
-          </span>
-        )}
+
       </button>
       {open && (
         <div className="absolute right-0 z-10 mt-1 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-800 dark:bg-slate-900">
-          <UsageRow />
           <button
             type="button"
             onClick={onLogout}
@@ -161,47 +149,3 @@ function AccountMenu({
   );
 }
 
-const BUDGET_TONE: Record<BudgetView["state"], string> = {
-  NORMAL: "text-slate-500 dark:text-slate-400",
-  WARN: "text-amber-700 dark:text-amber-300",
-  EXHAUSTED: "text-red-700 dark:text-red-300",
-};
-
-/**
- * 오늘 공사 호출 사용량 (UI-S1-004 · F15). 계정 메뉴를 열 때 한 번 읽는다. 조회 실패해도
- * 메뉴는 죽지 않는다.
- */
-function UsageRow() {
-  const [budget, setBudget] = useState<BudgetView | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    usageApi
-      .budget()
-      .then((b) => {
-        if (alive) setBudget(b);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  return (
-    <div className="rounded-md px-3 py-1.5">
-      <p className="text-xs text-slate-400">오늘 사용량</p>
-      {budget === null ? (
-        <p className="text-sm text-slate-400">—</p>
-      ) : (
-        <p
-          className={`text-sm font-medium tabular-nums ${BUDGET_TONE[budget.state]}`}
-        >
-          {budget.used}/{budget.dailyQuota}
-          <span className="ml-1 text-xs font-normal text-slate-400">
-            ({Math.round(budget.usageRatio * 100)}%)
-          </span>
-        </p>
-      )}
-    </div>
-  );
-}
