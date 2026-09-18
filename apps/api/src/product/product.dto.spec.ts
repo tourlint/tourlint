@@ -83,26 +83,36 @@ describe('validateCreate', () => {
     expect(none.product?.conceptKey).toBeNull();
   });
 
-  it('박수와 일정 수가 안 맞으면 막는다 (EX-IN-005)', () => {
-    // nights 2 는 3일치를 요구하는데 2일치만 준다
-    const days = [
-      { day: 1, items: [{ start: '10:00', end: '11:00', place: '경포대', itemType: 'SIGHT' }] },
-      { day: 2, items: [{ start: '12:00', end: '13:00', place: '초당', itemType: 'MEAL' }] },
-    ];
-    const { errors, product } = validateCreate(base({ days }));
-    expect(product).toBeNull();
-    expect(errors.some((e) => e.includes('일치여야'))).toBe(true);
-  });
-
-  it('빈 일차를 막는다', () => {
+  it('🔴 빈 일차 · 적은 일정도 기획 중으로 저장한다 (EX-IN-005 개정 — 완성도는 검수 시작이 본다)', () => {
+    // 빈 일차(2일차)와 3일치 미만도 저장 시점에는 허용한다. 빈 상품 즉시 생성.
     const days = [
       { day: 1, items: [{ start: '10:00', end: '11:00', place: '경포대', itemType: 'SIGHT' }] },
       { day: 2, items: [] },
       { day: 3, items: [{ start: '12:00', end: '13:00', place: '초당', itemType: 'MEAL' }] },
     ];
     const { errors, product } = validateCreate(base({ days }));
+    expect(errors).toEqual([]);
+    expect(product).not.toBeNull();
+    expect(product?.items).toHaveLength(2); // 빈 일차는 항목 없이 넘어간다
+  });
+
+  it('🔴 일정이 전혀 없어도 기획 중으로 저장한다 (빈 상품 즉시 생성)', () => {
+    const { errors, product } = validateCreate(base({ days: [] }));
+    expect(errors).toEqual([]);
+    expect(product?.items).toEqual([]);
+  });
+
+  it('🔴 박수 범위를 넘는 일차에 항목이 있으면 막는다 (데이터 정합)', () => {
+    // nights 2 = 3일차까지인데 4일차에 항목을 넣으면 거부한다
+    const days = [
+      { day: 1, items: [{ start: '10:00', end: '11:00', place: '경포대', itemType: 'SIGHT' }] },
+      { day: 2, items: [{ start: '12:00', end: '13:00', place: '초당', itemType: 'MEAL' }] },
+      { day: 3, items: [{ start: '10:00', end: '11:00', place: '오죽헌', itemType: 'SIGHT' }] },
+      { day: 4, items: [{ start: '10:00', end: '11:00', place: '경포호', itemType: 'SIGHT' }] },
+    ];
+    const { errors, product } = validateCreate(base({ days }));
     expect(product).toBeNull();
-    expect(errors.some((e) => e.includes('2일차'))).toBe(true);
+    expect(errors.some((e) => e.includes('4일차'))).toBe(true);
   });
 
   it('스펙 밖 이동수단을 막는다', () => {

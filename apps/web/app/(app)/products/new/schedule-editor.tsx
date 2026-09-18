@@ -6,16 +6,29 @@
 
 import { useRef, useState } from "react";
 import { Section, SelectInput, TextInput } from "./controls";
+import { SchedulePlaceInput } from "./schedule-place-input";
 import { ITEM_TYPE_OPTIONS, dayCount, type ItemType, type Nights, type Schedule, type ScheduleItem } from "./types";
 
 export function ScheduleEditor({
   nights,
   schedule,
   onChange,
+  regnCd = "",
+  signguCd = null,
+  regionLabel = "이 지역",
+  anchorId = null,
+  onAnchorChange,
 }: {
   nights: Nights;
   schedule: Schedule;
   onChange: (s: Schedule) => void;
+  // 입력하는 순간 목록에서 고르기(UI-S2-020)용 지역. 등록 폼의 여행 지역에서 온다
+  regnCd?: string;
+  signguCd?: string | null;
+  regionLabel?: string;
+  // 오른쪽 장소 담기의 "근처 3km" 기준 줄(고른 줄). 관광지를 골라 좌표가 있는 줄만 고를 수 있다.
+  anchorId?: string | null;
+  onAnchorChange?: (id: string | null) => void;
 }) {
   const [activeDay, setActiveDay] = useState(0);
   const idSeq = useRef(0);
@@ -60,7 +73,7 @@ export function ScheduleEditor({
   return (
     <Section
       title="일정"
-      description="일차별로 방문 항목을 입력합니다. 종료시간을 비우면 중분류별 기본 체류시간이 적용됩니다."
+      description="일차별로 방문 항목을 입력합니다. 종료시간을 비우면 중분류별 기본 체류시간이 적용됩니다. 장소를 목록에서 고른 줄은 왼쪽 「기준」을 체크해 오른쪽 장소 담기의 근처 3km 기준으로 삼을 수 있습니다."
     >
       <div role="tablist" aria-label="일차 선택" className="flex flex-wrap gap-1">
         {Array.from({ length: days }, (_, d) => {
@@ -94,8 +107,31 @@ export function ScheduleEditor({
         {items.map((it, index) => (
           <div
             key={it.id}
-            className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+            className={`flex flex-wrap items-end gap-2 rounded-lg border p-3 ${
+              anchorId === it.id
+                ? "border-indigo-400 bg-indigo-50/40 dark:border-indigo-500 dark:bg-indigo-950/20"
+                : "border-slate-200 dark:border-slate-800"
+            }`}
           >
+            {/* 고른 줄 체크 — 이 줄을 오른쪽 장소 담기의 근처 3km 기준으로 삼는다.
+                관광지를 골라 좌표가 있는 줄만 기준이 될 수 있다 (없으면 근처를 잴 수 없다). */}
+            <label
+              className="flex flex-col items-center gap-1 self-stretch justify-center text-[10px] text-slate-500 dark:text-slate-400"
+              title={
+                it.content?.mapx != null
+                  ? "이 줄을 기준으로 근처 3km 장소를 봅니다"
+                  : "관광지를 고른 줄만 근처 3km 기준이 될 수 있어요"
+              }
+            >
+              <input
+                type="checkbox"
+                checked={anchorId === it.id}
+                disabled={it.content?.mapx == null || onAnchorChange === undefined}
+                onChange={(e) => onAnchorChange?.(e.target.checked ? it.id : null)}
+                className="h-4 w-4 accent-indigo-600 disabled:opacity-30"
+              />
+              기준
+            </label>
             <label className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
               시작
               <TextInput
@@ -112,15 +148,16 @@ export function ScheduleEditor({
                 onChange={(e) => patchItem(activeIdx, it.id, { end: e.target.value })}
               />
             </label>
-            <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
-              장소명
-              <TextInput
-                type="text"
-                value={it.place}
-                placeholder="예: 중앙시장"
-                onChange={(e) => patchItem(activeIdx, it.id, { place: e.target.value })}
-              />
-            </label>
+            <SchedulePlaceInput
+              value={it.place}
+              content={it.content ?? null}
+              regnCd={regnCd}
+              signguCd={signguCd}
+              regionLabel={regionLabel}
+              // 고른 상태에선 입력칸이 ✓ 뷰라 타이핑이 안 되고, 다시 고르기로만 매칭을 지운다.
+              // 그래서 patch 를 그대로 병합하면 된다(pick=place+content, 편집=place, 해제=content:null)
+              onChange={(patch) => patchItem(activeIdx, it.id, patch)}
+            />
             <label className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
               유형
               <SelectInput

@@ -31,6 +31,15 @@ export interface ContentView {
   readonly hidden: boolean;
   /** 조회 실패 사유코드. 성공이면 `null` */
   readonly unavailableReason: string | null;
+  /** 공사 유형 코드. 못 읽으면 `null` */
+  readonly contentTypeId: number | null;
+  /** 좌표 (detailCommon2). 못 읽으면 `null` — 지어내지 않는다 */
+  readonly mapx: number | null;
+  readonly mapy: number | null;
+  /** 분류 코드 (lclsSystm1/2/3). 못 읽으면 `null` */
+  readonly lclsSystm1: string | null;
+  readonly lclsSystm2: string | null;
+  readonly lclsSystm3: string | null;
 }
 
 export interface ContentViewInput {
@@ -64,6 +73,12 @@ export async function fetchContentView(input: ContentViewInput): Promise<Content
     homepageUrl: null,
     contact: { tel: null },
     fields: [] as readonly { name: string; value: string }[],
+    contentTypeId: null,
+    mapx: null,
+    mapy: null,
+    lclsSystm1: null,
+    lclsSystm2: null,
+    lclsSystm3: null,
   };
   const modifiedTime = input.ktoModifiedTime ?? null;
 
@@ -117,7 +132,20 @@ export async function fetchContentView(input: ContentViewInput): Promise<Content
     ktoModifiedTime: modifiedTime ?? blankToNull(text(c.modifiedtime)),
     hidden: false,
     unavailableReason: intro.value === null ? intro.reason : null,
+    // 좌표 · 분류는 detailCommon2 원문 그대로. 등록 인라인 매칭이 저장 시 실어 보낸다 (D8 · R08)
+    contentTypeId: typeId,
+    mapx: numOrNull(c.mapx),
+    mapy: numOrNull(c.mapy),
+    lclsSystm1: blankToNull(text(c.lclsSystm1)),
+    lclsSystm2: blankToNull(text(c.lclsSystm2)),
+    lclsSystm3: blankToNull(text(c.lclsSystm3)),
   };
+}
+
+/** 좌표 문자열을 수로. 비었거나 숫자가 아니면 null — 지어내지 않는다 */
+function numOrNull(v: unknown): number | null {
+  const n = Number(text(v));
+  return Number.isFinite(n) && text(v) !== '' ? n : null;
 }
 
 /**

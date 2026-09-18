@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { readBriefingQuery, readPlacesQuery, readRegionQuery, type RawBriefingQuery, type RawPlacesQuery } from './plan.dto';
+import { readBriefingQuery, readPlaceDetailQuery, readPlacesQuery, readRegionQuery, type RawBriefingQuery, type RawPlaceDetailQuery, type RawPlacesQuery } from './plan.dto';
 import { PlanService } from './plan.service';
 
 /**
@@ -24,6 +24,12 @@ export class PlanController {
   @Get('places')
   async places(@Query() query: RawPlacesQuery): Promise<Record<string, unknown>> {
     return { ...(await this.service.places(readPlacesQuery(query))) };
+  }
+
+  /** 카드 「자세히」 — 이용시간 · 쉬는 날 · 요금 · 주차 (detailIntro2 실호출 · FR-PL-012) */
+  @Get('place-detail')
+  async placeDetail(@Query() query: RawPlaceDetailQuery): Promise<Record<string, unknown>> {
+    return { ...(await this.service.placeDetail(readPlaceDetailQuery(query))) };
   }
 
   /** 여행 기간 앞뒤 3일에 열리는 축제 · 공연 (FR-PL-014) */

@@ -497,6 +497,16 @@ export interface PlanPlaces {
   notice: string | null;
 }
 
+/** 카드 「자세히」 값 — 공사 원문 표시값. 저장하지 않는다 (DB 명세서 6-4) */
+export interface PlanPlaceDetail {
+  contentId: string;
+  hours: string | null;
+  restDays: string | null;
+  fee: string | null;
+  parking: string | null;
+  eventPeriod: string | null;
+}
+
 export interface PlanEvent {
   contentId: string;
   contentTypeId: number;
@@ -580,6 +590,9 @@ export const planApi = {
       method: "POST",
       body: JSON.stringify(itemIds ? { itemIds } : {}),
     }),
+  // 카드 「자세히」 — 이용시간 · 쉬는 날 · 요금 · 주차 (detailIntro2 실호출 · 캐시 없음)
+  placeDetail: (contentId: string, contentTypeId: number) =>
+    request<PlanPlaceDetail>(`/plan/place-detail?contentId=${encodeURIComponent(contentId)}&contentTypeId=${contentTypeId}`),
 };
 
 export const patchApi = {
@@ -852,6 +865,13 @@ export interface ContentDetail {
   ktoRaw: Record<string, string>;
   ktoModifiedTime: string | null;
   unavailableReason: string | null;
+  /** 좌표 · 분류 · 유형 — 등록 인라인 매칭이 pick 시 잡아 저장에 싣는다 (UI-S2-020) */
+  contentTypeId: number | null;
+  mapx: number | null;
+  mapy: number | null;
+  lclsSystm1: string | null;
+  lclsSystm2: string | null;
+  lclsSystm3: string | null;
 }
 
 export const contentApi = {
