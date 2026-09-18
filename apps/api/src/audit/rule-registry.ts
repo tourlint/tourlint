@@ -43,7 +43,7 @@ export const RULES: readonly AuditRule[] = [
  * 규칙 수가 그대로여도 **판정 문구가 달라지면 올린다.** 저장된 finding 은 message 를
  * 그대로 들고 있어서, 같은 버전에 두 문구가 섞이면 어느 쪽인지 가릴 수 없다.
  */
-export const RULESET_VERSION = '1.2.3';
+export const RULESET_VERSION = '1.2.4';
 
 export interface RuleExplanation {
   /** 쓰는 데이터. 화면은 코드 대신 관광정보 · 일정 · 이동 시간 · 날씨 예보로 적는다 */

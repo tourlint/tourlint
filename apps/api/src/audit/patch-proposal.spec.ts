@@ -613,3 +613,39 @@ describe('R07 — 식사가 아예 없을 때 (FR-RU-073)', () => {
       .toHaveLength(0);
   });
 });
+
+describe('R03 수정안의 이동 여유 (#554)', () => {
+  function proposals(a: AuditItem, b: AuditItem, seconds: number) {
+    return proposeLocalPatches({
+      finding: finding({ ruleCode: 'R03', targetItemId: a.id, targetItemId2: b.id }),
+      items: [a,b], holidays: KOREAN_HOLIDAYS,
+      travelTimes: new Map([[`${a.id}-${b.id}`, {ok:true, durationSeconds:seconds, distanceMeters:2000, futureBased:true}]]),
+    });
+  }
+  it('미루기와 단축 모두 조회한 이동시간을 확보한다', () => {
+    const a = item({start:'10:00',end:'11:30'});
+    const b = item({start:'11:00',end:'12:30'});
+    const patches = proposals(a,b,300);
+    expect(patches.map(p=>p.payload)).toEqual([
+      {newStartTime:'12:00',newEndTime:'13:30'}, {newEndTime:'10:55'},
+    ]);
+  });
+  it('초 단위 이동시간을 내림하지 않는다', () => {
+    const a = item({start:'10:00',end:'11:30'});
+    const b = item({start:'11:00',end:'12:30'});
+    expect(proposals(a,b,301)[1]?.payload).toEqual({newEndTime:'10:54'});
+  });
+  it('앞 일정이 0분 이하로 줄어드는 안은 제외한다', () => {
+    const a = item({start:'11:00',end:'11:30'});
+    const b = item({start:'11:00',end:'12:30'});
+    expect(proposals(a,b,300)).toHaveLength(1);
+    expect(proposals(a,b,300)[0]?.targetItemId).toBe(b.id);
+  });
+  it('뒤 일정이 자정을 넘는 안은 제외한다', () => {
+    const a = item({start:'22:00',end:'23:30'});
+    const b = item({start:'23:00',end:'23:50'});
+    const patches = proposals(a,b,300);
+    expect(patches).toHaveLength(1);
+    expect(patches[0]?.payload).toEqual({newEndTime:'22:55'});
+  });
+});

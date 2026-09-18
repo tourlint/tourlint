@@ -140,3 +140,29 @@ describe('결정론성 (NF-MT-001)', () => {
     expect(rule.defaultSeverity).toBe('ERROR');
   });
 });
+
+describe('겹침과 이동시간을 함께 확인한다 (#554)', () => {
+  it('30분 겹침에 이동 5분이면 실제로 35분을 확보해야 한다', () => {
+    const a = item({ seq: 1, start: '10:00', end: '11:30', label: '경포대' });
+    const b = item({ seq: 2, start: '11:00', end: '12:30', label: '오죽헌' });
+    const [f] = evaluate([a, b], { [segmentKey(a.id, b.id)]: ok(5) });
+    expect(f).toMatchObject({ severity: 'ERROR', evidence: { allowedMinutes: -30, neededMinutes: 5, shortfallMinutes: 35 } });
+    expect(f?.message).toContain('30분 겹쳐');
+    expect(f?.message).toContain('35분이 더 필요');
+  });
+  it('맞붙은 일정도 이동시간이 있으면 오류다', () => {
+    const a = item({ seq: 1, start: '10:00', end: '11:30' });
+    const b = item({ seq: 2, start: '11:30', end: '12:30' });
+    expect(evaluate([a,b], { [segmentKey(a.id,b.id)]: ok(5) })[0]?.evidence.shortfallMinutes).toBe(5);
+  });
+  it('이동 0분인 같은 장소의 겹침을 이동 오류로 중복 집계하지 않는다', () => {
+    const a = item({ seq: 1, start: '10:00', end: '11:30' });
+    const b = item({ seq: 2, start: '11:00', end: '12:30' });
+    expect(evaluate([a,b], { [segmentKey(a.id,b.id)]: ok(0) })).toEqual([]);
+  });
+  it('겹친 일정도 조회 실패는 확인 불가다', () => {
+    const a = item({ seq: 1, start: '10:00', end: '11:30' });
+    const b = item({ seq: 2, start: '11:00', end: '12:30' });
+    expect(evaluate([a,b], { [segmentKey(a.id,b.id)]: {ok:false,reasonCode:'ROUTE_PROVIDER_FAILED'} })[0]?.severity).toBe('UNVERIFIED');
+  });
+});

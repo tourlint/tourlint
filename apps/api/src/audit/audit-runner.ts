@@ -465,6 +465,7 @@ export class AuditRunner {
       finding,
       patches: [...proposeLocalPatches({
         finding, items: ctx.items, holidays: ctx.holidays,
+        travelTimes: ctx.travelTimes,
         // R09 순서 교체가 규칙과 같은 표를 보게 넘긴다 (FR-OP-021)
         indoorOutdoor: ctx.settings.r09IndoorOutdoor,
       })] as Patch[],
