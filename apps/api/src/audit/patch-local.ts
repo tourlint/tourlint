@@ -440,9 +440,14 @@ export function planInsertion(
   items: readonly AuditItem[],
   indoorOutdoor: Readonly<Record<string, IndoorOutdoor>>,
   dwellMinutes = SETTING_DEFAULTS.dwellFallbackMinutes,
+  /** 다른 자리가 이미 채운 중분류. 같은 종류를 두 번 제안하지 않는다 (#589) */
+  coveredLcls2: ReadonlySet<string> = new Set(),
 ): InsertionRequest | null {
-  const scope = insertionScope(finding, items, indoorOutdoor);
-  if (scope === null || scope.candidates.length === 0) return null;
+  const found = insertionScope(finding, items, indoorOutdoor);
+  if (found === null || found.candidates.length === 0) return null;
+  const scope = { ...found, wantLcls2: found.wantLcls2.filter((code) => !coveredLcls2.has(code)) };
+  // 채울 것이 안 남았으면 자리를 잡지 않는다. 비면 「아무 중분류나」 로 읽혀 엉뚱한 곳을 넣는다
+  if (found.wantLcls2.length > 0 && scope.wantLcls2.length === 0) return null;
 
   // 가장 넉넉한 구간에 넣는다. 좁은 데 억지로 끼우면 뒤가 밀린다
   const need = dwellMinutes + MIN_TRANSFER_MINUTES * 2;
@@ -507,13 +512,13 @@ function gapsOf(dayItems: readonly AuditItem[]): readonly { after: AuditItem; ga
  * **숙박하는 날을 먼저 본다.** 입실 뒤 저녁이 비는 날이고, 숙소 근처에서 찾으면 밤에 멀리
  * 가지 않는다. 마지막 날은 돌아가는 날이라 다른 날이 전부 안 될 때만 쓴다.
  *
- * 무엇을 넣을지는 기대 중분류 전체에서 고른다. **아직 안 채워진 결손 중분류가 먼저다** —
- * 카페도 결손이면 야간 자리에 카페를 넣어 두 결손이 같이 풀린다. 낮 자리가 이미 채운
- * 중분류(`coveredLcls2`)는 맨 뒤로 보낸다. 같은 종류를 두 번 제안하지 않는다.
+ * 무엇을 넣을지는 기대 중분류 전체에서 고른다. **결손 중분류가 먼저다** — 카페가 결손이면
+ * 야간 자리에 카페를 넣어 두 결손이 같이 풀린다. 다른 자리가 이미 채운 중분류
+ * (`coveredLcls2`)는 맨 뒤로 보낸다. 같은 종류를 두 번 제안하지 않는다.
  *
- * 낮 자리가 있다는 것만으로 결손을 다 채웠다고 보면 안 된다. 낮 자리는 후보를 하나만 내는데
- * 결손이 둘이면 하나가 남는다. 그렇게 보고 나머지 유형(랜드마크)부터 찾다가 숙소 옆
- * 공중화장실을 밤 일정으로 냈다 (#584).
+ * **러너는 이 자리를 낮 자리보다 먼저 잡는다** (#589). 낮 자리가 결손을 먼저 가져가면 카페가
+ * 18:00 에 들어가 야간 결손이 남는다. 그전에는 낮 자리가 있으면 결손을 다 채웠다고 보고
+ * 나머지 유형(랜드마크)부터 찾다가 숙소 옆 공중화장실을 밤 일정으로 내기도 했다 (#584).
  */
 export function planNightInsertion(
   finding: Finding,
