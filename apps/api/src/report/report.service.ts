@@ -10,7 +10,7 @@ import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
 import { collectEvidence } from './report-evidence';
 import {
-  assembleReport, describeItineraryChanges,
+  assembleReport, describeItineraryChanges, labelOnly, type PlaceNamer,
   type ReportModel, type ReportPatch,
 } from './report-model';
 import { fontsAvailable, renderReport } from './report-render';
@@ -120,7 +120,13 @@ export class ReportService {
         releasedAt: productRow.releasedAt,
       },
       items,
-      patches: await this.toPatchHistory(patchRows),
+      patches: await this.toPatchHistory(patchRows, (item) => {
+        // 3절 일정표와 같은 이름을 쓴다. 지금 일정에 없는 곳(되돌린 추가)은 읽어 둔 명칭이 없다
+        const walk = item.walkId ?? null;
+        if (walk !== null) return walkNames.get(walk) ?? '걷기 길';
+        const official = item.ktoContentId === null ? undefined : evidence.get(item.ktoContentId)?.officialName;
+        return official ?? labelOnly(item);
+      }),
       evidence,
       walkNames,
       dataFingerprint: runFingerprintOf(fingerprints),
@@ -154,6 +160,7 @@ export class ReportService {
    */
   private async toPatchHistory(
     rows: Awaited<ReturnType<ReportRepository['patches']>>,
+    nameOf: PlaceNamer,
   ): Promise<readonly ReportPatch[]> {
     return Promise.all(rows.map(async (r) => {
       const [before, after] = await Promise.all([
@@ -165,7 +172,7 @@ export class ReportService {
         reverted: r.revertedAt !== null,
         beforeScore: before?.current.score ?? null,
         afterScore: after?.current.score ?? null,
-        changes: describeItineraryChanges(r.before.items, r.after.items),
+        changes: describeItineraryChanges(r.before.items, r.after.items, nameOf),
       };
     }));
   }
