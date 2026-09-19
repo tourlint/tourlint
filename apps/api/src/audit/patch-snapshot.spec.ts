@@ -15,7 +15,8 @@ function item(over: Partial<ItineraryItemRow> = {}): ItineraryItemRow {
     id: 207, dayNo: 1, seq: 1, startTime: '10:00', endTime: '11:30', endTimeSource: 'INPUT',
     placeLabel: '오죽헌', itemType: 'SIGHT', ktoContentId: '126508', contentTypeId: 12,
     lclsSystm1: 'HS', lclsSystm2: 'HS01', lclsSystm3: 'HS010100',
-    mapX: 128.877841, mapY: 37.779214, matchStatus: 'CONFIRMED', ...over,
+    mapX: 128.877841, mapY: 37.779214, matchStatus: 'CONFIRMED',
+    walkId: null, matchedBy: null, origin: null, ...over,
   };
 }
 
@@ -37,6 +38,23 @@ describe('일정 스냅샷 (FR-PA-021)', () => {
       itemType: 'MEAL', matchStatus: 'EXCLUDED', endTime: null,
     });
     expect(fromSnapshot(toSnapshot(31, [excluded], AT))).toEqual([excluded]);
+  });
+
+  it('🔴 걷기 길 식별자와 넣은 경로를 담는다 — 없으면 되살린 행이 제약에 걸린다 (#586)', () => {
+    // 걷기 길은 이름 없이 `walk_id` 만 가진 행이다. 스냅샷에서 빠지면 되돌리기가 그 행을 못 쓴다
+    const walk = item({
+      id: 301, ktoContentId: null, contentTypeId: null, mapX: null, mapY: null,
+      lclsSystm1: null, lclsSystm2: null, lclsSystm3: null,
+      matchStatus: 'EXCLUDED', walkId: 'T_CRS_MNG0000000001', origin: 'PICKER',
+    });
+    expect(fromSnapshot(toSnapshot(31, [walk], AT))).toEqual([walk]);
+    expect(toSnapshot(31, [walk], AT).items[0]).toMatchObject({ walkId: 'T_CRS_MNG0000000001', origin: 'PICKER' });
+  });
+
+  it('이 키들이 없는 옛 스냅샷은 null 로 읽는다', () => {
+    const { walkId: _w, matchedBy: _m, origin: _o, ...legacy } = toSnapshot(31, [item()], AT).items[0] as never as Record<string, unknown>;
+    const restored = fromSnapshot({ snapshotVersion: '1.0', snapshotAt: AT.toISOString(), productId: 31, items: [legacy as never] });
+    expect(restored[0]).toMatchObject({ walkId: null, matchedBy: null, origin: null });
   });
 
   it('저장 키 이름은 DB 명세서 4-4 를 따른다 — 좌표는 mapx · mapy 다', () => {
