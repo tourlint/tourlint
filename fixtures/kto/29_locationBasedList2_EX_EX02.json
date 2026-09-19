@@ -1,0 +1,45 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "addr1": "강원특별자치도 강릉시 솔올로5번길 51",
+            "addr2": "3층",
+            "zipcode": "25515",
+            "areacode": "32",
+            "cat1": "A02",
+            "cat2": "A0203",
+            "cat3": "A02030400",
+            "contentid": "2925502",
+            "contenttypeid": "12",
+            "createdtime": "20221130133017",
+            "dist": "2230.963780893153",
+            "firstimage": "",
+            "firstimage2": "",
+            "cpyrhtDivCd": "",
+            "mapx": "128.8770014492",
+            "mapy": "37.7641862993",
+            "mlevel": "6",
+            "modifiedtime": "20250626162101",
+            "sigungucode": "1",
+            "tel": "",
+            "title": "리고엠",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "EX",
+            "lclsSystm2": "EX02",
+            "lclsSystm3": "EX020400"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

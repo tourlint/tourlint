@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { STANDARD_VERSION, type TargetProfileSeed } from '@tourlint/shared';
@@ -522,8 +521,8 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
                            placeLabel: '경포대', ktoContentId: '125790', contentTypeId: 12,
                            lclsSystm2: 'VE07', mapX: 128.8961, mapY: 37.7955 });
 
-    // 픽스처 위치기반 목록에 실제로 있는 중분류를 결손으로 둔다
-    const lcls2 = fixtureLcls2();
+    // 분류로 좁힌 위치기반 스냅샷이 있는 중분류를 결손으로 둔다 (`29_locationBasedList2_FD_FD05`)
+    const lcls2 = 'FD05';
     const result = await runner({ profileOf: found(['VE07', lcls2]) })
       .run(withTarget, [morning, evening]);
 
@@ -536,6 +535,53 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     // 결손 중분류로 채운다. 아무거나 넣는 제안이 아니다
     expect(payload.content?.lclsSystm2).toBe(lcls2);
     expect(payload.startTime).toBe('10:30');
+  });
+
+  it('🔴 제보된 일정 — 사이 공백이 좁고 야간이 빈 2박 3일에도 수정안이 붙는다 (#579)', async () => {
+    /*
+     * 「강릉 바다 2박 3일」 검수 #96 의 모양 그대로다. 항목 사이 공백이 30 ~ 60분뿐이고
+     * 19:00 이후가 비어 있다. 「공예체험, 19:00 이후 일정이 없습니다」 에 수정안이 하나도 안 붙었다.
+     *
+     *   낮 자리  3일차 마지막 일정 뒤 — 결손 중분류(EX02)로 좁혀 찾는다
+     *   야간 자리 1일차 19:00 — 숙소 근처에서 찾고, **그 시각에 여는 것이 확인된 곳만** 넣는다
+     */
+    const withTarget: ProductRow = {
+      ...product, startDate: '2026-11-06', nights: 2, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7,
+    };
+    const at = { mapX: 128.898632, mapY: 37.753996 };
+    const place = (id: number, dayNo: number, seq: number, startTime: string, endTime: string | null,
+                   over: Partial<ItineraryItemRow> = {}): ItineraryItemRow =>
+      item({ id, dayNo, seq, startTime, endTime, placeLabel: `장소${String(id)}`, ktoContentId: '125790',
+             contentTypeId: 12, lclsSystm2: 'NA02', ...at, ...over });
+    const meal = { itemType: 'MEAL' as const, ktoContentId: '2868869', contentTypeId: 39 as const, lclsSystm2: 'FD01' };
+    const hotel = { itemType: 'LODGING' as const, ktoContentId: '4074363', contentTypeId: 32 as const, lclsSystm2: 'AC01' };
+
+    const result = await runner().run(withTarget, [
+      place(1, 1, 1, '10:00', '11:30'), place(2, 1, 2, '12:30', '13:30', meal),
+      place(3, 1, 3, '14:00', '16:00', { ktoContentId: '129784', contentTypeId: 14, lclsSystm2: 'VE07' }),
+      place(4, 1, 4, '17:00', null, hotel),
+      place(5, 2, 1, '10:00', '11:30'), place(6, 2, 2, '12:00', '13:00', meal),
+      place(7, 2, 3, '13:30', '14:30', { ktoContentId: '2891773', contentTypeId: 39, lclsSystm2: 'FD05', itemType: 'REST' }),
+      place(8, 2, 4, '15:00', '17:00'), place(9, 2, 5, '18:00', null, hotel),
+      place(10, 3, 1, '10:00', '11:30'), place(11, 3, 2, '12:00', '13:30', meal),
+      place(12, 3, 3, '14:00', '15:30', { ktoContentId: '3022373' }),
+    ]);
+
+    const r10 = result.findings.find((f) => f.ruleCode === 'R10');
+    expect(r10?.evidence).toMatchObject({ missingLcls2: ['EX02', 'VE01'], expectsNight: true, hasNight: false });
+
+    const inserts = (r10?.patches ?? []).map((p) => p.payload as {
+      dayNo: number; startTime: string; endTime: string; content?: { ktoContentId: string; lclsSystm2: string | null };
+    });
+    // 낮 — 3일차 15:30 뒤. 공예체험(EX02)으로 좁혀 찾은 곳
+    expect(inserts[0]).toMatchObject({ dayNo: 3, startTime: '16:00', content: { lclsSystm2: 'EX02' } });
+    /*
+     * 야간 — 1일차 19:00. 가장 가까운 카페(3532680)는 18:00 에 닫아 떨어지고, 일정에 이미 있는
+     * 2891773 은 건너뛴다. 12:00~20:00 인 3537206 이 남는다. 카페 체류는 60분이라 20:00 에 끝난다.
+     */
+    expect(inserts[1]).toMatchObject({
+      dayNo: 1, startTime: '19:00', endTime: '20:00', content: { ktoContentId: '3537206', lclsSystm2: 'FD05' },
+    });
   });
 
   it('🔴 표준 목록에 없는 타깃 · 콘셉트(옛 자유 입력)면 확인 불가다', async () => {
@@ -723,16 +769,6 @@ describe('R08 대체 후보는 앞 항목 주변에서 찾는다 (FR-RU-083 ③)
   });
 });
 
-/** 위치기반 픽스처에 실제로 들어 있는 중분류 하나. 없는 값을 결손으로 두면 후보가 안 나온다 */
-function fixtureLcls2(): string {
-  const raw = JSON.parse(
-    readFileSync(join(__dirname, '../../../../fixtures/kto/06_locationBasedList2.json'), 'utf8'),
-  ) as { response: { body: { items: { item: { lclsSystm2?: string }[] } } } };
-  const found = raw.response.body.items.item.map((i) => i.lclsSystm2).find((v) => typeof v === 'string' && v !== '');
-  if (found === undefined) throw new Error('픽스처에 lclsSystm2 가 없다');
-  return found;
-}
-
 describe('외부 조회 상한을 굶는 finding 에 먼저 준다 (NF-PF-014)', () => {
   it('🔴 앞선 finding 이 상한을 다 먹지 않는다', async () => {
     /*
@@ -745,7 +781,7 @@ describe('외부 조회 상한을 굶는 finding 에 먼저 준다 (NF-PF-014)',
      * 여기서 R01 은 옮길 날이 있어 0콜 수정안이 나오고, R10 은 외부 조회뿐이라 굶는다.
      */
     const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
-    const lcls2 = fixtureLcls2();
+    const lcls2 = 'FD05';
     const profileOf: TargetProfileLookup = (targetKey, conceptKey) =>
       ({ targetKey, conceptKey, expectedLcls2: ['FD01', lcls2], expectsNight: false } as TargetProfileSeed);
 

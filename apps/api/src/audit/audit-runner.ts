@@ -1,5 +1,5 @@
 import {
-  CONTENT_TYPE_ID, INTRO_FIELDS, SEVERITY_WEIGHT_DEFAULT, STANDARD_VERSION, findProfile,
+  CONTENT_TYPE_ID, INTRO_FIELDS, SETTING_DEFAULTS, SEVERITY_WEIGHT_DEFAULT, STANDARD_VERSION, findProfile,
   type ContentTypeId, type EndTimeSource, type ExceptionReasonCode, type ItemType, type MatchStatus, type Severity,
   type SettingSnapshot, type TargetProfileSeed, type Transport,
 } from '@tourlint/shared';
@@ -26,9 +26,10 @@ import {
   chooseMidPublication, chooseShortPublication, isKmaError, kstToday, midLandRegionOf,
   representativePoint, toGrid, type KmaClient,
 } from '../external/kma';
-import { lastRepeated, planInsertion, proposeLocalPatches } from './patch-local';
+import { lastRepeated, planInsertion, planNightInsertion, proposeLocalPatches } from './patch-local';
 import { proposeInsertions, proposeReplacements } from './patch-remote';
 import { MAX_PATCHES_PER_FINDING, type Patch } from './patch-types';
+import { opensDuring } from './patch-verify';
 import { RULESET_VERSION, evaluateAll } from './rule-registry';
 
 /**
@@ -188,6 +189,15 @@ interface FetchFailure {
   readonly reasonCode: ExceptionReasonCode;
   readonly message: string;
 }
+
+/**
+ * 야간 자리 후보의 운영시간 확인 횟수 (소개정보 조회).
+ *
+ * `maxReplacementCalls` 는 위치기반 목록의 상한이고 이것은 그와 따로 센다. 가까운 순으로
+ * 셋까지만 물어본다 — 셋 다 밤에 안 열면 야간 수정안은 내지 않는다. 강릉 시내 실호출에서
+ * 가장 가까운 카페가 18:00 에 닫았고 둘째가 20:00 까지였다.
+ */
+const MAX_OPEN_CHECKS = 3;
 
 export class AuditRunner {
   private readonly kto: KtoClient;
@@ -487,7 +497,9 @@ export class AuditRunner {
       if (calls >= this.maxReplacementCalls) break;
       const draft = drafts[index];
       if (draft === undefined || draft.patches.length >= MAX_PATCHES_PER_FINDING) continue;
-      const external = await this.externalPatches(draft.finding, ctx, knownConfidence, draft.patches.length);
+      const external = await this.externalPatches(
+        draft.finding, ctx, knownConfidence, draft.patches.length, this.maxReplacementCalls - calls,
+      );
       if (external.spent === 0) continue;
       calls += external.spent;
       draft.patches.push(...external.patches);
@@ -507,6 +519,8 @@ export class AuditRunner {
     ctx: ItineraryContext,
     knownConfidence: ReadonlyMap<string, 'CONFIRMED' | 'ESTIMATED' | 'UNPARSED'>,
     startIndex: number,
+    /** 이 finding 이 쓸 수 있는 위치기반 조회 수. 상한에서 앞선 finding 들이 쓴 만큼 뺀 값이다 */
+    listBudget: number,
   ): Promise<{ patches: readonly Patch[]; spent: number }> {
     /*
      * 대체 관광지는 R01 · R06-b · R08 · R04 가 낸다 (FR-RU-013③ · 067 · 083③ · 043).
@@ -540,18 +554,51 @@ export class AuditRunner {
      * 넣는 수정안 (R09 ① · R10). 자리는 0콜로 계산하고 콘텐츠만 조회한다.
      *
      * 무엇을 넣을지가 제안의 전부다 — 「빈 시간에 뭔가 넣으세요」로는 사용자가 할 일이 안 준다.
+     *
+     * R10 은 자리가 둘일 수 있다 — 결손 중분류를 채울 낮 자리와, 야간 결손을 채울 19:00 이후
+     * 자리다. 서로 다른 결손이라 한쪽만 고쳐서는 문장이 안 없어진다 (#579).
      */
-    const insertion = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor);
-    if (insertion === null) return { patches: [], spent: 0 };
+    const day = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor);
+    const night = planNightInsertion(finding, ctx.items, day === null);
+    const requests = [day, night].filter((r) => r !== null);
 
-    return {
-      patches: await proposeInsertions(insertion.anchor, insertion.slot, {
-        kto: this.kto, knownConfidence,
-        wantLcls2: insertion.wantLcls2,
-        exclude: new Set(ctx.items.map((i) => i.content?.ktoContentId ?? '')),
-      }, startIndex),
-      spent: 1,
-    };
+    const patches: Patch[] = [];
+    const exclude = new Set(ctx.items.map((i) => i.content?.ktoContentId ?? ''));
+    let spent = 0;
+
+    for (const request of requests) {
+      const room = MAX_PATCHES_PER_FINDING - startIndex - patches.length;
+      if (room <= 0 || spent >= listBudget) break;
+
+      const date = ctx.items.find((i) => i.dayNo === request.slot.dayNo)?.date;
+      const found = await proposeInsertions(request.anchor, request.slot, {
+        kto: this.kto, knownConfidence, exclude,
+        wantLcls2: request.wantLcls2,
+        dwellOf: (lcls2) => (lcls2 === null ? undefined : this.settings.dwellMinutes[lcls2])
+          ?? SETTING_DEFAULTS.dwellFallbackMinutes,
+        maxListCalls: listBudget - spent,
+        // 낮 자리가 둘을 다 차지하면 야간 자리가 설 곳이 없다. 자리마다 나눠 쓴다
+        limit: Math.min(room, requests.length > 1 ? 1 : 2),
+        ...(request.verifyOpen && date !== undefined
+          ? {
+              maxVerifications: MAX_OPEN_CHECKS,
+              verify: (candidate, slot) => opensDuring({
+                kto: this.kto, candidate, date, slot,
+                holidays: ctx.holidays, settings: ctx.settings,
+              }),
+            }
+          : {}),
+      }, startIndex + patches.length);
+
+      spent += found.listCalls;
+      patches.push(...found.patches);
+      // 낮 자리에 넣자고 한 곳을 야간 자리에 또 내놓지 않는다
+      for (const p of found.patches) {
+        const id = (p.payload as { content?: { ktoContentId: string } }).content?.ktoContentId;
+        if (id !== undefined) exclude.add(id);
+      }
+    }
+    return { patches, spent };
   }
 
   /**
