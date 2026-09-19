@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_DAYS_PER_RUN, isWeekend, kstDayOfWeek, kstMinutesOfDay, kstToday, minutesOfDay, nextBatchAt, pendingDates,
+  MAX_DAYS_PER_RUN, isSyncDelay, isWeekend, kstDayOfWeek, kstMinutesOfDay, kstToday, minutesOfDay, nextBatchAt, pendingDates,
   toKtoDate,
 } from './sync-window';
 
@@ -146,5 +146,30 @@ describe('다음 배치 시각 (API 4-8 nextBatchAt)', () => {
 
   it('시각을 못 읽으면 null 이다', () => {
     expect(nextBatchAt(kst('2026-09-15T04:10:00'), '5시', true)).toBeNull();
+  });
+});
+
+describe('0건이 지연 신호인가 (FR-MO-015 · #605)', () => {
+  // 2026-09-01(화) 05:00 실행 — 어제는 08-31(월)
+  const now = kst('2026-09-01T05:00:00');
+
+  it('🔴 어제가 평일이면 지연 신호다 — 공사가 아직 안 올렸을 수 있다', () => {
+    expect(isSyncDelay('2026-08-31', now)).toBe(true);
+  });
+
+  it('🔴 주말은 지연 신호가 아니다 — 일요일은 실제로 0건이다', () => {
+    expect(isSyncDelay('2026-08-30', now)).toBe(false);
+    expect(isSyncDelay('2026-08-29', now)).toBe(false);
+    // 월요일 배치에서 어제인 일요일도 마찬가지다
+    expect(isSyncDelay('2026-08-30', kst('2026-08-31T05:00:00'))).toBe(false);
+  });
+
+  it('🔴 이틀 지난 평일은 지연 신호가 아니다 — 공휴일이다', () => {
+    expect(isSyncDelay('2026-08-28', now)).toBe(false);
+  });
+
+  it('한국 날짜로 어제를 센다 — UTC 로 세면 하루 밀린다', () => {
+    // 09-01 00:30 KST 는 UTC 로 08-31 이다. 어제는 여전히 08-31
+    expect(isSyncDelay('2026-08-31', kst('2026-09-01T00:30:00'))).toBe(true);
   });
 });
