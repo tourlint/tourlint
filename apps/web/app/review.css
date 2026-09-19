@@ -129,5 +129,5 @@
   .current-schedule-hint { padding: 6px 14px; font-size: 11px; }
 }
 @media (max-width: 540px) {
-  .current-schedule { top: 64px; }
+  .current-schedule { top: 84px; }
 }
