@@ -235,7 +235,7 @@ function overlaps(aFrom: number, aTo: number, bFrom: number, bTo: number): boole
  * 으로 바뀌고 점수는 그대로였다. 축제의 `playtime` 은 부가 안내라 형식이 제각각이다:
  * 실측 「평일 13:00~18:00(주말 11:00~18:00 *벚꽃길은 상시 개방)」을 파서가 통째로 못 읽는다.
  */
-function hasNoRestDayField(contentTypeId: number): boolean {
+export function hasNoRestDayField(contentTypeId: number): boolean {
   const fields = INTRO_FIELDS[contentTypeId as ContentTypeId];
   return fields !== undefined && fields.rest === null;
 }

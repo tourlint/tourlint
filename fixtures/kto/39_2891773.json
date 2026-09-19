@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2891773",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "서리태커피",
+            "treatmenu": "태성커피 / 자몽에이드 / 허브티 등",
+            "smoking": "",
+            "packing": "가능",
+            "infocenterfood": "0507-1312-8122",
+            "scalefood": "",
+            "parkingfood": "불가능 (공영주차장 이용)",
+            "opendatefood": "",
+            "opentimefood": "11:00~20:00 (라스트오더 19:30)",
+            "restdatefood": "매주 수요일",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "",
+            "lcnsno": "20180404521"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

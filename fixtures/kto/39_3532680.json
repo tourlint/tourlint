@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3532680",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "크럼블쿠키",
+            "treatmenu": "프라하케이크/ 밀크걸 / 두바이 초코렛 등",
+            "smoking": "",
+            "packing": "가능",
+            "infocenterfood": "0507-1419-5432",
+            "scalefood": "",
+            "parkingfood": "",
+            "opendatefood": "",
+            "opentimefood": "12:00~18:00",
+            "restdatefood": "연중무휴",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "전화",
+            "lcnsno": "20220541954"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}

@@ -2,12 +2,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KOREAN_HOLIDAYS } from '../engine/calendar/holidays';
 import { parseOperatingInfo } from '../engine/normalize/parse';
+import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
 import type { AuditItem, Finding } from '../engine/rules/types';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
-import { MIN_TRANSFER_MINUTES, lastRepeated, planInsertion, proposeLocalPatches } from './patch-local';
-import { proposeReplacements, rankCandidates } from './patch-remote';
-import { MAX_PATCHES_PER_FINDING } from './patch-types';
+import { MIN_TRANSFER_MINUTES, lastRepeated, planInsertion, planNightInsertion, proposeLocalPatches } from './patch-local';
+import { proposeInsertions, proposeReplacements, rankCandidates } from './patch-remote';
+import { MAX_PATCHES_PER_FINDING, type ReplaceContentPayload } from './patch-types';
+import { opensDuring } from './patch-verify';
 
 const FIXTURE_ENV = { KTO_MODE: 'fixture', KTO_FIXTURE_DIR: join(__dirname, '../../../../fixtures/kto') };
 
@@ -559,12 +561,47 @@ describe('넣을 자리 계산 (R09 ① · R10 · FR-RU-103)', () => {
      * 재검수에서 「이동에 N분이 걸리는데 배정된 시간은 0분」 오류가 난다 (R08).
      */
     const a = item({ start: '10:00', end: '11:00' });
+    // 마지막 일정 뒤는 곧바로 입실이라 자리가 아니다. 사이 공백만 남긴다
+    const checkIn = item({ start: '15:30', end: null, type: 'LODGING' });
     // 120분 틈. 소요 90분은 들어가지만 앞뒤 30분씩(총 150분)은 못 들어간다
     const tight = item({ start: '13:00', end: '14:00' });
-    expect(planInsertion(r10(['VE07']), [a, tight], {}, 90)).toBeNull();
+    expect(planInsertion(r10(['VE07']), [a, tight, checkIn], {}, 90)).toBeNull();
 
     const roomy = item({ start: '14:00', end: '15:00' });
-    expect(planInsertion(r10(['VE07']), [a, roomy], {}, 90)).not.toBeNull();
+    expect(planInsertion(r10(['VE07']), [a, roomy, checkIn], {}, 90)).not.toBeNull();
+  });
+
+  it('🔴 사이 공백이 다 좁으면 마지막 일정 뒤를 쓴다 (#579)', () => {
+    /*
+     * 제보된 2박 3일의 모양이다 — 사이 공백이 30 ~ 60분뿐이라 자리가 하나도 안 나왔고
+     * R10 이 수정안 없이 떴다. 1 · 2일차는 입실이 바로 뒤라 막히고 3일차 뒤가 비어 있다.
+     */
+    const day1 = [
+      item({ day: 1, start: '10:00', end: '11:30' }), item({ day: 1, start: '12:30', end: '13:30', type: 'MEAL' }),
+      item({ day: 1, start: '14:00', end: '16:00' }), item({ day: 1, start: '17:00', end: null, type: 'LODGING' }),
+    ];
+    const day3 = [
+      item({ day: 3, start: '10:00', end: '11:30' }), item({ day: 3, start: '12:00', end: '13:30', type: 'MEAL' }),
+    ];
+    const last = item({ day: 3, start: '14:00', end: '15:30' });
+
+    const plan = planInsertion(r10(['EX02']), [...day1, ...day3, last], {}, 90);
+    expect(plan?.slot).toEqual({ dayNo: 3, afterItemId: last.id, startTime: '16:00', endTime: '17:30' });
+    expect(plan?.verifyOpen).toBe(false);
+
+    // 입실이 마지막 일정 뒤를 막는다. 16:00 ~ 17:00 은 60분이라 150분이 안 들어간다
+    expect(planInsertion(r10(['EX02']), day1, {}, 90)).toBeNull();
+  });
+
+  it('🔴 비 판정을 못 한 날에는 실내 관광지를 넣자고 하지 않는다', () => {
+    // 예보를 못 받아 확인 불가로 남은 R09 다. 판정하지 않은 것을 고치라고 할 수 없다 (FR-RU-051)
+    const a = item({ day: 1, start: '10:00', end: '11:00' });
+    const b = item({ day: 1, start: '16:00', end: '17:00' });
+    const unverified = finding({
+      ruleCode: 'R09', severity: 'UNVERIFIED', reasonCode: 'NOT_FOUND', targetItemId: null,
+      evidence: { date: a.date, unverified: true },
+    });
+    expect(planInsertion(unverified, [a, b], { VE07: 'INDOOR' }, 90)).toBeNull();
   });
 
   it('🔴 R09 는 그 날 안에서만, 실내 중분류만 채운다', () => {
@@ -578,6 +615,133 @@ describe('넣을 자리 계산 (R09 ① · R10 · FR-RU-103)', () => {
     const plan = planInsertion(r09, [a, b, other], { VE07: 'INDOOR', LS01: 'OUTDOOR' }, 90);
     expect(plan?.wantLcls2).toEqual(['VE07']);
     expect(plan?.slot.dayNo).toBe(1);
+  });
+});
+
+describe('야간 자리 계산 (R10 · FR-RU-101 · 103 · #579)', () => {
+  const r10 = (evidence: Record<string, unknown>): Finding => finding({
+    ruleCode: 'R10', severity: 'WARNING', reasonCode: 'TARGET_MISMATCH', targetItemId: null,
+    evidence: { expectedLcls2: ['EX02', 'FD05', 'VE01'], missingLcls2: ['EX02'], expectsNight: true, hasNight: false, ...evidence },
+  });
+
+  it('숙박하는 첫 날 19:00 에 숙소 근처로 잡는다', () => {
+    const sight = item({ day: 1, start: '14:00', end: '16:00' });
+    const hotel = item({ day: 1, start: '17:00', end: null, type: 'LODGING', mapX: 128.9, mapY: 37.8 });
+    const lastDay = item({ day: 2, start: '10:00', end: '11:30' });
+
+    const plan = planNightInsertion(r10({}), [lastDay, sight, hotel], true, 90);
+    expect(plan?.slot).toEqual({ dayNo: 1, afterItemId: hotel.id, startTime: '19:00', endTime: '20:30' });
+    expect(plan?.anchor.id).toBe(hotel.id);
+    // 그 시각에 여는 것이 확인된 곳만 넣는다
+    expect(plan?.verifyOpen).toBe(true);
+    // 낮 자리가 없으면 결손 중분류부터 찾는다
+    expect(plan?.wantLcls2).toEqual(['EX02', 'FD05', 'VE01']);
+    // 낮 자리가 결손을 이미 채우면 나머지 기대 유형부터다
+    expect(planNightInsertion(r10({}), [lastDay, sight, hotel], false, 90)?.wantLcls2).toEqual(['FD05', 'VE01', 'EX02']);
+  });
+
+  it('🔴 야간 결손이 아니면 잡지 않는다', () => {
+    const items = [item({ day: 1, start: '14:00', end: '16:00' })];
+    for (const evidence of [{ expectsNight: false }, { hasNight: true }, { expectedLcls2: [] }, { expectedLcls2: undefined }]) {
+      expect(planNightInsertion(r10(evidence), items, true, 90), JSON.stringify(evidence)).toBeNull();
+    }
+    // R10 이 아닌 판정에는 야간 자리가 없다
+    expect(planNightInsertion(finding({ ruleCode: 'R04', evidence: r10({}).evidence }), items, true, 90)).toBeNull();
+  });
+
+  it('🔴 앞 일정이 늦게 끝나면 여유를 두고, 하루 끝을 넘기면 다른 날을 본다', () => {
+    // 18:00 ~ 19:30 은 19:00 전에 시작해 야간 일정으로 안 세지만 자리는 막는다
+    const late = item({ day: 1, start: '18:00', end: '19:30' });
+    const hotel1 = item({ day: 1, start: '17:00', end: null, type: 'LODGING' });
+    expect(planNightInsertion(r10({}), [late, hotel1], true, 60)?.slot)
+      .toMatchObject({ dayNo: 1, startTime: '20:00', endTime: '21:00' });
+
+    // 90분은 21:00 을 넘긴다 — 그 날은 접고 다음 날로 간다
+    const free = item({ day: 2, start: '10:00', end: '11:00' });
+    expect(planNightInsertion(r10({}), [late, hotel1, free], true, 90)?.slot)
+      .toMatchObject({ dayNo: 2, startTime: '19:00' });
+  });
+});
+
+describe('넣을 관광지 조회 (FR-RU-103 · #579)', () => {
+  const kto = () => createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV);
+  const SLOT = { dayNo: 1, afterItemId: 1, startTime: '19:00', endTime: '20:30' };
+  const idsOf = (patches: readonly { payload: unknown }[]): string[] =>
+    patches.map((p) => (p.payload as { content: { ktoContentId: string } }).content.ktoContentId);
+
+  it('🔴 결손 중분류로 좁혀 부른다 — 분류 없는 목록에는 찾는 유형이 없다', async () => {
+    /*
+     * 분류 없이 받은 30건은 가까운 식당 · 숙박으로 찬다. 실호출(주문진 기준)에서 `FD01` 21 ·
+     * `AC03` 4 · `AC04` 2 였고 `EX02` 는 0건이었다. 좁히면 반경 20km 에 1건이 나온다.
+     * 픽스처도 같다 — `06`(분류 없음)에는 EX02 가 없고 `29_..._EX_EX02` 에 있다.
+     */
+    const seen: unknown[] = [];
+    const real = kto();
+    const spy = { ...real, locationBasedList: async (p: Record<string, unknown>) => { seen.push(p); return real.locationBasedList(p as never); } };
+
+    const found = await proposeInsertions(item({}), SLOT, { kto: spy as never, wantLcls2: ['EX02'] });
+    expect(seen[0]).toMatchObject({ lclsSystm1: 'EX', lclsSystm2: 'EX02' });
+    expect(idsOf(found.patches)).toEqual(['2925502']);
+    expect(found.listCalls).toBe(1);
+  });
+
+  it('🔴 목록 조회 수를 넘기지 않고, 채워지면 더 부르지 않는다', async () => {
+    const one = await proposeInsertions(item({}), SLOT, { kto: kto(), wantLcls2: ['EX02', 'FD05'], maxListCalls: 1 });
+    expect(one.listCalls).toBe(1);
+
+    // EX02 는 1건뿐이라 둘째 분류까지 간다. 둘이 차면 셋째는 안 부른다
+    const two = await proposeInsertions(item({}), SLOT, { kto: kto(), wantLcls2: ['EX02', 'FD05', 'VE01'], maxListCalls: 3 });
+    expect(two.listCalls).toBe(2);
+    expect(two.patches).toHaveLength(2);
+  });
+
+  it('🔴 야간 자리에는 그 시각에 여는 것이 확인된 곳만 넣는다', async () => {
+    /*
+     * 가까운 순으로 3532680(12:00~18:00) · 2891773(11:00~20:00, 주문 마감 19:30) · 3537206
+     * (12:00~20:00). 19:00 자리에 첫째는 닫혀 있다. 카페 체류 60분으로 당긴 19:00~20:00 이라
+     * 둘째가 들어간다 — 90분 그대로면 20:30 이라 둘째 · 셋째도 떨어진다.
+     */
+    const asked: string[] = [];
+    const verify = (date: string) => async (c: ReplaceContentPayload, slot: { dayNo: number; startTime: string; endTime: string }) => {
+      asked.push(`${c.ktoContentId}@${slot.endTime}`);
+      return opensDuring({ kto: kto(), candidate: c, date, slot, holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS });
+    };
+
+    // 2026-11-06 은 금요일
+    const friday = await proposeInsertions(item({}), SLOT, {
+      kto: kto(), wantLcls2: ['FD05'], limit: 1, maxVerifications: 3,
+      verify: verify('2026-11-06'), dwellOf: () => 60,
+    });
+    expect(asked).toEqual(['3532680@20:00', '2891773@20:00']);
+    expect(friday.patches[0]?.payload).toMatchObject({ startTime: '19:00', endTime: '20:00', content: { ktoContentId: '2891773' } });
+    expect(friday.verifications).toBe(2);
+
+    // 2891773 은 매주 수요일 휴무다. 11-04(수)에는 셋째로 넘어간다
+    const wednesday = await proposeInsertions(item({}), SLOT, {
+      kto: kto(), wantLcls2: ['FD05'], limit: 1, maxVerifications: 3,
+      verify: verify('2026-11-04'), dwellOf: () => 60,
+    });
+    expect(idsOf(wednesday.patches)).toEqual(['3537206']);
+
+    // 물어볼 수 있는 횟수를 다 쓰면 내지 않는다. 확인 못 한 곳을 끼워 넣지 않는다
+    const capped = await proposeInsertions(item({}), SLOT, {
+      kto: kto(), wantLcls2: ['FD05'], limit: 1, maxVerifications: 1,
+      verify: verify('2026-11-06'), dwellOf: () => 60,
+    });
+    expect(capped.patches).toHaveLength(0);
+  });
+
+  it('🔴 운영시간을 못 읽는 곳 · R01 대상이 아닌 유형은 야간 후보가 아니다', async () => {
+    const candidate = (ktoContentId: string, contentTypeId: 12 | 15): ReplaceContentPayload => ({
+      ktoContentId, contentTypeId, lclsSystm2: null, mapx: null, mapy: null, distanceMeters: 0, parseConfidence: null,
+    });
+    const check = (c: ReplaceContentPayload) => opensDuring({
+      kto: kto(), candidate: c, date: '2026-11-06', slot: SLOT, holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS,
+    });
+    // 2925502 — 이용시간 원문이 「체험에 따라 상이함(전화 문의)」. 모르는 곳을 밤 일정으로 권하지 않는다
+    expect(await check(candidate('2925502', 12))).toBe(false);
+    // 축제는 R01 이 아무 말도 안 한다. 그게 「연다」는 뜻이 아니다
+    expect(await check(candidate('695592', 15))).toBe(false);
   });
 });
 

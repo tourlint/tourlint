@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3534346",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "시크릿라떼",
+            "treatmenu": "더블딸기라떼/ 시크릿 바닐라라떼/ 아메리카노 등",
+            "smoking": "",
+            "packing": "가능",
+            "infocenterfood": "010-5550-9789",
+            "scalefood": "",
+            "parkingfood": "",
+            "opendatefood": "",
+            "opentimefood": "08:00~22:00",
+            "restdatefood": "연중무휴",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "전화",
+            "lcnsno": "20210404578"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}
