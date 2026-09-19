@@ -2973,29 +2973,22 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <callout icon="©️" color="gray_bg">
 	출처: ⓒ한국관광공사
 </callout>
-
 ## 2026.09.18 가입 인증 API
 - `POST /api/v1/auth/signup-code` (공개): `{email}` → 200 `{verificationId, expiresAt, resendAfterSeconds:60}`. 계정 존재 여부와 무관하게 같은 형식으로 인증메일을 발송하며 계정·세션을 만들지 않는다. 코드 원문은 응답·로그에 없다.
 - `POST /api/v1/auth/signup` (공개): `{email,password,verificationId,code}` → 201 기존 AccountView + 세션 쿠키. 코드 불일치·만료·소비·5회 초과는 400 단일 인증 오류. 잘못된 코드의 시도 횟수는 트랜잭션 커밋 후 오류를 반환한다.
 - 재전송 60초·이메일당 시간당 5회·서비스 전체 분당 10회·UTC 일일 100회 제한은 DB에 저장하며 429 및 Retry-After 반환. 발송 실패·미설정은 503이며 가입 인증을 우회하지 않는다.
 - Google Apps Script 웹 앱을 HTTPS로 호출하고, 소유자의 Gmail 계정으로 고정된 인증메일만 발송한다. 환경변수는 `AUTH_MAIL_SCRIPT_URL`(`/exec` 배포 URL) · `AUTH_MAIL_SECRET`(64자리 난수 hex). 동일한 비밀값을 Apps Script의 스크립트 속성에 보관한다. 요청 본문은 HMAC-SHA256 서명·120초 유효시간·인증 요청 ID로 검증한다. 스크립트는 잠금과 처리 이력으로 재전송 공격을 차단하고 Google 잔여 수신자 한도를 확인한다. 브라우저에는 비밀값과 스크립트 주소를 주지 않는다. `/health`는 설정 형식만 검사하며 실제 메일 수신을 보증하지 않는다. 기존 계정 로그인 계약은 그대로다.
-
 <callout color="gray_bg">
 	v2.11 (2026.09.18) — 사용자 요청 #539에 따라 신규 가입 이메일 인증을 필수화. FR-CM-001 · UI-S0-002 · PM-AC-008 · DB · API 연쇄 개정. 기존 계정 및 심사용 계정 로그인 유지.
 </callout>
-
 <callout color="gray_bg">
 	v2.12 (2026.09.18) — 추가 도메인 비용 없이 운영하려는 사용자 요청에 따라 Resend를 Gmail · Google Apps Script 발송으로 교체. 신규 가입 검증 정책은 유지한다.
 </callout>
-
 <callout icon="📝" color="gray_bg">
 	v2.13 (2026.09.18) — 인증코드 요청을 4-1 전체 엔드포인트 목록에도 추가하고 DB 물리 테이블 수 참조를 20종으로 맞춤. EI-MA 외부 연동 계약과 DB v2.9 연쇄 정리.
 </callout>
-
 ### 현재 알림의 여행 기간 범위 (#559)
-
 `notifications` 목록·totalElements·unreadCount, `radar/summary` 모든 알림 건수, `radar/changes` 목록·totalElements는 소유 계정 범위 안에서 `start_date + nights >= 한국 오늘 날짜`인 상품만 포함한다. `includeDismissed`는 무시 여부만 해제하며 종료된 상품을 되살리지 않는다. 저장된 알림의 읽음·무시와 상품 상세·수동 검수는 기존 권한을 유지한다. 상품 삭제 시 관련 알림은 기존 외래키 연쇄 삭제를 따른다.
-
 <callout color="gray_bg">
 	v2.14 (2026.09.18) — #559: 한국 날짜의 여행 종료일 기준으로 홈·기획·검수·레이더·알림 배지 표시를 통일. 진행 중인 1박 2일은 유지하고 종료된 상품의 기록은 보존한다. 기능·화면·API 명세 연쇄 개정.
 	v2.15 (2026.09.19) — 4-10 장소 목록: 원본 첫 페이지 제한 제거, 전체 조회 후 필터·정렬·20곳 페이징 명시. UI v2.8과 연쇄 개정 (#564).
