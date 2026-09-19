@@ -45,6 +45,10 @@ export interface SnapshotItem {
   readonly mapx: number | null;
   readonly mapy: number | null;
   readonly matchStatus: MatchStatus;
+  /** 되돌리기가 지워진 걷기 길 · 담은 곳을 되살릴 때 쓴다. 이 키가 없는 옛 스냅샷은 null 로 읽는다 (#586) */
+  readonly walkId?: string | null;
+  readonly matchedBy?: string | null;
+  readonly origin?: string | null;
 }
 
 export interface ItinerarySnapshot {
@@ -80,6 +84,9 @@ export function toSnapshot(
       mapx: i.mapX,
       mapy: i.mapY,
       matchStatus: i.matchStatus,
+      walkId: i.walkId ?? null,
+      matchedBy: i.matchedBy ?? null,
+      origin: i.origin ?? null,
     })),
   };
 }
@@ -103,6 +110,9 @@ export function fromSnapshot(snapshot: ItinerarySnapshot): readonly ItineraryIte
     mapX: i.mapx,
     mapY: i.mapy,
     matchStatus: i.matchStatus,
+    walkId: i.walkId ?? null,
+    matchedBy: i.matchedBy ?? null,
+    origin: i.origin ?? null,
   }));
 }
 

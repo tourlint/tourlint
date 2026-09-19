@@ -209,8 +209,8 @@ async function upsertItem(
     `INSERT INTO itinerary_item
        (id, product_id, day_no, seq, start_time, end_time, end_time_source, place_label,
         item_type, kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3,
-        mapx, mapy, match_status)
-     VALUES ($1,$2,$3,$4,$5::time,$6::time,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        mapx, mapy, match_status, walk_id, matched_by, origin)
+     VALUES ($1,$2,$3,$4,$5::time,$6::time,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
      ON CONFLICT (id) DO UPDATE SET
        day_no = EXCLUDED.day_no, seq = EXCLUDED.seq,
        start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time,
@@ -220,7 +220,9 @@ async function upsertItem(
        lcls_systm1 = EXCLUDED.lcls_systm1, lcls_systm2 = EXCLUDED.lcls_systm2,
        lcls_systm3 = EXCLUDED.lcls_systm3,
        mapx = EXCLUDED.mapx, mapy = EXCLUDED.mapy,
-       match_status = EXCLUDED.match_status, updated_at = now()
+       match_status = EXCLUDED.match_status,
+       walk_id = EXCLUDED.walk_id, matched_by = EXCLUDED.matched_by, origin = EXCLUDED.origin,
+       updated_at = now()
      WHERE itinerary_item.product_id = EXCLUDED.product_id
      RETURNING id`,
     [item.id, productId, ...itemValues(item)],
@@ -239,8 +241,8 @@ async function insertItem(
     `INSERT INTO itinerary_item
        (product_id, day_no, seq, start_time, end_time, end_time_source, place_label,
         item_type, kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3,
-        mapx, mapy, match_status)
-     VALUES ($1,$2,$3,$4::time,$5::time,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        mapx, mapy, match_status, walk_id, matched_by, origin)
+     VALUES ($1,$2,$3,$4::time,$5::time,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      RETURNING id`,
     [productId, ...itemValues(item)],
   );
@@ -255,6 +257,12 @@ function itemValues(item: ItineraryItemRow): readonly unknown[] {
     item.placeLabel, item.itemType, item.ktoContentId, item.contentTypeId,
     item.lclsSystm1, item.lclsSystm2, item.lclsSystm3,
     item.mapX, item.mapY, item.matchStatus,
+    /*
+     * 걷기 길은 이름 없이 `walk_id` 만 가진 행이다. 빼고 쓰면 CHECK 가 충돌 판정보다 먼저
+     * 넣으려는 행을 보고 `ck_item_label_required` 로 떨어뜨린다 — 수정안 확정이 통째로
+     * 500 이 났다 (#586). `matched_by` · `origin` 은 되돌리기가 행을 되살릴 때 필요하다.
+     */
+    item.walkId ?? null, item.matchedBy ?? null, item.origin ?? null,
   ];
 }
 

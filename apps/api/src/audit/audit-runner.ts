@@ -67,6 +67,16 @@ export interface ItineraryItemRow {
   readonly mapX: number | null;
   readonly mapY: number | null;
   readonly matchStatus: MatchStatus;
+  /**
+   * 기획 화면이 붙인 값들. **판정에는 안 쓰고 일정을 다시 쓸 때 잃지 않으려고 들고 다닌다.**
+   *
+   * 걷기 길은 이름 없이 `walk_id` 만 가진 행이다. 이 값을 안 들고 수정안을 반영하면 그 행이
+   * 「이름도 없고 걷기 길도 아닌 행」 이 되어 `ck_item_label_required` 에 걸린다 (#586).
+   * 선택 필드인 것은 규칙 · 테스트가 만드는 행에는 필요 없어서다.
+   */
+  readonly walkId?: string | null;
+  readonly matchedBy?: string | null;
+  readonly origin?: string | null;
 }
 
 export interface ProductRow {
