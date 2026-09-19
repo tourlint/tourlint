@@ -1,5 +1,4 @@
 import { BadRequestException, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import type { NotificationKind } from '../batch/impact-finder';
@@ -11,7 +10,6 @@ import { NotificationService } from './notification.service';
  * 세 경로 다 소유자 전용이다. `AuthGuard` 가 전역이라 로그인은 강제되고, 계정 대조는
  * 저장소 SQL 이 `product.account_id` 조인으로 한다 (PM-DA-002).
  */
-@ApiTags('실엔진')
 @Controller('api/v1')
 export class NotificationController {
   constructor(private readonly service: NotificationService) {}

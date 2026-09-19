@@ -1,5 +1,4 @@
 import { Body, Controller, Get, Put } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import { SettingsService, type SettingsView } from './settings.service';
@@ -11,7 +10,6 @@ import { SettingsService, type SettingsView } from './settings.service';
  * 조회·저장한다 (PM-DA-005). 표준(가중치 · R04 · 표 3종)은 모든 계정에 같아 화면이 shared
  * 시드를 직접 읽고, 배치 시각 · 예산은 운영자 전용이라 조회에 다음 배치 시각만 실린다.
  */
-@ApiTags('실엔진')
 @Controller('api/v1')
 export class SettingsController {
   constructor(private readonly service: SettingsService) {}

@@ -9,7 +9,6 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -40,7 +39,6 @@ const HARD_CAP_BYTES = 20 * 1024 * 1024;
  */
 export const TEMPLATE_PATH = join(__dirname, '../../assets/templates/schedule_template.xlsx');
 
-@ApiTags('실엔진')
 @Controller('api/v1/uploads')
 export class UploadController {
   constructor(private readonly nl: NlService) {}

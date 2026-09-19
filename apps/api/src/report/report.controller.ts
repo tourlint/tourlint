@@ -1,5 +1,4 @@
 import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, Res } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
@@ -11,7 +10,6 @@ import { ReportService } from './report.service';
  * 두 경로 다 **소유자 전용**이다. `AuthGuard` 가 전역이라 로그인은 이미 강제되고, 여기서는
  * 그 계정의 것인지까지 본다 (PM-DA-007). 공개 링크를 발급하는 경로는 만들지 않는다.
  */
-@ApiTags('실엔진')
 @Controller('api/v1')
 export class ReportController {
   constructor(private readonly service: ReportService) {}

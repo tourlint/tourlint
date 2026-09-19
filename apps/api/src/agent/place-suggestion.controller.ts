@@ -1,5 +1,4 @@
 import { BadRequestException, Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import { PlaceSuggestionService } from './place-suggestion.service';
@@ -10,7 +9,6 @@ import { PlaceSuggestionService } from './place-suggestion.service';
  * 사람이 \[AI로 한 번에 찾기\]를 누를 때만 돈다. 제안만 하고 항목을 바꾸지 않는다 —
  * 고르는 것은 \[이곳으로 선택\](`POST items/{id}/match`)이다 (FR-AG-012).
  */
-@ApiTags('실엔진')
 @Controller('api/v1/products')
 export class PlaceSuggestionController {
   constructor(private readonly service: PlaceSuggestionService) {}

@@ -1,5 +1,4 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import { PlaceMatchService } from './place-match.service';
@@ -9,7 +8,6 @@ import { PlaceMatchService } from './place-match.service';
  *
  * 검색은 로그인만 있으면 되고(공사 프록시), 확정·제외는 요청 계정의 항목만 다룬다.
  */
-@ApiTags('실엔진')
 @Controller('api/v1')
 export class PlaceMatchController {
   constructor(private readonly service: PlaceMatchService) {}
