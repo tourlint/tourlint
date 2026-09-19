@@ -11,23 +11,23 @@ const PRODUCT: Readonly<Record<string, ParamDoc>> = {
   productId: { description: '상품 번호', example: 38 },
 };
 const APPLICATION: Readonly<Record<string, ParamDoc>> = {
-  id: { description: '수정 이력 번호(`patchApplicationId`)', example: 12 },
+  id: { description: '수정안 적용 번호(`patchApplicationId`)', example: 12 },
 };
 /** 확정 · 되돌리기는 공용 계정의 일정을 바꾼다. 번호를 미리 채우지 않는다 (`products.ts` 주석) */
 const OWN_APPLICATION: Readonly<Record<string, ParamDoc>> = {
-  id: { description: '수정 이력 번호(`patchApplicationId`). 직접 만든 상품의 것만 — 테스트 계정은 여럿이 함께 쓴다' },
+  id: { description: '수정안 적용 번호(`patchApplicationId`)' },
 };
 
 const PRODUCT_NOT_FOUND: ErrorDoc = {
   status: 404,
   reasonCode: 'NOT_FOUND',
-  when: '없는 상품이거나 다른 계정의 상품 — 둘을 구분하지 않는다',
+  when: '없는 상품이거나 다른 계정의 상품',
   message: '상품을 찾을 수 없습니다. 목록에서 다시 선택해 주세요.',
 };
 const APPLICATION_NOT_FOUND: ErrorDoc = {
   status: 404,
   reasonCode: 'NOT_FOUND',
-  when: '없는 이력이거나 다른 계정의 이력 — 둘을 구분하지 않는다',
+  when: '없는 이력이거나 다른 계정의 이력',
   message: '수정 이력을 찾을 수 없습니다. 목록을 새로 고쳐 주세요.',
 };
 const EMPTY_SELECTION: ErrorDoc = {
@@ -46,9 +46,9 @@ const UNKNOWN_PATCH: ErrorDoc = {
 const SELECTIONS = [{ findingId: 558, patchId: 'p-1' }];
 const PREVIEW_TOKEN = 'pv_8b41d0e6a93c';
 const SELECTION_FIELDS = {
-  selections: '고른 수정안. 발견 항목마다 하나씩, 사용자가 고른 것만 보낸다',
-  'selections.findingId': '발견 항목 번호',
-  'selections.patchId': '그 항목 안의 수정안 번호(`p-1` ~ `p-3`)',
+  selections: '고른 수정안. 문제마다 하나씩',
+  'selections.findingId': '문제 번호',
+  'selections.patchId': '수정안 번호(`p-1` ~ `p-3`)',
 };
 
 /** 일정 항목 한 줄 — 반영 전 (3일차 4번째 · 주문진 등대) */
@@ -87,22 +87,9 @@ const ITEM_AFTER = {
 export const PATCHES: readonly Endpoint[] = [
   {
     route: 'POST /api/v1/products/{productId}/patch-preview',
-    tag: '7. 수정안',
+    tag: '수정안',
     summary: '수정안 미리보기',
-    description: [
-      '고른 수정안을 반영하면 일정이 어떻게 되는지 보여 준다. **아무것도 저장하지 않는다** — 반영은 `POST /api/v1/products/{productId}/patch-applications` 로 따로 확정한다.',
-      '',
-      '- 발견 항목마다 수정안 하나씩, 사용자가 고른 것만 보낸다. 서버가 더하거나 빼지 않는다.',
-      '- 충돌 검사 셋 — 같은 일정 항목을 두 수정안이 바꾸는가(`SAME_ITEM`), 함께 반영하면 시간이 새로 겹치는가(`TIME_OVERLAP`), 반영 순서에 따라 결과가 달라지는가(`ORDER_DEPENDENT`). ' +
-        '충돌하면 `conflict.pairs` 에 `{ kind, a, b, message }` 로 두 수정안을 짝지어 적는다. 어느 쪽을 풀지는 사용자가 정한다.',
-      '- `previewToken` 은 지금 일정을 해시한 값이다(서버에 저장하지 않는다). 확정 요청에 그대로 보내면 그 사이 일정이 바뀌었을 때 확정이 거절된다.',
-      '- `before` · `after` 는 반영 전후의 일정 항목 전체다. 관광지가 바뀌거나 새로 들어간 항목은 `after` 의 `placeLabel` 에 공식 이름을 얹어 보여 준다.',
-      '- 대상 일정이 이미 없어 반영하지 못한 수정안은 `skipped` 에 사유와 함께 남긴다.',
-      '- 본문 모양이 틀리면(`selections` 가 배열이 아님 · `findingId` 나 `patchId` 가 빠짐) 400 이다.',
-    ].join('\n'),
-    screen: '검수 결과 › 수정안 선택 › 미리보기',
-    calls: '바뀌거나 들어가는 관광지 이름만 공사 공통정보로 조회한다 — 곳마다 1콜, 10분 메모리 캐시(발견 항목 목록에서 이미 읽었으면 0콜). 나머지는 DB 에서 읽는다',
-    spec: 'FR-PA-004 · 005 · 006 · 007 · 008 · EX-PA-002 · API 설계 4-6 · 5-8',
+    description: '고른 수정안을 적용하면 일정이 어떻게 바뀌는지 미리 보여 줍니다. 저장하지 않습니다.',
     params: PRODUCT,
     body: {
       example: { selections: SELECTIONS },
@@ -111,7 +98,7 @@ export const PATCHES: readonly Endpoint[] = [
     },
     responses: {
       200: {
-        description: '반영했을 때의 일정. 일정은 아직 바뀌지 않았다',
+        description: '성공',
         example: {
           previewToken: PREVIEW_TOKEN,
           conflict: { hasConflict: false, pairs: [] },
@@ -125,34 +112,21 @@ export const PATCHES: readonly Endpoint[] = [
   },
   {
     route: 'POST /api/v1/products/{productId}/patch-applications',
-    tag: '7. 수정안',
-    summary: '수정안 확정하고 재검수',
-    description: [
-      '고른 수정안을 일정에 반영하고 전 규칙 재검수를 한 번 자동으로 건다. 일정 변경은 응답 전에 끝나 있고 **재검수만 뒤에서 돈다** — ' +
-        '`202` 의 `reauditJobId` 를 `GET /api/v1/audit-jobs/{jobId}` 로 따라간다.',
-      '',
-      '- 거절 사유는 일정을 쓰기 전에 모두 본다 — 미리보기 뒤 일정이 바뀜(`previewToken` 불일치) · 수정안끼리 충돌 · 대상 일정이 사라진 수정안 · 이 상품의 검수가 도는 중 · 예산 소진. 하나라도 걸리면 일정을 건드리지 않는다.',
-      '- **부분 반영은 없다.** 반영과 이력 기록은 한 트랜잭션이고, 대상이 사라진 수정안이 하나라도 있으면 통째로 거절한다.',
-      '- 수정안을 몇 개 골랐든 재검수는 한 번이다. 새 검수 실행이 생기고 이전 실행은 그대로 남는다.',
-      '- 재검수 결과 점수가 떨어지거나 차단이 늘어도 자동으로 되돌리지 않는다. `GET /api/v1/patch-applications/{id}` 가 경고 문구와 되돌릴 수 있는지를 준다.',
-      '- `previewToken` 을 생략하면 일정 변경 검사만 건너뛴다. 충돌 · 대상 소실 검사는 그대로다.',
-      '- 관광지를 바꿔도 사용자가 적은 장소명(`place_label`)은 그대로 저장한다. 새 관광지의 공식 이름은 공사 원문이라 볼 때 조회한다.',
-    ].join('\n'),
-    screen: '검수 결과 › 수정안 미리보기 › 확정하고 재검수',
-    calls: '반영 자체는 DB 만 쓴다. 뒤에서 도는 재검수 1회가 검수 요청과 같은 외부 호출을 쓴다(공사 상세 조회 관광지마다 2콜 · 길찾기 · 예보 · 수정안 찾기). 반영 전에 공사 하루 예산을 확인한다',
-    spec: 'FR-PA-020 · 022 · 024 · 025 · 027 · EX-PA-001 ~ 004 · API 설계 4-6 · 5-8',
+    tag: '수정안',
+    summary: '수정안 적용',
+    description: '고른 수정안을 일정에 적용하고 자동으로 다시 검수합니다.',
     params: { productId: OWN_PRODUCT },
     body: {
       example: { selections: SELECTIONS, previewToken: PREVIEW_TOKEN },
       required: ['selections'],
       fields: {
         ...SELECTION_FIELDS,
-        previewToken: '미리보기 응답의 값 그대로. 생략하면 일정 변경 검사만 건너뛴다',
+        previewToken: '미리보기 응답의 `previewToken`',
       },
     },
     responses: {
       202: {
-        description: '일정에 반영했고 재검수를 큐에 넣었다. `beforeAuditRunId` 는 반영 전 지금 일정의 검수 실행이다',
+        description: '요청 접수',
         example: { patchApplicationId: 13, beforeAuditRunId: 111, reauditJobId: 119, pollIntervalMs: 2000 },
       },
     },
@@ -162,55 +136,45 @@ export const PATCHES: readonly Endpoint[] = [
       {
         status: 409,
         reasonCode: 'PATCH_STALE',
-        when: '`previewToken` 이 지금 일정과 맞지 않음 — 미리보기 뒤 일정이 바뀌었다',
+        when: '미리보기 뒤 일정이 바뀜',
         message: '미리 본 뒤 일정이 변경되었습니다. 다시 검토한 뒤 확정해 주세요.',
       },
       {
         status: 409,
         reasonCode: 'PATCH_CONFLICT',
-        when: '고른 수정안끼리 충돌 — `fieldErrors` 에 충돌 쌍(`558:p-1 ↔ 559:p-1`)과 이유',
+        when: '고른 수정안끼리 충돌',
         message: '선택한 수정안 사이에 충돌이 있어 확정할 수 없습니다. 충돌하는 수정안 중 하나를 해제해 주세요.',
       },
       {
         status: 409,
         reasonCode: 'PATCH_STALE',
-        when: '대상 일정이 이미 없는 수정안이 있음 — `fieldErrors` 에 수정안마다 사유',
+        when: '대상 일정이 이미 없는 수정안이 있음',
         message: '선택한 수정안의 대상 일정이 이미 변경되었습니다. 다시 검토한 뒤 확정해 주세요.',
       },
       {
         status: 409,
         reasonCode: 'PATCH_STALE',
-        when: '이 상품의 검수가 도는 중',
+        when: '이 상품을 검수하는 중',
         message: '검수가 진행 중입니다. 끝난 뒤 결과를 확인하고 확정해 주세요.',
       },
       UNKNOWN_PATCH,
       {
         status: 429,
         reasonCode: 'BUDGET_EXHAUSTED',
-        when: '재검수에 쓸 공사 예산이 없음 — 일정을 바꾸기 전에 거절한다',
+        when: '오늘 관광정보 조회 한도를 다 씀',
         message: '오늘 사용할 수 있는 공사 데이터 조회량을 모두 썼습니다. 내일 다시 시도하거나 관리자에게 예산 상향을 요청해 주세요.',
       },
     ],
   },
   {
     route: 'GET /api/v1/patch-applications/{id}',
-    tag: '7. 수정안',
-    summary: '수정 이력 상세',
-    description: [
-      '수정안을 반영한 이력 한 건 — 고른 수정안, 반영 전후 검수 결과 요약, 재검수 상태, 경고 문구, 되돌릴 수 있는지를 돌려준다. 확정 뒤 재검수가 끝나면 화면이 이것으로 결과 배너를 그린다.',
-      '',
-      '- `reauditStatus` 는 재검수 결과가 붙었으면 `DONE`, 아직이면 `PENDING` 이다. 재검수가 실패해도 반영한 일정은 그대로이고, 검수를 다시 요청하면 그 결과가 붙는다.',
-      '- 준비도가 떨어지거나 차단이 늘었으면 `warningBanner` 에 문구가 온다. 일정을 자동으로 되돌리지 않는다 — 되돌릴지는 사용자가 정한다.',
-      '- `revertible` 은 아직 되돌리지 않았고 이 상품의 **가장 최근 반영**일 때만 `true` 다.',
-      '- 점수와 건수는 조회할 때 다시 계산한 값이다.',
-    ].join('\n'),
-    screen: '검수 결과 — 확정하고 재검수 뒤 결과 배너(준비도 전후 · 전후 비교 · 되돌리기)',
-    calls: '없음 — DB 만 읽는다',
-    spec: 'FR-PA-026 · 027 · 028 · EX-PA-004 · 005 · API 설계 4-6',
+    tag: '수정안',
+    summary: '수정안 적용 결과',
+    description: '적용한 수정안과 적용 전후의 검수 결과 요약을 돌려줍니다.',
     params: APPLICATION,
     responses: {
       200: {
-        description: '수정 이력',
+        description: '성공',
         example: {
           patchApplicationId: 12,
           productId: 38,
@@ -240,23 +204,13 @@ export const PATCHES: readonly Endpoint[] = [
   },
   {
     route: 'POST /api/v1/patch-applications/{id}/revert',
-    tag: '7. 수정안',
-    summary: '되돌리기',
-    description: [
-      '수정안을 반영하기 직전의 일정으로 되돌린다. **이 상품에서 가장 최근에 반영한 한 건만, 한 번만** 되돌릴 수 있다.',
-      '',
-      '- 반영 직전에 떠 둔 일정 스냅샷으로 일정 전체를 다시 쓴다(한 트랜잭션). 반영 뒤에 따로 고친 항목도 스냅샷대로 돌아간다.',
-      '- 재검수를 돌리지 않는다. 되돌린 일정은 반영 전 검수가 판정한 바로 그 일정이라 그 결과(`restoredAuditRunId`)가 현재 결과가 된다 — 공사 호출이 없다.',
-      '- 새로고침해도 그대로다. 검수 이력의 `isCurrent` · 상품 목록의 `latestAudit` · 출시 승인 · 리포트가 모두 반영 전 결과를 본다. 차단을 없앤 수정안을 되돌렸으면 출시할 수 없다.',
-      '- 그보다 앞선 반영은 되돌릴 수 없다(409). 중간 반영을 건너뛰면 그때 고른 수정안이 소리 없이 사라지기 때문이다.',
-    ].join('\n'),
-    screen: '검수 결과 › 결과 배너 › 되돌리기 · 수정 전후 비교 › 되돌리기',
-    calls: '없음 — DB 만 쓴다',
-    spec: 'FR-PA-026 · 027 · EX-PA-005 · 006 · API 설계 4-6 · 5-9',
+    tag: '수정안',
+    summary: '수정안 되돌리기',
+    description: '가장 최근에 적용한 수정안을 취소하고 적용 전 일정으로 되돌립니다.',
     params: OWN_APPLICATION,
     responses: {
       200: {
-        description: '되돌렸다',
+        description: '성공',
         example: { patchApplicationId: 12, productId: 38, revertedAt: '2026-09-20T01:23:45.678Z', restoredAuditRunId: 108 },
       },
     },
@@ -278,24 +232,13 @@ export const PATCHES: readonly Endpoint[] = [
   },
   {
     route: 'GET /api/v1/products/{productId}/comparison',
-    tag: '7. 수정안',
+    tag: '수정안',
     summary: '수정 전후 비교',
-    description: [
-      '가장 최근 수정안 반영의 전후 검수 결과를 지표 아홉 줄로 견준다 — 등급 4종 건수, 총 감점(산식 포함), 출시 준비도, 총 이동시간 · 거리, 수요 적합성.',
-      '',
-      '- 대상은 이 상품의 가장 최근 반영 한 건이다. 반영한 적이 없거나, 그 반영을 되돌렸거나, 재검수가 아직 안 끝났으면 404 다 — 빈 비교를 만들어 주지 않는다.',
-      '- 총 감점 줄은 전후 산식(`formulaBefore` · `formulaAfter`)을 함께 줘 검산할 수 있다. 건수와 점수는 조회할 때 다시 계산한 값이다.',
-      '- 총 이동시간(`travelMinutes`, 분) · 거리(`travelMeters`, m)는 카카오모빌리티 값이라 외부 참고 표시(`sourceBadge: EXTERNAL_REF`)가 붙는다. 전후 어느 실행이든 그 값을 남기지 않았으면 두 줄이 빠진다.',
-      '- 수요 적합성(`targetFit`)은 상품 구성 규칙(R10)이 찾은 결손 유형을 글로 옮긴 것이다. 판매량이나 시장 반응을 말하지 않는다.',
-      '- 나빠졌으면 `warningBanner` 에 경고가 온다. 자동으로 되돌리지 않는다. `evidence` 는 반영 후 실행의 검수 근거다.',
-    ].join('\n'),
-    screen: '수정 전후 비교 (검수 결과 › 결과 배너 › 전후 비교)',
-    calls: '없음 — DB 만 읽는다',
-    spec: 'FR-PA-040 ~ 045 · FR-RU-084 · EX-PA-004 · 005 · API 설계 4-6 · 5-9',
+    description: '가장 최근 수정안 적용 전후의 검수 결과를 항목별로 비교합니다.',
     params: PRODUCT,
     responses: {
       200: {
-        description: '전후 비교',
+        description: '성공',
         example: {
           patchApplicationId: 12,
           before: { auditRunId: 108, executedAt: '2026-09-19T14:24:58.122Z' },
@@ -336,13 +279,13 @@ export const PATCHES: readonly Endpoint[] = [
       {
         status: 404,
         reasonCode: 'NOT_FOUND',
-        when: '반영한 적이 없거나 가장 최근 반영을 되돌림',
+        when: '비교할 수정안 적용 기록이 없음',
         message: '비교할 수정 이력이 없습니다. 수정안을 반영하면 전후를 견줄 수 있습니다.',
       },
       {
         status: 404,
         reasonCode: 'NOT_FOUND',
-        when: '반영 후 재검수 결과가 아직 없음',
+        when: '적용 뒤 재검수가 아직 끝나지 않음',
         message: '반영 후 재검수가 아직 끝나지 않았습니다. 검수가 끝나면 전후를 견줄 수 있습니다.',
       },
     ],

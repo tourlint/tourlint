@@ -1,7 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule, type OpenAPIObject } from '@nestjs/swagger';
-import { RULESET_VERSION } from '../audit/rule-registry';
-import { buildCommit } from '../health/health.controller';
 import { SESSION_COOKIE } from '../auth/session-cookie';
 import { applyCatalog, SESSION_SCHEME, type CatalogCoverage } from './apply-catalog';
 import { CATALOG } from './catalog';
@@ -14,20 +12,17 @@ import { INTRO } from './intro';
  * `test/openapi.spec.ts` 가 잡는다.
  */
 export function buildOpenApiDocument(app: INestApplication): { document: OpenAPIObject; coverage: CatalogCoverage } {
-  const commit = buildCommit();
   const config = new DocumentBuilder()
     .setTitle('TourLint API')
     .setDescription(INTRO)
-    .setVersion(`v1 · 규칙셋 ${RULESET_VERSION}${commit === null ? '' : ` · ${commit}`}`)
+    .setVersion('v1')
     .addCookieAuth(
       SESSION_COOKIE,
       {
         type: 'apiKey',
         in: 'cookie',
         name: SESSION_COOKIE,
-        description:
-          '`POST /api/v1/auth/login` 이 발급하는 세션 쿠키(HttpOnly · 7일). 이 페이지에서 로그인 API 를 부르면 ' +
-          '브라우저가 저장해 이후 호출에 자동으로 붙인다 — 여기에 값을 넣을 필요는 없다.',
+        description: '로그인(`POST /api/v1/auth/login`)하면 발급되는 세션 쿠키',
       },
       SESSION_SCHEME,
     )
@@ -53,11 +48,13 @@ export function setupOpenApi(app: INestApplication): void {
       // 맨 아래 스키마 목록은 숨긴다 — 각 엔드포인트의 예시와 스키마로 충분하다
       defaultModelsExpandDepth: -1,
       defaultModelExpandDepth: 3,
-      displayRequestDuration: true,
       filter: true,
-      // 로그인 API 가 심은 세션 쿠키를 이후 호출에 싣는다 (같은 주소라 기본으로도 실리지만 명시한다)
-      withCredentials: true,
       deepLinking: true,
+      /*
+       * 호출 형식을 확인하는 문서다 (#619). Try it out 을 끈다 — 공용 테스트 계정에서 쓰기 API 를
+       * 부르면 심사위원이 함께 보는 데이터가 바뀐다.
+       */
+      supportedSubmitMethods: [],
     },
   });
 }
@@ -85,18 +82,14 @@ body { background: #f6f8f7; }
   border: 1px solid #e2e9e6; padding: 6px 10px; text-align: left; vertical-align: top; background: #fff;
 }
 .swagger-ui .markdown table th, .swagger-ui .renderedMarkdown table th { background: #eaf4ef; }
-/* 엔드포인트 설명 끝의 화면 · 외부 호출 · 근거 표는 머리줄이 비어 있다 */
-.swagger-ui .renderedMarkdown thead:has(th:empty) { display: none; }
-.swagger-ui .renderedMarkdown table td:first-child { width: 96px; white-space: nowrap; color: #5b6d67; }
 .swagger-ui .markdown code, .swagger-ui .renderedMarkdown code {
   background: #eaf4ef; color: #155a49; border-radius: 4px; padding: 1px 5px; font-size: 12px;
 }
 .swagger-ui .markdown blockquote, .swagger-ui .renderedMarkdown blockquote {
   margin: 10px 0; padding: 8px 14px; border-left: 3px solid #348d6e; background: #fff; color: #203832;
 }
-.swagger-ui .scheme-container { background: transparent; box-shadow: none; padding: 4px 0 12px; }
-.swagger-ui .btn.authorize { color: #19705a; border-color: #19705a; }
-.swagger-ui .btn.authorize svg { fill: #19705a; }
+/* 확인용 문서라 Try it out 을 껐다. 인증 입력 버튼도 쓸 일이 없다 */
+.swagger-ui .scheme-container { display: none; }
 .swagger-ui .opblock-tag { border-bottom: 1px solid #e2e9e6; color: #203832; font-size: 21px; padding: 14px 6px; }
 .swagger-ui .opblock-tag small { color: #5b6d67; font-size: 13px; line-height: 1.6; padding: 0 0 0 14px; }
 .swagger-ui .opblock { border-radius: 10px; box-shadow: none; }
