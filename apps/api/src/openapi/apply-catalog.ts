@@ -103,15 +103,9 @@ function decorate(operation: Operation, entry: Endpoint, path: string): void {
   operation.responses = responses(entry);
 }
 
-/** 설명 본문 끝에 화면 · 외부 호출 · 근거를 표로 붙인다 */
+/** 설명 한두 문장. 로그인이 필요한지는 자물쇠 표시가 말한다 */
 function describe(entry: Endpoint): string {
-  const rows: [string, string][] = [];
-  if (entry.screen !== undefined) rows.push(['화면', entry.screen]);
-  if (entry.calls !== undefined) rows.push(['외부 호출', entry.calls]);
-  rows.push(['로그인', entry.public === true ? '필요 없음' : '필요 — 세션 쿠키 `tourlint_session`']);
-  if (entry.spec !== undefined) rows.push(['근거', entry.spec]);
-  const table = ['| | |', '|---|---|', ...rows.map(([k, v]) => `| **${k}** | ${v.replace(/\|/g, '\\|')} |`)];
-  return `${entry.description.trim()}\n\n${table.join('\n')}`;
+  return entry.description.trim();
 }
 
 function parameters(existing: Parameter[], docs: Readonly<Record<string, ParamDoc>>, path: string): Parameter[] {
@@ -158,7 +152,7 @@ function responses(entry: Endpoint): Record<string, unknown> {
     errors.push({
       status: 400,
       reasonCode: 'INPUT_INVALID',
-      when: '형식이 틀린 값 · 깨진 JSON — 무엇이 틀렸는지 `message` 에 적는다',
+      when: '보낸 값의 형식이 틀림',
       message: INPUT_INVALID_MESSAGE,
     });
   }
@@ -167,7 +161,7 @@ function responses(entry: Endpoint): Record<string, unknown> {
     errors.push({
       status: 401,
       reasonCode: 'NOT_AUTHENTICATED',
-      when: '로그인하지 않았거나 세션이 만료됨',
+      when: '로그인하지 않았음',
       message: '로그인이 필요합니다.',
     });
   }
@@ -223,15 +217,15 @@ const ERROR_SCHEMA: Schema = {
   type: 'object',
   required: ['reasonCode', 'message', 'unit', 'traceId', 'occurredAt'],
   properties: {
-    reasonCode: { type: 'string', enum: [...EXCEPTION_REASON_CODE], description: '사유코드. 화면이 분기에 쓴다' },
-    message: { type: 'string', description: '사용자에게 보여 줄 문구 — 무엇이 · 왜 · 다음에 무엇을' },
-    unit: { type: 'string', enum: [...EXCEPTION_UNIT], description: '실패한 처리 단위. 나머지는 살아남았다는 뜻이다' },
+    reasonCode: { type: 'string', enum: [...EXCEPTION_REASON_CODE], description: '오류 종류' },
+    message: { type: 'string', description: '사용자에게 보여 줄 안내 문구' },
+    unit: { type: 'string', enum: [...EXCEPTION_UNIT], description: '오류가 난 범위' },
     fieldErrors: {
       type: 'array',
-      description: '입력 검증 실패일 때만. 필드별 사유',
+      description: '입력 값 오류일 때 항목별 사유',
       items: { type: 'object', properties: { field: { type: 'string' }, message: { type: 'string' } } },
     },
-    traceId: { type: 'string', description: '서버 로그와 맞춰 볼 추적 번호' },
+    traceId: { type: 'string', description: '오류 추적 번호' },
     occurredAt: { type: 'string', format: 'date-time' },
   },
 };
@@ -256,7 +250,10 @@ export function schemaOf(
   if (value === null || value === undefined) return withNote({ nullable: true });
   if (Array.isArray(value)) {
     const sample = value.find((v) => !(typeof v === 'string' && OMITTED.test(v)));
-    return withNote({ type: 'array', items: sample === undefined ? {} : schemaOf(sample, fields, path, undefined) });
+    const items = sample === undefined ? {} : schemaOf(sample, fields, path, undefined);
+    // 배열의 설명을 항목에 한 번 더 달지 않는다 — 화면에 같은 문장이 두 번 보인다
+    if (note !== undefined && items.description === note) delete items.description;
+    return withNote({ type: 'array', items });
   }
   switch (typeof value) {
     case 'string':
