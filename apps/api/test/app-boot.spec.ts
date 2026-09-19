@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -174,25 +174,22 @@ describe('앱 부팅', () => {
     expect(meta).toBe(true);
   });
 
-  it('🔴 모든 컨트롤러가 실엔진 · mock 중 하나로 태그돼 있다', () => {
+  it('🔴 mock 컨트롤러가 되살아나지 않는다 (NF-CO-002 · FR-OP-009)', () => {
     /*
-     * `/docs` 를 여는 이유가 "이거 부르면 진짜 값이 오나" 를 목록만 보고 아는 것이다.
-     * 태그를 빠뜨리면 Nest 가 클래스명으로 자동 생성해서 그 구분이 사라진다 — 실제로
-     * 컨트롤러 셋이 그렇게 빠져 있었다.
-     *
-     * 모의 응답을 실엔진으로 착각한 채 화면을 만들면 교체 시점에 통째로 다시 만들게
-     * 된다 (NF-CO-002 · FR-OP-009).
+     * 예전에는 컨트롤러마다 `@ApiTags('실엔진' | 'mock')` 을 달아 `/docs` 에서 모의 응답을
+     * 가려냈다. `src/mock` 을 통째로 지운 뒤로는 전부 실엔진이라, 그 태그는 엔드포인트
+     * 67개를 한 묶음에 몰아넣기만 했다 (#601). `/docs` 묶음은 이제 `openapi/tags.ts` 가 정하고
+     * 설명 누락은 `openapi.spec.ts` 가 잡는다. 여기서는 모의 응답이 다시 들어오지 않는지만 본다.
      */
     const dir = join(__dirname, '../src');
+    expect(existsSync(join(dir, 'mock'))).toBe(false);
+
     const files = readdirSync(dir, { recursive: true, encoding: 'utf8' })
       .filter((f) => f.endsWith('.controller.ts'));
     expect(files.length).toBeGreaterThan(0);
 
-    const untagged = files.filter((f) => {
-      const src = readFileSync(join(dir, f), 'utf8');
-      return !/@ApiTags\('(실엔진|mock)'\)/.test(src);
-    });
-    expect(untagged).toEqual([]);
+    const mocked = files.filter((f) => /(^|\/)mock/i.test(f) || /@ApiTags\('mock'\)/.test(readFileSync(join(dir, f), 'utf8')));
+    expect(mocked).toEqual([]);
   });
 
   it('🔴 공사 인증키 없이도 뜬다', async () => {

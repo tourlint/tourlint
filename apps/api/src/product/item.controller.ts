@@ -1,5 +1,4 @@
 import { Body, Controller, Delete, HttpCode, Param, ParseIntPipe, Patch, Post, Put } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import { ProductService } from './product.service';
@@ -10,7 +9,6 @@ import { ProductService } from './product.service';
  * 경로가 `products/:id/items` 와 `items/:itemId` 로 갈려 ProductController(=/products) 와
  * 따로 둔다. 소유권은 서비스가 item -> product -> account 로 스코프한다 (PM-DA-003).
  */
-@ApiTags('실엔진')
 @Controller('api/v1')
 export class ItemController {
   constructor(private readonly service: ProductService) {}

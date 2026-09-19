@@ -1,5 +1,4 @@
 import { BadRequestException, Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import { PlaceFactsService } from './place-facts.service';
@@ -9,7 +8,6 @@ import { PlaceFactsService } from './place-facts.service';
  *
  * 고른 직후 그 항목만 부른다. 저장 · 판정이 없어 여러 번 불러도 상품은 그대로다 (FR-PL-005).
  */
-@ApiTags('실엔진')
 @Controller('api/v1/products')
 export class PlaceFactsController {
   constructor(private readonly service: PlaceFactsService) {}

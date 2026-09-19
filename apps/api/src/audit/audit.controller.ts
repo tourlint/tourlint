@@ -1,7 +1,6 @@
 import {
   BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { DomainException } from '../common/domain.exception';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
@@ -28,7 +27,6 @@ import { TRIGGER_TYPE, type TriggerType } from './audit-job.repository';
  * **"지금 재검수" 는 별도 엔드포인트가 아니다.** 같은 경로에 `triggerType: "MANUAL"` 로
  * 요청하며, 이 경로만 예산 100% 까지 허용된다 (API 설계 5-3).
  */
-@ApiTags('실엔진')
 @Controller('api/v1')
 export class AuditController {
   constructor(private readonly service: AuditService) {}

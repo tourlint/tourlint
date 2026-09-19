@@ -1,5 +1,4 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import { validateHandoff, type CreateProductDto, type UpdateProductDto } from './product.dto';
@@ -10,7 +9,6 @@ import { ProductService } from './product.service';
  *
  * 인증 필요 — 전역 가드가 막는다. 목록·조회·수정·삭제는 요청 계정의 상품만 다룬다.
  */
-@ApiTags('실엔진')
 @Controller('api/v1/products')
 export class ProductController {
   constructor(private readonly service: ProductService) {}

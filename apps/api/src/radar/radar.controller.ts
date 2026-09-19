@@ -1,5 +1,4 @@
 import { BadRequestException, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import { RadarService } from './radar.service';
@@ -10,7 +9,6 @@ import { RadarService } from './radar.service';
  * 조회 경로는 저장된 값만 읽는다 — 공사 호출이 0건이다. T1 · T2 · T3 는 배치가 미리 산출하고,
  * 배치가 꺼진 기간에만 `region-signals/refresh` 가 사용자 요청으로 산출한다.
  */
-@ApiTags('실엔진')
 @Controller('api/v1')
 export class RadarController {
   constructor(private readonly service: RadarService) {}

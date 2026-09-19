@@ -1,5 +1,4 @@
 import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { ContentService } from './content.service';
 
 /**
@@ -11,7 +10,6 @@ import { ContentService } from './content.service';
  * `with=accessible,pet` 은 기획 화면 카드 펼침이 쓰는 조건 축이다. 요청한 축마다 1콜이 더 붙고,
  * 안 주면 지금까지와 같다 (FR-PL-012 · API 4-10).
  */
-@ApiTags('실엔진')
 @Controller('api/v1')
 export class ContentController {
   constructor(private readonly content: ContentService) {}

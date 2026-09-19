@@ -1,5 +1,4 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { CALL_PROVIDER, type CallProvider } from '../external/api-call-log';
 import { UsageService } from './usage.service';
 
@@ -9,7 +8,6 @@ import { UsageService } from './usage.service';
  * mock 을 대체한다. 숫자가 고정값이면 화면이 예산 경계(80% · 100%)를 실제로 밟아 볼 수
  * 없고, 증빙으로도 쓸 수 없다 (FR-OP-001 · DR-LC-004).
  */
-@ApiTags('실엔진')
 @Controller('api/v1/usage')
 export class UsageController {
   constructor(private readonly service: UsageService) {}
