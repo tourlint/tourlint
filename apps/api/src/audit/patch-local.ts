@@ -507,13 +507,18 @@ function gapsOf(dayItems: readonly AuditItem[]): readonly { after: AuditItem; ga
  * **숙박하는 날을 먼저 본다.** 입실 뒤 저녁이 비는 날이고, 숙소 근처에서 찾으면 밤에 멀리
  * 가지 않는다. 마지막 날은 돌아가는 날이라 다른 날이 전부 안 될 때만 쓴다.
  *
- * 무엇을 넣을지는 기대 중분류 전체에서 고른다. 낮 자리가 결손 중분류를 이미 채우면
- * (`missingFirst=false`) 나머지 기대 유형부터 찾는다 — 같은 곳을 두 번 제안하지 않는다.
+ * 무엇을 넣을지는 기대 중분류 전체에서 고른다. **아직 안 채워진 결손 중분류가 먼저다** —
+ * 카페도 결손이면 야간 자리에 카페를 넣어 두 결손이 같이 풀린다. 낮 자리가 이미 채운
+ * 중분류(`coveredLcls2`)는 맨 뒤로 보낸다. 같은 종류를 두 번 제안하지 않는다.
+ *
+ * 낮 자리가 있다는 것만으로 결손을 다 채웠다고 보면 안 된다. 낮 자리는 후보를 하나만 내는데
+ * 결손이 둘이면 하나가 남는다. 그렇게 보고 나머지 유형(랜드마크)부터 찾다가 숙소 옆
+ * 공중화장실을 밤 일정으로 냈다 (#584).
  */
 export function planNightInsertion(
   finding: Finding,
   items: readonly AuditItem[],
-  missingFirst: boolean,
+  coveredLcls2: ReadonlySet<string>,
   dwellMinutes: number = SETTING_DEFAULTS.dwellFallbackMinutes,
 ): InsertionRequest | null {
   if (finding.ruleCode !== 'R10') return null;
@@ -525,7 +530,11 @@ export function planNightInsertion(
   const expected = expectedLcls2.map(String);
   const missing = Array.isArray(missingLcls2) ? missingLcls2.map(String) : [];
   const rest = expected.filter((code) => !missing.includes(code));
-  const wantLcls2 = missingFirst ? [...missing, ...rest] : [...rest, ...missing];
+  const wantLcls2 = [
+    ...missing.filter((code) => !coveredLcls2.has(code)),
+    ...rest,
+    ...missing.filter((code) => coveredLcls2.has(code)),
+  ];
 
   const days = [...new Set(items.map((i) => i.dayNo))].sort((a, b) => a - b);
   const stays = (day: number): boolean => items.some((i) => i.dayNo === day && i.itemType === 'LODGING');

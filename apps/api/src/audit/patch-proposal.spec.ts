@@ -629,7 +629,7 @@ describe('야간 자리 계산 (R10 · FR-RU-101 · 103 · #579)', () => {
     const hotel = item({ day: 1, start: '17:00', end: null, type: 'LODGING', mapX: 128.9, mapY: 37.8 });
     const lastDay = item({ day: 2, start: '10:00', end: '11:30' });
 
-    const plan = planNightInsertion(r10({}), [lastDay, sight, hotel], true, 90);
+    const plan = planNightInsertion(r10({}), [lastDay, sight, hotel], new Set(), 90);
     expect(plan?.slot).toEqual({ dayNo: 1, afterItemId: hotel.id, startTime: '19:00', endTime: '20:30' });
     expect(plan?.anchor.id).toBe(hotel.id);
     // 그 시각에 여는 것이 확인된 곳만 넣는다
@@ -637,28 +637,40 @@ describe('야간 자리 계산 (R10 · FR-RU-101 · 103 · #579)', () => {
     // 낮 자리가 없으면 결손 중분류부터 찾는다
     expect(plan?.wantLcls2).toEqual(['EX02', 'FD05', 'VE01']);
     // 낮 자리가 결손을 이미 채우면 나머지 기대 유형부터다
-    expect(planNightInsertion(r10({}), [lastDay, sight, hotel], false, 90)?.wantLcls2).toEqual(['FD05', 'VE01', 'EX02']);
+    expect(planNightInsertion(r10({}), [lastDay, sight, hotel], new Set(['EX02']), 90)?.wantLcls2)
+      .toEqual(['FD05', 'VE01', 'EX02']);
+  });
+
+  it('🔴 낮 자리가 못 채운 결손 중분류가 나머지 기대 유형보다 먼저다 (#584)', () => {
+    /*
+     * 공예체험 · 카페가 둘 다 결손이고 낮 자리는 공예체험 하나만 채운다. 카페가 남았는데 나머지
+     * 유형(랜드마크)부터 찾아서 숙소 옆 「강문해변화장실」 을 19:00 일정으로 냈다. 카페를 넣으면
+     * 「카페 없음」 과 「19:00 이후 없음」 이 같이 풀린다.
+     */
+    const items = [item({ day: 1, start: '14:00', end: '16:00' }), item({ day: 1, start: '17:00', end: null, type: 'LODGING' })];
+    const both = r10({ missingLcls2: ['EX02', 'FD05'] });
+    expect(planNightInsertion(both, items, new Set(['EX02']), 90)?.wantLcls2).toEqual(['FD05', 'VE01', 'EX02']);
   });
 
   it('🔴 야간 결손이 아니면 잡지 않는다', () => {
     const items = [item({ day: 1, start: '14:00', end: '16:00' })];
     for (const evidence of [{ expectsNight: false }, { hasNight: true }, { expectedLcls2: [] }, { expectedLcls2: undefined }]) {
-      expect(planNightInsertion(r10(evidence), items, true, 90), JSON.stringify(evidence)).toBeNull();
+      expect(planNightInsertion(r10(evidence), items, new Set(), 90), JSON.stringify(evidence)).toBeNull();
     }
     // R10 이 아닌 판정에는 야간 자리가 없다
-    expect(planNightInsertion(finding({ ruleCode: 'R04', evidence: r10({}).evidence }), items, true, 90)).toBeNull();
+    expect(planNightInsertion(finding({ ruleCode: 'R04', evidence: r10({}).evidence }), items, new Set(), 90)).toBeNull();
   });
 
   it('🔴 앞 일정이 늦게 끝나면 여유를 두고, 하루 끝을 넘기면 다른 날을 본다', () => {
     // 18:00 ~ 19:30 은 19:00 전에 시작해 야간 일정으로 안 세지만 자리는 막는다
     const late = item({ day: 1, start: '18:00', end: '19:30' });
     const hotel1 = item({ day: 1, start: '17:00', end: null, type: 'LODGING' });
-    expect(planNightInsertion(r10({}), [late, hotel1], true, 60)?.slot)
+    expect(planNightInsertion(r10({}), [late, hotel1], new Set(), 60)?.slot)
       .toMatchObject({ dayNo: 1, startTime: '20:00', endTime: '21:00' });
 
     // 90분은 21:00 을 넘긴다 — 그 날은 접고 다음 날로 간다
     const free = item({ day: 2, start: '10:00', end: '11:00' });
-    expect(planNightInsertion(r10({}), [late, hotel1, free], true, 90)?.slot)
+    expect(planNightInsertion(r10({}), [late, hotel1, free], new Set(), 90)?.slot)
       .toMatchObject({ dayNo: 2, startTime: '19:00' });
   });
 });
@@ -729,6 +741,15 @@ describe('넣을 관광지 조회 (FR-RU-103 · #579)', () => {
       verify: verify('2026-11-06'), dwellOf: () => 60,
     });
     expect(capped.patches).toHaveLength(0);
+  });
+
+  it('🔴 화장실은 방문 일정으로 내지 않는다 (#584)', async () => {
+    /*
+     * 공사가 `강문해변화장실`(3547899)을 랜드마크관광으로 분류해 두었다. 분류로는 못 거르고
+     * 상시 개방이라 운영시간 확인도 통과한다. 실호출로 뜬 VE01 스냅샷에 그대로 들어 있다.
+     */
+    const found = await proposeInsertions(item({}), SLOT, { kto: kto(), wantLcls2: ['VE01'] });
+    expect(idsOf(found.patches)).toEqual(['2753136']);
   });
 
   it('🔴 운영시간을 못 읽는 곳 · R01 대상이 아닌 유형은 야간 후보가 아니다', async () => {
