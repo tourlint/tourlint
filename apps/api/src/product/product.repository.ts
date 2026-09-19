@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Transport } from '@tourlint/shared';
+import { CURRENT_RUN_LATERAL, toCurrentRun, type CurrentRun } from '../persistence/current-run';
 import { withTransaction } from '../persistence/db';
 import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct, WalkItemInput } from './product.dto';
 
@@ -157,12 +158,13 @@ export class ProductRepository {
               (SELECT count(*) FROM notification n
                  WHERE n.product_id = p.id AND n.read_at IS NULL AND n.dismissed_at IS NULL)::int AS unread,
               ar.id AS run_id, ar.executed_at, ar.readiness_score, ar.is_partial,
-              ar.blocker_cnt, ar.error_cnt, ar.warn_cnt, ar.unverified_cnt
+              ar.blocker_cnt, ar.error_cnt, ar.warn_cnt, ar.unverified_cnt,
+              cur.kind AS current_kind, lr.blocker_cnt AS latest_blocker_cnt
          FROM product p
-         LEFT JOIN LATERAL (
-           SELECT id, executed_at, readiness_score, is_partial, blocker_cnt, error_cnt, warn_cnt, unverified_cnt
-             FROM audit_run WHERE product_id = p.id ORDER BY executed_at DESC LIMIT 1
-         ) ar ON TRUE
+         ${CURRENT_RUN_LATERAL}
+         -- 보여 줄 실행은 지금 일정의 실행이다. 반영 뒤 재검수 전(STALE)이면 가장 최근 실행을 보이되 출시는 막는다
+         LEFT JOIN audit_run ar ON ar.id = COALESCE(cur.run_id, cur.latest_id)
+         LEFT JOIN audit_run lr ON lr.id = cur.latest_id
         WHERE p.account_id = $1
         ORDER BY p.start_date DESC, p.id DESC
         LIMIT $2 OFFSET $3`,
@@ -254,19 +256,41 @@ export class ProductRepository {
   }
 
   /** 최신 검수의 차단 건수. 검수한 적이 없으면 `null` — 0 과 다르다 (DR-IN-007) */
-  async latestBlockerCount(accountId: number, productId: number): Promise<number | null | undefined> {
-    const { rows } = await this.pool.query<{ blocker_cnt: number | null }>(
-      `SELECT r.blocker_cnt
+  /**
+   * 출시 판정 재료 (#551). 상품이 없거나 남의 것이면 `undefined`.
+   *
+   * 지금 일정에 대응하는 실행의 차단 수와, 트리거(`trg_check_release`)가 보는 가장 최근 실행의
+   * 차단 수를 함께 준다. 되돌린 일정은 반영 전 실행으로 판정하지만 트리거는 가장 최근 실행을
+   * 보므로, 둘이 다르면 다시 검수해야 트리거가 통과시킨다.
+   */
+  async releaseBasis(accountId: number, productId: number): Promise<{
+    current: CurrentRun;
+    currentBlockers: number | null;
+    latestBlockers: number | null;
+  } | undefined> {
+    const { rows } = await this.pool.query<{
+      kind: 'LATEST' | 'RESTORED' | 'STALE' | null;
+      run_id: string | null;
+      latest_id: string | null;
+      current_blockers: number | null;
+      latest_blockers: number | null;
+    }>(
+      `SELECT cur.kind, cur.run_id, cur.latest_id,
+              ar.blocker_cnt AS current_blockers, lr.blocker_cnt AS latest_blockers
          FROM product p
-         LEFT JOIN audit_run r ON r.product_id = p.id
-        WHERE p.id = $1 AND p.account_id = $2
-        ORDER BY r.executed_at DESC NULLS LAST
-        LIMIT 1`,
+         ${CURRENT_RUN_LATERAL}
+         LEFT JOIN audit_run ar ON ar.id = cur.run_id
+         LEFT JOIN audit_run lr ON lr.id = cur.latest_id
+        WHERE p.id = $1 AND p.account_id = $2`,
       [productId, accountId],
     );
-    // 행이 없으면 남의 상품이거나 없는 상품이다 (undefined). 있는데 검수가 없으면 null
-    if (rows.length === 0) return undefined;
-    return rows[0]?.blocker_cnt ?? null;
+    const row = rows[0];
+    if (row === undefined) return undefined;
+    return {
+      current: toCurrentRun(row),
+      currentBlockers: row.current_blockers,
+      latestBlockers: row.latest_blockers,
+    };
   }
 
   /** 출시 승인 시각을 기록한다. `trg_check_release` 가 마지막으로 한 번 더 막는다 */
@@ -618,6 +642,8 @@ interface ListRaw {
   run_id: string | null;
   executed_at: Date | string | null;
   readiness_score: number | null;
+  current_kind: 'LATEST' | 'RESTORED' | 'STALE' | null;
+  latest_blocker_cnt: number | null;
   is_partial: boolean | null;
   blocker_cnt: number | null;
   error_cnt: number | null;
@@ -625,6 +651,19 @@ interface ListRaw {
   unverified_cnt: number | null;
   planned_at: Date | string | null;
   released_at: Date | string | null;
+}
+
+/**
+ * 출시 승인이 통과하는가 — 지금 일정의 실행에 차단이 없고, 트리거가 보는 가장 최근 실행에도
+ * 차단이 없어야 한다 (DR-IN-007 · #551). 반영 뒤 재검수 전(STALE)은 판정할 실행이 없다.
+ */
+export function isReleasable(
+  kind: CurrentRun['kind'] | null,
+  currentBlockers: number | null,
+  latestBlockers: number | null,
+): boolean {
+  if (kind !== 'LATEST' && kind !== 'RESTORED') return false;
+  return (currentBlockers ?? 0) === 0 && (latestBlockers ?? 0) === 0;
 }
 
 function toListRow(r: ListRaw): ProductListRow {
@@ -642,8 +681,8 @@ function toListRow(r: ListRaw): ProductListRow {
             warning: r.warn_cnt ?? 0,
             unverified: r.unverified_cnt ?? 0,
           },
-          // 차단 0건이라야 출시 승인 가능 (DR-IN-007)
-          releasable: (r.blocker_cnt ?? 0) === 0,
+          // 출시 승인과 같은 판정이다 (`ProductService.release` · #551)
+          releasable: isReleasable(r.current_kind, r.blocker_cnt, r.latest_blocker_cnt),
         };
   return {
     id: Number(r.id),

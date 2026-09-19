@@ -34,6 +34,7 @@ import { checkConflicts, type Conflict, type PatchRef } from './patch-conflict';
 import { snapshotToken, toSnapshot } from './patch-snapshot';
 import { selectionKey, type SelectedPatch } from './patch-types';
 import { ProductRepository } from './product.repository';
+import { currentRunOf } from '../persistence/current-run';
 
 /**
  * 검수 실행 조율 (API 설계 6-1).
@@ -442,7 +443,7 @@ export class AuditService {
     }
 
     const appliedAt = new Date();
-    const beforeAuditRunId = await this.results.latestRunIdOf(productId);
+    const beforeAuditRunId = await this.results.currentRunIdOf(productId);
     const saved = await this.patchApplications.apply({
       productId,
       appliedBy: owner,
@@ -536,6 +537,14 @@ export class AuditService {
   /** 그 상품의 검수 이력 (F13) */
   async listRuns(productId: number): Promise<readonly StoredAuditRun[]> {
     return this.results.runsOfProduct(productId);
+  }
+
+  /**
+   * 지금 일정에 대응하는 실행 (#551). 결과 화면이 처음 여는 실행이다 — 되돌린 뒤 새로고침해도
+   * 되돌린 일정의 결과가 보여야 한다. 반영 뒤 재검수 전이면 `null` 이다.
+   */
+  async currentRunIdOf(productId: number): Promise<number | null> {
+    return (await currentRunOf(this.pool, productId))?.runId ?? null;
   }
 
   /**
@@ -1159,11 +1168,16 @@ export const PRE_DEPARTURE_NOTE =
   '공사 데이터의 D+1 구조적 시차로 자동 생성된 항목이며 감점 대상이 아닙니다';
 
 /** 검수 이력 (F13 · API 설계 5-9) */
-export function toRunListResponse(runs: readonly StoredAuditRun[]): Record<string, unknown> {
+export function toRunListResponse(
+  runs: readonly StoredAuditRun[],
+  currentRunId: number | null = null,
+): Record<string, unknown> {
   return {
     totalCount: runs.length,
     runs: runs.map((r) => ({
       auditRunId: r.id,
+      // 지금 일정의 결과. 되돌렸으면 가장 최근이 아니라 반영 전 실행이다 (#551)
+      isCurrent: r.id === currentRunId,
       executedAt: r.executedAt.toISOString(),
       rulesetVersion: r.rulesetVersion,
       // 조회 시점 재계산값이다. 무시 처리가 반영돼 있다 (FR-AU-046)

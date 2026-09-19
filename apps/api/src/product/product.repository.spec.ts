@@ -164,14 +164,16 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
   });
 
   describe('출시 승인 (PM-NG-002 · EX-AU-008 · DR-IN-007)', () => {
-    it('검수한 적 없는 상품은 차단 건수가 null 이다 — 0 과 다르다', async () => {
+    it('검수한 적 없는 상품은 판정할 실행이 없다 — 차단 0건과 다르다', async () => {
       const { productId } = await repo.create(accountA, sample());
-      expect(await repo.latestBlockerCount(accountA, productId)).toBeNull();
+      expect(await repo.releaseBasis(accountA, productId)).toEqual({
+        current: { kind: 'NONE', runId: null, latestRunId: null }, currentBlockers: null, latestBlockers: null,
+      });
     });
 
     it('남의 상품은 undefined 다 — 없는 상품과 구분하지 않는다', async () => {
       const { productId } = await repo.create(accountA, sample());
-      expect(await repo.latestBlockerCount(accountB, productId)).toBeUndefined();
+      expect(await repo.releaseBasis(accountB, productId)).toBeUndefined();
     });
 
     it('🔴 검수 이력이 없으면 DB 가 출시를 막는다', async () => {

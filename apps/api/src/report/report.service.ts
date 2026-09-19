@@ -58,11 +58,12 @@ export class ReportService {
     // 남의 것도 없는 것도 똑같이 404 다 (PM-DA-002 · EX-SY-003)
     if (owned === null) throw notFound();
 
-    const latest = await this.reports.latestRunIdOf(owned.productId);
-    if (latest !== auditRunId) {
+    // 지금 일정의 검수 결과만 받는다. 되돌린 일정이면 반영 전 실행이 그것이다 (#551)
+    const current = await this.reports.currentRunIdOf(owned.productId);
+    if (current !== auditRunId) {
       throw new DomainException(
         HttpStatus.CONFLICT, 'REPORT_FAILED',
-        '가장 최근 검수 결과로만 리포트를 만들 수 있습니다. 그 뒤로 일정이 바뀌었을 수 있어 '
+        '지금 일정의 검수 결과로만 리포트를 만들 수 있습니다. 그 뒤로 일정이 바뀌었을 수 있어 '
         + '지금 다시 검수한 뒤 내려받아 주세요.',
       );
     }

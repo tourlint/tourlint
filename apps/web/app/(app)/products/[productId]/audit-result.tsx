@@ -128,7 +128,9 @@ export function AuditResult({ productId }: { productId: number }) {
         const [detail, runs] = await Promise.all([productApi.detail(productId), auditApi.listRuns(productId)]);
         if (cancelled) return;
         setProduct(detail);
-        const latest = [...runs.runs].sort((a, b) => b.executedAt.localeCompare(a.executedAt))[0];
+        // 지금 일정의 결과부터 연다. 되돌린 뒤 새로고침해도 반영 전 결과가 보여야 한다 (#551)
+        const latest = runs.runs.find((r) => r.isCurrent === true)
+          ?? [...runs.runs].sort((a, b) => b.executedAt.localeCompare(a.executedAt))[0];
         if (latest) {
           try { setScheduleChanged(sessionStorage.getItem(`review-changed:${productId}`) === String(latest.auditRunId)); } catch { /* 저장소 사용 불가 */ }
           await loadRun(latest.auditRunId);
