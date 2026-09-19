@@ -9,7 +9,7 @@ import {
   matchByContent, matchByEventPeriod, matchByRegion, mergeImpacts,
   type ChangedContent, type EventPeriod, type Impact, type ImpactCandidate,
 } from './impact-finder';
-import { isWeekend, kstToday, pendingDates, toKtoDate } from './sync-window';
+import { isSyncDelay, isWeekend, kstToday, pendingDates, toKtoDate } from './sync-window';
 
 /**
  * 경량 동기화 배치 — 1단계 (F12 · FR-MO-010 ~ 016).
@@ -222,13 +222,21 @@ export class SyncBatchJob {
       }
 
       /*
-       * 평일 0건은 동기화 지연 신호다 (FR-MO-015). `last_covered` 를 올리지 않고 멈춰
-       * 다음 배치가 그 날짜를 다시 본다. 공사가 그날 분을 아직 안 올렸을 수 있어서다 —
+       * 어제가 평일인데 0건이면 동기화 지연 신호다 (FR-MO-015). `last_covered` 를 올리지 않고
+       * 멈춰 다음 배치가 그 날짜를 다시 본다. 공사가 그날 분을 아직 안 올렸을 수 있어서다 —
        * 건수는 조회 시각에 따라 크게 변한다 (EI-KT-011).
+       *
+       * 주말과 이틀 이상 지난 날의 0건은 변경이 없는 날이다. 처리한 것으로 치고 넘어간다
+       * (`isSyncDelay`).
        */
       if (page.items.length === 0) {
-        emptyDay = date;
-        break;
+        if (isSyncDelay(date, now)) {
+          emptyDay = date;
+          break;
+        }
+        this.logger.log(`${date} 조회가 0건이다. 주말 · 공휴일로 보고 넘어간다`);
+        covered = date;
+        continue;
       }
 
       contents.push(...page.items.map(toSyncedContent));
@@ -237,7 +245,7 @@ export class SyncBatchJob {
 
     const status: BatchStatus = emptyDay !== null && covered === null ? 'EMPTY' : 'OK';
     if (emptyDay !== null) {
-      this.logger.warn(`${emptyDay} 조회가 0건이다. last_covered 를 올리지 않는다 (FR-MO-015)`);
+      this.logger.warn(`${emptyDay}(어제 · 평일) 조회가 0건이다. 다음 배치가 다시 보도록 last_covered 를 올리지 않는다 (FR-MO-015)`);
     }
     await this.record(status, contents.length, now, covered);
 

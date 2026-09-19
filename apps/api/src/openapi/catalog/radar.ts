@@ -57,7 +57,7 @@ export const RADAR: readonly Endpoint[] = [
       '- **여행 마지막 날(출발일 + 박수)이 한국 날짜로 지난 상품의 알림은 세지 않는다.** 무시한 알림도 세지 않는다.',
       '- `unread` 는 안 읽은 알림 수, `affectedProducts` · `changedContents` 는 알림이 걸린 상품 · 관광지 수다.',
       '- `nextBatchAt` 은 다음 평일 배치 시각(한국 시간)이고, 배치가 꺼져 있으면 `null` 이다.',
-      '- `lastBatch` 는 마지막 변경 확인 결과다. `covered` 는 확인을 마친 날짜, `status` 는 `OK` · `EMPTY`(그날 공사 변경 목록이 0건이라 다음 배치가 그날을 다시 본다) · `FAILED` · `HIDDEN_OVERFLOW` 다.',
+      '- `lastBatch` 는 마지막 변경 확인 결과다. `covered` 는 확인을 마친 날짜, `status` 는 `OK` · `EMPTY`(어제가 평일인데 공사 변경 목록이 0건이라 다음 배치가 그날을 다시 본다. 주말 · 공휴일의 0건은 넘어간다) · `FAILED` · `HIDDEN_OVERFLOW` 다.',
     ].join('\n'),
     screen: '레이더 — 위쪽 바뀐 정보 · 새 소식 건수와 확인 시각',
     calls: '없음 — DB 만 읽는다',
