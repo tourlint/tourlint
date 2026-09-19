@@ -39,7 +39,21 @@ export interface ImpactCandidate {
   readonly productId: number;
   readonly startDate: IsoDate;
   readonly nights: number;
+  /** 시군구 코드(3자리)는 시도 안에서만 한 곳이다. 둘을 함께 맞춘다 (`sameDistrict`) */
+  readonly ldongRegnCd: string;
   readonly ldongSignguCd: string | null;
+}
+
+/**
+ * 같은 시군구인가 (조건 2 · 4 ~ 6 · FR-MO-030 · 032).
+ *
+ * 법정동 시군구 코드 3자리는 시도마다 다시 쓴다 — 춘천(51-110)과 종로(11-110)가 같은 `110` 이다.
+ * 시군구만 견주면 다른 시도의 변경이 알림으로 온다. 한쪽이라도 모르면 걸지 않는다.
+ */
+export function sameDistrict(candidate: ImpactCandidate, content: SyncedContent): boolean {
+  return content.ldongRegnCd !== null && content.ldongSignguCd !== null
+    && candidate.ldongRegnCd === content.ldongRegnCd
+    && candidate.ldongSignguCd === content.ldongSignguCd;
 }
 
 /** 행사 개최 기간. 한쪽이라도 모르면 조건 3 은 판정하지 않는다 */
@@ -92,14 +106,13 @@ export function matchByRegion(
   candidates: readonly ImpactCandidate[],
   detectedOn: IsoDate,
 ): readonly Impact[] {
-  if (content.ldongSignguCd === null) return [];
   const detected = parseIsoDate(detectedOn);
   if (detected === null) return [];
   const from = formatIsoDate(addDays(detected, -NEARBY_DAYS));
   const to = formatIsoDate(addDays(detected, NEARBY_DAYS));
 
   return candidates
-    .filter((c) => c.ldongSignguCd === content.ldongSignguCd)
+    .filter((c) => sameDistrict(c, content))
     .filter((c) => travelDatesOf(c).some((d) => d >= from && d <= to))
     .map((c) => ({ productId: c.productId, condition: 2 as const, kind: 'RISK' as const }));
 }

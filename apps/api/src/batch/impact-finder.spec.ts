@@ -5,7 +5,7 @@ import {
 } from './impact-finder';
 
 const candidate = (over: Partial<ImpactCandidate> = {}): ImpactCandidate => ({
-  productId: 1, startDate: '2026-09-10', nights: 2, ldongSignguCd: '150', ...over,
+  productId: 1, startDate: '2026-09-10', nights: 2, ldongRegnCd: '51', ldongSignguCd: '150', ...over,
 });
 
 const changed = (over: Partial<ChangedContent> = {}): ChangedContent => ({
@@ -46,6 +46,13 @@ describe('조건 2 — 같은 지역 (FR-MO-032)', () => {
       .toHaveLength(1);
     expect(matchByRegion(changed({ ldongSignguCd: '150' }), [candidate({ ...nearby, ldongSignguCd: '110' })], detected))
       .toEqual([]);
+  });
+
+  it('🔴 시군구 번호가 같아도 시도가 다르면 안 걸린다 — 춘천(51-110)과 종로(11-110)', () => {
+    const nearby = { startDate: '2026-09-02', nights: 0 };
+    const jongno = changed({ ldongRegnCd: '11', ldongSignguCd: '110' });
+    expect(matchByRegion(jongno, [candidate({ ...nearby, ldongRegnCd: '51', ldongSignguCd: '110' })], detected)).toEqual([]);
+    expect(matchByRegion(jongno, [candidate({ ...nearby, ldongRegnCd: '11', ldongSignguCd: '110' })], detected)).toHaveLength(1);
   });
 
   it('🔴 여행일이 ±7일 밖이면 안 걸린다', () => {
