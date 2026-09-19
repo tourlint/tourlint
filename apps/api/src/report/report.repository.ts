@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { currentRunOf } from '../persistence/current-run';
 import type { ItinerarySnapshot } from '../audit/patch-snapshot';
 
 /**
@@ -81,14 +82,14 @@ export class ReportRepository {
       : { auditRunId: Number(row.id), productId: Number(row.product_id) };
   }
 
-  /** 가장 최근 실행 id. `AuditResultRepository.latestRunIdOf` 와 같은 정렬이어야 한다 */
-  async latestRunIdOf(productId: number): Promise<number | null> {
-    const { rows } = await this.pool.query<{ id: string }>(
-      `SELECT id FROM audit_run WHERE product_id = $1 ORDER BY id DESC LIMIT 1`,
-      [productId],
-    );
-    const row = rows[0];
-    return row === undefined ? null : Number(row.id);
+  /**
+   * 지금 일정에 대응하는 실행 id (#551). 반영 뒤 재검수 전이면 `null` 이다.
+   *
+   * 리포트의 일정표는 지금 일정을 읽는다. 가장 최근 실행으로 고르면, 수정안을 되돌린 뒤
+   * 반영 후 판정과 되돌린 일정이 한 문서에 섞인다.
+   */
+  async currentRunIdOf(productId: number): Promise<number | null> {
+    return (await currentRunOf(this.pool, productId))?.runId ?? null;
   }
 
   async product(productId: number): Promise<ProductRow | null> {

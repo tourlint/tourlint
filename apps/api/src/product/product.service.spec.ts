@@ -166,10 +166,11 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
  * 해서 사유를 말하는지를 여기서 본다 — 저장소는 스텁이라 DB 없이 돈다.
  */
 describe('출시 승인 거부 (PM-NG-002)', () => {
-  const svc = (blockers: number | null | undefined, released = '2026-09-09T00:00:00.000Z') =>
+  type Basis = Awaited<ReturnType<ProductRepository['releaseBasis']>>;
+  const svc = (basis: Basis, released = '2026-09-09T00:00:00.000Z') =>
     new ProductService(
       {
-        latestBlockerCount: async () => blockers,
+        releaseBasis: async () => basis,
         markReleased: async () => released,
       } as unknown as ProductRepository,
       {} as never,
@@ -179,16 +180,52 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
       {} as never,
       () => null,
     );
+  /** 가장 최근 실행이 곧 지금 일정의 실행인 보통의 경우 */
+  const latest = (blockers: number): Basis => ({
+    current: { kind: 'LATEST', runId: 9, latestRunId: 9 }, currentBlockers: blockers, latestBlockers: blockers,
+  });
 
   it('🔴 차단이 1건이면 403 FORBIDDEN_ACTION 이다 — 화면 버튼만으로 충족하지 않는다', async () => {
-    await expect(svc(1).release(1, 1)).rejects.toMatchObject({
+    await expect(svc(latest(1)).release(1, 1)).rejects.toMatchObject({
       reasonCode: 'FORBIDDEN_ACTION',
       status: 403,
     });
   });
 
+  it('🔴 되돌린 일정에 차단이 있으면 반영 후 실행이 0건이어도 거부한다 (#551)', async () => {
+    /*
+     * 2026-09-11 감사 치명 1번. 차단을 없앤 수정안을 확정 · 재검수(차단 0)한 뒤 되돌리면 일정은
+     * 차단이 있는 반영 전으로 돌아가는데, 가장 최근 실행만 보던 승인은 통과시켰다.
+     */
+    const reverted: Basis = {
+      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 1, latestBlockers: 0,
+    };
+    await expect(svc(reverted).release(1, 1)).rejects.toMatchObject({
+      reasonCode: 'FORBIDDEN_ACTION',
+      message: '차단 1건을 해결해야 출시할 수 있습니다.',
+    });
+  });
+
+  it('🔴 수정안을 반영하고 재검수 전이면 거부한다 — 판정한 실행이 없다', async () => {
+    const stale: Basis = {
+      current: { kind: 'STALE', runId: null, latestRunId: 9 }, currentBlockers: null, latestBlockers: 0,
+    };
+    await expect(svc(stale).release(1, 1)).rejects.toMatchObject({ reasonCode: 'FORBIDDEN_ACTION' });
+  });
+
+  it('되돌린 일정이 깨끗해도 가장 최근 실행에 차단이 있으면 다시 검수하게 한다 — 트리거보다 먼저 사유를 말한다', async () => {
+    const reverted: Basis = {
+      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 0, latestBlockers: 2,
+    };
+    await expect(svc(reverted).release(1, 1)).rejects.toMatchObject({
+      reasonCode: 'FORBIDDEN_ACTION',
+      message: '수정안을 되돌린 일정은 다시 검수한 뒤 출시할 수 있습니다.',
+    });
+  });
+
   it('검수한 적 없는 상품도 거부한다', async () => {
-    await expect(svc(null).release(1, 1)).rejects.toMatchObject({ reasonCode: 'FORBIDDEN_ACTION' });
+    const none: Basis = { current: { kind: 'NONE', runId: null, latestRunId: null }, currentBlockers: null, latestBlockers: null };
+    await expect(svc(none).release(1, 1)).rejects.toMatchObject({ reasonCode: 'FORBIDDEN_ACTION' });
   });
 
   it('남의 상품은 404 로 존재를 숨긴다 (EX-SY-003)', async () => {
@@ -196,10 +233,17 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
   });
 
   it('차단 0건이면 승인 시각을 돌려준다', async () => {
-    await expect(svc(0).release(1, 7)).resolves.toEqual({
+    await expect(svc(latest(0)).release(1, 7)).resolves.toEqual({
       productId: 7,
       releasedAt: '2026-09-09T00:00:00.000Z',
     });
+  });
+
+  it('되돌린 일정도 차단이 없으면 승인한다 — 반영 전 실행이 지금 결과다', async () => {
+    const reverted: Basis = {
+      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 0, latestBlockers: 0,
+    };
+    await expect(svc(reverted).release(1, 7)).resolves.toMatchObject({ productId: 7 });
   });
 });
 

@@ -84,21 +84,26 @@ export class ProductService {
    * 읽을 수 없는 오류를 본다. 같은 판단을 여기서 먼저 해서 사유를 말해 준다.
    */
   async release(accountId: number, productId: number): Promise<{ productId: number; releasedAt: string | null }> {
-    const blockers = await this.repo.latestBlockerCount(accountId, productId);
-    if (blockers === undefined) throw notFound(productId);
+    const basis = await this.repo.releaseBasis(accountId, productId);
+    if (basis === undefined) throw notFound(productId);
 
-    if (blockers === null) {
-      throw new DomainException(
-        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
-        '검수하지 않은 상품은 출시할 수 없습니다. 먼저 검수를 실행해 주세요.', 'REQUEST',
-      );
+    /*
+     * **지금 일정의 검수 결과로 판정한다** (#551). 가장 최근 실행만 보면, 차단을 없앤 수정안을
+     * 되돌려 차단이 있는 일정으로 돌아가도 반영 후 실행(차단 0)을 보고 통과시켰다.
+     */
+    const { current, currentBlockers, latestBlockers } = basis;
+    if (current.kind === 'NONE') {
+      throw forbidden('검수하지 않은 상품은 출시할 수 없습니다. 먼저 검수를 실행해 주세요.');
     }
-
-    if (blockers > 0) {
-      throw new DomainException(
-        HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION',
-        `차단 ${blockers}건을 해결해야 출시할 수 있습니다.`, 'REQUEST',
-      );
+    if (current.kind === 'STALE') {
+      throw forbidden('수정안을 반영한 일정의 재검수가 아직 끝나지 않았습니다. 재검수 결과를 확인한 뒤 출시해 주세요.');
+    }
+    if ((currentBlockers ?? 0) > 0) {
+      throw forbidden(`차단 ${String(currentBlockers)}건을 해결해야 출시할 수 있습니다.`);
+    }
+    // 되돌린 일정은 반영 전 실행으로 판정하지만 트리거는 가장 최근 실행을 본다. 거기서 읽을 수 없는 오류가 나기 전에 막는다
+    if ((latestBlockers ?? 0) > 0) {
+      throw forbidden('수정안을 되돌린 일정은 다시 검수한 뒤 출시할 수 있습니다.');
     }
 
     const releasedAt = await this.repo.markReleased(accountId, productId);
@@ -378,6 +383,11 @@ export class ProductService {
 function notFound(productId: number): DomainException {
   // 소유자가 아니면 조회 자체가 0건이라 여기로 온다 — 403 이 아니라 404 로 존재를 숨긴다 (EX-SY-003)
   return new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', `상품을 찾을 수 없습니다 (#${productId}).`, 'PRODUCT');
+}
+
+/** 출시 승인 거절. 화면이 그대로 보여 준다 (PM-NG-002 · EX-AU-008) */
+function forbidden(message: string): DomainException {
+  return new DomainException(HttpStatus.FORBIDDEN, 'FORBIDDEN_ACTION', message, 'REQUEST');
 }
 
 function notFoundItem(itemId: number): DomainException {

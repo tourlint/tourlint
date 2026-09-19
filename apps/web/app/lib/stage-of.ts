@@ -10,7 +10,8 @@ export type Stage = "PLANNING" | "REVIEW" | "RELEASABLE" | "RELEASED";
 export interface StageInput {
   plannedAt: string | null;
   releasedAt: string | null;
-  latestAudit: { counts: { blocker: number } } | null;
+  /** `releasable` 은 서버의 출시 판정이다 — 반영 뒤 재검수 전이면 차단이 0이어도 false 다 (#551) */
+  latestAudit: { counts: { blocker: number }; releasable?: boolean } | null;
 }
 
 export function stageOf(p: StageInput): Stage {
@@ -18,7 +19,7 @@ export function stageOf(p: StageInput): Stage {
   if (p.releasedAt !== null) return "RELEASED";
   const hasRun = p.latestAudit !== null;
   const blocker = p.latestAudit?.counts.blocker ?? 0;
-  if (!hasRun || blocker > 0) return "REVIEW";
+  if (!hasRun || blocker > 0 || p.latestAudit?.releasable === false) return "REVIEW";
   return "RELEASABLE";
 }
 

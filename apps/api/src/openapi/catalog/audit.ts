@@ -237,13 +237,14 @@ export const AUDIT: readonly Endpoint[] = [
     tag: '6. 검수',
     summary: '검수 이력',
     description: [
-      '이 상품의 검수 실행을 최신순으로 최근 20건까지 돌려준다. 화면은 맨 앞 실행을 열고 그 번호로 요약 · 발견 항목 · 직접 확인할 곳을 읽는다.',
+      '이 상품의 검수 실행을 최신순으로 최근 20건까지 돌려준다. 화면은 `isCurrent: true` 인 실행을 열고 그 번호로 요약 · 발견 항목 · 직접 확인할 곳을 읽는다.',
       '',
       '- 실행은 바뀌지 않는 기록이다. 고치거나 지우는 API 가 없고 DB 도 수정을 막는다. 다시 검수하면 새 실행이 쌓인다.',
       '- `readinessScore` · `counts` 는 조회할 때 다시 계산한 값이라 나중에 무시한 항목이 반영돼 있다. `counts` 는 등급별 전체 건수이고 키가 대문자다.',
       '- 부분 검수(`isPartial: true`)는 점수가 `null` 이다.',
+      '- `isCurrent` 는 지금 일정의 결과다. 보통 맨 앞 실행이고, 수정안을 되돌렸으면 반영 전 실행이다 — 되돌리기는 새 실행을 만들지 않는다. 수정안을 반영하고 재검수가 끝나기 전에는 모두 false 다.',
     ].join('\n'),
-    screen: '검수 결과 — 화면을 열 때 최신 실행을 고른다',
+    screen: '검수 결과 — 화면을 열 때 지금 일정의 실행을 고른다',
     calls: '없음 — DB 만 읽는다',
     spec: 'FR-PA-025 · 045 · PM-NG-004 · API 설계 4-5',
     params: PRODUCT,
@@ -255,6 +256,7 @@ export const AUDIT: readonly Endpoint[] = [
           runs: [
             {
               auditRunId: 111,
+              isCurrent: true,
               executedAt: '2026-09-19T14:40:42.804Z',
               rulesetVersion: '1.2.4',
               readinessScore: 85,

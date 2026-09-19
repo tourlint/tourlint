@@ -140,3 +140,21 @@ it('검수에서 장소 추가 → 현재 일정 갱신 → 기존 수정안·�
   expect(host.textContent).not.toContain('아래 결과는 추가 전 결과');
   expect(host.querySelector('fieldset')?.disabled).toBe(false);
 });
+
+it('🔴 수정안을 되돌린 뒤 새로 열면 반영 전 실행부터 연다 — 더 최근인 반영 후 실행이 아니라 (#551)', async () => {
+  const detail = { ...product, name: '검증 상품', region: { regnName: '강원', signguName: '강릉' }, composition: { manual: 3, picker: 0, excluded: 0 }, releasedAt: null };
+  vi.spyOn(productApi, 'detail').mockResolvedValue(detail);
+  vi.spyOn(auditApi, 'listRuns').mockResolvedValue({
+    totalCount: 2,
+    runs: [
+      { auditRunId: 9, executedAt: '2026-09-20T01:10:05Z', isPartial: false, readinessScore: 85, isCurrent: false },
+      { auditRunId: 8, executedAt: '2026-09-20T01:00:00Z', isPartial: false, readinessScore: 61, isCurrent: true },
+    ],
+  });
+  const getRun = vi.spyOn(auditApi, 'getRun').mockResolvedValue({ ...run, auditRunId: 8 });
+  vi.spyOn(auditApi, 'getFindings').mockResolvedValue({ content: [finding] } as Awaited<ReturnType<typeof auditApi.getFindings>>);
+  vi.spyOn(auditApi, 'getUnverified').mockResolvedValue({ totalCount: 0, items: [] });
+  await act(async () => root.render(<AuditResult productId={42} />));
+  expect(getRun).toHaveBeenCalledWith(8);
+  expect(getRun).not.toHaveBeenCalledWith(9);
+});

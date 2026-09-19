@@ -84,6 +84,9 @@ describe.skipIf(URL === undefined)('ReportService — 관통', () => {
   });
 
   afterEach(async () => {
+    // 반영 이력의 applied_by 가 계정을 CASCADE 없이 가리킨다. 상품을 먼저 지운다
+    await pool.query('DELETE FROM product WHERE account_id = ANY($1::bigint[])',
+      [[accountId, otherAccountId]]);
     await pool.query('DELETE FROM account WHERE id = ANY($1::bigint[])',
       [[accountId, otherAccountId]]);
   });
@@ -115,6 +118,29 @@ describe.skipIf(URL === undefined)('ReportService — 관통', () => {
       (e: unknown) => e instanceof DomainException
         && e.getStatus() === 409 && e.reasonCode === 'REPORT_FAILED',
     );
+  });
+
+  it('🔴 수정안을 되돌린 뒤에는 반영 후 실행으로 만들 수 없고 반영 전 실행으로 만든다 (#551)', async () => {
+    /*
+     * 되돌리기는 새 실행을 만들지 않는다. 가장 최근 실행만 받던 때는 되돌린 일정에 반영 후
+     * 판정을 붙인 리포트가 나왔다. 되돌린 일정의 판정은 반영 전 실행이다.
+     */
+    const before = runId;
+    const applied = await pool.query<{ id: string }>(
+      `INSERT INTO patch_application
+         (product_id, applied_at, applied_by, selected_patches, before_snapshot, after_snapshot, before_audit_run_id)
+       VALUES ($1, clock_timestamp(), $2, '[{"findingId":1,"patchId":"p-1"}]'::jsonb, $4::jsonb, $4::jsonb, $3)
+       RETURNING id`,
+      [productId, accountId, before, JSON.stringify({ snapshotVersion: '1', snapshotAt: '2026-09-20T01:00:00Z', productId, items: [] })],
+    );
+    const after = await insertRun(pool, productId);
+    await pool.query(`UPDATE patch_application SET reverted_at = clock_timestamp() WHERE id = $1`, [applied.rows[0]?.id]);
+
+    await expect(service.create(after, accountId)).rejects.toSatisfy(
+      (e: unknown) => e instanceof DomainException
+        && e.getStatus() === 409 && e.reasonCode === 'REPORT_FAILED',
+    );
+    await expect(service.create(before, accountId)).resolves.toHaveProperty('reportId');
   });
 
   it('검수 제외 항목 건수가 리포트에 반영된다 (FR-PA-064)', async () => {
