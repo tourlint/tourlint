@@ -1,4 +1,4 @@
-import { PATCH_TIME_STEP_MINUTES, RULE_CONSTANTS, SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
+import { LCLS_SYSTM2, PATCH_TIME_STEP_MINUTES, RULE_CONSTANTS, SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
 import { addDays, parseIsoDate } from '../engine/calendar/dates';
 import type { HolidayCalendar } from '../engine/calendar/holidays';
 import { evaluateClosed } from '../engine/rules/r01-operating';
@@ -536,8 +536,8 @@ export function planNightInsertion(
   const missing = Array.isArray(missingLcls2) ? missingLcls2.map(String) : [];
   const rest = expected.filter((code) => !missing.includes(code));
   const wantLcls2 = [
-    ...missing.filter((code) => !coveredLcls2.has(code)),
-    ...rest,
+    ...eveningFirst(missing.filter((code) => !coveredLcls2.has(code))),
+    ...eveningFirst(rest),
     ...missing.filter((code) => coveredLcls2.has(code)),
   ];
 
@@ -613,4 +613,17 @@ export function lastRepeated(finding: Finding, items: readonly AuditItem[]): Aud
     .filter((i): i is AuditItem => i !== undefined)
     .sort((a, b) => (a.dayNo - b.dayNo) || (toMinutes(a.startTime) - toMinutes(b.startTime)));
   return repeated[repeated.length - 1] ?? null;
+}
+
+/**
+ * 같은 묶음 안에서 음식(`FD`) 분류를 앞에 둔다. 고르기가 아니라 **찾는 순서**다.
+ *
+ * 위치기반 조회는 검수 한 번에 3콜이고 finding 들이 나눠 쓴다. 야간 자리에 돌아오는 것은
+ * 한두 콜이라 무엇을 먼저 찾느냐가 결과를 가른다. 기대 프로파일 순서대로 공예체험부터
+ * 찾았더니 그 한 콜로 찾은 곳이 「체험에 따라 상이함」 이라 떨어지고 카페까지 못 갔다 (#592).
+ * 19:00 에 여는 곳은 식당 · 카페 쪽에 많다. 실제로 여는지는 여전히 R01 확인이 정한다.
+ */
+function eveningFirst(codes: readonly string[]): readonly string[] {
+  const food = (code: string): boolean => LCLS_SYSTM2[code]?.parent === 'FD';
+  return [...codes.filter(food), ...codes.filter((code) => !food(code))];
 }

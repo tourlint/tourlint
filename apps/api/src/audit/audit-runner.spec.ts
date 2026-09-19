@@ -556,7 +556,7 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     const meal = { itemType: 'MEAL' as const, ktoContentId: '2868869', contentTypeId: 39 as const, lclsSystm2: 'FD01' };
     const hotel = { itemType: 'LODGING' as const, ktoContentId: '4074363', contentTypeId: 32 as const, lclsSystm2: 'AC01' };
 
-    const result = await runner().run(withTarget, [
+    const itinerary = [
       place(1, 1, 1, '10:00', '11:30'), place(2, 1, 2, '12:30', '13:30', meal),
       place(3, 1, 3, '14:00', '16:00', { ktoContentId: '129784', contentTypeId: 14, lclsSystm2: 'VE07' }),
       place(4, 1, 4, '17:00', null, hotel),
@@ -566,7 +566,8 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
       place(8, 2, 4, '15:00', '17:00'), place(9, 2, 5, '18:00', null, hotel),
       place(10, 3, 1, '10:00', '11:30'), place(11, 3, 2, '12:00', '13:30', meal),
       place(12, 3, 3, '14:00', '15:30', { ktoContentId: '3022373' }),
-    ]);
+    ];
+    const result = await runner().run(withTarget, itinerary);
 
     const r10 = result.findings.find((f) => f.ruleCode === 'R10');
     expect(r10?.evidence).toMatchObject({ missingLcls2: ['EX02', 'FD05'], expectsNight: true, hasNight: false });
@@ -586,6 +587,15 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     // 낮 — 야간이 못 채운 공예체험만 맡는다. 3일차 15:30 뒤
     expect(inserts[1]).toMatchObject({ dayNo: 3, startTime: '16:00', content: { lclsSystm2: 'EX02' } });
     expect(inserts).toHaveLength(2);
+
+    /*
+     * 위치기반 조회가 2콜만 남은 검수 (#592). 운영에서 다른 finding 이 1콜을 먼저 썼다. 낮 자리
+     * 몫 1콜을 빼면 야간은 1콜이다 — 그 한 콜을 공예체험에 쓰면 야간 수정안이 안 나온다.
+     */
+    const tight = await runner({ maxReplacementCalls: 2 }).run(withTarget, itinerary);
+    const tightInserts = (tight.findings.find((f) => f.ruleCode === 'R10')?.patches ?? [])
+      .map((p) => (p.payload as { startTime: string; content?: { lclsSystm2: string | null } }));
+    expect(tightInserts.map((p) => [p.startTime, p.content?.lclsSystm2])).toEqual([['19:00', 'FD05'], ['16:00', 'EX02']]);
   });
 
   it('🔴 표준 목록에 없는 타깃 · 콘셉트(옛 자유 입력)면 확인 불가다', async () => {

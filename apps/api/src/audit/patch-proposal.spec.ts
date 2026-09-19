@@ -664,6 +664,20 @@ describe('야간 자리 계산 (R10 · FR-RU-101 · 103 · #579)', () => {
     expect(planNightInsertion(both, items, new Set(['EX02']), 90)?.wantLcls2).toEqual(['FD05', 'VE01', 'EX02']);
   });
 
+  it('🔴 같은 묶음 안에서는 음식 분류부터 찾는다 — 야간 자리에 돌아오는 조회는 한두 콜이다 (#592)', () => {
+    /*
+     * 운영에서 다른 finding 이 위치기반 1콜을 먼저 써서 야간 자리에 1콜만 남았다. 그 한 콜을
+     * 기대 프로파일 순서대로 공예체험에 썼고, 찾은 곳은 이용시간이 「체험에 따라 상이함」 이라
+     * 떨어졌다. 카페를 먼저 찾았으면 19:00 수정안이 나왔다.
+     */
+    const items = [item({ day: 1, start: '14:00', end: '16:00' }), item({ day: 1, start: '17:00', end: null, type: 'LODGING' })];
+    const both = r10({ missingLcls2: ['EX02', 'FD05'] });
+    expect(planNightInsertion(both, items, new Set(), 90)?.wantLcls2).toEqual(['FD05', 'EX02', 'VE01']);
+    // 결손이 아닌 나머지 묶음도 같다. 결손 묶음이 여전히 먼저다
+    const craftOnly = r10({ expectedLcls2: ['EX02', 'VE01', 'FD01'], missingLcls2: ['EX02'] });
+    expect(planNightInsertion(craftOnly, items, new Set(), 90)?.wantLcls2).toEqual(['EX02', 'FD01', 'VE01']);
+  });
+
   it('🔴 야간 결손이 아니면 잡지 않는다', () => {
     const items = [item({ day: 1, start: '14:00', end: '16:00' })];
     for (const evidence of [{ expectsNight: false }, { hasNight: true }, { expectedLcls2: [] }, { expectedLcls2: undefined }]) {
