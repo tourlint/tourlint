@@ -2,7 +2,7 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { auditApi, patchApi, productApi, type RunSummary, type Finding, type ProductDetail, type ProductItem } from "../../../lib/api";
+import { auditApi, patchApi, productApi, planApi, itemApi, type RunSummary, type Finding, type ProductDetail, type ProductItem } from "../../../lib/api";
 import { AuditResult, FindingsSection } from "./audit-result";
 
 const router = { replace: vi.fn() };
@@ -21,7 +21,7 @@ function Harness({ detail = product, findings = [finding] }: { detail?: ProductD
 const schedule = () => host.querySelector('aside[aria-label="현재 일정표"]')!;
 async function click(text: string) { const b = [...host.querySelectorAll('button')].find(b => b.textContent === text); expect(b).toBeDefined(); await act(async () => b!.click()); }
 async function render(detail = product, findings = [finding]) { await act(async () => root.render(<Harness detail={detail} findings={findings} />)); }
-beforeEach(() => { (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; host = document.createElement('div'); document.body.append(host); root = createRoot(host); select.mockClear(); });
+beforeEach(() => { (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; host = document.createElement('div'); document.body.append(host); root = createRoot(host); select.mockClear(); sessionStorage.clear(); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 describe('검수 중 현재 일정 참조 (#570)', () => {
@@ -32,8 +32,8 @@ describe('검수 중 현재 일정 참조 (#570)', () => {
     expect(schedule().textContent).toContain('11:00 – 12:30'); expect(schedule().textContent).toContain('종료 미입력');
     expect(host.textContent).toContain('수정안 0개 선택됨'); expect(select).not.toHaveBeenCalled();
   });
-  it('일정에서 확인은 수정안을 선택하지 않고 앞뒤 두 장소만 강조한다', async () => {
-    await render(); await click('일정에서 확인');
+  it('문제 카드에 초점을 옮기면 선택 없이 앞뒤 두 장소만 강조한다', async () => {
+    await render(); await act(async () => host.querySelector<HTMLButtonElement>('.finding-card button')!.focus());
     const highlighted = schedule().querySelectorAll('[data-related="true"]');
     expect(highlighted).toHaveLength(2); expect(highlighted[1].textContent).toContain('오죽헌·시립박물관');
     expect(select).not.toHaveBeenCalled();
@@ -46,9 +46,9 @@ describe('검수 중 현재 일정 참조 (#570)', () => {
     await act(async () => host.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1].click());
     expect(schedule().querySelectorAll('[data-related="true"]')).toHaveLength(3);
   });
-  it('접은 일정은 확인 버튼으로 다시 열리고 필터 결과가 없어도 남는다', async () => {
+  it('접은 일정을 다시 펼치고 필터 결과가 없어도 유지한다', async () => {
     await render(); await click('접기'); expect(schedule().querySelectorAll('li')).toHaveLength(0);
-    await click('일정에서 확인'); expect(schedule().querySelectorAll('li')).toHaveLength(3);
+    await click('펼치기'); expect(schedule().querySelectorAll('li')).toHaveLength(3);
     await click('차단0'); expect(host.textContent).toContain('이 분류에 해당하는 항목이 없습니다'); expect(schedule().querySelectorAll('li')).toHaveLength(3);
   });
   it('갱신된 상품 일정을 표시하며 원본 배열 순서는 변경하지 않는다', async () => {
@@ -59,7 +59,7 @@ describe('검수 중 현재 일정 참조 (#570)', () => {
     expect(schedule().textContent).toContain('09:00 – 11:30'); expect(schedule().textContent).toContain('수정한 장소'); expect(schedule().querySelectorAll('li')).toHaveLength(1);
   });
   it('상품 전체 판정은 특정 장소를 문제로 표시하지 않는다', async () => {
-    await render(product, [{ ...finding, target: { itemId: null }, targetSecondary: null, patches: [] }]); await click('일정에서 확인');
+    await render(product, [{ ...finding, target: { itemId: null }, targetSecondary: null, patches: [] }]); await act(async () => host.querySelector<HTMLButtonElement>('.finding-card button')!.focus());
     expect(schedule().querySelectorAll('[data-related="true"]')).toHaveLength(0); expect(schedule().textContent).toContain('상품 전체를 함께');
   });
   it('문제가 없거나 저장된 일정이 없어도 상태를 명확히 표시한다', async () => {
@@ -99,4 +99,44 @@ it('수정안 확정·재검수 후 현재 일정표를 서버의 최신 일정�
   expect(detail).toHaveBeenCalledTimes(2);
   expect(schedule().textContent).toContain('확정된 장소'); expect(schedule().textContent).toContain('09:30');
   expect(host.textContent).toContain('수정안 0개 선택됨');
+});
+
+
+it('검수에서 장소 추가 → 현재 일정 갱신 → 기존 수정안·출시 보류 → 재검수로 이어진다', async () => {
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  HTMLDialogElement.prototype.close = function () { this.open = false; };
+  const initial = { ...product, productId: 42, dayCount: 2, ldongRegnCd: '51', name: '검증 상품', region: { regnName: '강원', signguName: '강릉' }, composition: { manual: 3, picker: 0, excluded: 0 }, releasedAt: null,
+    days: [{ day: 1, items: [{ ...item, mapx: 128, mapy: 37 }] }] };
+  const updated = { ...initial, days: [{ day: 1, items: [...initial.days[0].items, { ...item, itemId: 4, place: '추가한 식당', itemType: 'MEAL' }] }] };
+  vi.spyOn(productApi, 'detail').mockResolvedValueOnce(initial).mockResolvedValue(updated);
+  vi.spyOn(auditApi, 'listRuns').mockResolvedValue({ totalCount: 1, runs: [run] });
+  vi.spyOn(auditApi, 'getRun').mockResolvedValue(run);
+  vi.spyOn(auditApi, 'getFindings').mockResolvedValue({ content: [{ ...finding, ruleCode: 'R07' }] } as Awaited<ReturnType<typeof auditApi.getFindings>>);
+  vi.spyOn(auditApi, 'getUnverified').mockResolvedValue({ totalCount: 0, items: [] });
+  vi.spyOn(planApi, 'briefing').mockResolvedValue({ types: [], budget: 'OK', region: { regnCd: '51', signguCd: null, name: '강원' }, events: null, accessible: null, pet: null, walks: null } as Awaited<ReturnType<typeof planApi.briefing>>);
+  vi.spyOn(planApi, 'places').mockResolvedValue({ items: [{ contentId: '100', title: '추가한 식당', firstImage: null, distanceM: null, togetherRank: null }], totalCount: 1, scope: { label: '근처' } } as Awaited<ReturnType<typeof planApi.places>>);
+  const add = vi.spyOn(itemApi, 'addPicked').mockResolvedValue({} as Awaited<ReturnType<typeof itemApi.addPicked>>);
+  vi.spyOn(auditApi, 'runAudit').mockResolvedValue({ jobId: 2 } as Awaited<ReturnType<typeof auditApi.runAudit>>);
+  vi.spyOn(auditApi, 'getJob').mockResolvedValue({ auditRunId: 2 } as Awaited<ReturnType<typeof auditApi.getJob>>);
+  await act(async () => root.render(<AuditResult productId={42} />));
+  expect(host.textContent).not.toMatch(/일정에서 확인|규칙 설명 보기/);
+  await act(async () => host.querySelector<HTMLInputElement>('input[type="radio"]')!.click());
+  await click('식당·카페 찾기');
+  expect(host.querySelector('dialog')?.open).toBe(true);
+  await click('일정에 넣기');
+  expect(add).toHaveBeenCalledTimes(1);
+  await click('닫기');
+  expect(schedule().textContent).toContain('추가한 식당');
+  expect(host.textContent).toContain('수정안 0개 선택됨');
+  expect(host.textContent).toContain('아래 결과는 추가 전 결과');
+  expect(host.querySelector('fieldset')?.disabled).toBe(true);
+  expect([...host.querySelectorAll('button')].find(b => b.textContent === '출시 승인')?.disabled).toBe(true);
+  expect(host.textContent).not.toContain('리포트 생성');
+  // 같은 검수 결과로 새로고침해도 보류 상태를 복원한다.
+  await act(async () => root.render(<AuditResult key="reload" productId={42} />));
+  expect(host.textContent).toContain('아래 결과는 추가 전 결과');
+  await click('지금 재검수');
+  expect(auditApi.runAudit).toHaveBeenCalledWith(42, 'MANUAL');
+  expect(host.textContent).not.toContain('아래 결과는 추가 전 결과');
+  expect(host.querySelector('fieldset')?.disabled).toBe(false);
 });

@@ -1,4 +1,4 @@
-import { SETTING_DEFAULTS, STANDARD_VERSION, type Severity } from '@tourlint/shared';
+import { findingMessage, SETTING_DEFAULTS, STANDARD_VERSION, type Severity } from '@tourlint/shared';
 import type { ContentView } from '../external/kto';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 
@@ -282,7 +282,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
     return {
       ruleCode: f.ruleCode,
       severity: f.severity,
-      message: f.message,
+      message: findingMessage(f.ruleCode, f.message, f.evidence, placeOf),
       dismissed: f.dismissed,
       dismissReason: f.dismissed ? f.dismissReason : null,
       confirmed: f.confirmed,

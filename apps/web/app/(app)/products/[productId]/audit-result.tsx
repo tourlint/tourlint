@@ -37,6 +37,9 @@ import { ruleName } from "../../../lib/rule-names";
 import { scoreSentence } from "../../../lib/score-sentence";
 import { WorkspaceIcon } from "../../../components/workspace-icon";
 import { FINDING_FILTERS, filterFindings, type FindingFilter } from "./finding-filter";
+import { ReviewPlaceDrawer } from "./review-place-drawer";
+import { placeAction, reviewPlaceContext } from "./review-place-context";
+import type { PickerContext } from "./plan/place-picker";
 import { CurrentSchedule } from "./current-schedule";
 import { PatchDescription } from "./patch-description";
 import { CheckQuestionsCard } from "./check-questions-card";
@@ -83,6 +86,8 @@ export function AuditResult({ productId }: { productId: number }) {
   const [undoConfirm, setUndoConfirm] = useState(false);
   const [undoBusy, setUndoBusy] = useState(false);
   const [undoMsg, setUndoMsg] = useState<string | null>(null);
+  const [placeContext, setPlaceContext] = useState<PickerContext | null>(null);
+  const [scheduleChanged, setScheduleChanged] = useState(false);
   const alive = useRef(true);
   const previewRegion = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -124,7 +129,10 @@ export function AuditResult({ productId }: { productId: number }) {
         if (cancelled) return;
         setProduct(detail);
         const latest = [...runs.runs].sort((a, b) => b.executedAt.localeCompare(a.executedAt))[0];
-        if (latest) await loadRun(latest.auditRunId);
+        if (latest) {
+          try { setScheduleChanged(sessionStorage.getItem(`review-changed:${productId}`) === String(latest.auditRunId)); } catch { /* 저장소 사용 불가 */ }
+          await loadRun(latest.auditRunId);
+        }
         else setData(null);
       } catch (err) {
         if (isApiError(err) && err.status === 401) {
@@ -172,6 +180,8 @@ export function AuditResult({ productId }: { productId: number }) {
       if (runId !== null) {
         resetPatchState();
         await Promise.all([loadRun(runId), refetchProduct()]);
+        setScheduleChanged(false);
+        try { sessionStorage.removeItem(`review-changed:${productId}`); } catch { /* 저장소 사용 불가 */ }
       }
     } catch (err) {
       setError(isApiError(err) ? err.message : err instanceof Error ? err.message : "검수 실행에 실패했습니다.");
@@ -181,6 +191,14 @@ export function AuditResult({ productId }: { productId: number }) {
         setProgress(null);
       }
     }
+  }
+
+  async function onPlaceInserted() {
+    resetPatchState();
+    setApplication(null);
+    setScheduleChanged(true);
+    try { if (data) sessionStorage.setItem(`review-changed:${productId}`, String(data.run.auditRunId)); } catch { /* 저장소 사용 불가 */ }
+    await refetchProduct();
   }
 
   function selectPatch(findingId: number, patchId: string | null) {
@@ -302,9 +320,8 @@ export function AuditResult({ productId }: { productId: number }) {
           )}
         </div>
         <div className="audit-header-actions">
-          <Link href={`/products/${productId}/plan`} className="button-secondary">
-            장소 담기
-          </Link>
+          <button type="button" className="button-secondary" disabled={!product || running || patchBusy !== null}
+            onClick={() => product && setPlaceContext(reviewPlaceContext(product))}>장소 담기</button>
           <Link
             href={`/products/${productId}/edit`}
             className="button-secondary"
@@ -324,6 +341,12 @@ export function AuditResult({ productId }: { productId: number }) {
         </div>
       </div>
 
+      {scheduleChanged && <div role="status" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        장소를 추가해 일정이 바뀌었어요. 아래 결과는 추가 전 결과입니다. ‘지금 재검수’를 눌러 새 일정의 문제와 수정안을 확인하세요.
+      </div>}
+      {placeContext && product && <ReviewPlaceDrawer product={product} context={placeContext} changed={scheduleChanged}
+        onInserted={onPlaceInserted} onClose={() => setPlaceContext(null)}
+        onReaudit={() => { setPlaceContext(null); void runAudit(); }} />}
       {loading ? (
         <p className="mt-8 text-sm text-slate-400">불러오는 중…</p>
       ) : error ? (
@@ -373,7 +396,8 @@ export function AuditResult({ productId }: { productId: number }) {
             selected={selected}
             onSelectPatch={selectPatch}
             onChanged={refresh}
-            busy={patchBusy !== null || running}
+            onOpenPlaces={running || patchBusy !== null ? undefined : f => product && setPlaceContext(reviewPlaceContext(product, f))}
+            busy={patchBusy !== null || running || scheduleChanged}
           />
           <UnverifiedSection items={data.unverified} itemLabel={labelOf} onChanged={refresh} runId={data.run.auditRunId} />
 
@@ -385,12 +409,12 @@ export function AuditResult({ productId }: { productId: number }) {
             <div className="audit-tool-grid">
               <div><WorkspaceIcon name="check" /><h3>출시 승인</h3>
                 <p>{data.run.releasable ? "검수 결과와 직접 확인할 내용을 살펴본 뒤 출시를 결정하세요." : data.run.releaseBlockedReason ?? "검수를 완료하고 차단 항목을 해결해 주세요."}</p>
-                <ReleaseButton productId={productId} releasable={data.run.releasable && !running && patchBusy === null}
-                  blockedReason={data.run.releaseBlockedReason} releasedAt={product?.releasedAt ?? null} />
+                <ReleaseButton productId={productId} releasable={data.run.releasable && !running && patchBusy === null && !scheduleChanged}
+                  blockedReason={scheduleChanged ? "일정이 바뀌어 재검수가 필요합니다." : data.run.releaseBlockedReason} releasedAt={product?.releasedAt ?? null} />
               </div>
               <div><WorkspaceIcon name="file" /><h3>검수 리포트</h3>
                 <p>최신 검수 결과와 판정 근거를 PDF로 확인하고 내려받으세요.</p>
-                <ReportButton key={data.run.auditRunId} runId={data.run.auditRunId} releasable={data.run.releasable && !running && patchBusy === null} />
+                <ReportButton key={data.run.auditRunId} runId={data.run.auditRunId} releasable={data.run.releasable && !running && patchBusy === null && !scheduleChanged} />
                 {!data.run.releasable && <p className="audit-tool-note">출시 가능한 검수 결과가 준비되면 리포트를 만들 수 있어요.</p>}
               </div>
             </div>
@@ -637,6 +661,7 @@ export function FindingsSection({
   onSelectPatch,
   onChanged,
   busy,
+  onOpenPlaces,
 }: {
   findings: Finding[];
   product: ProductDetail | null;
@@ -646,6 +671,7 @@ export function FindingsSection({
   onSelectPatch: (findingId: number, patchId: string | null) => void;
   onChanged: () => Promise<void>;
   busy: boolean;
+  onOpenPlaces?: (finding: Finding) => void;
 }) {
   const [filter, setFilter] = useState<FindingFilter>("ALL");
   const [focusedId, setFocusedId] = useState<number | null>(null);
@@ -679,7 +705,7 @@ export function FindingsSection({
               itemLabel={itemLabel}
               contentId={contentOf(f.target.itemId)}
               selectedPatchId={selected[f.findingId] ?? null}
-              onInspect={() => { setFocusedId(f.findingId); setScheduleExpanded(true); }}
+              onOpenPlaces={onOpenPlaces}
               onFocusFinding={() => setFocusedId(f.findingId)}
               onSelectPatch={(findingId, patchId) => { setFocusedId(findingId); onSelectPatch(findingId, patchId); }}
               onChanged={onChanged}
@@ -695,7 +721,7 @@ export function FindingsSection({
 }
 
 function FindingCard({
-  onInspect,
+  onOpenPlaces,
   onFocusFinding,
   product,
   finding,
@@ -706,7 +732,7 @@ function FindingCard({
   onChanged,
   busy,
 }: {
-  onInspect: () => void;
+  onOpenPlaces?: (finding: Finding) => void;
   onFocusFinding: () => void;
   finding: Finding;
   product: ProductDetail | null;
@@ -783,20 +809,15 @@ function FindingCard({
             대상: {itemLabel(finding.target.itemId)}
             {finding.targetSecondary && ` ↔ ${itemLabel(finding.targetSecondary.itemId)}`}
           </p>
-          <button type="button" className="finding-schedule-button" onClick={onInspect}>일정에서 확인</button>
           {finding.requiresExternal && finding.externalSource && (
             <p className="mt-1 text-xs text-slate-400">외부 참고: {finding.externalSource}</p>
-          )}
-          {/* 회사 기준으로 조일 수 있는 규칙은 검수 기준 설명으로 보낸다 (UI-S3-027) */}
-          {finding.ruleCode === "R07" && (
-            <Link href={`/standard?rule=${finding.ruleCode}`} className="mt-1 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-300">
-              규칙 설명 보기
-            </Link>
           )}
           {dismissed && finding.dismissReason && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">무시 사유: {finding.dismissReason}</p>
           )}
           <EvidencePanel contentId={contentId} view={finding.evidenceView} ruleCode={finding.ruleCode} />
+          {!dismissed && finding.severity !== "UNVERIFIED" && onOpenPlaces && placeAction(finding.ruleCode) && <button type="button" className="button-secondary mt-3"
+            onClick={() => onOpenPlaces(finding)}>{placeAction(finding.ruleCode)}</button>}
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
         </div>
         {canDismiss &&
