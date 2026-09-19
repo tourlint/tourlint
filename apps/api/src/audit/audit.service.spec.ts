@@ -614,6 +614,42 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(rows[0]).toEqual({ match_status: 'CONFIRMED', kto_content_id: '125769' });
     });
 
+    it('🔴 걷기 길이 든 일정에도 수정안을 반영하고 되돌린다 (#586)', async () => {
+      /*
+       * 걷기 길은 이름 없이 `walk_id` 만 가진 EXCLUDED 행이다. 수정안 반영은 일정을 통째로 다시
+       * 쓰는데, 그 행을 `walk_id` 없이 쓰면 `ck_item_label_required` 에 걸려 확정이 500 이 된다.
+       * 운영에서 걷기 길을 담은 상품의 `확정하고 재검수` 가 그렇게 실패했다.
+       */
+      const walk = await pool.query<{ id: string }>(
+        `INSERT INTO itinerary_item
+           (product_id, day_no, seq, start_time, end_time, end_time_source, place_label,
+            item_type, match_status, origin, walk_id)
+         VALUES ($1, 2, 9, '15:00'::time, '17:00'::time, 'INPUT', NULL, 'SIGHT', 'EXCLUDED', 'PICKER', 'T_CRS_TEST')
+         RETURNING id`, [productId],
+      );
+      const walkItemId = Number(walk.rows[0]?.id);
+      const walkRow = async (): Promise<{ walk_id: string | null; origin: string | null } | undefined> =>
+        (await pool.query<{ walk_id: string | null; origin: string | null }>(
+          `SELECT walk_id, origin FROM itinerary_item WHERE id = $1`, [walkItemId],
+        )).rows[0];
+
+      // ① 다른 항목을 고치는 수정안 — 걷기 길 행은 그대로 다시 쓰인다
+      const [a] = await day1Ids();
+      const shift = await synthFinding([
+        { patchId: 'p-1', type: 'TIME_SHIFT', targetItemId: a, payload: { newStartTime: '08:00', newEndTime: '09:00' } },
+      ]);
+      await confirmAndSettle([{ findingId: shift, patchId: 'p-1' }]);
+      expect(await walkRow()).toEqual({ walk_id: 'T_CRS_TEST', origin: 'PICKER' });
+
+      // ② 걷기 길을 지웠다가 되돌린다 — 되살린 행이 식별자를 잃으면 안 된다
+      const remove = await synthFinding([{ patchId: 'p-1', type: 'REMOVE_ITEM', targetItemId: walkItemId, payload: {} }]);
+      const applied = await confirmAndSettle([{ findingId: remove, patchId: 'p-1' }]);
+      expect(await walkRow()).toBeUndefined();
+      await service.revertPatch(applied.patchApplicationId);
+      await service.waitForIdle();
+      expect(await walkRow()).toEqual({ walk_id: 'T_CRS_TEST', origin: 'PICKER' });
+    });
+
     it('🔴 충돌하면 확정하지 않는다 — 어느 둘인지 지목한다 (FR-PA-006 · EX-PA-001)', async () => {
       // 같은 항목을 둘이 함께 건드리게 만든다. 픽스처가 충돌을 내주기를 기다리지 않는다
       const [a] = await day1Ids();

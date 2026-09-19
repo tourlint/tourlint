@@ -238,7 +238,7 @@ export async function proposeInsertions(
     }
 
     const wanted = new Set(code === null ? want : [code]);
-    const ranked = rankCandidates(items, anchor, options.knownConfidence ?? new Map())
+    const ranked = rankCandidates(items.filter((raw) => !isConvenienceFacility(raw)), anchor, options.knownConfidence ?? new Map())
       .filter((c) => !exclude.has(c.ktoContentId) && !picked.some((p) => p.ktoContentId === c.ktoContentId))
       // 중분류를 지정했으면 그 중 하나여야 한다. 모르는 것(null)은 넣지 않는다 — 결손을 채운다고 말할 수 없다
       .filter((c) => wanted.size === 0 || (c.lclsSystm2 !== null && wanted.has(c.lclsSystm2)));
@@ -290,4 +290,15 @@ function fitSlot(
   const planned = toMinutes(slot.endTime) - toMinutes(slot.startTime);
   const minutes = Math.min(planned, dwellOf(candidate.lclsSystm2));
   return minutes <= 0 || minutes === planned ? slot : { ...slot, endTime: addMinutes(slot.startTime, minutes) };
+}
+
+/**
+ * 방문 일정이 될 수 없는 편의시설.
+ *
+ * 공사가 `강문해변화장실` 을 랜드마크관광(`VE010100`)으로 분류해 두었다. 분류로는 못 거르고,
+ * 상시 개방이라 운영시간 확인도 통과한다 — 그대로 두면 숙소 옆 화장실이 밤 일정으로 나온다
+ * (#584). 이름은 거르는 데만 쓰고 수정안에 담지 않는다 (DR-PR-001).
+ */
+function isConvenienceFacility(raw: Record<string, unknown>): boolean {
+  return typeof raw.title === 'string' && raw.title.includes('화장실');
 }
