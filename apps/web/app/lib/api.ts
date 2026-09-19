@@ -318,6 +318,8 @@ export interface RunListItem {
   executedAt: string;
   isPartial: boolean;
   readinessScore: number | null;
+  /** 지금 일정의 결과. 수정안을 되돌렸으면 가장 최근이 아니라 반영 전 실행이다 (#551) */
+  isCurrent?: boolean;
 }
 
 export interface AuditJob {

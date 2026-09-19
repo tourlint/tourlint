@@ -1,4 +1,5 @@
 import type { ExceptionReasonCode, ParseConfidence, ReasonCode, SettingSnapshot, Severity } from '@tourlint/shared';
+import { currentRunOf } from './current-run';
 import type { Pool } from 'pg';
 import type { FingerprintSnapshot } from '../engine/fingerprint/types';
 import type { Finding } from '../engine/rules/types';
@@ -194,18 +195,15 @@ export class AuditResultRepository {
   }
 
   /**
-   * 그 상품의 가장 최근 검수 실행 id.
+   * 그 상품의 지금 일정에 대응하는 검수 실행 id (#551). 반영 뒤 재검수 전이면 가장 최근 실행이다.
    *
-   * 패치 확정이 `before_audit_run_id` 로 붙잡는 값이다 (FR-PA-025 · 전후 비교의 좌측).
-   * 한 번도 검수하지 않은 상품이면 `null` 이고, 그때는 비교할 좌측이 없다.
+   * 패치 확정이 `before_audit_run_id` 로 붙잡는 값이다 (FR-PA-025 · 전후 비교의 좌측). 되돌린
+   * 뒤에는 반영 전 실행이 현재 결과라, 가장 최근 실행(되돌린 반영의 결과)을 붙잡으면 전후
+   * 비교의 좌측이 지금 일정과 다른 판정이 된다. 한 번도 검수하지 않은 상품이면 `null` 이다.
    */
-  async latestRunIdOf(productId: number): Promise<number | null> {
-    const { rows } = await this.pool.query<{ id: string }>(
-      `SELECT id FROM audit_run WHERE product_id = $1 ORDER BY id DESC LIMIT 1`,
-      [productId],
-    );
-    const row = rows[0];
-    return row === undefined ? null : Number(row.id);
+  async currentRunIdOf(productId: number): Promise<number | null> {
+    const current = await currentRunOf(this.pool, productId);
+    return current?.runId ?? current?.latestRunId ?? null;
   }
 
   /**

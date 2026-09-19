@@ -152,7 +152,7 @@ export const PATCHES: readonly Endpoint[] = [
     },
     responses: {
       202: {
-        description: '일정에 반영했고 재검수를 큐에 넣었다. `beforeAuditRunId` 는 반영 전 가장 최근 검수 실행이다',
+        description: '일정에 반영했고 재검수를 큐에 넣었다. `beforeAuditRunId` 는 반영 전 지금 일정의 검수 실행이다',
         example: { patchApplicationId: 13, beforeAuditRunId: 111, reauditJobId: 119, pollIntervalMs: 2000 },
       },
     },
@@ -246,7 +246,8 @@ export const PATCHES: readonly Endpoint[] = [
       '수정안을 반영하기 직전의 일정으로 되돌린다. **이 상품에서 가장 최근에 반영한 한 건만, 한 번만** 되돌릴 수 있다.',
       '',
       '- 반영 직전에 떠 둔 일정 스냅샷으로 일정 전체를 다시 쓴다(한 트랜잭션). 반영 뒤에 따로 고친 항목도 스냅샷대로 돌아간다.',
-      '- 재검수를 돌리지 않는다. 되돌린 일정은 반영 전 검수가 판정한 바로 그 일정이라 그 결과(`restoredAuditRunId`)를 현재 결과로 가리킨다 — 공사 호출이 없다.',
+      '- 재검수를 돌리지 않는다. 되돌린 일정은 반영 전 검수가 판정한 바로 그 일정이라 그 결과(`restoredAuditRunId`)가 현재 결과가 된다 — 공사 호출이 없다.',
+      '- 새로고침해도 그대로다. 검수 이력의 `isCurrent` · 상품 목록의 `latestAudit` · 출시 승인 · 리포트가 모두 반영 전 결과를 본다. 차단을 없앤 수정안을 되돌렸으면 출시할 수 없다.',
       '- 그보다 앞선 반영은 되돌릴 수 없다(409). 중간 반영을 건너뛰면 그때 고른 수정안이 소리 없이 사라지기 때문이다.',
     ].join('\n'),
     screen: '검수 결과 › 결과 배너 › 되돌리기 · 수정 전후 비교 › 되돌리기',
