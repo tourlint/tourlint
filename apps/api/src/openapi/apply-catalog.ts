@@ -1,5 +1,6 @@
 import type { OpenAPIObject } from '@nestjs/swagger';
 import { EXCEPTION_REASON_CODE, EXCEPTION_UNIT } from '@tourlint/shared';
+import { INPUT_INVALID_MESSAGE } from '../common/all-exceptions.filter';
 import { TAGS } from './tags';
 import type { Endpoint, ErrorDoc, HttpMethod, ParamDoc, ResponseDoc } from './types';
 
@@ -152,6 +153,15 @@ function responses(entry: Endpoint): Record<string, unknown> {
   for (const [status, doc] of Object.entries(entry.responses)) out[status] = successResponse(doc);
 
   const errors = [...(entry.errors ?? [])];
+  // 형식이 틀린 입력은 어디서나 400 INPUT_INVALID 다. 설명에 400 을 적은 엔드포인트에 예시를 붙인다
+  if (/\b400\b/.test(entry.description) && !errors.some((e) => e.reasonCode === 'INPUT_INVALID')) {
+    errors.push({
+      status: 400,
+      reasonCode: 'INPUT_INVALID',
+      when: '형식이 틀린 값 · 깨진 JSON — 무엇이 틀렸는지 `message` 에 적는다',
+      message: INPUT_INVALID_MESSAGE,
+    });
+  }
   // 로그인이 필요한 API 는 모두 401 을 낼 수 있다. 엔드포인트마다 적지 않는다
   if (entry.public !== true && !errors.some((e) => e.status === 401)) {
     errors.push({

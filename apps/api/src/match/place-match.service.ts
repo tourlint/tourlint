@@ -33,7 +33,7 @@ export class PlaceMatchService {
   async search(params: SearchParams): Promise<Record<string, unknown>> {
     const keyword = params.keyword.trim();
     if (keyword === '') {
-      throw new DomainException(HttpStatus.BAD_REQUEST, 'NOT_FOUND', '검색어를 입력해 주세요.', 'REQUEST');
+      throw new DomainException(HttpStatus.BAD_REQUEST, 'INPUT_INVALID', '검색어를 입력해 주세요.', 'REQUEST');
     }
     const page = await this.kto().searchKeyword({
       keyword,
@@ -63,7 +63,7 @@ export class PlaceMatchService {
   ): Promise<Record<string, unknown>> {
     const item = await this.requireItem(accountId, itemId);
     if (contentId.trim() === '') {
-      throw new DomainException(HttpStatus.BAD_REQUEST, 'NOT_FOUND', 'contentid 가 필요합니다.', 'ITEM');
+      throw new DomainException(HttpStatus.BAD_REQUEST, 'INPUT_INVALID', 'contentid 가 필요합니다.', 'ITEM');
     }
     const common = await this.kto().detailCommon(contentId);
     const contentTypeId = int(common.contenttypeid);

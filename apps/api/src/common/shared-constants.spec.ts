@@ -36,10 +36,10 @@ describe('@tourlint/shared 계약', () => {
     expect(new Set(REASON_CODE).size).toBe(15);
   });
 
-  it('예외 사유코드는 42종이며 CONTENT_NOT_FOUND 와 검수 기준 · 에이전트 코드를 포함한다 (예외처리 v1.5)', () => {
-    expect(EXCEPTION_REASON_CODE).toHaveLength(42);
-    expect(new Set(EXCEPTION_REASON_CODE).size).toBe(42);
-    for (const code of ['CONTENT_NOT_FOUND', 'SETTING_NOT_STRICTER', 'DISMISS_REASON_REQUIRED', 'RATE_LIMIT_EXCEEDED']) {
+  it('예외 사유코드는 43종이며 CONTENT_NOT_FOUND 와 검수 기준 · 에이전트 · 입력 형식 코드를 포함한다 (예외처리 v1.6)', () => {
+    expect(EXCEPTION_REASON_CODE).toHaveLength(43);
+    expect(new Set(EXCEPTION_REASON_CODE).size).toBe(43);
+    for (const code of ['CONTENT_NOT_FOUND', 'SETTING_NOT_STRICTER', 'DISMISS_REASON_REQUIRED', 'RATE_LIMIT_EXCEEDED', 'INPUT_INVALID']) {
       expect(EXCEPTION_REASON_CODE).toContain(code);
     }
   });
