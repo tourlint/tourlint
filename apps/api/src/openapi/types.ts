@@ -50,9 +50,8 @@ export interface BodyDoc {
 /**
  * 이 엔드포인트가 낼 수 있는 오류 하나. 응답 형식은 공통이다 (API 설계 3-2).
  *
- * **사유코드를 실어 던지는 오류만 적는다.** 사유코드 없이 던지는 입력 오류(`BadRequestException`)는
- * 공통 필터가 `INTERNAL_ERROR` 로 내보내 예시로 싣기에 맞지 않다 — 그런 것은 설명 본문에
- * 「입력이 틀리면 400」 으로 적는다.
+ * **엔드포인트마다 다른 오류만 적는다.** 형식이 틀린 입력은 어디서나 400 `INPUT_INVALID` 라
+ * 설명 본문에 「입력이 틀리면 400」 으로 적으면 `applyCatalog` 가 예시를 붙인다 (#612).
  */
 export interface ErrorDoc {
   readonly status: number;

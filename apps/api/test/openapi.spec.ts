@@ -121,6 +121,19 @@ describe('API 문서 (/docs)', () => {
     expect(prefilled).toEqual([]);
   });
 
+  it('🔴 설명에 400 을 적은 엔드포인트는 400 INPUT_INVALID 예시를 보인다 (#612)', () => {
+    type Examples = { content?: { 'application/json'?: { examples?: Record<string, unknown> } } };
+    const missing: string[] = [];
+    for (const [route, op] of operations()) {
+      const entry = CATALOG.find((e) => e.route === route);
+      if (entry === undefined || !/\b400\b/.test(entry.description)) continue;
+      const bad = (op.responses as Record<string, Examples>)['400'];
+      const keys = Object.keys(bad?.content?.['application/json']?.examples ?? {});
+      if (!keys.some((k) => k.startsWith('INPUT_INVALID'))) missing.push(route);
+    }
+    expect(missing).toEqual([]);
+  });
+
   it('🔴 일정 파일 업로드는 글자 칸이 아니라 파일 선택 칸으로 나온다', () => {
     type Media = { schema?: { properties?: Record<string, unknown> } };
     const op = document.paths['/api/v1/uploads/schedule']?.post as { requestBody?: { content?: Record<string, Media> } } | undefined;

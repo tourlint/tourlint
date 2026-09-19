@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.19</td>
+<td>API · 백엔드 설계 v2.20</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -146,7 +146,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 │       └── seed               데모 계정 · 시연 상품 시드 CLI (PM-TA-008)
 │
 ├── apps/web                   Next.js 16 + React 19
-└── packages/shared            사유코드 42종 · 등급 · 표준 시드(R10 63행 · 체류시간 · 실내외) · 기획 · 에이전트 응답 타입
+└── packages/shared            사유코드 43종 · 등급 · 표준 시드(R10 63행 · 체류시간 · 실내외) · 기획 · 에이전트 응답 타입
 ```
 <callout icon="⚖️" color="blue_bg">
 	**판정 엔진이 ****`audit`**** 밑이 아니라 ****`engine`**** 으로 분리돼 있습니다.**
@@ -227,7 +227,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>`reasonCode`</td>
-<td>사유 코드 42종 중 하나. **화면에 그대로 노출하지 않는다** (G-015 · EX-MS-002)</td>
+<td>사유 코드 43종 중 하나. **화면에 그대로 노출하지 않는다** (G-015 · EX-MS-002)</td>
 </tr>
 <tr>
 <td>`message`</td>
@@ -280,7 +280,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>400 Bad Request</td>
 <td>입력 형식 오류 · 상한 초과</td>
-<td>`UPLOAD_FORMAT_INVALID` `DAY_COUNT_MISMATCH` `UPLOAD_LIMIT_EXCEEDED` `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED`</td>
+<td>`UPLOAD_FORMAT_INVALID` `DAY_COUNT_MISMATCH` `UPLOAD_LIMIT_EXCEEDED` `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED` `INPUT_INVALID`(전용 코드가 없는 입력 형식 오류 · 깨진 JSON 본문)</td>
 </tr>
 <tr>
 <td>401 Unauthorized</td>
@@ -2354,7 +2354,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 </callout>
 ---
 # 9. 오류 코드 체계
-## 9-1. 사유 코드 42종과 HTTP 매핑
+## 9-1. 사유 코드 43종과 HTTP 매핑
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>코드</td>
@@ -2609,6 +2609,12 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <td>거부 + 재시도 유도. 검수 결과는 무영향</td>
 </tr>
 <tr>
+<td>`INPUT_INVALID`</td>
+<td>REQUEST</td>
+<td>400</td>
+<td>거부. 전용 코드가 없는 입력 형식 오류(허용 값 밖 · 빠진 필수 값 · 깨진 JSON 본문). 문구는 무엇이 틀렸는지 한국어로 — 파서 · 프레임워크의 영어 문구는 싣지 않는다</td>
+</tr>
+<tr>
 <td>`INTERNAL_ERROR`</td>
 <td>REQUEST</td>
 <td>500</td>
@@ -2618,7 +2624,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <callout icon="🔀" color="yellow_bg">
 	**`finding.reason_code`****에는 두 네임스페이스가 함께 기록됩니다.**
 	규칙 판정 사유코드 — **15종** (R01: `REST_DAY_CONFLICT` `OPEN_HOUR_CONFLICT` `ADMISSION_CUTOFF` `IN_BREAK_TIME` `REST_DAY_UNCERTAIN` · R02: `EVENT_ENDED` `EVENT_NOT_STARTED` · R03: `TIME_OVERLAP` · R04: `CONTENT_IMBALANCE` · R07: `MEAL_REST_MISSING` `MEAL_TIME_SHORT` · R08: `TRAVEL_TIME_SHORT` · R09: `RAIN_RISK` · R10: `TARGET_MISMATCH` · F07: `PRE_DEPARTURE_CHECK`) — 전체 정의는 예외처리 4장 「규칙 판정 사유코드 목록」(EX-CM-022)
-	예외 사유코드 — 위 42종
+	예외 사유코드 — 위 43종
 	정규화 결과의 `unparsed[].reason`은 접두어 없는 열거값(`MISSING` `TARGET_VARIES` …)이고, 로그와 finding에 기록하는 것이 `PARSE_*` 코드입니다. 둘을 혼동하지 않도록 상수 클래스를 분리합니다.
 </callout>
 ## 9-2. 재시도 정책
@@ -3002,4 +3008,5 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.17 (2026.09.19) — #584 · #589: 6-1 8단계. R10 은 야간 자리를 낮 자리보다 먼저 잡고, 낮 자리는 야간이 못 채운 결손 중분류만 맡는다. 야간이 결손 중분류부터 찾게 되어 운영 확인(`detailIntro2`) 상한을 3 → 4콜로 올렸다. 위치기반 상한(3콜)은 그대로이며 낮 자리 몫으로 한 콜을 남긴다.
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
+	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
 </callout>

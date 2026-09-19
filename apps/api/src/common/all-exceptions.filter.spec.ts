@@ -1,11 +1,11 @@
-import { HttpStatus, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpStatus, NotFoundException } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
 import { EXTERNAL_UNAVAILABLE_MESSAGE } from '@tourlint/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { KtoFetchError, KtoQuotaExceededError } from '../external/kto/kto.errors';
 import { RouteProviderError } from '../external/kakao/kakao.errors';
 import { ForecastProviderError } from '../external/kma/kma.errors';
-import { AllExceptionsFilter } from './all-exceptions.filter';
+import { AllExceptionsFilter, INPUT_INVALID_MESSAGE } from './all-exceptions.filter';
 import { DomainException, RateLimitException } from './domain.exception';
 
 /**
@@ -91,5 +91,25 @@ describe('그 밖의 예외', () => {
 
   it('Nest 표준 예외도 사유코드로 옮긴다', () => {
     expect(run(new NotFoundException()).body.reasonCode).toBe('NOT_FOUND');
+  });
+});
+
+describe('입력 형식 오류 (EX-CM-021 · #612)', () => {
+  it('🔴 사유코드 없이 던진 400 은 INPUT_INVALID 다 — 서버 오류로 적지 않는다', () => {
+    const { status, body } = run(new BadRequestException('kind 는 RISK 또는 OPPORTUNITY 여야 합니다.'));
+    expect(status).toBe(HttpStatus.BAD_REQUEST);
+    expect(body).toMatchObject({ reasonCode: 'INPUT_INVALID', message: 'kind 는 RISK 또는 OPPORTUNITY 여야 합니다.' });
+  });
+
+  it('🔴 깨진 JSON 본문은 파서의 영어 문구를 싣지 않는다', () => {
+    // 운영에서 그대로 나가던 문구다 (2026-09-20 `POST /auth/login` 에 깨진 본문)
+    const { status, body } = run(new BadRequestException('Expected double-quoted property name in JSON at position 27'));
+    expect(status).toBe(HttpStatus.BAD_REQUEST);
+    expect(body).toMatchObject({ reasonCode: 'INPUT_INVALID', message: INPUT_INVALID_MESSAGE });
+  });
+
+  it('사유코드를 실은 400 은 그 코드를 그대로 쓴다', () => {
+    const { body } = run(new DomainException(HttpStatus.BAD_REQUEST, 'DISMISS_REASON_REQUIRED', '무시하려면 사유를 입력해 주세요.', 'REQUEST'));
+    expect(body.reasonCode).toBe('DISMISS_REASON_REQUIRED');
   });
 });

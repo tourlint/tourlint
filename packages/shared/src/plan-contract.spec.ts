@@ -97,14 +97,14 @@ describe('공사 서비스와 호출 로그 제공자 (외부 연동 3-1 · 3-3)
 });
 
 describe('예외 사유코드 (EX-CM-020)', () => {
-  it('🔴 42종이 예외처리 요구사항 4장 표와 순서까지 같다', () => {
+  it('🔴 43종이 예외처리 요구사항 4장 표와 순서까지 같다', () => {
     const doc = readFileSync(join(ROOT, 'docs/notion/19_예외처리요구사항.md'), 'utf8');
     const start = doc.indexOf('## 4. 사유 코드 목록');
     const end = doc.indexOf('### 규칙 판정 사유코드 목록', start);
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     const codes = [...doc.slice(start, end).matchAll(/^<td>`([A-Z_]+)`<\/td>$/gm)].map((m) => m[1]);
-    expect(codes).toHaveLength(42);
+    expect(codes).toHaveLength(43);
     expect([...EXCEPTION_REASON_CODE]).toEqual(codes);
   });
 });

@@ -248,7 +248,7 @@ export class PlanService {
     await this.assertKorBudget();
     const lcls2 = query.lcls2;
     if (lcls2 === null) {
-      throw new DomainException(HttpStatus.BAD_REQUEST, 'INTERNAL_ERROR', '종류를 골라 주세요.', 'REQUEST');
+      throw new DomainException(HttpStatus.BAD_REQUEST, 'INPUT_INVALID', '종류를 골라 주세요.', 'REQUEST');
     }
     const region = await this.regionOf(query);
     const page = await this.cache.getOrLoad(`list:${regionKey(query)}:${lcls2}`, async () =>
@@ -370,7 +370,7 @@ export class PlanService {
   private async nearPlaces(query: PlacesQuery): Promise<PlacesResult> {
     const nearKind = query.nearKind;
     if (nearKind === null) {
-      throw new DomainException(HttpStatus.BAD_REQUEST, 'INTERNAL_ERROR', '종류를 골라 주세요.', 'REQUEST');
+      throw new DomainException(HttpStatus.BAD_REQUEST, 'INPUT_INVALID', '종류를 골라 주세요.', 'REQUEST');
     }
     // 앵커가 없으면 부르지 않는다 — 기준이 없으면 반경을 잡을 수 없다 (EX-PL-008)
     if (query.anchor === null) {

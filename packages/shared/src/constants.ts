@@ -77,7 +77,7 @@ export const REASON_CODE = [
 export type ReasonCode = (typeof REASON_CODE)[number];
 
 // ─────────────────────────────────────────────────────────────
-// 예외 사유코드 42종 — 문자열 하드코딩 금지 (EX-CM-020)
+// 예외 사유코드 43종 — 문자열 하드코딩 금지 (EX-CM-020)
 // 순서는 예외처리 요구사항 4장 표와 같다
 // ─────────────────────────────────────────────────────────────
 export const EXCEPTION_REASON_CODE = [
@@ -96,7 +96,7 @@ export const EXCEPTION_REASON_CODE = [
   'BATCH_EMPTY', 'BATCH_HIDDEN_OVERFLOW', 'BUDGET_THRESHOLD', 'BUDGET_EXHAUSTED',
   'RATE_LIMIT_EXCEEDED',
   'FORBIDDEN_ACTION', 'NOT_AUTHENTICATED', 'NOT_FOUND', 'REPORT_FAILED',
-  'SETTING_NOT_STRICTER', 'INTERNAL_ERROR',
+  'SETTING_NOT_STRICTER', 'INPUT_INVALID', 'INTERNAL_ERROR',
 ] as const;
 export type ExceptionReasonCode = (typeof EXCEPTION_REASON_CODE)[number];
 

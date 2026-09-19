@@ -52,7 +52,7 @@ export const MATCHING: readonly Endpoint[] = [
       },
     },
     errors: [
-      { status: 400, reasonCode: 'NOT_FOUND', when: '`keyword` 가 비어 있음', message: '검색어를 입력해 주세요.' },
+      { status: 400, reasonCode: 'INPUT_INVALID', when: '`keyword` 가 비어 있음', message: '검색어를 입력해 주세요.' },
       {
         status: 503,
         reasonCode: 'KTO_FETCH_FAILED',
@@ -112,7 +112,7 @@ export const MATCHING: readonly Endpoint[] = [
       },
     },
     errors: [
-      { status: 400, reasonCode: 'NOT_FOUND', when: '본문의 `contentid` 가 비어 있음', message: 'contentid 가 필요합니다.', unit: 'ITEM' },
+      { status: 400, reasonCode: 'INPUT_INVALID', when: '본문의 `contentid` 가 비어 있음', message: 'contentid 가 필요합니다.', unit: 'ITEM' },
       {
         status: 400,
         reasonCode: 'CONTENT_NOT_FOUND',
