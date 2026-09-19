@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.9</td>
+<td>API · 백엔드 설계 v2.17</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -377,8 +377,14 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>POST</td>
+<td>`/api/v1/auth/signup-code`</td>
+<td>공개 인증코드 요청. email → verificationId · expiresAt · resendAfterSeconds. 계정·세션 미생성. 발송 한도 초과 429 및 Retry-After, 발송 실패·미설정 503.</td>
+<td>FR-CM-001 · PM-AC-008 · EI-MA</td>
+</tr>
+<tr>
+<td>POST</td>
 <td>`/api/v1/auth/signup`</td>
-<td>회원가입. 이메일 중복 시 상세 사유를 알리지 않고 거부</td>
+<td>회원가입. email · password · verificationId · code 필수. 이메일에 연결된 미만료 인증코드를 확인하고 같은 트랜잭션에서 코드 소비·계정·기본 설정 생성. 중복은 상세 사유 없이 거부. 성공 시 기존 세션 쿠키 발급.</td>
 <td>FR-CM-001 · EX-SY-007</td>
 </tr>
 <tr>
@@ -753,7 +759,7 @@ R07 finding.message 예: "12:00 점심 60분은 회사 기준 90분보다 짧습
 </table>
 <callout icon="🗂" color="orange_bg">
 	**`reportId`**** 는 테이블 행이 아닙니다** (2026.08.29 · F11 구현)
-	DB 명세서 6-4 가 PDF 를 서버에 남기지 못하게 하고 `report` 테이블은 엔터티 17종에 없습니다. `POST` 가 렌더까지 끝내고 결과를 **프로세스 메모리에 5분** 들고 있으며 `reportId` 는 그 보관 키입니다. `GET .../download` 는 그것을 스트리밍하고, 수명이 지났거나 소유자가 아니면 404 입니다 (존재 여부 비노출).
+	DB 명세서 6-4 가 PDF 를 서버에 남기지 못하게 하고 `report` 테이블은 물리 테이블 20종에 없습니다. `POST` 가 렌더까지 끝내고 결과를 **프로세스 메모리에 5분** 들고 있으며 `reportId` 는 그 보관 키입니다. `GET .../download` 는 그것을 스트리밍하고, 수명이 지났거나 소유자가 아니면 404 입니다 (존재 여부 비노출).
 	두 단계를 합치지 않은 이유는 PM-DA-007 의 인수조건이 "리포트 다운로드 URL 을 로그아웃 상태에서 열면" 이라 열어 볼 URL 이 있어야 하기 때문입니다. 매번 재생성하지 않는 이유는 공사 재조회가 다운로드마다 나가기 때문입니다.
 	⚠️ 인스턴스를 늘리면 만든 곳과 받는 곳이 갈려 깨집니다. 다중화 시 이 절을 다시 봅니다.
 </callout>
@@ -951,8 +957,14 @@ GET /api/v1/rules             기존 응답에 규칙마다 추가
 </tr>
 <tr>
 <td>GET</td>
+<td>`/api/v1/plan/place-detail?contentId&contentTypeId`</td>
+<td>카드 「자세히」 — 그 콘텐츠의 이용시간 · 쉬는 날 · 요금 · 주차 · (축제는) 행사 기간. `detailIntro2` 1콜을 그때그때 실호출한다(**캐시 없음** — 펼칠 때마다). `place-facts`(4-2)와 같은 유형별 매핑을 쓰되 상품 · 항목이 아니라 contentId 로 부르므로 저장 전 카드에도 쓴다. 소개정보를 못 받으면 값은 `null`. 원문은 응답으로만 흐르고 저장하지 않는다. 무장애 · 반려동물은 목록 응답에 이미 있어 여기서 내지 않는다</td>
+<td>FR-PL-012 · 1콜 · 검수와 같은 게이트</td>
+</tr>
+<tr>
+<td>GET</td>
 <td>`/api/v1/contents/{contentId}?with=accessible,pet`</td>
-<td>기존 엔드포인트 확장. 카드 펼침 1콜 + 요청한 조건 축 각 1콜. `with` 에 다른 값이 오면 400 이고, 축이 막히거나 실패하면 그 축만 `null` 이다</td>
+<td>기존 엔드포인트 확장. 좌표 · 분류 · 유형(#517)과 요청한 조건 축(무장애 · 반려동물)을 낸다 — 축마다 1콜, `with` 에 다른 값이 오면 400, 축이 막히거나 실패하면 그 축만 `null`. 카드 「자세히」의 이용시간 · 쉬는 날 · 요금 · 주차는 핑거프린트 필드만 담는 이 응답이 아니라 `/plan/place-detail` 이 낸다</td>
 <td>FR-PL-012</td>
 </tr>
 <tr>
@@ -983,15 +995,18 @@ GET /api/v1/plan/briefing?regnCd=51&signguCd=150&startDate=2026-10-23&nights=1(&
 GET /api/v1/plan/places?regnCd&signguCd&lcls2=VE01&sort=near|together&anchor=128.89,37.79&anchorContentId=125769&wheelchair=1&pet=1&indoor=1&page=1
   → { "scope": { "kind": "SIGNGU" | "NEAR", "label": "강릉시 전체" | "고른 줄 반경 20km" }, "totalCount": 6, "items": PlanPlace[], "disabled": null, "notice": "..." }
     totalCount 는 거른 뒤 곳 수이고 items 는 한 쪽 20곳(page)이다. 목록은 칩과 같은 조건이라 필터를 걸지 않으면 칩 숫자와 맞는다
-    칩과 같은 조건(lclsSystm2 · 시군구)의 areaBasedList2 목록 1콜(numOfRows=100 · 10분 캐시) — 칩의 totalCount 와 같은 조회라 수가 맞는다. 정렬 · 필터는 그 위에서.
+    칩과 같은 조건(lclsSystm2 · 시군구)의 areaBasedList2를 100행씩 totalCount까지 페이지 조회한다. 전체 목록을 10분 메모리 캐시하고 중복 contentid를 제거한 뒤 정렬·필터를 적용한다. 추가 원본 페이지마다 예산을 확인한다. 중간 조회가 실패하면 일부를 전체로 반환하거나 캐시하지 않는다. 응답 totalCount는 필터 후 전체 수이며 page(1부터)에 따라 20곳씩 items로 반환한다.
     near 는 locationBasedList2(radius 20000) 1콜. together 는 searchKeyword1(앵커 이름 · 시군구 · 기준 연월) 1콜 · 연관 관광지 응답에 contentid 가 없어 이름 · 시군구 대조가 하나로 정해질 때만 순위 · 관광지 순위만 · 기준 연월 표기 · 기준은 넣을 위치 앞의 고른 항목(앵커). 앵커가 없으면 이 정렬은 비활성
 GET /api/v1/plan/places?scope=NEAR3KM&nearKind=MEAL|CAFE|STAY&anchor=128.89,37.79&page=1
   → { "scope": { "kind": "NEAR3KM", "label": "해변 K 근처 3km" }, "totalCount": 12, "items": PlanPlace[] }   거리순 · togetherRank 는 늘 null
-    locationBasedList2(mapX, mapY, radius=PLAN_NEAR_RADIUS_M, lclsSystm1=FD|AC, numOfRows=1000) 1콜을 PLAN_NEAR_KIND 로 거른다(식당 = FD 중 주점 FD04 · 카페 FD05 제외, 카페 = FD05, 숙소 = AC). 거른 개수가 칩 숫자다. 응답이 거리순으로 오지 않아 dist 로 정렬한다.
+    locationBasedList2(mapX, mapY, radius=PLAN_NEAR_RADIUS_M, lclsSystm1=FD|AC, numOfRows=1000) 목록을 totalCount까지 페이지 조회하고 중복을 제거한 후 PLAN_NEAR_KIND 로 거른다(식당 = FD 중 주점 FD04 · 카페 FD05 제외, 카페 = FD05, 숙소 = AC). 거른 개수가 칩 숫자다. 응답이 거리순으로 오지 않아 dist 로 정렬한다.
     앵커가 없거나 앞 항목이 직접 정한 곳이면 부르지 않고 { "disabled": "ANCHOR_REQUIRED" }
 GET /api/v1/plan/events?regnCd&signguCd&startDate&nights   → { "window": { "from", "to" }, "items": PlanEvent[] }
 GET /api/v1/plan/walks?regnCd&signguCd                     → { "items": PlanWalk[], "notice": "넣으면 직접 정한 곳으로 들어가요" }
     두루누비 courseList 1콜(지역 조건 없음 · 전국 코스 · 10분 캐시)을 코스의 시군구 글자(sigun)로 거른다. 코스에 좌표가 없어 앵커가 되지 않는다
+GET /api/v1/plan/place-detail?contentId=125790&contentTypeId=12
+  → { "contentId", "hours", "restDays", "fee", "parking", "eventPeriod" }   값은 공사 원문 · 응답으로만 · 저장 없음
+    detailIntro2 1콜을 캐시 없이 실호출한다(펼칠 때마다). place-facts 와 같은 유형별 필드 매핑(INTRO_FIELDS · 요금 · 주차)을 contentId 로 쓴다. 소개정보를 못 받으면 모든 값 null
     거르는 기준은 법정동 목록에서 찾은 시군구 이름이고, 세종처럼 시군구 단계가 없는 곳만 시도 약칭으로 본다
 GET /api/v1/contents/{contentId}?contentTypeId=12&with=accessible,pet   기존 응답 + "accessible": {...} | null, "pet": {...} | null
     요청한 축만 detailWithTour2 · detailPetTour2 로 1콜씩 부르고(10분 캐시) 값에서 contentid 는 뺀다. with 가 없으면 콜 수도 응답도 그대로다
@@ -1745,7 +1760,8 @@ POST /products/{id}/audit-jobs
    │    weight_snapshot · setting_snapshot 기록          │
    ├────────────────────────────────────────────────────┤
    │ 8) 수정안 생성  ← 판정 이후 별도 단계                │
-   │    locationBasedList2 약 3콜 (대체 관광지)           │
+   │    locationBasedList2 약 3콜 (대체 · 추가 관광지)    │
+   │    R10 야간 자리만 detailIntro2 최대 4콜 (운영 확인) │
    ├────────────────────────────────────────────────────┤
    │ 9) 저장                                             │
    │    audit_run + finding + content_fingerprint        │
@@ -2239,7 +2255,7 @@ public interface AuditRule {
         │
 [4단계] 영향 상품 탐색 (6조건) → notification 생성
         동일 contentid + 동일 변경 지문 쌍은 재노출하지 않음
-        출발일이 지난 상품(출발일+1일 이후)은 알림 미생성
+        한국 날짜 기준 여행 종료일(출발일+박수)이 지난 상품은 알림 미생성
         │
 [성공]  last_covered 갱신 · batch_state 기록
 [실패]  last_covered 미갱신 → 다음 회차가 누락 구간 자동 재조회
@@ -2293,7 +2309,10 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
       소진율 분모 = system_setting.daily_quota (전역 1행 · 계정별 예산 없음)
       소진율 분자 = 당일 quota_date의 전역 api_call_log(provider=KTO) 합산
   KTO_PET · KTO_WITH · KTO_RELATED · KTO_DURUNUBI · KTO_VISITOR (새 서비스 5종)
-      소진율 분모 = 각각 상수 EXTRA_PROVIDER_DAILY_CAP (개발계정 1,000 의 80% = 800)
+      소진율 분모 = extraServiceDailyCap(service, 오늘) — 각 한도의 80%
+        무장애 · 반려동물 · 연관 관광지  8,000  (트래픽 증설 10,000 · 2026.09.17 ~ 10.16)
+        두루누비 · 방문자수              800   (개발계정 1,000 그대로)
+        증설 종료일 다음 날부터 다섯 다 800 으로 돌아간다
       소진율 분자 = 당일 그 provider 합산
   서비스마다 BudgetGuard 인스턴스를 두고, 게이트는 부르려는 서비스의 예산을 본다
   → 새 서비스 호출이 국문 800건 예산을 잠식하지 않는다
@@ -2939,9 +2958,11 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v1.8 (2026.08.24) — 구현 실측 대조. ① 백엔드를 Spring Boot 3 → **NestJS 10 + TypeScript** 로 정정. 아키텍처 다이어그램과 기술 스택 표가 실제와 달랐고, 기획서는 기능설명서의 원본이라 그대로 두면 제출 서류와 구동 코드가 어긋난다. 선택 근거(상시 구동 · 공용 상수 단일 출처 · eslint 로 강제하는 결정론성)도 함께 적었다 ② LLM 허용 용도를 셋 → **둘**로 정정 — finding 설명문 생성은 결정론성 때문에 쓰지 않기로 확정했고 구현의 `LlmPurpose` 도 `STRUCTURE` · `NORMALIZE` 둘뿐이다 ③ 배치를 Spring Scheduler → Node 프로세스 내 스케줄러, 배포를 Railway 로 구체화.
 	v1.9 (2026.08.29) — F11 리포트 구현에서 확정. ① `reportId` 가 가리킬 행이 없다는 것을 4-7 콜아웃으로 명시 — DB 명세서 6-4 가 PDF 를 남기지 못하게 하고 `report` 테이블은 엔터티 18종에 없다. `POST` 가 렌더까지 끝내고 프로세스 메모리에 5분 들고, `GET .../download` 가 그것을 흘려보낸다 ② **가장 최근 검수 실행만** 리포트 대상이며 아니면 409 `REPORT_FAILED` — `audit_run` 에 일정 스냅샷이 없어 과거 실행으로 만들면 그때 판정과 지금 일정이 섞인다 ③ 5-12 리포트 호출 수를 8 → **콘텐츠 수 × 2** 로 정정(픽스처 실측). `detailIntro2` 에 `title` 이 없고 `detailCommon2` 에 판정 필드가 없어 둘 다 필요하다. 하루 예상 호출량 40 → 56콜 ④ 머리표 버전이 v1.5 인데 개정 이력은 v1.8 까지 있어 v1.9 로 맞췄다.
 	v2.0 (2026.08.30) — F13 · F14 레이더 구현에서 확정. ① **T1 · T2 를 배치가 미리 산출**하고 조회는 읽기만 한다 — 요청 시 조회하면 화면을 열 때마다 예산이 나간다. `demand_signal` 신설(DB 명세서 v1.9) ② `radar/signals` 에 **`productId`**** 를 필수**로 했다 — T2 조회 창이 그 상품의 여행일에서 나오므로 상품 없이는 어느 기간의 행사를 세야 하는지 정할 수 없다 ③ `radar/changes` 의 판독 결과 변화는 `content_fingerprint.normalized_json` 전후 비교이며 재검수가 돌아 지문이 두 번 이상 쌓인 콘텐츠에만 있다. 없으면 `hasReadableDiff: false` 로 그 사실을 말한다 ④ 알림 응답에 `dismissable` 을 넣었다 — 비표출 전환 알림은 무시할 수 없는데(FR-MO-037 · PM-NG-010) 눌러 보고 403 을 받는 것은 화면이 규정을 모른다는 뜻이다 ⑤ 알림 응답에 관광지명을 담지 않는다. 화면이 `ktoContentId` 로 자기 일정의 `placeLabel` 을 붙인다(FR-MO-002).
+	v2.10 (2026.09.17) — 8-2 새 서비스 예산 분모를 서비스별로 나눴다. 트래픽 증설로 무장애 · 반려동물 · 연관 관광지 3종의 한도가 1일 10,000건이 되어 분모가 8,000 이 되고, 두루누비 · 방문자수는 800 그대로다 — 종전에는 다섯이 한 상수(800)를 썼다. **증설이 30일 기간제(2026.09.17 ~ 10.16)라 분모가 날짜를 본다** (`extraServiceDailyCap`) — 종료일 다음 날부터 다섯 다 800 으로 돌아간다. 예산 게이트 경계와 엔드포인트는 변경 없다. 외부 연동 요구사항 v1.13 · DB 명세서와 동시 개정. 이슈 #508.
 	v2.9 (2026.09.17) — 13 에서 결정이 끝난 두 줄을 더 뺐다. ① 인증 방식 상세 — 세션 저장소는 DB (`db/schema.sql` `session` 테이블 · `expires_at`), 만료는 7일(`session-cookie.ts` `SESSION_TTL_MS`)로 정해져 있다 ② 카카오모빌리티 키 재발급 — **하지 않기로 했다.** 저장소에 노출 이력이 없다 — 588커밋 전체를 `KakaoAK [0-9a-f]{32}` 와 `KAKAO_REST_API_KEY=` 값 패턴으로 훑어 0건이고, `KakaoAK` 가 든 커밋 4건은 어댑터 코드와 문서의 자리표시자다(이슈 #8 이 같은 결론). 외부 연동 요구사항 7 의 같은 문구도 함께 뺐다(v1.12). 13 은 4행이 됐다. 이슈 #461.
 	v2.8 (2026.09.17) — 13 에서 끝난 두 줄을 뺐다. LLM 제공자·모델은 Anthropic 으로 정하고 키를 받아 정답셋 조각 13종으로 확인했고(외부 연동 v1.7 · 2026.09.10), 기상청 예보 API 는 활용신청 뒤 단기 · 중기 실호출을 봤다(2026.08.26 · `test/live-kma.smoke.spec.ts`). 둘 다 검수 파이프라인에 붙어 있고 `/health` 가 키를 ok 로 본다. 이 표는 「미결·확인 필요 항목」이라 완료 표시를 남기지 않고 행을 뺀다 — 같은 사실은 외부 연동 요구사항 7 이 v1.10 에서 상태로 적었다. 이슈 #458.
 	v2.7 (2026.09.17) — 13 카카오모빌리티 키 행에서 「배포 도메인 등록」을 뺐다. REST API 키에는 도메인을 등록하는 항목이 없다 — 사유는 외부 연동 요구사항 v1.11 과 같다. 「문서에 노출된 키 재발급 권장」은 남겼다. 이슈 #456.
+	v2.7 (2026.09.18) — 4-10 에 `GET /plan/place-detail?contentId&contentTypeId` 을 신설했다(이슈 #529). 카드 「자세히」(FR-PL-012)가 이용시간 · 쉬는 날 · 요금 · 주차를 보이려면 `detailIntro2` 가 필요한데, 종전에 이 자리를 가리키던 `/contents/{contentId}?with=` 은 핑거프린트 필드(restdate · usetime)만 `ktoRaw` 로 낼 뿐 요금 · 주차가 없고, 이를 넣으려면 콘텐츠 핑거프린트 경로(NF-MT-001)를 건드려야 한다. 그래서 `place-facts`(4-2)와 같은 유형별 매핑을 contentId 로 쓰는 조회를 따로 뒀다 — 저장 전 카드에도 쓰고, **캐시 없이** 펼칠 때마다 실호출하며 예산은 검수와 같은 게이트다. `/contents/{contentId}?with=` 행은 좌표 · 분류 · 무장애 · 반려동물 축으로 뜻을 좁혔다. 계약 추가만 있고 기존 응답은 그대로다.
 	v2.6 (2026.09.17) — 5-6 예시의 날짜와 요일이 어긋난 것을 고쳤다(이슈 #433). 「10월 13일(월)」로 적혀 있었는데 **2026-10-13 은 화요일**이다(`dates.spec.ts` 가 `TUE` 로 못 박는다). 오죽헌은 문화시설이라 「매주 월요일 휴관」이 예시로 자연스러우므로 요일을 바꾸지 않고 날짜를 실제 월요일인 **2026-10-12** 로 옮겼다. `TIME_SHIFT` 패치 라벨도 1일차 10-12 기준 2일차인 10월 13일로 맞췄다. 같은 예시가 DB 명세서 3-x 에도 있어 함께 고쳤다. 계약 변경은 없다.
 	v2.5 (2026.09.17) — 5-6 finding 목록의 페이징 봉투를 뺐다. 예시가 `page` · `size` · `totalPages` 를 약속했는데 `toFindingsResponse` 는 `content` 와 `totalElements` 만 돌려주고, 이 목록을 페이징해 달라는 화면 요구사항은 한 줄도 없다. 한 검수의 finding 은 항목 수 × 규칙 수로 묶여 있어 나눌 이유가 없다. 3장 페이지네이션 규약에 5-6 · 5-7 이 예외라는 것을 병기했다. 상품 목록(5-2)은 종전대로 페이징한다. 엔드포인트와 나머지 필드는 변경 없다 — 이슈 #35 에 「코드가 문서와 다른 네 곳」으로 적혀 있던 것은 v2.3 과 이슈 #355 에서 이미 맞췄고 남은 차이는 이 봉투 하나였다.
 	v2.4 (2026.09.15) — 설정 탭 개편안(검수 기준)과 기획 · 검수 · 레이더 개편안 v7.1 반영. 명세 사본 개정 계획 1-6 의 행과 개발 분담 계획 3-3 의 계약을 옮겼다. ① 4-10 기획(F17) · 4-11 에이전트(F18) 절 신설 — `plan/briefing` · `plan/places`(시군구 · 근처 3km) · `plan/events` · `plan/walks` · `place-facts`, `place-suggestions` · `check-questions` · `radar/today`. 기획 조회는 규칙엔진을 부르지 않고 `audit_run` 을 만들지 않으며, 에이전트는 읽기 도구만 쓰고 결과를 저장 · 로깅하지 않는다 ② 4-2 `POST /products/{id}/handoff`(검수 시작 · `excludePending` · 422 `PLACE_UNRESOLVED` 와 `pendingCount`)와 `plannedAt` · `planOrigin`, 4-3 항목 추가 본문 확장(`afterItemId` · `content` · `excluded` · `origin` · 시각 자동 채움), 4-4 `matchedBy` · `with=accessible,pet`, 5-3 확정 시점을 장소를 입력하는 순간으로 ③ 검수 기준 — 설정 10종을 표준 5 · 회사 기준 2 · 관심 2 · 운영 3 으로 나누고, `GET · PUT /settings` 를 표준 요약 · 회사 기준(엄격하게만, 400 `SETTING_NOT_STRICTER`) · 관심 키워드 · 관심 지역으로 바꾸고 표 3종 엔드포인트를 뺐다. 배치 시각 · 예산 · 배치 자동 실행은 운영자 전용이다. 무시 사유 필수(400 `DISMISS_REASON_REQUIRED`), `settingSnapshot`(5-5), 규칙 설명 필드(5-10) ④ 레이더 — `nextBatchAt` · `t1.keywordHits` · `region-signals`(T3 포함) · `region-signals/refresh` ⑤ 3-4 호출 빈도 제한 2행, 5-12 기획 화면 · 에이전트 조달 행과 호출량, 7-2 서비스별 transport · 픽스처 규칙, 8-2 의도 `PLAN`(경계는 검수와 같은 100%) · provider 별 예산(국문 `daily_quota`, 새 서비스 4종은 각 800) ⑥ 9-1 사유코드 38 → 41종 — 새 코드 2개와 함께, 예외처리 v1.3 에서 신설됐는데 이 표에 빠져 있던 `CONTENT_NOT_FOUND` 를 넣었다(코드는 이미 39종이었다) ⑦ 정합 — 2-2 패키지 구조를 실제 모듈로 현행화(`mock` 삭제 · `plan` · `agent` 신설), 1장 ② · 7-5 LLM 사용을 다섯 가지로(EI-LM-001, 표에 남아 있던 「finding 설명 문장 생성」 삭제), 「지금 재검수」 → 「다시 검수」, 호출량 표시를 계정 메뉴의 오늘 사용량으로, 기능 요구사항의 FR-OP-020~027 교체로 뜻이 바뀐 인용 정리(lcls-codes 의 FR-OP-023 제거 · 운영자 전용 문단에 PM-FN-008), 6-1 · 4-7 에 `setting_snapshot` 기록과 리포트 머리글, 10-1 테스트 계정 행(배치 3값은 모든 계정 변경 불가, PM-TA-006), 5-2 · 5-12 화면 이름 「대시보드」 → 「홈 · 내 상품」, 12 추적표에 FR-OP-020~026 · FR-PL · FR-AG 행. 연쇄 개정: 13 기능 · 14 화면 · 15 권한 · 16 데이터 · 18 외부 연동 · 19 예외처리 · 20 DB 명세서와 동시 개정. 통합 점검 — `handoff` 를 검수 요청과 같은 202 로(3-3) 하고 예산 거절 시 기획 중 유지를 적었다. 상품 목록의 중복 필드(`latestBlockerCount` · `unreadNotificationCount`)는 기존 `latestAudit.counts.blocker` · `unreadNotifications` 로 대신하고, 시군구 코드 예시를 공사 형식(3자리)으로, TodayItem.region 에 `regnCd` 를 더했다. 5-10 R03 `basis` 를 코드와 같은 `ITINERARY_ONLY` 로, 6-4 · 7-5 의 temperature 0 을 지웠다(EI-LM-002 v1.7 연쇄 누락). 4-6 확인 체크 문구 "확인했어요", 12 추적표 FR-MO-017 "다시 검수". 결정 반영(2026.09.15) — ① 걷기 길은 `excluded{walkId}` 로 넣고 코스 이름을 보내지도 저장하지도 않는다(4-3 · 4-10 · 5-12 이름 조회 콜아웃). ② 에이전트 오류 응답 — 실행 전 거절만 429(`BUDGET_EXHAUSTED` · 신설 `RATE_LIMIT_EXCEEDED`)이고, 실행 뒤 실패 · 시간 초과 · 예산 소진은 200 + `incomplete` 로 끝난 항목만 돌려준다. `RATE_LIMIT_EXCEEDED` 는 3-4 빈도 제한에도 쓴다(3-3 · 3-4 · 4-11 · 9-1, 사유 코드 42종). 반려동물 동반여행정보는 국문 관광정보와 다른 서비스(`KorPetTourService2`)라 provider `KTO_PET` 으로 따로 센다(4-8 · 7-2 · 8-2, 새 서비스 5종). 새 서비스 실호출 확인(2026.09.15) — 4-10 `together` 는 기준 관광지 이름으로 찾는 `searchKeyword1`, 근처 3km 는 응답이 거리순이 아니라 `dist` 로 정렬, 걷기 길은 두루누비 전국 목록을 시군구 글자로 거르고 좌표가 없다(4-10 표 · 5-12 이름 조회 콜아웃). 7-2 에 새 서비스 베이스 URL 과 서비스를 붙인 오퍼레이션 이름. 어댑터 구현(2026.09.15) — 7-2 에 파라미터 오류(10 · 11 · 12) 재시도 안 함 · 두루누비의 봉투 없는 오류 응답 · 픽스처 파일명 접미 규칙을 더했다. 레이더 키워드 일치 구현(2026.09.15) — 4-8 에 `keywordHits` 의 `contentIds: null`(배치가 아직 안 본 키워드)과 빈 배열의 차이, T1 건수를 키워드로 거르지 않는다는 것, 배치가 꺼져 있으면 `nextBatchAt` 이 `null` 이라는 것을 더했다. 관심 지역 신호 구현(2026.09.15) — 4-8 `region-signals` 의 `region` 모양 · `t1` · `t2` 의 `keywordHits` · `t1` 은 가장 최근 창 · T3 합산 방식, `refresh` 의 403(배치가 켜져 있을 때) · 방문자수 예산만 막힐 때 `t3` null · 이미 센 창을 다시 부르지 않는 것을 더했다. 에이전트 공통 틀 구현(2026.09.15) — 3-4 에이전트 분당 5회와 동시 실행 거절에 `Retry-After` 를 붙이지 않는 것, 7-5 에 `tool_choice: auto` · `submit_result` · 상한에 닿으면 답을 한 번 청하는 것 · `LLM_MODEL_AGENT` 를 더했다.
@@ -2951,4 +2972,26 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 </callout>
 <callout icon="©️" color="gray_bg">
 	출처: ⓒ한국관광공사
+</callout>
+## 2026.09.18 가입 인증 API
+- `POST /api/v1/auth/signup-code` (공개): `{email}` → 200 `{verificationId, expiresAt, resendAfterSeconds:60}`. 계정 존재 여부와 무관하게 같은 형식으로 인증메일을 발송하며 계정·세션을 만들지 않는다. 코드 원문은 응답·로그에 없다.
+- `POST /api/v1/auth/signup` (공개): `{email,password,verificationId,code}` → 201 기존 AccountView + 세션 쿠키. 코드 불일치·만료·소비·5회 초과는 400 단일 인증 오류. 잘못된 코드의 시도 횟수는 트랜잭션 커밋 후 오류를 반환한다.
+- 재전송 60초·이메일당 시간당 5회·서비스 전체 분당 10회·UTC 일일 100회 제한은 DB에 저장하며 429 및 Retry-After 반환. 발송 실패·미설정은 503이며 가입 인증을 우회하지 않는다.
+- Google Apps Script 웹 앱을 HTTPS로 호출하고, 소유자의 Gmail 계정으로 고정된 인증메일만 발송한다. 환경변수는 `AUTH_MAIL_SCRIPT_URL`(`/exec` 배포 URL) · `AUTH_MAIL_SECRET`(64자리 난수 hex). 동일한 비밀값을 Apps Script의 스크립트 속성에 보관한다. 요청 본문은 HMAC-SHA256 서명·120초 유효시간·인증 요청 ID로 검증한다. 스크립트는 잠금과 처리 이력으로 재전송 공격을 차단하고 Google 잔여 수신자 한도를 확인한다. 브라우저에는 비밀값과 스크립트 주소를 주지 않는다. `/health`는 설정 형식만 검사하며 실제 메일 수신을 보증하지 않는다. 기존 계정 로그인 계약은 그대로다.
+<callout color="gray_bg">
+	v2.11 (2026.09.18) — 사용자 요청 #539에 따라 신규 가입 이메일 인증을 필수화. FR-CM-001 · UI-S0-002 · PM-AC-008 · DB · API 연쇄 개정. 기존 계정 및 심사용 계정 로그인 유지.
+</callout>
+<callout color="gray_bg">
+	v2.12 (2026.09.18) — 추가 도메인 비용 없이 운영하려는 사용자 요청에 따라 Resend를 Gmail · Google Apps Script 발송으로 교체. 신규 가입 검증 정책은 유지한다.
+</callout>
+<callout icon="📝" color="gray_bg">
+	v2.13 (2026.09.18) — 인증코드 요청을 4-1 전체 엔드포인트 목록에도 추가하고 DB 물리 테이블 수 참조를 20종으로 맞춤. EI-MA 외부 연동 계약과 DB v2.9 연쇄 정리.
+</callout>
+### 현재 알림의 여행 기간 범위 (#559)
+`notifications` 목록·totalElements·unreadCount, `radar/summary` 모든 알림 건수, `radar/changes` 목록·totalElements는 소유 계정 범위 안에서 `start_date + nights >= 한국 오늘 날짜`인 상품만 포함한다. `includeDismissed`는 무시 여부만 해제하며 종료된 상품을 되살리지 않는다. 저장된 알림의 읽음·무시와 상품 상세·수동 검수는 기존 권한을 유지한다. 상품 삭제 시 관련 알림은 기존 외래키 연쇄 삭제를 따른다.
+<callout color="gray_bg">
+	v2.14 (2026.09.18) — #559: 한국 날짜의 여행 종료일 기준으로 홈·기획·검수·레이더·알림 배지 표시를 통일. 진행 중인 1박 2일은 유지하고 종료된 상품의 기록은 보존한다. 기능·화면·API 명세 연쇄 개정.
+	v2.15 (2026.09.19) — 4-10 장소 목록: 원본 첫 페이지 제한 제거, 전체 조회 후 필터·정렬·20곳 페이징 명시. UI v2.8과 연쇄 개정 (#564).
+	v2.16 (2026.09.19) — #579: 6-1 8단계. 추가 수정안(R09 · R10)도 같은 위치기반 상한을 쓰며 R10 은 결손 중분류(`lclsSystm1` · `lclsSystm2`)로 좁혀 부른다. R10 야간 자리는 후보의 그 시각 운영을 R01 로 확인하려고 `detailIntro2` 를 최대 3콜 더 쓴다 — 위치기반 상한과 따로 센다. 기능 요구사항 v2.10 과 연쇄 개정.
+	v2.17 (2026.09.19) — #584 · #589: 6-1 8단계. R10 은 야간 자리를 낮 자리보다 먼저 잡고, 낮 자리는 야간이 못 채운 결손 중분류만 맡는다. 야간이 결손 중분류부터 찾게 되어 운영 확인(`detailIntro2`) 상한을 3 → 4콜로 올렸다. 위치기반 상한(3콜)은 그대로이며 낮 자리 몫으로 한 콜을 남긴다.
 </callout>
