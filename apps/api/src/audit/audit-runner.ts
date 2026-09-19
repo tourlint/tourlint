@@ -204,10 +204,11 @@ interface FetchFailure {
  * 야간 자리 후보의 운영시간 확인 횟수 (소개정보 조회).
  *
  * `maxReplacementCalls` 는 위치기반 목록의 상한이고 이것은 그와 따로 센다. 가까운 순으로
- * 셋까지만 물어본다 — 셋 다 밤에 안 열면 야간 수정안은 내지 않는다. 강릉 시내 실호출에서
- * 가장 가까운 카페가 18:00 에 닫았고 둘째가 20:00 까지였다.
+ * 넷까지만 물어본다 — 넷 다 밤에 안 열면 야간 수정안은 내지 않는다. 강릉 시내 실호출에서
+ * 가장 가까운 카페가 18:00 에 닫았고 둘째가 20:00 까지였다. 야간 자리가 결손 중분류부터
+ * 찾으면서(#589) 운영시간을 못 읽는 공예체험장에 한 번을 먼저 쓰게 되어 셋에서 넷으로 올렸다.
  */
-const MAX_OPEN_CHECKS = 3;
+const MAX_OPEN_CHECKS = 4;
 
 export class AuditRunner {
   private readonly kto: KtoClient;
@@ -568,21 +569,31 @@ export class AuditRunner {
      * R10 은 자리가 둘일 수 있다 — 결손 중분류를 채울 낮 자리와, 야간 결손을 채울 19:00 이후
      * 자리다. 서로 다른 결손이라 한쪽만 고쳐서는 문장이 안 없어진다 (#579).
      */
-    const day = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor);
-    const hasNight = planNightInsertion(finding, ctx.items, new Set()) !== null;
+    /*
+     * **야간 자리가 먼저다** (#589). 야간 자리는 그 시각에 여는 곳만 받으므로 들어갈 수 있는
+     * 중분류가 좁다. 낮 자리가 결손을 먼저 가져가면 카페가 18:00 에 들어가고 「19:00 이후
+     * 없음」 이 남는다. 야간이 채운 중분류는 낮 자리에서 빼고, 남은 결손만 낮 자리가 맡는다.
+     */
+    const dayPossible = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor) !== null;
+    const nightPossible = planNightInsertion(finding, ctx.items, new Set()) !== null;
 
     const patches: Patch[] = [];
     const exclude = new Set(ctx.items.map((i) => i.content?.ktoContentId ?? ''));
-    /** 낮 자리가 실제로 채운 중분류. 야간 자리는 이것을 뺀 결손부터 찾는다 (#584) */
+    /** 앞선 자리가 실제로 채운 중분류. 뒤 자리는 이것을 뺀 결손만 찾는다 */
     const covered = new Set<string>();
     let spent = 0;
 
-    for (const slotKind of ['day', 'night'] as const) {
-      // 야간 요청은 낮 자리 결과를 보고 만든다. 무엇이 아직 비었는지는 그때 정해진다
-      const request = slotKind === 'day' ? day : planNightInsertion(finding, ctx.items, covered);
+    for (const slotKind of ['night', 'day'] as const) {
+      // 뒤 자리의 요청은 앞 자리 결과를 보고 만든다. 무엇이 아직 비었는지는 그때 정해진다
+      const request = slotKind === 'night'
+        ? planNightInsertion(finding, ctx.items, covered)
+        : planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor, undefined, covered);
       if (request === null) continue;
       const room = MAX_PATCHES_PER_FINDING - startIndex - patches.length;
-      if (room <= 0 || spent >= listBudget) break;
+      // 야간이 목록 조회를 다 쓰면 낮 자리가 굶는다. 낮 자리가 있으면 한 콜을 남긴다
+      const reserve = slotKind === 'night' && dayPossible ? 1 : 0;
+      const listCalls = listBudget - spent - reserve;
+      if (room <= 0 || listCalls <= 0) continue;
 
       const date = ctx.items.find((i) => i.dayNo === request.slot.dayNo)?.date;
       const found = await proposeInsertions(request.anchor, request.slot, {
@@ -590,9 +601,9 @@ export class AuditRunner {
         wantLcls2: request.wantLcls2,
         dwellOf: (lcls2) => (lcls2 === null ? undefined : this.settings.dwellMinutes[lcls2])
           ?? SETTING_DEFAULTS.dwellFallbackMinutes,
-        maxListCalls: listBudget - spent,
-        // 낮 자리가 둘을 다 차지하면 야간 자리가 설 곳이 없다. 자리마다 나눠 쓴다
-        limit: Math.min(room, day !== null && hasNight ? 1 : 2),
+        maxListCalls: listCalls,
+        // 한 자리가 둘을 다 차지하면 다른 자리가 설 곳이 없다. 자리마다 나눠 쓴다
+        limit: Math.min(room, dayPossible && nightPossible ? 1 : 2),
         ...(request.verifyOpen && date !== undefined
           ? {
               maxVerifications: MAX_OPEN_CHECKS,
@@ -606,7 +617,7 @@ export class AuditRunner {
 
       spent += found.listCalls;
       patches.push(...found.patches);
-      // 낮 자리에 넣자고 한 곳을 야간 자리에 또 내놓지 않는다
+      // 앞 자리에 넣자고 한 곳을 뒤 자리에 또 내놓지 않는다
       for (const p of found.patches) {
         const content = (p.payload as { content?: { ktoContentId: string; lclsSystm2: string | null } }).content;
         if (content === undefined) continue;
