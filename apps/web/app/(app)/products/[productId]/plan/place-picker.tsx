@@ -5,7 +5,7 @@
 // 필터 · 넣을 위치를 눌러도 일정은 안 바뀐다 — [일정에 넣기]로만 바뀐다. 점수 · 추천 · 인기
 // 표현은 쓰지 않는다.
 
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import {
   isApiError,
   itemApi,
@@ -18,6 +18,7 @@ import {
   type ProductDetail,
 } from "../../../../lib/api";
 import { isInserted, pickerReducer, pickerStateWith, type NearKind } from "./picker-state";
+import { LCLS_SYSTM2 } from "@tourlint/shared";
 import { PlaceResults } from "../../place-results";
 import { PlaceDetailView } from "../../place-detail-view";
 
@@ -33,14 +34,22 @@ const RELATION_LABEL: Record<PlanEvent["relation"], string> = {
   AFTER: "여행 뒤에 열려요",
 };
 
-export function PlacePicker({ product, onInserted, openType = null }: { product: ProductDetail; onInserted: () => Promise<void>; openType?: string | null }) {
-  // "자주 넣는 곳" 칩에서 넘어오면 그 종류를 골라 둔 채로 연다 (UI-S2-030)
-  const [state, dispatch] = useReducer(pickerReducer, openType, pickerStateWith);
-  const [briefing, setBriefing] = useState<PlanBriefing | null>(null);
-  const [day, setDay] = useState(1);
-  const [err, setErr] = useState<string | null>(null);
+export interface PickerContext {
+  initialDay?: number;
+  initialAnchorId?: number | null;
+  initialNearKind?: NearKind | null;
+  suggestedTypes?: string[];
+  openType?: string | null;
+}
 
-  const confirmedItems = product.days.flatMap((d) => d.items).filter((it) => it.matchStatus === "CONFIRMED" && it.mapx !== null && it.mapy !== null);
+export function PlacePicker({ product, onInserted, openType = null, initialDay = 1, initialAnchorId = null, initialNearKind = null, suggestedTypes = [], onBusyChange, showExtras = true }: { product: ProductDetail; onInserted: () => Promise<void>; onBusyChange?: (busy: boolean) => void; showExtras?: boolean } & PickerContext) {
+  const [state, dispatch] = useReducer(pickerReducer, { ...pickerStateWith(openType), anchorItemId: initialAnchorId, nearKind: initialNearKind });
+  const [briefing, setBriefing] = useState<PlanBriefing | null>(null);
+  const [day, setDay] = useState(initialDay);
+  const [err, setErr] = useState<string | null>(null);
+  const [inserting, setInserting] = useState(false);
+  const insertLock = useRef(false);
+  const confirmedItems = product.days.filter(d => d.day === day).flatMap(d => d.items).filter(it => it.matchStatus === "CONFIRMED" && it.mapx !== null && it.mapy !== null);
   const anchor = confirmedItems.find((it) => it.itemId === state.anchorItemId) ?? null;
 
   useEffect(() => {
@@ -68,6 +77,10 @@ export function PlacePicker({ product, onInserted, openType = null }: { product:
   };
 
   async function insert(p: PlanPlace, itemType: string) {
+    if (insertLock.current) return;
+    insertLock.current = true;
+    setInserting(true);
+    onBusyChange?.(true);
     setErr(null);
     try {
       await itemApi.addPicked(product.productId, {
@@ -81,20 +94,29 @@ export function PlacePicker({ product, onInserted, openType = null }: { product:
       await onInserted();
     } catch (e) {
       setErr(isApiError(e) ? e.message : "일정에 넣지 못했어요.");
+    } finally {
+      insertLock.current = false;
+      setInserting(false);
+      onBusyChange?.(false);
     }
   }
 
   const lclsChips = (briefing?.types ?? []).filter((t) => t.kind === "LCLS2");
+  for (const code of suggestedTypes) {
+    if (LCLS_SYSTM2[code] && !lclsChips.some(t => t.lcls2 === code)) {
+      lclsChips.push({ kind: "LCLS2", lcls2: code, name: LCLS_SYSTM2[code].name, count: null, nearKind: null, disabled: null });
+    }
+  }
   const nearItemType = state.nearKind !== null ? (NEAR_KINDS.find((n) => n.kind === state.nearKind)?.itemType ?? "SIGHT") : "SIGHT";
   const paused = briefing?.budget === "PAUSED";
 
   return (
-    <section className="mt-8 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+    <fieldset disabled={inserting} className="mt-8 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">장소 담기</h2>
         <label className="text-xs text-slate-500 dark:text-slate-400">
           넣을 일차{" "}
-          <select value={day} onChange={(e) => setDay(Number(e.target.value))} className="rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900">
+          <select value={day} onChange={(e) => { setDay(Number(e.target.value)); dispatch({ type: "SET_ANCHOR", anchorItemId: null }); }} className="rounded-md border border-slate-300 px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900">
             {Array.from({ length: product.dayCount }, (_, i) => i + 1).map((d) => (
               <option key={d} value={d}>{d}일차</option>
             ))}
@@ -178,18 +200,18 @@ export function PlacePicker({ product, onInserted, openType = null }: { product:
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
           <PlaceResults query={placeQuery}>
             {(p) => (
-                <PlaceCard key={p.contentId} place={p} expanded={state.expandedId === p.contentId} inserted={isInserted(state, p.contentId)}
+                <PlaceCard key={p.contentId} place={p} expanded={state.expandedId === p.contentId} inserted={isInserted(state, p.contentId) || product.days.some(d => d.items.some(it => it.ktoContentId === p.contentId))}
                   onToggle={() => dispatch({ type: "TOGGLE_EXPAND", contentId: p.contentId })} onInsert={() => void insert(p, nearItemType)} />
             )}
           </PlaceResults>
         </div>
       )}
 
-      <EventsSection product={product} onChanged={onInserted} />
-      <WalksSection product={product} day={day} onInserted={onInserted} />
+      {showExtras && <><EventsSection product={product} onChanged={onInserted} />
+      <WalksSection product={product} day={day} onInserted={onInserted} /></>}
 
       <p className="mt-4 text-xs text-slate-400">출처: ⓒ한국관광공사 · 사진 변경금지</p>
-    </section>
+    </fieldset>
   );
 }
 

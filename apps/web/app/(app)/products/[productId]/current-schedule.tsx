@@ -37,7 +37,7 @@ export function CurrentSchedule({ product, finding, patch, expanded, onToggle }:
     {expanded && <div id="current-schedule-content">
       <p className="current-schedule-hint" role="status">{finding
         ? `${ruleName(finding.ruleCode)} · ${ids.length === 0 ? "상품 전체를 함께 살펴보세요." : matched === 0 ? "현재 일정에서 대상 항목을 찾을 수 없어요." : `관련 일정 ${matched}곳 강조`}`
-        : "문제 카드의 ‘일정에서 확인’을 누르면 관련 장소를 강조해 드려요."}</p>
+        : "문제 카드의 버튼이나 수정안을 선택하면 관련 장소를 강조해 드려요."}</p>
       <div ref={scrollArea} className="current-schedule-scroll" tabIndex={0} role="region" aria-label="일차별 현재 일정">
         {!product ? <p className="p-4 text-sm">현재 일정을 불러오지 못했어요.</p> : count === 0 ? <p className="p-4 text-sm">저장된 일정이 없어요.</p> : days.map(day => <section key={day.day} aria-label={`${day.day}일차`} className="current-schedule-day">
           <h4>{day.day}일차 <span>{day.items.length}개 일정</span></h4>
