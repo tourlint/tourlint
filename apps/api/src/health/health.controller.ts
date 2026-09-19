@@ -1,5 +1,4 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { Client } from 'pg';
 import { Public } from '../auth/public.decorator';
 import { signupMailConfig } from '../auth/signup-email.sender';
@@ -49,7 +48,6 @@ export function buildCommit(env: NodeJS.ProcessEnv = process.env): string | null
 
 type Check = 'ok' | 'missing' | 'unknown';
 
-@ApiTags('실엔진')
 @Controller('health')
 export class HealthController {
   @Public()

@@ -1,5 +1,4 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { readBriefingQuery, readPlaceDetailQuery, readPlacesQuery, readRegionQuery, type RawBriefingQuery, type RawPlaceDetailQuery, type RawPlacesQuery } from './plan.dto';
 import { PlanService } from './plan.service';
 
@@ -9,7 +8,6 @@ import { PlanService } from './plan.service';
  * 조회만 한다 — 상품 · 항목을 바꾸는 것은 기존 API 다. 응답에 판정 · 등급 · 규칙 번호가 없다
  * (FR-PL-021).
  */
-@ApiTags('실엔진')
 @Controller('api/v1/plan')
 export class PlanController {
   constructor(private readonly service: PlanService) {}

@@ -1,5 +1,4 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../auth/public.decorator';
 
 /**
@@ -17,7 +16,6 @@ import { Public } from '../auth/public.decorator';
  * `/health` 와 같이 **인증 없이 연다.** 서버가 살아 있는지 확인하는 경로에 로그인을
  * 요구하면 확인하려던 것을 확인하지 못한다.
  */
-@ApiTags('실엔진')
 @Controller()
 export class RootController {
   @Public()
