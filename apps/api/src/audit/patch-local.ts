@@ -1,4 +1,4 @@
-import { PATCH_TIME_STEP_MINUTES, SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
+import { PATCH_TIME_STEP_MINUTES, RULE_CONSTANTS, SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
 import { addDays, parseIsoDate } from '../engine/calendar/dates';
 import type { HolidayCalendar } from '../engine/calendar/holidays';
 import { evaluateClosed } from '../engine/rules/r01-operating';
@@ -424,8 +424,15 @@ export interface InsertionRequest {
   /** 조회 중심이 될 항목. 그 근처에서 찾는다 */
   readonly anchor: AuditItem;
   readonly slot: { dayNo: number; afterItemId: number | null; startTime: string; endTime: string };
-  /** 이 중분류 중 하나여야 한다. 비면 안 따진다 */
+  /** 이 중분류 중 하나여야 한다. 비면 안 따진다. **앞에 적힌 것부터** 찾는다 */
   readonly wantLcls2: readonly string[];
+  /**
+   * 그 시각에 여는 것이 확인된 곳만 넣는다 (야간 자리).
+   *
+   * 낮 자리는 재검수의 R01 에 맡기지만 19:00 이후는 닫은 곳이 더 많다. 확인 없이 넣으면
+   * 주의를 고치는 수정안이 차단을 만든다.
+   */
+  readonly verifyOpen: boolean;
 }
 
 export function planInsertion(
@@ -438,18 +445,12 @@ export function planInsertion(
   if (scope === null || scope.candidates.length === 0) return null;
 
   // 가장 넉넉한 구간에 넣는다. 좁은 데 억지로 끼우면 뒤가 밀린다
+  const need = dwellMinutes + MIN_TRANSFER_MINUTES * 2;
   let best: { after: AuditItem; gap: number } | null = null;
-  for (const day of [...new Set(scope.candidates.map((i) => i.dayNo))]) {
-    const sameDay = scope.candidates
-      .filter((i) => i.dayNo === day && i.endTime !== null && i.itemType !== 'LODGING')
-      .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
-    for (let i = 0; i < sameDay.length - 1; i++) {
-      const a = sameDay[i] as AuditItem;
-      const b = sameDay[i + 1] as AuditItem;
-      const gap = toMinutes(b.startTime) - toMinutes(a.endTime as string);
-      if (gap >= dwellMinutes + MIN_TRANSFER_MINUTES * 2 && (best === null || gap > best.gap)) {
-        best = { after: a, gap };
-      }
+  // 일차 순서를 고정한다. 같은 폭이면 앞선 날이 이긴다 (NF-MT-001)
+  for (const day of [...new Set(scope.candidates.map((i) => i.dayNo))].sort((a, b) => a - b)) {
+    for (const { after, gap } of gapsOf(scope.candidates.filter((i) => i.dayNo === day))) {
+      if (gap >= need && (best === null || gap > best.gap)) best = { after, gap };
     }
   }
   if (best === null) return null;
@@ -459,7 +460,104 @@ export function planInsertion(
     anchor: best.after,
     slot: { dayNo: best.after.dayNo, afterItemId: best.after.id, startTime: start, endTime: addMinutes(start, dwellMinutes) },
     wantLcls2: scope.wantLcls2,
+    verifyOpen: false,
   };
+}
+
+/**
+ * 하루의 빈 구간들. 항목 사이와 **마지막 일정 뒤**를 본다.
+ *
+ * 사이만 보면 촘촘한 일정은 자리가 하나도 안 나온다 — 실제로 사이 공백이 30 ~ 60분뿐인
+ * 2박 3일 상품이 R10 수정안 없이 떴다 (#579). 마지막 일정 뒤는 그 뒤의 숙박 입실까지,
+ * 숙박이 없으면 하루의 끝(`DAY_ENDS_AT`)까지다. `placeIn` 이 R01 날짜 변경에서 쓰는
+ * 것과 같은 경계다.
+ *
+ * 첫 일정 앞은 보지 않는다. 출발지에서 오는 시간이 거기 들어 있고 우리는 그걸 모른다.
+ */
+function gapsOf(dayItems: readonly AuditItem[]): readonly { after: AuditItem; gap: number }[] {
+  const timed = dayItems
+    .filter((i) => i.endTime !== null && i.itemType !== 'LODGING')
+    .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+
+  const out: { after: AuditItem; gap: number }[] = [];
+  for (let i = 0; i < timed.length - 1; i++) {
+    const a = timed[i] as AuditItem;
+    const b = timed[i + 1] as AuditItem;
+    out.push({ after: a, gap: toMinutes(b.startTime) - toMinutes(a.endTime as string) });
+  }
+
+  const last = timed[timed.length - 1];
+  if (last !== undefined) {
+    const lastEnd = toMinutes(last.endTime as string);
+    const checkIn = dayItems
+      .filter((i) => i.itemType === 'LODGING' && toMinutes(i.startTime) >= lastEnd)
+      .map((i) => toMinutes(i.startTime))
+      .sort((a, b) => a - b)[0];
+    out.push({ after: last, gap: (checkIn ?? toMinutes(DAY_ENDS_AT)) - lastEnd });
+  }
+  return out;
+}
+
+/**
+ * R10 야간 결손 — `R10_NIGHT_SLOT_FROM` 이후에 넣을 자리 (FR-RU-101 · 103).
+ *
+ * 결손 문장의 「19:00 이후 일정」은 중분류 결손과 **다른 결손**이다. 낮 자리에 공예체험을
+ * 넣어도 이쪽은 안 풀린다. 그래서 자리를 따로 잡는다.
+ *
+ * **숙박하는 날을 먼저 본다.** 입실 뒤 저녁이 비는 날이고, 숙소 근처에서 찾으면 밤에 멀리
+ * 가지 않는다. 마지막 날은 돌아가는 날이라 다른 날이 전부 안 될 때만 쓴다.
+ *
+ * 무엇을 넣을지는 기대 중분류 전체에서 고른다. 낮 자리가 결손 중분류를 이미 채우면
+ * (`missingFirst=false`) 나머지 기대 유형부터 찾는다 — 같은 곳을 두 번 제안하지 않는다.
+ */
+export function planNightInsertion(
+  finding: Finding,
+  items: readonly AuditItem[],
+  missingFirst: boolean,
+  dwellMinutes: number = SETTING_DEFAULTS.dwellFallbackMinutes,
+): InsertionRequest | null {
+  if (finding.ruleCode !== 'R10') return null;
+  const { expectsNight, hasNight, expectedLcls2, missingLcls2 } = finding.evidence;
+  if (expectsNight !== true || hasNight !== false) return null;
+  // 기대 유형을 모르면 무엇을 넣을지도 모른다 (FR-RU-051)
+  if (!Array.isArray(expectedLcls2) || expectedLcls2.length === 0) return null;
+
+  const expected = expectedLcls2.map(String);
+  const missing = Array.isArray(missingLcls2) ? missingLcls2.map(String) : [];
+  const rest = expected.filter((code) => !missing.includes(code));
+  const wantLcls2 = missingFirst ? [...missing, ...rest] : [...rest, ...missing];
+
+  const days = [...new Set(items.map((i) => i.dayNo))].sort((a, b) => a - b);
+  const stays = (day: number): boolean => items.some((i) => i.dayNo === day && i.itemType === 'LODGING');
+  const ordered = [...days.filter(stays), ...days.filter((d) => !stays(d))];
+
+  const nightFrom = toMinutes(RULE_CONSTANTS.R10_NIGHT_SLOT_FROM);
+  for (const day of ordered) {
+    const sameDay = items
+      .filter((i) => i.dayNo === day)
+      .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+    const lastEnd = Math.max(0, ...sameDay.map((i) => toMinutes(i.endTime ?? i.startTime)));
+    // 앞 일정이 19:00 을 넘겨 끝나면 그 뒤로 여유를 두고 시작한다
+    const start = Math.max(nightFrom, lastEnd + MIN_TRANSFER_MINUTES);
+    if (start + dwellMinutes > toMinutes(DAY_ENDS_AT)) continue;
+
+    // 숙소 근처에서 찾는다. 좌표가 없으면 그 날 마지막으로 좌표가 있는 항목
+    const located = sameDay.filter((i) => i.mapX !== null && i.mapY !== null);
+    const anchor = located.find((i) => i.itemType === 'LODGING') ?? located[located.length - 1];
+    const after = sameDay[sameDay.length - 1];
+    if (anchor === undefined || after === undefined) continue;
+
+    return {
+      anchor,
+      slot: {
+        dayNo: day, afterItemId: after.id,
+        startTime: fromMinutes(start), endTime: fromMinutes(start + dwellMinutes),
+      },
+      wantLcls2,
+      verifyOpen: true,
+    };
+  }
+  return null;
 }
 
 /** 어느 항목들 사이에 넣을 것이고 무엇으로 채울 것인가 */
@@ -476,6 +574,12 @@ function insertionScope(
   }
 
   if (finding.ruleCode === 'R09') {
+    /*
+     * 비가 온다고 판정한 날만이다. 예보를 못 받아 확인 불가로 남은 날에 실내 관광지를 넣자고
+     * 하면 판정하지 않은 것을 고치라는 말이 된다 (FR-RU-051). 마지막 일정 뒤를 자리로 보기
+     * 시작하면서 드러났다 — 그전에는 사이 공백이 없어 우연히 안 나왔다.
+     */
+    if (finding.reasonCode !== 'RAIN_RISK') return null;
     const date = String(finding.evidence.date ?? '');
     if (date === '') return null;
     // 실내로 분류된 중분류만 채운다. 표에 없는 것은 실내라고 말할 수 없다

@@ -197,8 +197,12 @@ export function applyPatches(
            * 뜻으로도 이쪽이 맞다. 여기 들어오는 것은 식사·휴식처럼 공사에 물어볼 것이
            * 없는 시간대라 매칭을 기다리는 게 아니라 매칭 대상이 아니다. R05 도
            * `EXCLUDED` 는 확인 불가로 세지 않는다.
+           *
+           * **넣을 관광지가 정해진 삽입(R09 · R10)은 `CONFIRMED` 다.** contentid 를 든 채
+           * `EXCLUDED` 면 `ck_item_match_content` 에 걸려 확정이 통째로 실패한다. 규칙도
+           * 매칭된 항목만 세므로(`confirmedItems`) 그래야 R10 결손이 재검수에서 풀린다.
            */
-          matchStatus: 'EXCLUDED',
+          matchStatus: p.content === undefined ? 'EXCLUDED' : 'CONFIRMED',
         };
         working.push(inserted);
         break;

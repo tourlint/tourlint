@@ -1,0 +1,37 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "3537206",
+            "contenttypeid": "39",
+            "seat": "",
+            "kidsfacility": "0",
+            "firstmenu": "",
+            "treatmenu": "불짬뽕빵",
+            "smoking": "",
+            "packing": "",
+            "infocenterfood": "",
+            "scalefood": "",
+            "parkingfood": "있음",
+            "opendatefood": "",
+            "opentimefood": "12:00~20:00",
+            "restdatefood": "연중무휴",
+            "discountinfofood": "",
+            "chkcreditcardfood": "",
+            "reservationfood": "",
+            "lcnsno": "20190404946"
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}
