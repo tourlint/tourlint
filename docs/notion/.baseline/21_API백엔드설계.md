@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.17</td>
+<td>API · 백엔드 설계 v2.21</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -146,7 +146,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 │       └── seed               데모 계정 · 시연 상품 시드 CLI (PM-TA-008)
 │
 ├── apps/web                   Next.js 16 + React 19
-└── packages/shared            사유코드 42종 · 등급 · 표준 시드(R10 63행 · 체류시간 · 실내외) · 기획 · 에이전트 응답 타입
+└── packages/shared            사유코드 43종 · 등급 · 표준 시드(R10 63행 · 체류시간 · 실내외) · 기획 · 에이전트 응답 타입
 ```
 <callout icon="⚖️" color="blue_bg">
 	**판정 엔진이 ****`audit`**** 밑이 아니라 ****`engine`**** 으로 분리돼 있습니다.**
@@ -227,7 +227,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>`reasonCode`</td>
-<td>사유 코드 42종 중 하나. **화면에 그대로 노출하지 않는다** (G-015 · EX-MS-002)</td>
+<td>사유 코드 43종 중 하나. **화면에 그대로 노출하지 않는다** (G-015 · EX-MS-002)</td>
 </tr>
 <tr>
 <td>`message`</td>
@@ -280,7 +280,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>400 Bad Request</td>
 <td>입력 형식 오류 · 상한 초과</td>
-<td>`UPLOAD_FORMAT_INVALID` `DAY_COUNT_MISMATCH` `UPLOAD_LIMIT_EXCEEDED` `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED`</td>
+<td>`UPLOAD_FORMAT_INVALID` `DAY_COUNT_MISMATCH` `UPLOAD_LIMIT_EXCEEDED` `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED` `INPUT_INVALID`(전용 코드가 없는 입력 형식 오류 · 깨진 JSON 본문)</td>
 </tr>
 <tr>
 <td>401 Unauthorized</td>
@@ -459,7 +459,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr color="red_bg">
 <td>POST</td>
 <td>`/api/v1/products/{productId}/release`</td>
-<td>**출시 승인. 최신 검수의 차단이 1건 이상이면 403 ****`FORBIDDEN_ACTION`****으로 거부**</td>
+<td>**출시 승인. 지금 일정의 검수 결과(아래 「현재 결과」)에 차단이 1건 이상이면 403 ****`FORBIDDEN_ACTION`****으로 거부.** 수정안 반영 뒤 재검수 전이거나, 되돌린 일정은 깨끗해도 가장 최근 실행(트리거 기준)에 차단이 있으면 다시 검수하도록 403</td>
 <td>PM-NG-002 · EX-AU-008 · DR-IN-007</td>
 </tr>
 </table>
@@ -671,7 +671,7 @@ POST /api/v1/items/{itemId}/match     기존 본문에 "matchedBy": "USER" | "AG
 <tr>
 <td>GET</td>
 <td>`/api/v1/products/{productId}/audit-runs`</td>
-<td>검수 실행 이력 목록 (전후 비교 선택용)</td>
+<td>검수 실행 이력 목록 (전후 비교 선택용). 실행마다 `isCurrent` — 지금 일정의 결과이면 true. 결과 화면은 이 실행부터 연다</td>
 <td>FR-PA-045</td>
 </tr>
 </table>
@@ -747,7 +747,7 @@ R07 finding.message 예: "12:00 점심 60분은 회사 기준 90분보다 짧습
 <tr>
 <td>POST</td>
 <td>`/api/v1/audit-runs/{runId}/reports`</td>
-<td>PDF 리포트 생성 (서버 사이드 렌더링). 201 + `reportId`. **가장 최근 검수 실행만** 대상이며 아니면 409 `REPORT_FAILED`. 머리글에 적용 기준(`settingSnapshot` 의 표준 버전 · 회사 기준)과 무시 항목 · 사유를 찍는다</td>
+<td>PDF 리포트 생성 (서버 사이드 렌더링). 201 + `reportId`. **지금 일정의 검수 실행만**(보통 가장 최근 실행, 되돌렸으면 반영 전 실행) 대상이며 아니면 409 `REPORT_FAILED`. 머리글에 적용 기준(`settingSnapshot` 의 표준 버전 · 회사 기준)과 무시 항목 · 사유를 찍는다</td>
 <td>FR-PA-060·064·066</td>
 </tr>
 <tr>
@@ -764,8 +764,8 @@ R07 finding.message 예: "12:00 점심 60분은 회사 기준 90분보다 짧습
 	⚠️ 인스턴스를 늘리면 만든 곳과 받는 곳이 갈려 깨집니다. 다중화 시 이 절을 다시 봅니다.
 </callout>
 <callout icon="📄" color="gray_bg">
-	**가장 최근 검수 실행만 리포트로 만듭니다** (2026.08.29 · F11 구현)
-	`audit_run` 에는 일정 스냅샷이 없어 일정표(FR-PA-061 ③)와 검수 제외 항목 건수(FR-PA-064)는 조회 시점의 `itinerary_item` 을 읽어야 나옵니다. 과거 실행으로 리포트를 만들면 **그때의 판정과 지금의 일정**이 한 문서에 섞입니다.
+	**지금 일정의 검수 실행만 리포트로 만듭니다** (2026.08.29 · F11 구현, 2026.09.20 #551 보강)
+	`audit_run` 에는 일정 스냅샷이 없어 일정표(FR-PA-061 ③)와 검수 제외 항목 건수(FR-PA-064)는 조회 시점의 `itinerary_item` 을 읽어야 나옵니다. 과거 실행으로 리포트를 만들면 **그때의 판정과 지금의 일정**이 한 문서에 섞입니다. 수정안을 되돌리면 가장 최근 실행(반영 후)이 오히려 지금 일정과 다르므로, 기준은 가장 최근 실행이 아니라 아래 「현재 결과」입니다.
 	거절은 409 `REPORT_FAILED` 이며 다시 검수한 뒤 내려받도록 안내합니다. 사유코드 42종에 "최신이 아님" 이 없어 재시도 유도가 붙은 리포트 생성 거절(EX-AU-011)로 묶었습니다.
 </callout>
 ## 4-8. 수요·변경 레이더 (F12 ~ F14)
@@ -1494,6 +1494,11 @@ POST /api/v1/radar/today
 { "patchApplicationId": 44, "productId": 31,
   "revertedAt": "2026-09-15T15:02:44+09:00", "restoredAuditRunId": 812 }
 	```
+	**현재 결과** (#551 · 2026.09.20). 되돌리기가 새 실행을 만들지 않으므로 「가장 최근 실행」과 「지금 일정의 결과」가 갈라집니다. 서버는 상품마다 다음 규칙으로 현재 결과를 정하고, 출시 승인 · 리포트 생성 · 상품 목록의 `latestAudit` · 검수 이력의 `isCurrent` 가 모두 이 값을 씁니다.
+	- 가장 최근 실행 뒤에 되돌리기가 있으면 → 그 반영의 `before_audit_run_id`
+	- 가장 최근 실행 뒤에 확정만 있으면(재검수 전 · 실패) → 현재 결과 없음. 출시 승인은 403, `latestAudit.releasable` 은 false
+	- 그 밖에는 → 가장 최근 실행
+	가장 최근 실행만 보던 때는 차단을 없앤 수정안을 확정 · 재검수한 뒤 되돌린 일정이 출시 승인을 통과했습니다(2026-09-11 감사 치명 1번). 트리거 `trg_check_release` 는 가장 최근 실행 기준 그대로 마지막 방어선으로 둡니다. 스키마 변경은 없습니다.
 	`after_audit_run_id`가 비어 있는 이력은 자동 재검수가 아직 안 끝났거나 실패한 상태입니다 (EX-PA-004). 이때는 **사용자가 다시 누른 검수**가 그 자리를 채웁니다 — 확정이 부른 검수만 붙이도록 좁히면 한 번 실패한 이력은 영영 전후 비교를 못 합니다. 되돌린 이력은 대상에서 제외합니다. 그 "적용 후 일정"이 더는 존재하지 않기 때문입니다.
 </callout>
 ## 5-10. 규칙 목록
@@ -2242,8 +2247,9 @@ public interface AuditRule {
         numOfRows = 1000
         showflag 미지정 → 표출 · 비표출 모두 수신
         │
-        ├─ 조회 0건 (평일)  → BATCH_EMPTY · last_covered 미갱신
+        ├─ 조회 0건 (어제 · 평일) → BATCH_EMPTY · last_covered 미갱신
         │                     공사 동기화 지연 신호로 간주
+        │                     주말 · 이틀 지난 평일의 0건은 변경 없는 날로 보고 넘어간다
         ├─ 비표출 페이지 상한(20) 초과 → BATCH_HIDDEN_OVERFLOW
         │                     배치 중단 후 등록 상품 contentid 개별 확인으로 전환
         └─ 예산 소진율 80% 도달 → 중단하고 다음 회차로 이월
@@ -2256,6 +2262,11 @@ public interface AuditRule {
 [4단계] 영향 상품 탐색 (6조건) → notification 생성
         동일 contentid + 동일 변경 지문 쌍은 재노출하지 않음
         한국 날짜 기준 여행 종료일(출발일+박수)이 지난 상품은 알림 미생성
+        같은 시군구 = 시도 코드 + 시군구 코드 일치 (시군구 3자리는 시도마다 다시 쓴다)
+        기회(4 ~ 6) — 이번 배치가 본 첫 날짜 뒤에 등록된 표출 콘텐츠만
+                      R10 결손 유형은 지금 일정의 검수 실행에서, 무시한 R10 은 제외
+                      배치 한 번에 상품당 3건까지 (조건 4 먼저 · 같은 조건은 contentid 순)
+                      같은 콘텐츠는 한 상품에 한 번만 (change_key NEW:{createdtime})
         │
 [성공]  last_covered 갱신 · batch_state 기록
 [실패]  last_covered 미갱신 → 다음 회차가 누락 구간 자동 재조회
@@ -2348,7 +2359,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 </callout>
 ---
 # 9. 오류 코드 체계
-## 9-1. 사유 코드 42종과 HTTP 매핑
+## 9-1. 사유 코드 43종과 HTTP 매핑
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>코드</td>
@@ -2603,6 +2614,12 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <td>거부 + 재시도 유도. 검수 결과는 무영향</td>
 </tr>
 <tr>
+<td>`INPUT_INVALID`</td>
+<td>REQUEST</td>
+<td>400</td>
+<td>거부. 전용 코드가 없는 입력 형식 오류(허용 값 밖 · 빠진 필수 값 · 깨진 JSON 본문). 문구는 무엇이 틀렸는지 한국어로 — 파서 · 프레임워크의 영어 문구는 싣지 않는다</td>
+</tr>
+<tr>
 <td>`INTERNAL_ERROR`</td>
 <td>REQUEST</td>
 <td>500</td>
@@ -2612,7 +2629,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <callout icon="🔀" color="yellow_bg">
 	**`finding.reason_code`****에는 두 네임스페이스가 함께 기록됩니다.**
 	규칙 판정 사유코드 — **15종** (R01: `REST_DAY_CONFLICT` `OPEN_HOUR_CONFLICT` `ADMISSION_CUTOFF` `IN_BREAK_TIME` `REST_DAY_UNCERTAIN` · R02: `EVENT_ENDED` `EVENT_NOT_STARTED` · R03: `TIME_OVERLAP` · R04: `CONTENT_IMBALANCE` · R07: `MEAL_REST_MISSING` `MEAL_TIME_SHORT` · R08: `TRAVEL_TIME_SHORT` · R09: `RAIN_RISK` · R10: `TARGET_MISMATCH` · F07: `PRE_DEPARTURE_CHECK`) — 전체 정의는 예외처리 4장 「규칙 판정 사유코드 목록」(EX-CM-022)
-	예외 사유코드 — 위 42종
+	예외 사유코드 — 위 43종
 	정규화 결과의 `unparsed[].reason`은 접두어 없는 열거값(`MISSING` `TARGET_VARIES` …)이고, 로그와 finding에 기록하는 것이 `PARSE_*` 코드입니다. 둘을 혼동하지 않도록 상수 클래스를 분리합니다.
 </callout>
 ## 9-2. 재시도 정책
@@ -2994,4 +3011,8 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.15 (2026.09.19) — 4-10 장소 목록: 원본 첫 페이지 제한 제거, 전체 조회 후 필터·정렬·20곳 페이징 명시. UI v2.8과 연쇄 개정 (#564).
 	v2.16 (2026.09.19) — #579: 6-1 8단계. 추가 수정안(R09 · R10)도 같은 위치기반 상한을 쓰며 R10 은 결손 중분류(`lclsSystm1` · `lclsSystm2`)로 좁혀 부른다. R10 야간 자리는 후보의 그 시각 운영을 R01 로 확인하려고 `detailIntro2` 를 최대 3콜 더 쓴다 — 위치기반 상한과 따로 센다. 기능 요구사항 v2.10 과 연쇄 개정.
 	v2.17 (2026.09.19) — #584 · #589: 6-1 8단계. R10 은 야간 자리를 낮 자리보다 먼저 잡고, 낮 자리는 야간이 못 채운 결손 중분류만 맡는다. 야간이 결손 중분류부터 찾게 되어 운영 확인(`detailIntro2`) 상한을 3 → 4콜로 올렸다. 위치기반 상한(3콜)은 그대로이며 낮 자리 몫으로 한 콜을 남긴다.
+	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
+	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
+	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.21 (2026.09.20) — #616: 8-1 4단계. 기회 알림(조건 4 ~ 6)을 배치에 연결했다 — 판정 함수가 있었는데 아무도 부르지 않아 새 소식이 늘 0건이었다. 새로 등록된 곳만 보고, 배치 한 번에 상품당 3건까지(결손 유형 먼저), 같은 곳은 한 번만 권한다. 조건 2 · 4 ~ 6 의 같은 시군구 비교에 시도 코드를 더했다(춘천 51-110 과 종로 11-110 이 같은 곳으로 걸렸다). 기능 요구사항 v2.12 와 연쇄 개정.
 </callout>
