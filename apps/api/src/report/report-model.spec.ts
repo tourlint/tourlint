@@ -3,7 +3,7 @@ import { SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
 import { calculateReadiness } from '../engine/score';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 import {
-  assembleReport, describeItineraryChanges,
+  UNNAMED_PLACE, assembleReport, describeItineraryChanges, labelOnly,
   type AssembleInput, type ContentEvidence, type DiffableItem,
 } from './report-model';
 
@@ -178,6 +178,25 @@ describe('일정 변경 서술', () => {
     expect(describeItineraryChanges([base], [{ ...base, seq: 2 }])[0]).toContain('순서 변경');
     expect(describeItineraryChanges([], [base])[0]).toContain('추가');
     expect(describeItineraryChanges([base], [])[0]).toContain('삭제');
+  });
+
+  it('🔴 이름을 저장하지 않는 항목을 null 로 찍지 않는다 (#595)', () => {
+    /*
+     * 장소 담기 · 수정안으로 넣은 항목은 이름을 저장하지 않는다 (DR-PR-001). 스냅샷 라벨을 그대로
+     * 끼웠더니 운영 PDF 에 「순서 변경 — null 1일차 5번 → 1일차 3번」 · 「추가 — 3일차 16:00 」 이 찍혔다.
+     */
+    const picked: DiffableItem = { ...base, id: 2, placeLabel: null, ktoContentId: '2925502' };
+    const inserted: DiffableItem = { ...base, id: 3, placeLabel: '', ktoContentId: '3537133' };
+
+    const plain = describeItineraryChanges([picked], [{ ...picked, seq: 3 }, inserted]);
+    expect(plain.join('\n')).not.toContain('null');
+    expect(plain[0]).toBe(`순서 변경 — ${UNNAMED_PLACE} 1일차 1번 → 1일차 3번`);
+    expect(plain[1]).toBe(`추가 — 1일차 10:00 ${UNNAMED_PLACE}`);
+
+    // 표시 이름을 찾을 수 있으면 3절 일정표와 같은 이름을 쓴다
+    const named = describeItineraryChanges([picked], [{ ...picked, seq: 3 }],
+      (item) => (item.ktoContentId === '2925502' ? '리고엠' : labelOnly(item)));
+    expect(named[0]).toBe('순서 변경 — 리고엠 1일차 1번 → 1일차 3번');
   });
 
   it('🔴 관광지 대체를 놓치지 않는다 — place_label 이 그대로라 이름만 보면 같아 보인다', () => {

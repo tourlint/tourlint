@@ -126,9 +126,25 @@ export interface DiffableItem {
   readonly seq: number;
   readonly startTime: string;
   readonly endTime: string | null;
-  readonly placeLabel: string;
+  /** 장소 담기 · 수정안으로 넣은 항목은 이름을 저장하지 않아 NULL 이거나 빈 문자열이다 (DR-PR-001) */
+  readonly placeLabel: string | null;
   readonly ktoContentId: string | null;
+  readonly walkId?: string | null;
 }
+
+/** 이름을 끝내 알 수 없는 항목. 되돌려서 지금 일정에 없는 곳은 공식 명칭을 다시 읽지 않는다 */
+export const UNNAMED_PLACE = '이름을 저장하지 않은 곳';
+
+/**
+ * 변경 서술에 쓸 표시 이름. 3절 일정표와 같은 순서로 찾는다 — 공식 명칭, 걷기 길 이름, 입력 라벨.
+ *
+ * 스냅샷의 `placeLabel` 을 그대로 끼웠더니 이름을 저장하지 않는 항목이 PDF 에 `null` 로
+ * 찍혔다 (#595).
+ */
+export type PlaceNamer = (item: DiffableItem) => string;
+
+export const labelOnly: PlaceNamer = (item) =>
+  item.placeLabel === null || item.placeLabel.trim() === '' ? UNNAMED_PLACE : item.placeLabel;
 
 /**
  * 무엇이 달라졌는지 사람이 읽을 문장으로 (FR-PA-042 의 구분을 그대로).
@@ -142,6 +158,7 @@ export interface DiffableItem {
 export function describeItineraryChanges(
   before: readonly DiffableItem[],
   after: readonly DiffableItem[],
+  nameOf: PlaceNamer = labelOnly,
 ): readonly string[] {
   const was = new Map(before.map((i) => [i.id, i]));
   const now = new Map(after.map((i) => [i.id, i]));
@@ -150,21 +167,21 @@ export function describeItineraryChanges(
   for (const item of after) {
     const prev = was.get(item.id);
     if (prev === undefined) {
-      out.push(`추가 — ${item.dayNo}일차 ${item.startTime} ${item.placeLabel}`);
+      out.push(`추가 — ${item.dayNo}일차 ${item.startTime} ${nameOf(item)}`);
       continue;
     }
     if (prev.startTime !== item.startTime || prev.endTime !== item.endTime) {
-      out.push(`시각 변경 — ${item.placeLabel} ${span(prev)} → ${span(item)}`);
+      out.push(`시각 변경 — ${nameOf(item)} ${span(prev)} → ${span(item)}`);
     }
     if (prev.dayNo !== item.dayNo || prev.seq !== item.seq) {
-      out.push(`순서 변경 — ${item.placeLabel} ${prev.dayNo}일차 ${prev.seq}번 → ${item.dayNo}일차 ${item.seq}번`);
+      out.push(`순서 변경 — ${nameOf(item)} ${prev.dayNo}일차 ${prev.seq}번 → ${item.dayNo}일차 ${item.seq}번`);
     }
     if (prev.ktoContentId !== item.ktoContentId) {
       out.push(`관광지 대체 — ${item.dayNo}일차 ${item.seq}번 자리의 연결 관광지를 교체`);
     }
   }
   for (const item of before) {
-    if (!now.has(item.id)) out.push(`삭제 — ${item.dayNo}일차 ${item.startTime} ${item.placeLabel}`);
+    if (!now.has(item.id)) out.push(`삭제 — ${item.dayNo}일차 ${item.startTime} ${nameOf(item)}`);
   }
   return out;
 }
