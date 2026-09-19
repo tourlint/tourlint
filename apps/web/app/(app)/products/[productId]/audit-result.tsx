@@ -19,7 +19,6 @@ import {
   type ContentDetail,
   type EvidenceView,
   type Finding,
-  type Patch,
   type PatchApplicationDetail,
   type PatchItem,
   type PatchPreview,
@@ -38,6 +37,7 @@ import { ruleName } from "../../../lib/rule-names";
 import { scoreSentence } from "../../../lib/score-sentence";
 import { WorkspaceIcon } from "../../../components/workspace-icon";
 import { FINDING_FILTERS, filterFindings, type FindingFilter } from "./finding-filter";
+import { PatchDescription } from "./patch-description";
 import { CheckQuestionsCard } from "./check-questions-card";
 
 // 배지·건수·라벨은 공통 컴포넌트(components/badges)가 등급 토큰으로 그린다.
@@ -366,6 +366,7 @@ export function AuditResult({ productId }: { productId: number }) {
           )}
           <FindingsSection key={data.run.auditRunId}
             findings={data.findings}
+            product={product}
             itemLabel={labelOf}
             contentOf={contentOf}
             selected={selected}
@@ -627,6 +628,7 @@ export function SummaryCard({ run, confirmationCount }: { run: RunSummary; confi
 }
 
 function FindingsSection({
+  product,
   findings,
   itemLabel,
   contentOf,
@@ -636,6 +638,7 @@ function FindingsSection({
   busy,
 }: {
   findings: Finding[];
+  product: ProductDetail | null;
   itemLabel: (itemId: number | null) => string;
   contentOf: (itemId: number | null) => string | null;
   selected: Record<number, string>;
@@ -664,6 +667,7 @@ function FindingsSection({
             <FindingCard
               key={f.findingId}
               finding={f}
+              product={product}
               itemLabel={itemLabel}
               contentId={contentOf(f.target.itemId)}
               selectedPatchId={selected[f.findingId] ?? null}
@@ -679,6 +683,7 @@ function FindingsSection({
 }
 
 function FindingCard({
+  product,
   finding,
   itemLabel,
   contentId,
@@ -688,6 +693,7 @@ function FindingCard({
   busy,
 }: {
   finding: Finding;
+  product: ProductDetail | null;
   itemLabel: (itemId: number | null) => string;
   contentId: string | null;
   selectedPatchId: string | null;
@@ -876,7 +882,7 @@ function FindingCard({
                   checked={selectedPatchId === p.patchId}
                   onChange={() => onSelectPatch(finding.findingId, p.patchId)}
                 />
-                <span className="text-slate-700 dark:text-slate-300">{patchLabel(p, itemLabel)}</span>
+                <PatchDescription patch={p} product={product} />
               </label>
             ))}
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
@@ -1088,55 +1094,6 @@ function UnverifiedRow({
       </button>
     </li>
   );
-}
-
-/**
- * 「~으로 / ~로」 조사를 붙인다.
- *
- * 관광지 이름은 공사 원문이라 무엇이 올지 모른다. 받침이 있으면 `으로`, 없거나 ㄹ 받침이면
- * `로` 다 — 「자료 동읫 로 대체」처럼 어색하게 보이지 않게 한다.
- */
-function euro(name: string): string {
-  const last = name.trim().slice(-1);
-  const code = last.charCodeAt(0);
-  // 한글 음절이 아니면 판단할 근거가 없다. 안전한 쪽(로)으로 둔다
-  if (Number.isNaN(code) || code < 0xac00 || code > 0xd7a3) return "로";
-  const jong = (code - 0xac00) % 28;
-  return jong === 0 || jong === 8 ? "로" : "으로";
-}
-
-/** 수정안 표시 문구를 payload·대상 항목으로 조합한다 — 서버는 문구를 저장하지 않는다 (DR-PR-001) */
-function patchLabel(patch: Patch, itemLabel: (itemId: number | null) => string): string {
-  const p = patch.payload;
-  switch (patch.type) {
-    case "TIME_SHIFT": {
-      const parts: string[] = [];
-      if (p.newDayNo !== undefined) parts.push(`${p.newDayNo}일차로 이동`);
-      if (p.newStartTime !== undefined || p.newEndTime !== undefined) {
-        parts.push(`${p.newStartTime ?? "그대로"}~${p.newEndTime ?? "그대로"} 로 시간 조정`);
-      }
-      return parts.length > 0 ? parts.join(" · ") : "시간 조정";
-    }
-    case "REORDER":
-      return `${itemLabel(patch.targetItemId)} ↔ ${itemLabel(p.swapWithItemId ?? null)} 순서 바꾸기`;
-    case "REPLACE_CONTENT": {
-      // 이름은 서버가 표시 시점에 조회해 실어 준다. 없으면 거리로만 안내한다
-      const near = p.distanceMeters !== undefined
-        ? ` (약 ${Math.round(p.distanceMeters / 100) / 10}km)`
-        : "";
-      return patch.placeName !== undefined
-        ? `${patch.placeName}${euro(patch.placeName)} 대체${near}`
-        : `가까운 다른 관광지로 대체${near}`;
-    }
-    case "INSERT_ITEM": {
-      const what = patch.placeName ?? ITEM_TYPE_LABEL[p.itemType ?? ""] ?? "항목";
-      return `${p.dayNo}일차에 ${what} 추가 (${p.startTime ?? ""}~${p.endTime ?? ""})`;
-    }
-    case "REMOVE_ITEM":
-      return "일정에서 제거";
-    default:
-      return "수정안";
-  }
 }
 
 type ChangeStatus = "same" | "changed" | "added" | "removed";
