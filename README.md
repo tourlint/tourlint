@@ -26,12 +26,11 @@ git fetch -q origin && echo "main $(git rev-parse --short=7 origin/main)" \
 여기서 할 수 있는 것은 결과 확인뿐이지만, 두 시간 뒤가 아니라 몇 분 안에 알게 된다.
 X 가 뜨면 Railway 대시보드 → Deployments 에서 트리거가 걸렸는지 본다.
 
-`/docs` 는 심사위원이 직접 여는 API 문서다. 엔드포인트가 로그인 → 상품 · 일정 → 장소 연결 →
-검수 → 수정안 → 리포트 · 출시 → 레이더 순으로 묶여 있고, 각각 설명 · 화면 · 외부 호출 · 근거
-요구사항과 운영 응답을 줄인 예시가 붙는다. 그 페이지에서 로그인 API 를 부르면 세션 쿠키가 붙어
-나머지를 바로 불러 볼 수 있다. 설명은 [`apps/api/src/openapi/catalog`](apps/api/src/openapi/catalog) 에
-모여 있고, 라우트를 더하고 설명을 안 쓰면 `test/openapi.spec.ts` 가 빨개진다. 모의 응답 라우트는
-없다 — `src/mock` 은 지웠다 (NF-CO-002 · FR-OP-009). 전체 계약은
+`/docs` 는 API 호출 형식을 확인하는 문서다. 엔드포인트마다 한두 문장 설명과 요청 · 응답 예시만
+두고, 공용 테스트 계정의 데이터가 바뀌지 않게 Try it out 을 꺼 두었다. 설명은
+[`apps/api/src/openapi/catalog`](apps/api/src/openapi/catalog) 에 모여 있고, 라우트를 더하고 설명을
+안 쓰거나 규칙 번호 · 요구사항 ID 같은 내부 용어를 설명에 쓰면 `test/openapi.spec.ts` 가 빨개진다.
+모의 응답 라우트는 없다 — `src/mock` 은 지웠다 (NF-CO-002 · FR-OP-009). 전체 계약은
 [`docs/notion/21_API백엔드설계.md`](docs/notion/21_API백엔드설계.md).
 
 루트(`/`)는 서비스명과 위 주소들을 돌려준다. 예전에는 404 였는데, API 서버에 루트 라우트가

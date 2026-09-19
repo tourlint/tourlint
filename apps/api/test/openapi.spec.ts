@@ -134,6 +134,54 @@ describe('API 문서 (/docs)', () => {
     expect(missing).toEqual([]);
   });
 
+  /*
+   * 심사위원이 읽는 문서다 (#619). 규칙 번호 · 요구사항 ID · 만드는 쪽 말이 설명에 다시 들어오면
+   * 빨갛다. 예시 값과 `코드` 표기(필드 이름)는 보지 않는다.
+   */
+  const JARGON = new RegExp([
+    '(?:FR|NF|EX|PM|DR|EI|SC|TM|UI)-[A-Z0-9]{2}', 'API 설계', 'DB 명세서', 'R(?:0\\d|10)(?![0-9])',
+    '원문', '지문', '배치', '픽스처', 'fixture', '캐시', '[0-9]\\s?콜', '콜[\\s·,.)]', '정규화', 'LLM', '(?<!관광)공사',
+    '실엔진', 'mock', '스키마', 'finding', '재현', '결정론',
+  ].join('|'));
+
+  it('🔴 설명에 만드는 쪽 말 · 규칙 번호 · 요구사항 ID 가 없다 (#619)', () => {
+    const texts: [string, string][] = [];
+    const add = (where: string, text: unknown): void => {
+      if (typeof text === 'string') texts.push([where, text.replace(/`[^`]*`/g, '')]);
+    };
+    const walkSchema = (where: string, schema: unknown): void => {
+      if (typeof schema !== 'object' || schema === null) return;
+      const s = schema as { description?: unknown; properties?: Record<string, unknown>; items?: unknown };
+      add(where, s.description);
+      for (const [k, v] of Object.entries(s.properties ?? {})) walkSchema(`${where}.${k}`, v);
+      walkSchema(`${where}[]`, s.items);
+    };
+    add('소개글', document.info.description);
+    for (const tag of document.tags ?? []) add(`태그 ${tag.name}`, tag.description);
+    for (const [route, op] of operations()) {
+      const o = op as {
+        summary?: string; description?: string;
+        parameters?: { name: string; description?: string }[];
+        requestBody?: { description?: string; content?: Record<string, { schema?: unknown }> };
+        responses?: Record<string, { description?: string; content?: Record<string, { schema?: unknown; examples?: Record<string, { summary?: string }> }> }>;
+      };
+      add(route, o.summary);
+      add(route, o.description);
+      for (const p of o.parameters ?? []) add(`${route} ?${p.name}`, p.description);
+      add(`${route} 본문`, o.requestBody?.description);
+      for (const media of Object.values(o.requestBody?.content ?? {})) walkSchema(`${route} 본문`, media.schema);
+      for (const [status, res] of Object.entries(o.responses ?? {})) {
+        add(`${route} ${status}`, res.description);
+        for (const media of Object.values(res.content ?? {})) {
+          walkSchema(`${route} ${status}`, media.schema);
+          for (const ex of Object.values(media.examples ?? {})) add(`${route} ${status} 예시`, ex.summary);
+        }
+      }
+    }
+    const found = texts.filter(([, t]) => JARGON.test(t)).map(([w, t]) => `${w}: ${t.match(JARGON)?.[0] ?? ''} — ${t.slice(0, 60)}`);
+    expect(found).toEqual([]);
+  });
+
   it('🔴 일정 파일 업로드는 글자 칸이 아니라 파일 선택 칸으로 나온다', () => {
     type Media = { schema?: { properties?: Record<string, unknown> } };
     const op = document.paths['/api/v1/uploads/schedule']?.post as { requestBody?: { content?: Record<string, Media> } } | undefined;

@@ -68,16 +68,13 @@ export interface Endpoint {
   /** `'GET /api/v1/products/{productId}'` — OpenAPI 경로 표기 */
   readonly route: `${HttpMethod} /${string}`;
   readonly tag: TagName;
-  /** 목록에 보이는 한 줄. 화면에서 하는 일로 쓴다 (예: `상품 목록`) */
+  /** 목록에 보이는 한 줄. 하는 일로 쓴다 (예: `상품 목록`) */
   readonly summary: string;
-  /** 펼쳤을 때 보이는 설명(마크다운). 무엇을 · 왜 · 주의할 점 */
+  /**
+   * 펼쳤을 때 보이는 설명. **한두 문장, 누구나 아는 말로** (#619) — 규칙 번호 · 요구사항 ID ·
+   * 만드는 쪽 말은 쓰지 않는다. `test/openapi.spec.ts` 가 막는다.
+   */
   readonly description: string;
-  /** 어느 화면의 어떤 버튼이 부르는가 */
-  readonly screen?: string;
-  /** 외부 호출과 예산. 없으면 `없음 — DB 만 읽는다` 처럼 적는다 */
-  readonly calls?: string;
-  /** 근거 요구사항 · 설계 절 */
-  readonly spec?: string;
   /** 로그인 없이 부를 수 있다 */
   readonly public?: true;
   /** 경로 · 조회 파라미터 설명. 이름은 컨트롤러와 같아야 한다 */
