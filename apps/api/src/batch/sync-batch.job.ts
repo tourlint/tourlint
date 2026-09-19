@@ -9,6 +9,10 @@ import {
   matchByContent, matchByEventPeriod, matchByRegion, mergeImpacts,
   type ChangedContent, type EventPeriod, type Impact, type ImpactCandidate,
 } from './impact-finder';
+import {
+  capOpportunities, dwellOf, isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType,
+  type OpportunityCandidate,
+} from './opportunity';
 import { isSyncDelay, isWeekend, kstToday, pendingDates, toKtoDate } from './sync-window';
 
 /**
@@ -250,7 +254,7 @@ export class SyncBatchJob {
     await this.record(status, contents.length, now, covered);
 
     // ── 2단계 ──
-    const { impacts, notified } = await this.findImpacts(contents, now);
+    const { impacts, notified } = await this.findImpacts(contents, now, dates[0] ?? null);
     return { status, dates, contents, covered, calls, skippedReason: null, impacts, notified };
   }
 
@@ -273,6 +277,8 @@ export class SyncBatchJob {
   private async findImpacts(
     contents: readonly SyncedContent[],
     now: Date,
+    /** 이번 배치가 본 첫 날짜. 그 뒤에 등록된 곳만 기회 알림(4 ~ 6) 대상이다 */
+    newSince: string | null,
   ): Promise<{ impacts: readonly Impact[]; notified: number }> {
     if (this.notifications === null || contents.length === 0) return { impacts: [], notified: 0 };
 
@@ -282,6 +288,14 @@ export class SyncBatchJob {
       const direct = await this.notifications.productsWithContents(contents.map((c) => c.contentId), today);
       // 조건 2 · 3 — 출발일이 안 지난 상품 전부가 후보다 (FR-MO-018)
       const watched = await this.notifications.watchedProducts(today, this.watchLimit);
+      /*
+       * 조건 4 ~ 6 — 새로 등록된 곳이 있을 때만 상품 속(결손 유형 · 일정)을 읽는다 (FR-MO-030 ④⑤⑥).
+       * 오래 세워 두었던 판정 함수를 여기서 부른다. 전에는 아무도 부르지 않아 새 소식이 늘 0건이었다 (#616).
+       */
+      const fresh = newSince === null ? [] : contents.filter((c) => isNewlyRegistered(c, newSince));
+      const opportunity: readonly OpportunityCandidate[] = fresh.length > 0 && watched.length > 0
+        ? await this.notifications.opportunityCandidates(watched)
+        : [];
 
       if (direct.size === 0 && watched.length === 0) {
         this.logger.log(`변경 ${contents.length}건 · 감시 중인 상품이 없다`);
@@ -319,16 +333,34 @@ export class SyncBatchJob {
           hashes.set(candidate.productId, decision.hashes);
         }
 
+        const dwell = dwellOf(content.lclsSystm2);
+        const chances = opportunity.length > 0 && fresh.includes(content)
+          ? [
+            ...matchByMissingType(content, opportunity),
+            ...matchByFreeSlot(content, opportunity, dwell),
+            ...matchByDetour(content, opportunity, dwell),
+          ]
+          : [];
+        // 같은 곳이 한 상품에 여러 조건으로 걸리면 번호가 작은 것 하나만 남는다 — 바뀐 정보가 새 소식을 이긴다
         const impacts = mergeImpacts(
           matchByContent(kept),
           matchByRegion(changed, watched, today),
           matchByEventPeriod(changed, watched),
+          chances,
         );
         allImpacts.push(...impacts);
         pending.push(...impacts.map((i) => toNotification(i, changed, hashes.get(i.productId) ?? NO_HASHES)));
       }
 
-      const notified = await this.notifications.insertMany(pending);
+      // 기회 알림은 상품마다 상한까지만 넣는다. 바뀐 정보는 자르지 않는다
+      const risks = pending.filter((n) => n.kind === 'RISK');
+      const { kept: chancesKept, dropped } = capOpportunities(
+        pending
+          .filter((n) => n.kind === 'OPPORTUNITY')
+          .map((n) => ({ productId: n.productId, condition: n.condition as 4 | 5 | 6, contentId: n.ktoContentId ?? '', notification: n })),
+      );
+      if (dropped > 0) this.logger.log(`기회 알림 ${dropped}건은 상품당 상한을 넘어 넣지 않았다`);
+      const notified = await this.notifications.insertMany([...risks, ...chancesKept.map((c) => c.notification)]);
       this.logger.log(
         `영향 ${allImpacts.length}건 · 새 알림 ${notified}건`
         + (unchanged > 0 ? ` · 판정 필드가 그대로라 넘긴 것 ${unchanged}건` : ''),
@@ -549,7 +581,9 @@ const UNKNOWN_CHANGE = { notify: true, reaudit: true, hashes: NO_HASHES } as con
  * 조건 2 · 3 은 그 콘텐츠가 어느 일정에도 없어 지문 이력이 없다. 없는 것을 지어내는 대신
  * 갱신 시각을 식별자로 쓴다 — 다시 바뀌면 시각이 달라져 새 알림이 뜬다.
  */
-export function changeKeyOf(content: SyncedContent, hashes: ChangeHashes): string {
+export function changeKeyOf(content: SyncedContent, hashes: ChangeHashes, kind: 'RISK' | 'OPPORTUNITY' = 'RISK'): string {
+  // 새 소식은 등록 한 번에 한 번이다. 등록 뒤 설명이 고쳐져도 같은 곳을 다시 권하지 않는다
+  if (kind === 'OPPORTUNITY') return `NEW:${content.createdTime}`;
   if (hashes.to !== null) return `FP:${hashes.from ?? '-'}:${hashes.to}`;
   return `MT:${content.modifiedTime}`;
 }
@@ -568,7 +602,7 @@ function toNotification(impact: Impact, content: ChangedContent, hashes: ChangeH
     ktoContentId: content.contentId,
     hashFrom: hashes.from,
     hashTo: hashes.to,
-    changeKey: changeKeyOf(content, hashes),
+    changeKey: changeKeyOf(content, hashes, impact.kind),
     body: {
       condition: impact.condition,
       contentTypeId: content.contentTypeId,

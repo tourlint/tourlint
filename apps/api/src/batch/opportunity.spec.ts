@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_DETOUR_METERS, detourMeters, freeSlots, matchByDetour, matchByFreeSlot, matchByMissingType,
+  MAX_DETOUR_METERS, OPPORTUNITY_CAP_PER_PRODUCT, capOpportunities, detourMeters, dwellOf, freeSlots,
+  isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType,
   type OpportunityCandidate, type OpportunityItem,
 } from './opportunity';
 import { straightMeters } from '../engine/geo';
@@ -25,7 +26,7 @@ const item = (over: Partial<OpportunityItem> = {}): OpportunityItem => ({
 });
 
 const candidate = (over: Partial<OpportunityCandidate> = {}): OpportunityCandidate => ({
-  productId: 1, startDate: '2026-09-10', nights: 1, ldongSignguCd: '150',
+  productId: 1, startDate: '2026-09-10', nights: 1, ldongRegnCd: '51', ldongSignguCd: '150',
   missingLcls2: ['VE07'], items: [item()], ...over,
 });
 
@@ -202,5 +203,64 @@ describe('조건 6 — 우회가 크지 않다', () => {
       ],
     });
     expect(matchByDetour(content(), [packed], 120)).toEqual([]);
+  });
+});
+
+describe('같은 시군구 — 시도 코드까지 (#616)', () => {
+  it('🔴 시군구 번호가 같아도 시도가 다르면 안 건다 — 춘천(51-110)과 종로(11-110)', () => {
+    const jongno = content({ lDongRegnCd: '11', lDongSignguCd: '110' });
+    expect(matchByMissingType(jongno, [candidate({ ldongRegnCd: '51', ldongSignguCd: '110' })])).toEqual([]);
+    expect(matchByMissingType(jongno, [candidate({ ldongRegnCd: '11', ldongSignguCd: '110' })])).toHaveLength(1);
+  });
+});
+
+describe('새로 등록된 곳 (FR-MO-030 ④ · #616)', () => {
+  it('이번 배치가 본 첫 날짜 뒤에 등록된 곳이다', () => {
+    expect(isNewlyRegistered(content({ createdtime: '20260827093000' }), '2026-08-27')).toBe(true);
+    expect(isNewlyRegistered(content({ createdtime: '20260901000000' }), '2026-08-27')).toBe(true);
+  });
+
+  it('🔴 오래된 곳이 고쳐진 것은 새로 등록된 곳이 아니다 — 동기화 목록에는 둘이 섞여 온다', () => {
+    expect(isNewlyRegistered(content({ createdtime: '20220913132227', modifiedtime: '20260827120000' }), '2026-08-27')).toBe(false);
+  });
+
+  it('🔴 비표출은 넣을 수 없어 뺀다', () => {
+    expect(isNewlyRegistered(content({ showflag: '0' }), '2026-08-27')).toBe(false);
+  });
+
+  it('등록 시각을 모르면 새로 등록된 곳으로 치지 않는다', () => {
+    expect(isNewlyRegistered(content({ createdtime: '' }), '2026-08-27')).toBe(false);
+  });
+});
+
+describe('기본 체류시간 (FR-IN-011)', () => {
+  it('표에 있는 중분류는 그 값이고, 없으면 모른다', () => {
+    expect(dwellOf('FD01')).toBe(60);
+    expect(dwellOf('AC01')).toBeNull();
+    expect(dwellOf(null)).toBeNull();
+  });
+});
+
+describe('상품당 상한 (#616)', () => {
+  const chance = (productId: number, condition: 4 | 5 | 6, contentId: string) => ({ productId, condition, contentId });
+
+  it(`🔴 상품마다 ${String(OPPORTUNITY_CAP_PER_PRODUCT)}건까지만 남긴다 — 결손 유형(조건 4)이 먼저다`, () => {
+    const { kept, dropped } = capOpportunities([
+      chance(1, 6, 'a'), chance(1, 5, 'b'), chance(1, 5, 'c'), chance(1, 4, 'z'), chance(1, 6, 'd'),
+    ]);
+    expect(kept.map((k) => `${String(k.condition)}:${k.contentId}`)).toEqual(['4:z', '5:b', '5:c']);
+    expect(dropped).toBe(2);
+  });
+
+  it('상품마다 따로 센다', () => {
+    const { kept } = capOpportunities([
+      chance(2, 5, 'a'), chance(1, 5, 'a'), chance(1, 5, 'b'), chance(2, 5, 'b'),
+    ], 1);
+    expect(kept.map((k) => `${String(k.productId)}:${k.contentId}`)).toEqual(['1:a', '2:a']);
+  });
+
+  it('같은 입력이면 들어온 순서와 상관없이 같은 것이 남는다 (NF-MT-001)', () => {
+    const items = [chance(1, 5, 'c'), chance(1, 5, 'a'), chance(1, 5, 'b'), chance(1, 5, 'd')];
+    expect(capOpportunities(items).kept).toEqual(capOpportunities([...items].reverse()).kept);
   });
 });

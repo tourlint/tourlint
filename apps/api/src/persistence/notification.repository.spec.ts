@@ -129,6 +129,40 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
     });
   });
 
+  describe('새 소식 후보 (FR-MO-030 ④⑤⑥ · #616)', () => {
+    const watched = (): ImpactCandidate => ({
+      productId, startDate: START, nights: 2, ldongRegnCd: '51', ldongSignguCd: '150',
+    });
+    /** 지금 일정의 검수 실행에 R10 판정을 하나 남긴다 */
+    const auditWithR10 = async (missing: string[], dismissed = false): Promise<void> => {
+      const run = await pool.query<{ id: string }>(
+        `INSERT INTO audit_run (product_id, executed_at, ruleset_version, target_count, weight_snapshot)
+         VALUES ($1, clock_timestamp(), '1.2.4', 1, '{}'::jsonb) RETURNING id`, [productId]);
+      await pool.query(
+        `INSERT INTO finding (audit_run_id, rule_code, rule_version, severity, reason_code, message, evidence,
+                              dismissed_at, dismiss_reason)
+         VALUES ($1, 'R10', '1.0.0', 'WARNING', 'TARGET_MISMATCH', '상품 구성', $2::jsonb, $3, $4)`,
+        [run.rows[0]?.id, JSON.stringify({ missingLcls2: missing }), dismissed ? new Date() : null, dismissed ? '고객 요청 사항' : null]);
+    };
+
+    it('지금 일정의 검수에서 R10 결손 유형과 일정 항목을 붙인다', async () => {
+      await auditWithR10(['VE01', 'EX02']);
+      const [found] = await repo.opportunityCandidates([watched()]);
+      expect(found).toMatchObject({ productId, ldongRegnCd: '51', missingLcls2: ['VE01', 'EX02'] });
+      expect(found?.items).toEqual([{ dayNo: 1, seq: 1, startTime: '10:00', endTime: null, mapX: null, mapY: null }]);
+    });
+
+    it('🔴 무시한 R10 판정의 결손 유형은 권하지 않는다 — 채우지 않겠다고 한 것이다', async () => {
+      await auditWithR10(['HS01'], true);
+      const [found] = await repo.opportunityCandidates([watched()]);
+      expect(found?.missingLcls2).toEqual([]);
+    });
+
+    it('감시 상품이 없으면 묻지 않는다', async () => {
+      expect(await repo.opportunityCandidates([])).toEqual([]);
+    });
+  });
+
   describe('후보 탐색 (FR-MO-018 · 030)', () => {
     /*
      * **여기서 보는 두 메서드는 계정을 걸지 않는다.** `watchedProducts` 와

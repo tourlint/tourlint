@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import type { ImpactCandidate, MatchCondition, NotificationKind } from '../batch/impact-finder';
+import type { OpportunityCandidate, OpportunityItem } from '../batch/opportunity';
+import { CURRENT_RUN_LATERAL } from './current-run';
 import type { IsoDate } from '../engine/calendar/dates';
 
 /**
@@ -77,7 +79,7 @@ export class NotificationRepository {
     if (contentIds.length === 0) return out;
 
     const { rows } = await this.pool.query<CandidateRow & { kto_content_id: string }>(
-      `SELECT DISTINCT i.kto_content_id, p.id, p.start_date, p.nights, p.ldong_signgu_cd
+      `SELECT DISTINCT i.kto_content_id, p.id, p.start_date, p.nights, p.ldong_regn_cd, p.ldong_signgu_cd
          FROM product p
          JOIN itinerary_item i ON i.product_id = p.id
         WHERE i.kto_content_id = ANY($1::text[])
@@ -106,7 +108,7 @@ export class NotificationRepository {
    */
   async watchedProducts(today: IsoDate, limit?: number): Promise<readonly ImpactCandidate[]> {
     const { rows } = await this.pool.query<CandidateRow>(
-      `SELECT p.id, p.start_date, p.nights, p.ldong_signgu_cd
+      `SELECT p.id, p.start_date, p.nights, p.ldong_regn_cd, p.ldong_signgu_cd
          FROM product p
         WHERE p.planned_at IS NOT NULL
           AND p.start_date + p.nights >= $1::date
@@ -115,6 +117,66 @@ export class NotificationRepository {
       [today, limit ?? null],
     );
     return rows.map(toCandidate);
+  }
+
+  /**
+   * 조건 4 ~ 6 후보 (FR-MO-030 ④⑤⑥). 감시 대상 상품에 결손 유형과 일정 항목을 붙인다.
+   *
+   * 결손 유형은 **지금 일정의 검수 실행**의 R10 판정에서 읽는다(#551 · `current-run`). 되돌린
+   * 일정이면 반영 전 실행이다. 사용자가 그 판정을 무시했으면 비운다 — 채우지 않겠다고 한 유형을
+   * 새 소식으로 다시 권하지 않는다. 검수한 적이 없으면 결손도 없다.
+   *
+   * 항목은 매칭 상태와 관계없이 모두 싣는다. 고르지 않은 줄도 그 시간을 차지한다.
+   */
+  async opportunityCandidates(watched: readonly ImpactCandidate[]): Promise<readonly OpportunityCandidate[]> {
+    if (watched.length === 0) return [];
+    const ids = watched.map((c) => c.productId);
+
+    const missing = await this.pool.query<{ product_id: string; missing: unknown }>(
+      `SELECT p.id AS product_id, f.evidence -> 'missingLcls2' AS missing
+         FROM product p
+         ${CURRENT_RUN_LATERAL}
+         JOIN finding f ON f.audit_run_id = COALESCE(cur.run_id, cur.latest_id)
+                       AND f.rule_code = 'R10' AND f.dismissed_at IS NULL
+        WHERE p.id = ANY($1::bigint[])`,
+      [ids],
+    );
+    const missingOf = new Map<number, string[]>();
+    for (const row of missing.rows) {
+      const codes = Array.isArray(row.missing) ? row.missing.filter((c): c is string => typeof c === 'string') : [];
+      missingOf.set(Number(row.product_id), [...(missingOf.get(Number(row.product_id)) ?? []), ...codes]);
+    }
+
+    const items = await this.pool.query<{
+      product_id: string; day_no: number; seq: number; start_time: string; end_time: string | null;
+      mapx: string | number | null; mapy: string | number | null;
+    }>(
+      `SELECT product_id, day_no, seq,
+              to_char(start_time, 'HH24:MI') AS start_time, to_char(end_time, 'HH24:MI') AS end_time, mapx, mapy
+         FROM itinerary_item
+        WHERE product_id = ANY($1::bigint[])
+        ORDER BY product_id, day_no, seq`,
+      [ids],
+    );
+    const itemsOf = new Map<number, OpportunityItem[]>();
+    for (const row of items.rows) {
+      const list = itemsOf.get(Number(row.product_id)) ?? [];
+      list.push({
+        dayNo: row.day_no,
+        seq: row.seq,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        mapX: row.mapx === null ? null : Number(row.mapx),
+        mapY: row.mapy === null ? null : Number(row.mapy),
+      });
+      itemsOf.set(Number(row.product_id), list);
+    }
+
+    return watched.map((c) => ({
+      ...c,
+      missingLcls2: [...new Set(missingOf.get(c.productId) ?? [])],
+      items: itemsOf.get(c.productId) ?? [],
+    }));
   }
 
   /**
@@ -294,6 +356,7 @@ interface CandidateRow {
   id: string;
   start_date: Date | string;
   nights: number;
+  ldong_regn_cd: string;
   ldong_signgu_cd: string | null;
 }
 
@@ -302,6 +365,7 @@ function toCandidate(row: CandidateRow): ImpactCandidate {
     productId: Number(row.id),
     startDate: toIsoDate(row.start_date),
     nights: row.nights,
+    ldongRegnCd: row.ldong_regn_cd,
     ldongSignguCd: row.ldong_signgu_cd,
   };
 }
