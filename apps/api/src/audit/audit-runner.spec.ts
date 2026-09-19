@@ -561,14 +561,15 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
       place(3, 1, 3, '14:00', '16:00', { ktoContentId: '129784', contentTypeId: 14, lclsSystm2: 'VE07' }),
       place(4, 1, 4, '17:00', null, hotel),
       place(5, 2, 1, '10:00', '11:30'), place(6, 2, 2, '12:00', '13:00', meal),
-      place(7, 2, 3, '13:30', '14:30', { ktoContentId: '2891773', contentTypeId: 39, lclsSystm2: 'FD05', itemType: 'REST' }),
+      // 랜드마크는 있고 카페가 없다 — 공예체험 · 카페가 같이 결손이다 (#584 의 모양)
+      place(7, 2, 3, '13:30', '14:30', { ktoContentId: '3022373', lclsSystm2: 'VE01' }),
       place(8, 2, 4, '15:00', '17:00'), place(9, 2, 5, '18:00', null, hotel),
       place(10, 3, 1, '10:00', '11:30'), place(11, 3, 2, '12:00', '13:30', meal),
       place(12, 3, 3, '14:00', '15:30', { ktoContentId: '3022373' }),
     ]);
 
     const r10 = result.findings.find((f) => f.ruleCode === 'R10');
-    expect(r10?.evidence).toMatchObject({ missingLcls2: ['EX02', 'VE01'], expectsNight: true, hasNight: false });
+    expect(r10?.evidence).toMatchObject({ missingLcls2: ['EX02', 'FD05'], expectsNight: true, hasNight: false });
 
     const inserts = (r10?.patches ?? []).map((p) => p.payload as {
       dayNo: number; startTime: string; endTime: string; content?: { ktoContentId: string; lclsSystm2: string | null };
@@ -576,11 +577,12 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     // 낮 — 3일차 15:30 뒤. 공예체험(EX02)으로 좁혀 찾은 곳
     expect(inserts[0]).toMatchObject({ dayNo: 3, startTime: '16:00', content: { lclsSystm2: 'EX02' } });
     /*
-     * 야간 — 1일차 19:00. 가장 가까운 카페(3532680)는 18:00 에 닫아 떨어지고, 일정에 이미 있는
-     * 2891773 은 건너뛴다. 12:00~20:00 인 3537206 이 남는다. 카페 체류는 60분이라 20:00 에 끝난다.
+     * 야간 — 1일차 19:00. 낮 자리가 공예체험만 채웠으므로 남은 결손인 **카페부터** 찾는다.
+     * 랜드마크부터 찾으면 숙소 옆 화장실이 나온다 (#584). 가장 가까운 카페(3532680)는 18:00 에
+     * 닫아 떨어지고 11:00~20:00 인 2891773 이 들어간다. 카페 체류는 60분이라 20:00 에 끝난다.
      */
     expect(inserts[1]).toMatchObject({
-      dayNo: 1, startTime: '19:00', endTime: '20:00', content: { ktoContentId: '3537206', lclsSystm2: 'FD05' },
+      dayNo: 1, startTime: '19:00', endTime: '20:00', content: { ktoContentId: '2891773', lclsSystm2: 'FD05' },
     });
   });
 

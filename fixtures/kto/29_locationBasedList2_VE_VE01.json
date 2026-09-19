@@ -1,0 +1,73 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "addr1": "강원특별자치도 강릉시 노암동 200-4",
+            "addr2": "(노암동)",
+            "zipcode": "25590",
+            "areacode": "32",
+            "cat1": "A02",
+            "cat2": "A0205",
+            "cat3": "A02050500",
+            "contentid": "2753136",
+            "contenttypeid": "12",
+            "createdtime": "20211006010206",
+            "dist": "1003.5925808289579",
+            "firstimage": "http://tong.visitkorea.or.kr/cms/resource/19/3577819_image2_1.jpg",
+            "firstimage2": "http://tong.visitkorea.or.kr/cms/resource/19/3577819_image3_1.jpg",
+            "cpyrhtDivCd": "Type1",
+            "mapx": "128.9071992254",
+            "mapy": "37.7481081912",
+            "mlevel": "6",
+            "modifiedtime": "20251215112936",
+            "sigungucode": "1",
+            "tel": "",
+            "title": "노암터널",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "VE",
+            "lclsSystm2": "VE01",
+            "lclsSystm3": "VE010600"
+          },
+          {
+            "addr1": "강원특별자치도 강릉시 창해로 344-1 (강문동)",
+            "addr2": "",
+            "zipcode": "25467",
+            "areacode": "32",
+            "cat1": "A02",
+            "cat2": "A0205",
+            "cat3": "A02050600",
+            "contentid": "3547899",
+            "contenttypeid": "12",
+            "createdtime": "20251014161433",
+            "dist": "4831.969524573743",
+            "firstimage": "",
+            "firstimage2": "",
+            "cpyrhtDivCd": "",
+            "mapx": "128.9193966990",
+            "mapy": "37.7942253168",
+            "mlevel": "6",
+            "modifiedtime": "20251023143000",
+            "sigungucode": "1",
+            "tel": "",
+            "title": "강문해변화장실",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "VE",
+            "lclsSystm2": "VE01",
+            "lclsSystm3": "VE010100"
+          }
+        ]
+      },
+      "numOfRows": 2,
+      "pageNo": 1,
+      "totalCount": 2
+    }
+  }
+}

@@ -559,14 +559,18 @@ export class AuditRunner {
      * 자리다. 서로 다른 결손이라 한쪽만 고쳐서는 문장이 안 없어진다 (#579).
      */
     const day = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor);
-    const night = planNightInsertion(finding, ctx.items, day === null);
-    const requests = [day, night].filter((r) => r !== null);
+    const hasNight = planNightInsertion(finding, ctx.items, new Set()) !== null;
 
     const patches: Patch[] = [];
     const exclude = new Set(ctx.items.map((i) => i.content?.ktoContentId ?? ''));
+    /** 낮 자리가 실제로 채운 중분류. 야간 자리는 이것을 뺀 결손부터 찾는다 (#584) */
+    const covered = new Set<string>();
     let spent = 0;
 
-    for (const request of requests) {
+    for (const slotKind of ['day', 'night'] as const) {
+      // 야간 요청은 낮 자리 결과를 보고 만든다. 무엇이 아직 비었는지는 그때 정해진다
+      const request = slotKind === 'day' ? day : planNightInsertion(finding, ctx.items, covered);
+      if (request === null) continue;
       const room = MAX_PATCHES_PER_FINDING - startIndex - patches.length;
       if (room <= 0 || spent >= listBudget) break;
 
@@ -578,7 +582,7 @@ export class AuditRunner {
           ?? SETTING_DEFAULTS.dwellFallbackMinutes,
         maxListCalls: listBudget - spent,
         // 낮 자리가 둘을 다 차지하면 야간 자리가 설 곳이 없다. 자리마다 나눠 쓴다
-        limit: Math.min(room, requests.length > 1 ? 1 : 2),
+        limit: Math.min(room, day !== null && hasNight ? 1 : 2),
         ...(request.verifyOpen && date !== undefined
           ? {
               maxVerifications: MAX_OPEN_CHECKS,
@@ -594,8 +598,10 @@ export class AuditRunner {
       patches.push(...found.patches);
       // 낮 자리에 넣자고 한 곳을 야간 자리에 또 내놓지 않는다
       for (const p of found.patches) {
-        const id = (p.payload as { content?: { ktoContentId: string } }).content?.ktoContentId;
-        if (id !== undefined) exclude.add(id);
+        const content = (p.payload as { content?: { ktoContentId: string; lclsSystm2: string | null } }).content;
+        if (content === undefined) continue;
+        exclude.add(content.ktoContentId);
+        if (content.lclsSystm2 !== null) covered.add(content.lclsSystm2);
       }
     }
     return { patches, spent };
