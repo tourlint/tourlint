@@ -11,8 +11,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { createReadStream } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { NlService } from './nl.service';
 import { readSheetRows } from './read-sheet';
 import { parseSchedule, type ParseResult } from './schedule-parse';
@@ -34,7 +34,11 @@ const MAX_BYTES = 5 * 1024 * 1024;
 // multer 메모리 안전망 — 상한보다 크게 둬서, 상한 초과는 우리가 안내 문구와 함께 거부하고
 // 정말 큰 파일만 버퍼링 자체를 막는다.
 const HARD_CAP_BYTES = 20 * 1024 * 1024;
-const TEMPLATE_PATH = resolve(process.cwd(), '../../fixtures/excel/sample_3days_ok.xlsx');
+/*
+ * 소스 위치 기준이다. `process.cwd()` 는 띄우는 자리에 따라 달라진다 — 운영은 `/app` 이라
+ * `../../fixtures` 가 루트 밖으로 나갔다 (#578). 폰트와 같은 `assets` 아래에 둔다.
+ */
+export const TEMPLATE_PATH = join(__dirname, '../../assets/templates/schedule_template.xlsx');
 
 @ApiTags('실엔진')
 @Controller('api/v1/uploads')
@@ -43,10 +47,16 @@ export class UploadController {
 
   /** 지정 양식 내려받기 (UI-S2-002) */
   @Get('template')
-  template(@Res() res: Response): void {
+  async template(@Res() res: Response): Promise<void> {
+    /*
+     * 스트림으로 흘리지 않는다. 오류 처리기 없는 `createReadStream().pipe()` 는 파일을 못 열면
+     * 처리 안 된 `error` 이벤트로 **프로세스를 죽인다** (#578). 수 KB 라 통째로 읽고, 실패는
+     * 예외로 올려 그 요청만 500 으로 끝낸다.
+     */
+    const body = await readFile(TEMPLATE_PATH);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="tourlint_schedule_template.xlsx"');
-    createReadStream(TEMPLATE_PATH).pipe(res);
+    res.send(body);
   }
 
   /** 엑셀·CSV 업로드 파싱. 저장 전 편집용 결과만 돌려준다 (UI-S2-010·011) */
