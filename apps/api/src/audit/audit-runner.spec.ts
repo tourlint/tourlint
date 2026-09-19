@@ -574,16 +574,18 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     const inserts = (r10?.patches ?? []).map((p) => p.payload as {
       dayNo: number; startTime: string; endTime: string; content?: { ktoContentId: string; lclsSystm2: string | null };
     });
-    // 낮 — 3일차 15:30 뒤. 공예체험(EX02)으로 좁혀 찾은 곳
-    expect(inserts[0]).toMatchObject({ dayNo: 3, startTime: '16:00', content: { lclsSystm2: 'EX02' } });
     /*
-     * 야간 — 1일차 19:00. 낮 자리가 공예체험만 채웠으므로 남은 결손인 **카페부터** 찾는다.
-     * 랜드마크부터 찾으면 숙소 옆 화장실이 나온다 (#584). 가장 가까운 카페(3532680)는 18:00 에
-     * 닫아 떨어지고 11:00~20:00 인 2891773 이 들어간다. 카페 체류는 60분이라 20:00 에 끝난다.
+     * 야간이 먼저다 (#589) — 1일차 19:00. 결손인 공예체험부터 찾지만 그곳(2925502)은 이용시간이
+     * 「체험에 따라 상이함」 이라 밤에 여는지 알 수 없어 떨어진다. 다음 결손인 카페로 넘어가
+     * 가장 가까운 3532680 은 18:00 에 닫아 떨어지고 11:00~20:00 인 2891773 이 들어간다.
+     * 카페 체류는 60분이라 20:00 에 끝난다. 이 하나로 「카페 없음」 과 「19:00 이후 없음」 이 풀린다.
      */
-    expect(inserts[1]).toMatchObject({
+    expect(inserts[0]).toMatchObject({
       dayNo: 1, startTime: '19:00', endTime: '20:00', content: { ktoContentId: '2891773', lclsSystm2: 'FD05' },
     });
+    // 낮 — 야간이 못 채운 공예체험만 맡는다. 3일차 15:30 뒤
+    expect(inserts[1]).toMatchObject({ dayNo: 3, startTime: '16:00', content: { lclsSystm2: 'EX02' } });
+    expect(inserts).toHaveLength(2);
   });
 
   it('🔴 표준 목록에 없는 타깃 · 콘셉트(옛 자유 입력)면 확인 불가다', async () => {
