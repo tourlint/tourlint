@@ -57,7 +57,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     res.status(status).json({
       reasonCode,
-      message: external !== null ? EXTERNAL_UNAVAILABLE_MESSAGE : pickMessage(body),
+      message: external !== null ? EXTERNAL_UNAVAILABLE_MESSAGE : pickMessage(body, status),
       unit,
       ...(Array.isArray(body.fieldErrors) && body.fieldErrors.length > 0
         ? { fieldErrors: body.fieldErrors }
@@ -68,8 +68,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 }
 
+/** 형식이 틀린 입력 — 무엇이 틀렸는지 우리 문구가 없을 때 쓴다 */
+export const INPUT_INVALID_MESSAGE = '보낸 값의 형식이 올바르지 않습니다. 요청 본문과 파라미터를 확인해 주세요.';
+
 function pickReasonCode(body: Record<string, unknown>, status: number): ExceptionReasonCode {
   if (typeof body.reasonCode === 'string') return body.reasonCode as ExceptionReasonCode;
+  /*
+   * 사유코드 없이 던진 입력 오류(`BadRequestException`)와 깨진 JSON 본문이다. 서버 오류가
+   * 아니다 — `INTERNAL_ERROR` 로 적으면 원인이 우리 쪽인지 보낸 쪽인지 가릴 수 없다
+   * (EX-CM-021 · #612).
+   */
+  if (status === HttpStatus.BAD_REQUEST) return 'INPUT_INVALID';
   if (status === HttpStatus.NOT_FOUND) return 'NOT_FOUND';
   if (status === HttpStatus.UNAUTHORIZED) return 'NOT_AUTHENTICATED';
   if (status === HttpStatus.FORBIDDEN) return 'FORBIDDEN_ACTION';
@@ -82,10 +91,14 @@ function pickReasonCode(body: Record<string, unknown>, status: number): Exceptio
  * Nest 가 기본으로 만드는 문구는 영어이고 내부 사정을 드러낼 수 있어 그대로 쓰지 않는다.
  * 배열로 오는 검증 메시지도 그대로 노출하지 않는다.
  */
-function pickMessage(body: Record<string, unknown>): string {
-  return typeof body.message === 'string' && body.message !== ''
-    ? body.message
-    : '요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.';
+function pickMessage(body: Record<string, unknown>, status: number): string {
+  const message = typeof body.message === 'string' ? body.message : '';
+  /*
+   * 입력 오류인데 한국어가 아니면 우리가 쓴 문구가 아니다. JSON 파서가 만든 영어 문구
+   * ("Expected double-quoted property name in JSON at position 27")가 그대로 나갔다 (#612).
+   */
+  if (status === HttpStatus.BAD_REQUEST && !/[가-힣]/.test(message)) return INPUT_INVALID_MESSAGE;
+  return message !== '' ? message : '요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.';
 }
 
 function defaultUnit(status: number): ExceptionUnit {
