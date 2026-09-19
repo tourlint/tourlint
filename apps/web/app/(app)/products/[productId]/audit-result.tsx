@@ -37,6 +37,7 @@ import { ruleName } from "../../../lib/rule-names";
 import { scoreSentence } from "../../../lib/score-sentence";
 import { WorkspaceIcon } from "../../../components/workspace-icon";
 import { FINDING_FILTERS, filterFindings, type FindingFilter } from "./finding-filter";
+import { CurrentSchedule } from "./current-schedule";
 import { PatchDescription } from "./patch-description";
 import { CheckQuestionsCard } from "./check-questions-card";
 
@@ -170,7 +171,7 @@ export function AuditResult({ productId }: { productId: number }) {
       const runId = await pollJob(job.jobId);
       if (runId !== null) {
         resetPatchState();
-        await loadRun(runId);
+        await Promise.all([loadRun(runId), refetchProduct()]);
       }
     } catch (err) {
       setError(isApiError(err) ? err.message : err instanceof Error ? err.message : "검수 실행에 실패했습니다.");
@@ -222,7 +223,7 @@ export function AuditResult({ productId }: { productId: number }) {
       const runId = await pollJob(applied.reauditJobId);
       if (runId !== null) {
         resetPatchState();
-        await loadRun(runId);
+        await Promise.all([loadRun(runId), refetchProduct()]);
         // 재검수가 끝난 뒤 반영 상세를 읽어 경고 배너·되돌리기 가능 여부를 받는다.
         // 이 조회가 실패해도 반영 자체는 이미 성공했으므로 배너 없이 진행한다.
         try {
@@ -627,7 +628,7 @@ export function SummaryCard({ run, confirmationCount }: { run: RunSummary; confi
   );
 }
 
-function FindingsSection({
+export function FindingsSection({
   product,
   findings,
   itemLabel,
@@ -647,6 +648,10 @@ function FindingsSection({
   busy: boolean;
 }) {
   const [filter, setFilter] = useState<FindingFilter>("ALL");
+  const [focusedId, setFocusedId] = useState<number | null>(null);
+  const [scheduleExpanded, setScheduleExpanded] = useState(true);
+  const focused = findings.find(f => f.findingId === focusedId) ?? null;
+  const focusedPatch = focused?.patches.find(p => p.patchId === selected[focused.findingId]);
   const sorted = filterFindings(findings, filter);
   return (
     <section id="audit-findings" className="audit-findings audit-anchor">
@@ -654,6 +659,9 @@ function FindingsSection({
         <h2>문제를 확인하고, 수정안을 골라보세요</h2>
         <p>판단 근거를 확인한 뒤 수정안을 선택하세요. 미리보기에서 비교하고 확정해야 일정에 반영됩니다.</p>
       </div></div>
+      <div className="audit-workbench">
+        <CurrentSchedule product={product} finding={focused} patch={focusedPatch} expanded={scheduleExpanded} onToggle={() => setScheduleExpanded(v => !v)} />
+        <div className="audit-findings-list">
       <div className="finding-filters" role="group" aria-label="발견 항목 필터">
         {FINDING_FILTERS.map(({ value, label }) => <button key={value} type="button" aria-pressed={filter === value}
           onClick={() => setFilter(value)}>{label}<span>{filterFindings(findings, value).length}</span></button>)}
@@ -671,18 +679,24 @@ function FindingsSection({
               itemLabel={itemLabel}
               contentId={contentOf(f.target.itemId)}
               selectedPatchId={selected[f.findingId] ?? null}
-              onSelectPatch={onSelectPatch}
+              onInspect={() => { setFocusedId(f.findingId); setScheduleExpanded(true); }}
+              onFocusFinding={() => setFocusedId(f.findingId)}
+              onSelectPatch={(findingId, patchId) => { setFocusedId(findingId); onSelectPatch(findingId, patchId); }}
               onChanged={onChanged}
               busy={busy}
             />
           ))}
         </ul>
       )}
+        </div>
+      </div>
     </section>
   );
 }
 
 function FindingCard({
+  onInspect,
+  onFocusFinding,
   product,
   finding,
   itemLabel,
@@ -692,6 +706,8 @@ function FindingCard({
   onChanged,
   busy,
 }: {
+  onInspect: () => void;
+  onFocusFinding: () => void;
   finding: Finding;
   product: ProductDetail | null;
   itemLabel: (itemId: number | null) => string;
@@ -748,6 +764,7 @@ function FindingCard({
 
   return (
     <li
+      onFocusCapture={onFocusFinding}
       className={`finding-card rounded-xl border border-l-4 border-slate-200 p-4 dark:border-slate-800 ${meta.bar} ${
         dismissed ? "opacity-60" : ""
       }`}
@@ -766,6 +783,7 @@ function FindingCard({
             대상: {itemLabel(finding.target.itemId)}
             {finding.targetSecondary && ` ↔ ${itemLabel(finding.targetSecondary.itemId)}`}
           </p>
+          <button type="button" className="finding-schedule-button" onClick={onInspect}>일정에서 확인</button>
           {finding.requiresExternal && finding.externalSource && (
             <p className="mt-1 text-xs text-slate-400">외부 참고: {finding.externalSource}</p>
           )}

@@ -96,3 +96,38 @@
   .audit-header-actions { width: 100%; }
   .audit-header-actions > * { flex: 1; }
 }
+
+/* 현재 일정은 수정안 선택 여부와 관계없이 문제 목록 곁에서 참조한다. */
+.audit-workbench { display: grid; grid-template-columns: minmax(280px, .85fr) minmax(0, 1.65fr); gap: 24px; align-items: start; }
+.audit-findings-list { min-width: 0; }
+.current-schedule { position: sticky; top: 84px; z-index: 8; min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 5px 20px #183e2c08; }
+.current-schedule-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; }
+.current-schedule-heading h3 { font-size: 17px; font-weight: 750; }
+.current-schedule-heading h3 span { margin-left: 5px; font-size: 11px; font-weight: 500; color: var(--muted); }
+.current-schedule-heading p { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.current-schedule-heading button { flex-shrink: 0; color: var(--accent); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+.current-schedule-hint { font-size: 12px; color: var(--accent); background: var(--accent-soft); padding: 10px 16px; line-height: 1.6; }
+.current-schedule-scroll { max-height: calc(100dvh - 340px); min-height: 100px; overflow-y: auto; overscroll-behavior: contain; padding: 12px; }
+.current-schedule-day + .current-schedule-day { margin-top: 20px; }
+.current-schedule-day h4 { margin: 0 2px 8px; font-size: 14px; font-weight: 750; }
+.current-schedule-day h4 span { margin-left: 8px; font-size: 11px; color: var(--muted); font-weight: 400; }
+.current-schedule-day ol { display: grid; gap: 8px; }
+.current-schedule-day li { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface-soft); }
+.current-schedule-day li[data-related="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.current-schedule-time { font-size: 12px; color: var(--accent); font-weight: 650; }
+.current-schedule-day strong { display: block; font-size: 13px; line-height: 1.6; margin: 3px 0; overflow-wrap: anywhere; }
+.current-schedule-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--muted); }
+.current-schedule-meta b { color: var(--accent); }
+.current-schedule-footnote { border-top: 1px solid var(--line); padding: 10px 16px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+.finding-schedule-button { margin-top: 10px; font-size: 12px; font-weight: 650; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 900px) {
+  .audit-workbench { display: block; }
+  .current-schedule { top: 76px; margin-bottom: 20px; }
+  .current-schedule-heading { padding: 10px 14px; }
+  .current-schedule-heading p, .current-schedule-footnote { display: none; }
+  .current-schedule-scroll { max-height: min(24dvh, 200px); min-height: 70px; }
+  .current-schedule-hint { padding: 6px 14px; font-size: 11px; }
+}
+@media (max-width: 540px) {
+  .current-schedule { top: 64px; }
+}
