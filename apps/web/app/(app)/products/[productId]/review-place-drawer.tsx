@@ -1,5 +1,6 @@
 "use client";
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import type { ProductDetail } from '../../../lib/api';
 import { PlacePicker, type PickerContext } from './plan/place-picker';
@@ -21,7 +22,8 @@ export function ReviewPlaceDrawer({ product, context, changed, onInserted, onClo
       <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
         <div><h2 id="review-place-title" className="text-lg font-semibold">일정에 장소 더하기</h2>
           <p className="mt-2 text-sm text-slate-500">넣을 일차와 위치를 확인한 뒤 장소를 담으세요. 앞 장소의 종료시간과 예상 이동시간을 반영해 추가합니다.</p>
-          <p className="mt-1 text-xs text-slate-500">기존 장소를 바꾸거나 시간을 직접 조정하려면 ‘일정 편집’을 이용하세요.</p></div>
+          <p className="mt-1 text-xs text-slate-500">기존 장소를 바꾸거나 시간을 직접 조정하려면 ‘일정 편집’을 이용하세요.</p>
+          <Link href={`/products/${product.productId}/plan`} aria-disabled={saving} tabIndex={saving ? -1 : undefined} onClick={e => { if (saving) e.preventDefault(); }} className="mt-2 inline-block text-xs underline">장소 상세·행사·걷기 길 보기</Link></div>
         <button type="button" className="button-secondary shrink-0" disabled={saving} onClick={onClose}>닫기</button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
