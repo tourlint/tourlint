@@ -186,7 +186,7 @@ describe('날짜 순회 (FR-MO-011)', () => {
 });
 
 describe('0건과 실패 (FR-MO-014 · 015)', () => {
-  it('🔴 평일 0건이면 last_covered 를 올리지 않는다', async () => {
+  it('🔴 어제가 평일인데 0건이면 last_covered 를 올리지 않는다', async () => {
     /*
      * 공사가 그날 분을 아직 안 올렸을 수 있다. 처리한 것으로 치면 그 날짜의 변경을
      * 영영 못 본다 — 다음 배치가 그 다음 날부터 보기 때문이다.
@@ -200,17 +200,48 @@ describe('0건과 실패 (FR-MO-014 · 015)', () => {
     expect(recorded[0]?.lastCovered).toBeUndefined();
   });
 
-  it('🔴 중간에 0건이 나오면 거기서 멈춘다', async () => {
+  it('🔴 어제에서 멈추면 그 앞까지는 올린다', async () => {
     const { repo, recorded } = stubState({ lastCovered: '2026-08-23' });
     const { kto, calls } = stubKto({
-      '20260824': [item()], '20260825': [], '20260826': [item()],
+      '20260824': [item()], '20260825': [item()], '20260826': [],
     });
     const result = await job(kto, repo).run();
 
-    // 08-25 에서 멈춘다. 건너뛰고 08-26 을 처리하면 08-25 를 영영 못 본다
-    expect(calls).toEqual(['20260824', '20260825']);
-    expect(result.covered).toBe('2026-08-24');
-    expect(recorded[0]?.lastCovered).toBe('2026-08-24');
+    expect(calls).toEqual(['20260824', '20260825', '20260826']);
+    expect(result.covered).toBe('2026-08-25');
+    expect(recorded[0]).toMatchObject({ status: 'OK', lastCovered: '2026-08-25' });
+  });
+
+  it('🔴 주말 0건은 넘어간다 — 일요일은 실제로 0건이다 (#605)', async () => {
+    /*
+     * 운영에서 그대로 일어난 일이다. 공사 동기화 목록은 08-30(일)이 0건이었다(09-20 실호출).
+     * 요일을 안 보고 멈추던 배치가 평일마다 08-30 하나만 부르고 3주를 멈춰 있었다.
+     */
+    const { repo, recorded } = stubState({ lastCovered: '2026-08-29' });
+    const { kto, calls } = stubKto({ '20260830': [], '20260831': [item({ contentid: '31' })] });
+    // 09-01(화) 05:00 — 볼 날짜는 08-30(일) · 08-31(월)
+    const result = await job(kto, repo, { now: '2026-09-01T05:00:00' }).run();
+
+    expect(calls).toEqual(['20260830', '20260831']);
+    expect(result.status).toBe('OK');
+    expect(result.contents.map((c) => c.contentId)).toEqual(['31']);
+    expect(recorded[0]).toMatchObject({ status: 'OK', lastCovered: '2026-08-31' });
+  });
+
+  it('🔴 이틀 지난 평일 0건은 공휴일로 보고 넘어간다 — 추석', async () => {
+    /*
+     * 평일이라고 늘 멈추면 공휴일에서 영영 못 넘어간다. 09-25(금) 배치는 어제인 09-24 에서
+     * 멈추고, 09-28(월) 배치가 다시 봐서 여전히 0건이면 변경이 없던 날이다.
+     */
+    const { repo, recorded } = stubState({ lastCovered: '2026-09-23' });
+    const { kto, calls } = stubKto({
+      '20260924': [], '20260925': [], '20260926': [item({ contentid: '26' })], '20260927': [],
+    });
+    const result = await job(kto, repo, { now: '2026-09-28T05:00:00' }).run();
+
+    expect(calls).toEqual(['20260924', '20260925', '20260926', '20260927']);
+    expect(result.contents.map((c) => c.contentId)).toEqual(['26']);
+    expect(recorded[0]).toMatchObject({ status: 'OK', lastCovered: '2026-09-27' });
   });
 
   it('🔴 조회가 실패하면 그 날짜를 넘기지 않는다', async () => {

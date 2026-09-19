@@ -100,6 +100,26 @@ function nextDayOf(iso: IsoDate) {
 }
 
 /**
+ * 그 날짜의 0건이 동기화 지연 신호인가 (FR-MO-015).
+ *
+ * 공사가 아직 덜 올렸을 수 있는 것은 **가장 최근 날(어제)** 뿐이다. 어제가 평일이고 0건이면
+ * 멈추고 다음 배치가 다시 본다. 나머지 0건은 정말 변경이 없는 날이라 넘어간다 — 멈추면 그
+ * 날짜에서 영영 못 벗어난다.
+ *
+ *   주말            일요일은 실제로 0건이다(2026-08-30 · 09-06 실호출). 요일을 안 보던 때
+ *                   배치가 08-30 에서 3주를 멈춰 있었다 (#605)
+ *   이틀 지난 평일  어제일 때 한 번 멈췄는데도 0건이면 공휴일(추석 등)이다
+ */
+export function isSyncDelay(date: IsoDate, now: Date): boolean {
+  const day = parseIsoDate(date);
+  const today = parseIsoDate(kstToday(now));
+  // 날짜를 못 읽으면 넘기지 않는다. 넘긴 날짜는 다시 보지 않는다
+  if (day === null || today === null) return true;
+  if (['SAT', 'SUN'].includes(dayOfWeek(day))) return false;
+  return formatIsoDate(addDays(today, -1)) === date;
+}
+
+/**
  * 다음 배치 시각 (API 4-8 `nextBatchAt`) — 한국 시간 `YYYY-MM-DDTHH:MM:00+09:00`.
  *
  * 평일의 `batch_time` 가운데 지금보다 뒤인 첫 시각이다. 그 분이 된 순간 스케줄러가 걸기
