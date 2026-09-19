@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Pool } from 'pg';
-import { LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, type Severity } from '@tourlint/shared';
+import { findingMessage, LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, type Severity } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
 import { LlmParseCacheRepository } from '../persistence/llm-parse-cache.repository';
@@ -958,6 +958,7 @@ export function toFindingsResponse(
   targets: ReadonlyMap<number, FindingTarget> = new Map(),
 ): Record<string, unknown> {
   const wanted = SEVERITY.includes(severity as Severity) ? (severity as Severity) : null;
+  const placeLabels = new Map([...targets].map(([id, target]) => [id, target.placeLabel]));
   const content = run.findings
     .filter((f) => wanted === null || f.severity === wanted)
     .map((f) => ({
@@ -966,7 +967,7 @@ export function toFindingsResponse(
       ruleVersion: f.ruleVersion,
       severity: f.severity,
       reasonCode: f.reasonCode,
-      message: f.message,
+      message: findingMessage(f.ruleCode, f.message, f.evidence, placeLabels),
       target: targetOf(f.targetItemId, targets, f.reasonCode === 'CONTENT_HIDDEN'),
       targetSecondary: f.targetItemId2 === null ? null : targetOf(f.targetItemId2, targets),
       /*
