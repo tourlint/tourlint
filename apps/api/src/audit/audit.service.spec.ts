@@ -589,6 +589,31 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       await service.waitForIdle();
     });
 
+    it('🔴 관광지가 담긴 삽입은 매칭된 항목으로 저장된다 (FR-RU-093 ① · 103)', async () => {
+      /*
+       * R09 · R10 의 삽입 수정안은 넣을 관광지(`content`)를 들고 온다. 이걸 식사·휴식처럼
+       * `EXCLUDED` 로 저장하면 `ck_item_match_content`(EXCLUDED 는 contentid 가 없어야 한다)에
+       * 걸려 **확정 자체가 실패한다.** 저장되더라도 R10 은 매칭된 항목만 세므로 결손이 안 풀린다.
+       */
+      const [a] = await day1Ids();
+      const findingId = await synthFinding([
+        {
+          patchId: 'p-1', type: 'INSERT_ITEM', targetItemId: a,
+          payload: {
+            dayNo: 1, afterItemId: a, startTime: '15:00', endTime: '16:30', itemType: 'SIGHT',
+            content: { ktoContentId: '125769', contentTypeId: 12, lclsSystm2: 'NA02', mapx: 128.8961, mapy: 37.7952 },
+          },
+        },
+      ]);
+      await confirmAndSettle([{ findingId, patchId: 'p-1' }]);
+
+      const { rows } = await pool.query<{ match_status: string; kto_content_id: string | null }>(
+        `SELECT match_status, kto_content_id FROM itinerary_item
+          WHERE product_id = $1 AND start_time = '15:00'::time`, [productId],
+      );
+      expect(rows[0]).toEqual({ match_status: 'CONFIRMED', kto_content_id: '125769' });
+    });
+
     it('🔴 충돌하면 확정하지 않는다 — 어느 둘인지 지목한다 (FR-PA-006 · EX-PA-001)', async () => {
       // 같은 항목을 둘이 함께 건드리게 만든다. 픽스처가 충돌을 내주기를 기다리지 않는다
       const [a] = await day1Ids();
