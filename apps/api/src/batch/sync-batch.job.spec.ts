@@ -6,6 +6,7 @@ import type { NotificationRepository, NotificationToSave } from '../persistence/
 import { FINGERPRINT_FIELDS } from '@tourlint/shared';
 import { buildContentFingerprint, type FingerprintSnapshot } from '../engine/fingerprint';
 import type { ImpactCandidate } from './impact-finder';
+import { OPPORTUNITY_CAP_PER_PRODUCT, type OpportunityCandidate } from './opportunity';
 import {
   DEFAULT_BATCH_WATCH_LIMIT, SyncBatchJob, changeKeyOf, readWatchLimit, toEventPeriod, toSyncedContent,
 } from './sync-batch.job';
@@ -98,13 +99,15 @@ const snapshot = (raw: Record<string, unknown>, over: Partial<FingerprintSnapsho
 });
 
 const candidate = (over: Partial<ImpactCandidate> = {}): ImpactCandidate => ({
-  productId: 1, startDate: '2026-08-27', nights: 1, ldongSignguCd: '150', ...over,
+  productId: 1, startDate: '2026-08-27', nights: 1, ldongRegnCd: '51', ldongSignguCd: '150', ...over,
 });
 
 /** 알림 저장소 스텁. 넣은 것을 그대로 들여다볼 수 있게 한다 */
 function stubNotifications(spec: {
   withContent?: Record<string, ImpactCandidate[]>;
   watched?: ImpactCandidate[];
+  /** 조건 4 ~ 6 후보 — 결손 유형 · 일정 항목을 붙인 감시 상품 */
+  opportunity?: OpportunityCandidate[];
 } = {}) {
   const saved: NotificationToSave[] = [];
   const lookups: string[] = [];
@@ -121,6 +124,7 @@ function stubNotifications(spec: {
       return out;
     },
     watchedProducts: async (): Promise<readonly ImpactCandidate[]> => spec.watched ?? [],
+    opportunityCandidates: async (): Promise<readonly OpportunityCandidate[]> => spec.opportunity ?? [],
     insertMany: async (items: readonly NotificationToSave[]): Promise<number> => {
       saved.push(...items);
       return items.length;
@@ -578,6 +582,76 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
 
     expect(result.contents).toHaveLength(1);
     expect(result.impacts).toEqual([]);
+  });
+});
+
+describe('2단계 — 새 소식 (조건 4 ~ 6 · FR-MO-030 ④⑤⑥ · #616)', () => {
+  /** 08-26 에 새로 등록된 곳. 강릉(51-150) · 중분류는 인자로 */
+  const fresh = (contentid: string, lclsSystm2: string, over: Record<string, unknown> = {}) => item({
+    contentid, contenttypeid: '12', lclsSystm2, createdtime: '20260826093000', modifiedtime: '20260826093000', ...over,
+  });
+  /** 결손 유형과 빈 시간대(11:00 ~ 21:00)가 있는 강릉 상품 */
+  const product9 = (over: Partial<OpportunityCandidate> = {}): OpportunityCandidate => ({
+    ...candidate({ productId: 9, startDate: '2026-11-17', nights: 1 }),
+    missingLcls2: ['VE01'],
+    items: [{ dayNo: 1, seq: 1, startTime: '09:00', endTime: '11:00', mapX: 128.8961, mapY: 37.7955 }],
+    ...over,
+  });
+  const setup = (contents: Record<string, unknown>[], opportunity = [product9()]) => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': contents });
+    const notif = stubNotifications({ watched: opportunity, opportunity });
+    return { run: () => job(kto, state, { notifications: notif.repo }).run(), saved: notif.saved };
+  };
+
+  it('🔴 새로 등록된 곳이 R10 결손 유형이면 새 소식(조건 4)을 만든다 — 전에는 아무도 판정 함수를 부르지 않았다', async () => {
+    const { run, saved } = setup([fresh('n1', 'VE01')]);
+    await run();
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({
+      productId: 9, kind: 'OPPORTUNITY', condition: 4, ktoContentId: 'n1', changeKey: 'NEW:20260826093000',
+    });
+  });
+
+  it('빈 시간대에 들어가면 조건 5 로 건다', async () => {
+    const { run, saved } = setup([fresh('n2', 'FD01')]);
+    await run();
+    expect(saved[0]).toMatchObject({ kind: 'OPPORTUNITY', condition: 5 });
+  });
+
+  it(`🔴 상품마다 ${String(OPPORTUNITY_CAP_PER_PRODUCT)}건까지만 — 결손 유형을 먼저 남긴다`, async () => {
+    const { run, saved } = setup([
+      fresh('a', 'FD01'), fresh('b', 'FD02'), fresh('c', 'FD05'), fresh('d', 'HS01'), fresh('z', 'VE01'),
+    ]);
+    await run();
+
+    const chances = saved.filter((n) => n.kind === 'OPPORTUNITY');
+    expect(chances).toHaveLength(OPPORTUNITY_CAP_PER_PRODUCT);
+    expect(chances.map((n) => `${String(n.condition)}:${n.ktoContentId ?? ''}`)).toEqual(['4:z', '5:a', '5:b']);
+  });
+
+  it('🔴 바뀐 정보는 상한으로 자르지 않는다', async () => {
+    const near = candidate({ productId: 9, startDate: '2026-08-28', nights: 1 });
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': ['r1', 'r2', 'r3', 'r4', 'r5'].map((id) => item({ contentid: id, contenttypeid: '12' })) });
+    const notif = stubNotifications({ watched: [near], opportunity: [] });
+    await job(kto, state, { notifications: notif.repo }).run();
+
+    // 오래된 곳이 고쳐진 것이라 조건 2(같은 시군구 · 여행일 ±7일) 바뀐 정보다
+    expect(notif.saved.filter((n) => n.kind === 'RISK')).toHaveLength(5);
+  });
+
+  it('🔴 오래된 곳이 고쳐진 것은 새 소식이 아니다', async () => {
+    const { run, saved } = setup([item({ contentid: 'old', contenttypeid: '12', lclsSystm2: 'VE01' })]);
+    await run();
+    expect(saved.filter((n) => n.kind === 'OPPORTUNITY')).toEqual([]);
+  });
+
+  it('🔴 다른 시도의 같은 시군구 번호에는 권하지 않는다', async () => {
+    const { run, saved } = setup([fresh('seoul', 'VE01', { lDongRegnCd: '11' })]);
+    await run();
+    expect(saved).toEqual([]);
   });
 });
 
