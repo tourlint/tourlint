@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Pool } from 'pg';
 import {
-  findingMessage, LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, withPlaceName, type Severity,
+  findingMessage, kstIso, LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, withPlaceName, type Severity,
 } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
@@ -895,8 +895,8 @@ export function toJobResponse(job: AuditJob, includePollHint = false): Record<st
     },
     auditRunId: job.auditRunId,
     ...(job.errorCode === null ? {} : { errorCode: job.errorCode }),
-    createdAt: job.createdAt.toISOString(),
-    ...(job.finishedAt === null ? {} : { finishedAt: job.finishedAt.toISOString() }),
+    createdAt: kstIso(job.createdAt),
+    ...(job.finishedAt === null ? {} : { finishedAt: kstIso(job.finishedAt) }),
     ...(includePollHint ? { pollIntervalMs: POLL_INTERVAL_MS } : {}),
   };
 }
@@ -921,7 +921,7 @@ export function toRunResponse(run: StoredAuditRun, basis: RunBasis = EMPTY_BASIS
   return {
     auditRunId: run.id,
     productId: run.productId,
-    executedAt: run.executedAt.toISOString(),
+    executedAt: kstIso(run.executedAt),
     rulesetVersion: run.rulesetVersion,
     isPartial: run.isPartial,
     readinessScore: c.score,
@@ -943,7 +943,7 @@ export function toRunResponse(run: StoredAuditRun, basis: RunBasis = EMPTY_BASIS
     releasable: !c.releaseBlocked,
     releaseBlockedReason: c.releaseBlocked ? `차단 ${c.counts.BLOCKER}건` : null,
     evidence: {
-      fetchedAt: run.executedAt.toISOString(),
+      fetchedAt: kstIso(run.executedAt),
       targetContentCount: run.targetCount,
       dataFingerprint: basis.fingerprint === undefined ? null : shortFingerprint(basis.fingerprint),
       /** 축약 표기 옆에서 전체 값을 확인할 수 있어야 한다 (UI-CM-032) */
@@ -1013,7 +1013,7 @@ export function toFindingsResponse(
        */
       hiddenContent:
         f.reasonCode === 'CONTENT_HIDDEN'
-          ? { contentid: String(f.evidence.ktoContentId ?? ''), detectedAt: run.executedAt.toISOString() }
+          ? { contentid: String(f.evidence.ktoContentId ?? ''), detectedAt: kstIso(run.executedAt) }
           : null,
       requiresExternal: f.requiresExternal,
       externalSource: f.externalSource,
@@ -1025,9 +1025,9 @@ export function toFindingsResponse(
        * 독립적으로 다시 막는다 — 여기 값이 틀려도 무시가 통과되지는 않는다.
        */
       dismissible: f.severity !== 'BLOCKER',
-      dismissedAt: f.dismissedAt?.toISOString() ?? null,
+      dismissedAt: f.dismissedAt == null ? null : kstIso(f.dismissedAt),
       dismissReason: f.dismissReason,
-      confirmedAt: f.confirmedAt?.toISOString() ?? null,
+      confirmedAt: f.confirmedAt == null ? null : kstIso(f.confirmedAt),
       /*
        * 판정 근거 2단 (API 설계 5-6). 공사 원문은 여기 없다 — 카드의 「판단 근거 보기」를
        * 펼칠 때 `GET /contents/{contentId}` 로 그 1건만 조달해 3단을 완성한다 (5-12).
@@ -1077,7 +1077,7 @@ export function toPatchApplicationResponse(
   return {
     patchApplicationId: application.id,
     productId: application.productId,
-    appliedAt: application.appliedAt.toISOString(),
+    appliedAt: kstIso(application.appliedAt),
     selectedPatches: application.selections,
     itemCount: { before: application.before.items.length, after: application.after.items.length },
     before: toSideSummary(application.beforeAuditRunId, before),
@@ -1086,7 +1086,7 @@ export function toPatchApplicationResponse(
     reauditStatus: application.afterAuditRunId === null ? 'PENDING' : 'DONE',
     warningBanner: warningBanner(before, after),
     revertible,
-    revertedAt: application.revertedAt === null ? null : application.revertedAt.toISOString(),
+    revertedAt: application.revertedAt === null ? null : kstIso(application.revertedAt),
   };
 }
 
@@ -1095,7 +1095,7 @@ function toSideSummary(auditRunId: number | null, run: StoredAuditRun | null): R
   if (run === null) return { auditRunId };
   return {
     auditRunId,
-    executedAt: run.executedAt.toISOString(),
+    executedAt: kstIso(run.executedAt),
     readinessScore: run.current.score,
     counts: {
       blocker: run.current.counts.BLOCKER, error: run.current.counts.ERROR,
@@ -1130,7 +1130,7 @@ export function toRevertResponse(application: StoredPatchApplication, revertedAt
   return {
     patchApplicationId: application.id,
     productId: application.productId,
-    revertedAt: revertedAt.toISOString(),
+    revertedAt: kstIso(revertedAt),
     /*
      * 되돌린 일정은 `before_audit_run_id` 가 판정한 그 일정이다. 재검수를 다시 돌리지
      * 않고 그 결과를 현재 결과로 가리킨다 — 같은 답을 받으려고 공사 호출을 쓰지 않는다.
@@ -1210,7 +1210,7 @@ export function toRunListResponse(
       auditRunId: r.id,
       // 지금 일정의 결과. 되돌렸으면 가장 최근이 아니라 반영 전 실행이다 (#551)
       isCurrent: r.id === currentRunId,
-      executedAt: r.executedAt.toISOString(),
+      executedAt: kstIso(r.executedAt),
       rulesetVersion: r.rulesetVersion,
       // 조회 시점 재계산값이다. 무시 처리가 반영돼 있다 (FR-AU-046)
       readinessScore: r.current.score,
@@ -1279,8 +1279,8 @@ export function toComparisonResponse(
 
   return {
     patchApplicationId: application.id,
-    before: { auditRunId: before.id, executedAt: before.executedAt.toISOString() },
-    after: { auditRunId: after.id, executedAt: after.executedAt.toISOString() },
+    before: { auditRunId: before.id, executedAt: kstIso(before.executedAt) },
+    after: { auditRunId: after.id, executedAt: kstIso(after.executedAt) },
     metrics,
     warningBanner: warningBannerOf(before, after),
     // 화면 5 도 검수 근거 영역을 고정 표시한다 (UI-CM-030). 반영 후 실행이 기준이다

@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { CatalogService } from '../catalog/catalog.service';
@@ -169,7 +170,7 @@ export class ReportService {
         this.findRun(r.afterAuditRunId),
       ]);
       return {
-        appliedAt: r.appliedAt.toISOString(),
+        appliedAt: kstIso(r.appliedAt),
         reverted: r.revertedAt !== null,
         beforeScore: before?.current.score ?? null,
         afterScore: after?.current.score ?? null,

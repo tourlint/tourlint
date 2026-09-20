@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import { Controller, Get } from '@nestjs/common';
 import { Client } from 'pg';
 import { Public } from '../auth/public.decorator';
@@ -127,7 +128,7 @@ export class HealthController {
       // 배포본이 최신인지 대조하는 값. `git rev-parse --short HEAD` 와 비교한다
       commit: buildCommit(),
       latencyMs: Date.now() - started,
-      timestamp: new Date().toISOString(),
+      timestamp: kstIso(new Date()),
     };
   }
 }

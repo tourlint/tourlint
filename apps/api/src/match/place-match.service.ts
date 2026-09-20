@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import { HttpStatus } from '@nestjs/common';
 import type { KtoClient } from '../external/kto';
 import { DomainException } from '../common/domain.exception';
@@ -44,7 +45,7 @@ export class PlaceMatchService {
     });
     return {
       regionFilterApplied: Boolean(params.regnCd),
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: kstIso(new Date()),
       candidates: page.items.map(toCandidate),
       totalCount: page.totalCount ?? page.items.length,
       source: '출처: ⓒ한국관광공사',
@@ -93,7 +94,7 @@ export class PlaceMatchService {
         mapy,
         cpyrhtDivCd: str(common.cpyrhtDivCd),
       },
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: kstIso(new Date()),
       // 실측상 대부분 Type3(변경금지)라 기본값으로 가정하고 병기한다 (FR-CM-011)
       sourceBadge: { type: 'KTO_RAW', note: '변경금지' },
     };
