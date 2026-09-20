@@ -48,6 +48,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
      */
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(`[${traceId}] ${req.method} ${req.url} → ${reasonCode}`, exception);
+    } else if (status >= HttpStatus.BAD_REQUEST) {
+      /*
+       * 거절도 한 줄 남긴다 (#673). 5xx 만 남기던 때는 운영에서 저장이 계속 막히는데 로그에
+       * 실패한 적이 없는 것처럼 보였다.
+       *
+       * ⚠️ **경로 · 사유코드 · traceId 까지다.** 거절 메시지에는 사용자가 친 장소명이 들어
+       * 있고 그건 공사 원문일 수 있다 — 예외 객체도 메시지도 넘기지 않는다 (DB 명세서 6-4).
+       */
+      this.logger.warn(`[${traceId}] ${req.method} ${req.url} → ${reasonCode} (${status})`);
     }
 
     // 빈도 제한은 언제 다시 되는지 알린다 (API 3-4 · EX-SY-008)
