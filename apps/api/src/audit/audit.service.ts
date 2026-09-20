@@ -1,6 +1,8 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Pool } from 'pg';
-import { findingMessage, LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, type Severity } from '@tourlint/shared';
+import {
+  findingMessage, LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, withPlaceName, type Severity,
+} from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
 import { LlmParseCacheRepository } from '../persistence/llm-parse-cache.repository';
@@ -226,14 +228,37 @@ export class AuditService {
    */
   async targetsByItem(run: StoredAuditRun): Promise<ReadonlyMap<number, FindingTarget>> {
     const items = await this.products.findItems(run.productId);
+    const labels = await this.displayLabels(items);
     const out = new Map<number, FindingTarget>();
     for (const item of items) {
       out.set(item.id, {
         dayNo: item.dayNo,
         seq: item.seq,
         startTime: item.startTime,
-        placeLabel: item.placeLabel,
+        placeLabel: labels.get(item.id) ?? '',
       });
+    }
+    return out;
+  }
+
+  /**
+   * 항목의 표시 이름 (#606).
+   *
+   * 사용자가 적은 이름이 있으면 그것이다. **장소 담기 · 수정안 삽입으로 들어온 항목만** 비어
+   * 있어(명칭은 공사 원문이라 저장하지 않는다 — DR-PR-001) 그 항목만 표시 시점에 조회한다.
+   * 이름을 못 읽으면 비워 둔다 — 지어내지 않는다.
+   */
+  async displayLabels(items: readonly ItineraryItemRow[]): Promise<ReadonlyMap<number, string>> {
+    const missing = items.filter((i) => i.placeLabel.trim() === '' && i.ktoContentId !== null);
+    const found = missing.length === 0
+      ? new Map<string, string>()
+      : await this.placeNames().resolve(missing.map((i) => i.ktoContentId ?? ''));
+    const out = new Map<number, string>();
+    for (const item of items) {
+      const label = item.placeLabel.trim() === ''
+        ? found.get(item.ktoContentId ?? '') ?? ''
+        : item.placeLabel;
+      if (label !== '') out.set(item.id, label);
     }
     return out;
   }
@@ -976,7 +1001,9 @@ export function toFindingsResponse(
       ruleVersion: f.ruleVersion,
       severity: f.severity,
       reasonCode: f.reasonCode,
-      message: findingMessage(f.ruleCode, f.message, f.evidence, placeLabels),
+      // 이름이 빈 항목은 표시할 때 채운다 — 저장된 문장은 앞이 비어 있다 (#606)
+      message: findingMessage(f.ruleCode, f.message, f.evidence, placeLabels,
+        f.targetItemId === null ? null : placeLabels.get(f.targetItemId) ?? null),
       target: targetOf(f.targetItemId, targets, f.reasonCode === 'CONTENT_HIDDEN'),
       targetSecondary: f.targetItemId2 === null ? null : targetOf(f.targetItemId2, targets),
       /*
@@ -1134,6 +1161,8 @@ export function toRevertResponse(application: StoredPatchApplication, revertedAt
 export function toUnverifiedResponse(
   run: StoredAuditRun,
   itinerary: readonly ItineraryItemRow[] = [],
+  /** 표시 이름 (#606). 이름을 저장하지 않는 항목은 여기에만 있다 */
+  labels: ReadonlyMap<number, string> = new Map(),
 ): Record<string, unknown> {
   const byId = new Map(itinerary.map((i) => [i.id, i]));
   const items = run.findings
@@ -1145,11 +1174,14 @@ export function toUnverifiedResponse(
        * 감점 대상이 아니다 (FR-AU-016). 화면이 그 사실을 표기해야 한다.
        */
       const excluded = f.reasonCode === 'PRE_DEPARTURE_CHECK';
+      // 사용자가 적은 이름이 먼저다. 이름 없이 들어온 항목만 조회한 값을 쓴다 (#606)
+      const label = item === undefined ? null : labels.get(item.id) ?? (item.placeLabel || null);
       return {
         findingId: f.id,
         contentid: item?.ktoContentId ?? null,
-        placeLabel: item?.placeLabel ?? null,
-        reason: f.message,
+        placeLabel: label,
+        // 저장된 문장은 이름이 없으면 앞이 비어 있다. 표시할 때 채운다 (#606)
+        reason: withPlaceName(f.message, label),
         reasonCode: f.reasonCode,
         location: item === undefined
           ? null

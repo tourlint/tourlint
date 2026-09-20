@@ -227,6 +227,21 @@ export function confirmedItems(items: readonly AuditItem[]): readonly AuditItem[
   return items.filter((i) => i.matchStatus === 'CONFIRMED');
 }
 
+/**
+ * 장소 이름을 앞에 붙인 문장 (#606).
+ *
+ * `placeLabel` 은 **사용자가 입력한 이름**이라 장소 담기 · 수정안 삽입으로 들어온 항목은
+ * 비어 있다 — 명칭은 공사 원문이라 저장하지 않는다 (DR-PR-001). 그대로 끼우면 화면에
+ * 「 — 휴무일 정보를 확인할 수 없습니다」 처럼 **앞이 빈 줄**이 뜬다.
+ *
+ * 이름이 없으면 붙이지 않는다. 그 자리는 화면 · 리포트가 표시할 때 조회해 채운다
+ * (`withPlaceName`).
+ */
+export function placeLine(item: AuditItem, text: string): string {
+  const label = item.placeLabel?.trim() ?? '';
+  return label === '' ? text : `${label} — ${text}`;
+}
+
 /** 규칙이 참조한 경로의 신뢰도만 본다 — `confidence.overall` 은 쓰지 않는다 (DR-NM-034) */
 export function confidenceOfPaths(
   normalized: NormalizedOperatingInfo,

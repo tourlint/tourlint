@@ -1,5 +1,5 @@
 import type { ExceptionReasonCode, Severity } from '@tourlint/shared';
-import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
+import { placeLine, type AuditItem, type AuditRule, type Finding, type ItineraryContext } from './types';
 
 /**
  * R05 — 데이터 검증 불가 (FR-RU-050 ~ 052).
@@ -53,7 +53,7 @@ export function findGap(item: AuditItem): Gap | null {
   if (item.matchStatus !== 'CONFIRMED') {
     return {
       reasonCode: 'PLACE_UNRESOLVED',
-      message: `${item.placeLabel} — 어느 관광지인지 확정되지 않아 검수하지 못했습니다.`,
+      message: placeLine(item, '어느 관광지인지 확정되지 않아 검수하지 못했습니다.'),
       evidence: { unverified: true, unit: 'ITEM', matchStatus: item.matchStatus },
     };
   }
@@ -70,7 +70,7 @@ export function findGap(item: AuditItem): Gap | null {
     if (period === null || (period.start === null && period.end === null)) {
       return {
         reasonCode: 'PARSE_MISSING',
-        message: `${item.placeLabel} — 행사 기간 정보가 없어 개최 여부를 확인할 수 없습니다.`,
+        message: placeLine(item, '행사 기간 정보가 없어 개최 여부를 확인할 수 없습니다.'),
         evidence: { unverified: true, unit: 'ITEM', visitDate: item.date, eventPeriod: period },
       };
     }
