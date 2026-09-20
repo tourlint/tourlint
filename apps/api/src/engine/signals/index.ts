@@ -11,6 +11,30 @@ export const T1_DEFAULT_DAYS = 30;
 export const T2_MARGIN_DAYS = 3;
 
 /**
+ * 그 창에 **새로 등록된** 것인가 (T1 의 판정 조건).
+ *
+ * 건수와 목록이 같은 조건을 봐야 한다 — 「1건」 이라 해 놓고 목록에 두 줄이 뜨면 둘 다
+ * 못 믿는다. 세는 쪽(`summarizeNewContents`)과 보여 주는 쪽이 이 함수 하나를 쓴다.
+ */
+export function isNewInWindow(c: SignalContent, window: SignalWindow): boolean {
+  if (!inRegion(c, window)) return false;
+  // 14자리가 아니면 비교할 수 없다. 모르는 것을 신규로 세지 않는다
+  if (!/^\d{14}$/.test(c.createdTime)) return false;
+  const from = `${window.from.replace(/-/g, '')}000000`;
+  // 마지막 날을 통째로 포함한다. `YYYYMMDD` 뒤에 시각이 붙어 오기 때문이다
+  const to = `${window.to.replace(/-/g, '')}235959`;
+  return c.createdTime >= from && c.createdTime <= to;
+}
+
+/** 그 창에 **열리는** 행사인가 (T2 의 판정 조건). 기간을 모르는 행사는 세지 않는다 */
+export function opensInWindow(c: SignalContent, window: SignalWindow): boolean {
+  if (!inRegion(c, window)) return false;
+  if (c.eventStart === null || c.eventEnd === null) return false;
+  // 행사기간과 조회 구간이 하루라도 겹치면 센다
+  return c.eventStart <= window.to && c.eventEnd >= window.from;
+}
+
+/**
  * T1 — 그 지역에 최근 며칠 안에 **신규 등록**된 콘텐츠 (FR-RU-110).
  *
  * 근거 필드는 `createdtime` 과 `contentTypeId` 다. 수정된 것이 아니라 새로 올라온 것만
@@ -25,16 +49,7 @@ export function summarizeNewContents(
   window: SignalWindow,
   keywords: readonly string[] = [],
 ): Signal {
-  const from = `${window.from.replace(/-/g, '')}000000`;
-  // 마지막 날을 통째로 포함한다. `YYYYMMDD` 뒤에 시각이 붙어 오기 때문이다
-  const to = `${window.to.replace(/-/g, '')}235959`;
-
-  const matched = contents.filter((c) => {
-    if (!inRegion(c, window)) return false;
-    // 14자리가 아니면 비교할 수 없다. 모르는 것을 신규로 세지 않는다
-    if (!/^\d{14}$/.test(c.createdTime)) return false;
-    return c.createdTime >= from && c.createdTime <= to;
-  });
+  const matched = contents.filter((c) => isNewInWindow(c, window));
 
   return {
     count: matched.length,
@@ -56,12 +71,7 @@ export function summarizeFestivals(
   window: SignalWindow,
   keywords: readonly string[] = [],
 ): Signal {
-  const matched = contents.filter((c) => {
-    if (!inRegion(c, window)) return false;
-    if (c.eventStart === null || c.eventEnd === null) return false;
-    // 행사기간과 조회 구간이 하루라도 겹치면 센다
-    return c.eventStart <= window.to && c.eventEnd >= window.from;
-  });
+  const matched = contents.filter((c) => opensInWindow(c, window));
 
   return { count: matched.length, byType: countByType(matched), byKeyword: hitsByKeyword(matched, keywords), window };
 }

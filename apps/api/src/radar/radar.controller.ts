@@ -45,6 +45,28 @@ export class RadarController {
     return this.service.signalsOf(account.accountId, id);
   }
 
+  /**
+   * 수요 신호의 「무엇인지」 (#644).
+   *
+   * 건수를 낸 것과 같은 조회 · 같은 조건으로 그 기간의 목록을 조달한다. 이름은 저장하지
+   * 않으므로 여기서만 나간다 (DR-PR-001). 예산이 다 찼으면 목록 없이 이유를 준다.
+   */
+  @Get('radar/signals/detail')
+  async signalDetail(
+    @CurrentAccount() account: SessionAccount,
+    @Query('productId') productId?: string,
+    @Query('type') type?: string,
+  ): Promise<Record<string, unknown>> {
+    const id = Number(productId);
+    if (productId === undefined || !Number.isInteger(id) || id <= 0) {
+      throw new BadRequestException('productId 가 필요합니다.');
+    }
+    if (type !== 'T1' && type !== 'T2') {
+      throw new BadRequestException('type 은 T1 또는 T2 입니다.');
+    }
+    return this.service.signalDetailOf(account.accountId, id, type);
+  }
+
   /** 관심 지역 새 소식 — 관심 지역(시군구 + 달)마다 T1 · T2 · T3 (FR-MO-059 · 060) */
   @Get('radar/region-signals')
   async regionSignals(@CurrentAccount() account: SessionAccount): Promise<readonly Record<string, unknown>[]> {

@@ -149,6 +149,43 @@ export const RADAR: readonly Endpoint[] = [
     ],
   },
   {
+    route: 'GET /api/v1/radar/signals/detail',
+    tag: '레이더',
+    summary: '수요 신호 — 무엇인지',
+    description: '건수가 가리키는 곳을 이름과 날짜로 돌려줍니다. 세는 조회를 한 번 더 부르며 이름은 저장하지 않습니다.',
+    params: {
+      productId: { description: '상품 번호', required: true, type: 'integer', example: 38 },
+      type: { description: 'T1(새로 등록된 곳) 또는 T2(여행일에 열리는 행사)', required: true, type: 'string', example: 'T2' },
+    },
+    responses: {
+      200: {
+        description: '성공. 목록을 못 받으면 `items` 가 비고 `unavailable` 에 이유가 들어갑니다',
+        example: {
+          productId: 38,
+          type: 'T2',
+          window: { from: '2026-10-20', to: '2026-10-26' },
+          items: [{
+            contentId: '825295',
+            title: '강릉커피축제',
+            contentTypeId: '15',
+            createdDate: '2026-02-18',
+            eventStart: '2026-10-21',
+            eventEnd: '2026-10-25',
+          }],
+          unavailable: null,
+        },
+      },
+    },
+    errors: [
+      {
+        status: 404,
+        reasonCode: 'NOT_FOUND',
+        when: '상품이 없거나 다른 계정의 상품',
+        message: '상품을 찾을 수 없습니다. 목록에서 다시 선택해 주세요.',
+      },
+    ],
+  },
+  {
     route: 'GET /api/v1/radar/region-signals',
     tag: '레이더',
     summary: '관심 지역 소식',
