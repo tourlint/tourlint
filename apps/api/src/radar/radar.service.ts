@@ -5,8 +5,10 @@ import type { KtoService } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { SignalBatchJob } from '../batch/signal-batch.job';
 import { kstToday, nextBatchAt } from '../batch/sync-window';
-import { lastYearMonthWindow, monthWindow, t2Window } from '../engine/signals';
+import { lastYearMonthWindow, monthWindow, t1Window, t2Window } from '../engine/signals';
 import { ktoBudgetGuard } from '../external/budget-guard';
+import { createKtoClient } from '../external/kto';
+import { SignalRunner, type SignalListItem } from '../batch/signal-runner';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { BatchStateRepository } from '../persistence/batch-state.repository';
 import { DemandSignalRepository, type StoredSignal } from '../persistence/demand-signal.repository';
@@ -122,6 +124,61 @@ export class RadarService {
        * 말하지 않는다. 응답에 그런 필드를 두지 않는 것이 그 약속의 이행이다.
        */
       notice: '관측된 건수와 유형 분포입니다. 판매량 · 흥행을 예측하지 않습니다.',
+    };
+  }
+
+
+  /**
+   * 수요 신호의 「무엇인지」 (#644 · FR-RU-110 · 120).
+   *
+   * 건수만으로는 할 일이 안 남는다 — 어떤 곳이 새로 생겼는지, 어떤 행사가 열리는지를 봐야
+   * 일정에 넣을지 판단한다. **이름은 저장하지 않으므로 여기서 조달한다** (DR-PR-001):
+   * 세는 조회를 한 번 더 부르고 세는 조건(`isNewInWindow` · `opensInWindow`)을 그대로 쓴다.
+   * 그래서 목록과 건수가 갈라지지 않는다.
+   *
+   * 예산이 다 찼으면 목록만 못 본다 — 건수는 이미 저장된 값이라 그대로 보인다.
+   */
+  async signalDetailOf(
+    accountId: number,
+    productId: number,
+    type: 'T1' | 'T2',
+    now: Date = new Date(),
+  ): Promise<Record<string, unknown>> {
+    const product = await this.radar.product(accountId, productId);
+    if (product === null) {
+      throw new DomainException(
+        HttpStatus.NOT_FOUND, 'NOT_FOUND', '상품을 찾을 수 없습니다. 목록에서 다시 선택해 주세요.',
+      );
+    }
+    const region = { ldongRegnCd: product.ldongRegnCd, ldongSignguCd: product.ldongSignguCd };
+    const today = kstToday(now);
+    // 창은 건수를 낸 것과 같아야 한다. T1 은 저장된 창, 없으면 오늘까지의 기본 창이다
+    const stored = type === 'T1' ? await this.signals.findLatestT1(region, today) : null;
+    const window = type === 'T1'
+      ? stored?.window ?? t1Window(today, region)
+      : t2Window(product.startDate, product.nights, region);
+    if (window === null || window.ldongRegnCd === null) {
+      return { productId, type, window: null, items: [], unavailable: 'NO_REGION' };
+    }
+
+    const setting = await this.state.setting();
+    const gate = await ktoBudgetGuard('KOR', { counter: this.calls, dailyQuota: setting.dailyQuota }).check('PLAN');
+    if (!gate.allowed) {
+      return { productId, type, window: { from: window.from, to: window.to }, items: [], unavailable: 'BUDGET' };
+    }
+
+    const runner = new SignalRunner({ kto: () => createKtoClient(this.calls) });
+    const items = type === 'T1'
+      ? await runner.listT1(window, DETAIL_LIMIT)
+      : await runner.listT2(window, DETAIL_LIMIT);
+
+    return {
+      productId,
+      type,
+      window: { from: window.from, to: window.to },
+      items: items === null ? [] : items.map(toDetailItem),
+      // 조회가 깨진 것과 「그 기간에 없다」를 구분한다 (FR-RU-051)
+      unavailable: items === null ? 'FETCH_FAILED' : null,
     };
   }
 
@@ -263,5 +320,23 @@ function toChangeResponse(row: ChangeRow): Record<string, unknown> {
      */
     readableChanges: readable,
     hasReadableDiff: row.normalizedBefore !== null && row.normalizedAfter !== null,
+  };
+}
+
+/** 목록에 보여 줄 줄 수. 「무엇인지」를 알면 충분하고 목록을 다 옮겨 오는 화면이 아니다 */
+const DETAIL_LIMIT = 10;
+
+/** 표시용 한 줄 (#644). 이름은 조회한 값이고 저장하지 않는다 */
+function toDetailItem(item: SignalListItem): Record<string, unknown> {
+  return {
+    contentId: item.contentId,
+    title: item.title,
+    contentTypeId: item.contentTypeId,
+    // T1 은 등록일, T2 는 행사 기간이 근거다. 없는 쪽은 null 이다
+    createdDate: /^\d{8}/.test(item.createdTime)
+      ? `${item.createdTime.slice(0, 4)}-${item.createdTime.slice(4, 6)}-${item.createdTime.slice(6, 8)}`
+      : null,
+    eventStart: item.eventStart,
+    eventEnd: item.eventEnd,
   };
 }

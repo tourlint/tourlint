@@ -1054,6 +1054,14 @@ select {
   margin-left: 6px;
   color: var(--muted);
 }
+/* 0 건일 때 그 뜻을 숫자 밑에 한 줄로 (#644) */
+.radar-metric em {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--muted);
+}
 .radar-today,
 .radar-watch {
   background: var(--surface);

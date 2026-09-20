@@ -20,6 +20,7 @@ import {
   type RadarSignals,
   type RadarSummary,
   type RegionSignal,
+  type SignalDetail,
   type TodayBrief,
   type TodayItem,
 } from "../../lib/api";
@@ -29,7 +30,7 @@ import { WorkspaceIcon } from "../../components/workspace-icon";
 import { StatusBadge } from "../../components/badges";
 import { AuditBasis } from "../../components/audit-basis";
 import { addKeyword, removeKeyword } from "../../lib/radar-keywords";
-import { lastCheckedText, nextCheckText } from "../../lib/radar-time";
+import { lastCheckedText, nextCheckText, zeroMeaning } from "../../lib/radar-time";
 import { EMPTY_REGION_NAMES, regionLabel, type RegionNameMaps } from "../../lib/region-names";
 import { RegionSelect, type RegionValue } from "../products/new/region-select";
 import type { CodeItem } from "../products/new/types";
@@ -210,9 +211,9 @@ export default function RadarPage() {
       )}
 
       <section className="radar-overview" aria-label="레이더 현황">
-        <div className="radar-overview-intro"><WorkspaceIcon name="radar" width="32" height="32" /><div><h2>수요 · 변경 레이더</h2><p>바뀐 정보를 살피고, 다음 여행의 영감을 찾아보세요.</p></div></div>
-        <button type="button" className="radar-metric" onClick={() => { setTab("RISK"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>바뀐 정보</span><strong>{summary?.risk ?? "—"}<small>건</small></strong></button>
-        <button type="button" className="radar-metric" onClick={() => { setTab("OPPORTUNITY"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>새 소식</span><strong>{summary?.opportunity ?? "—"}<small>건</small></strong></button>
+        <div className="radar-overview-intro"><WorkspaceIcon name="radar" width="32" height="32" /><div><h2>수요 · 변경 레이더</h2><p>내 상품에 생긴 변화를 여기서 먼저 봅니다. 아래 수요 신호는 그 지역 · 기간을 관측한 값입니다.</p></div></div>
+        <button type="button" className="radar-metric" onClick={() => { setTab("RISK"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>바뀐 정보</span><strong>{summary?.risk ?? "—"}<small>건</small></strong>{summary?.risk === 0 && <em>{zeroMeaning(summary.lastBatch?.covered ?? null, todayIso())}</em>}</button>
+        <button type="button" className="radar-metric" onClick={() => { setTab("OPPORTUNITY"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>새 소식</span><strong>{summary?.opportunity ?? "—"}<small>건</small></strong>{summary?.opportunity === 0 && <em>{zeroMeaning(summary.lastBatch?.covered ?? null, todayIso())}</em>}</button>
       </section>
 
       {/* 레이더 에이전트 — 오늘 할 일 정리 (FR-AG-030 · 031) */}
@@ -423,7 +424,11 @@ function DemandSignalSection({
   return (
     <section className="mt-10 border-t border-slate-200 pt-8 dark:border-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">수요 신호</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">수요 신호</h2>
+          {/* 위(알림)와 다른 축이라는 것을 여기서 말한다 (#644) */}
+          <p className="mt-0.5 text-xs text-slate-400">고른 상품의 지역 · 기간을 관광정보로 관측한 값입니다. 위의 알림과는 다른 이야기예요.</p>
+        </div>
         <select
           aria-label="수요 신호를 확인할 상품"
           value={productId ?? ""}
@@ -448,8 +453,10 @@ function DemandSignalSection({
       ) : (
         <>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <SignalCard title="T1 · 신규 콘텐츠" region={regionLabel} signal={signals.t1} />
-            <SignalCard title="T2 · 행사 밀도" region={regionLabel} signal={signals.t2} />
+            <SignalCard title="T1 · 새로 등록된 곳" region={regionLabel} signal={signals.t1}
+              productId={productId} type="T1" what="이 기간에 관광정보에 새로 올라온 곳입니다." />
+            <SignalCard title="T2 · 여행일에 열리는 행사" region={regionLabel} signal={signals.t2}
+              productId={productId} type="T2" what="출발일 앞뒤로 이 지역에서 열리는 행사입니다." />
           </div>
           <p className="mt-3 text-xs text-slate-400">{signals.notice}</p>
         </>
@@ -458,7 +465,34 @@ function DemandSignalSection({
   );
 }
 
-function SignalCard({ title, region, signal }: { title: string; region: string; signal: DemandSignal | null }) {
+/**
+ * 신호 한 칸 (#644).
+ *
+ * 건수만 있으면 「그래서 뭘 하라는 건지」가 안 남는다. 0건이 아니면 눌러서 그 기간에 무엇이
+ * 새로 생겼는지 · 어떤 행사가 열리는지 본다. 이름은 저장하지 않아 누를 때 조달한다.
+ */
+function SignalCard({
+  title, region, signal, productId, type, what,
+}: {
+  title: string; region: string; signal: DemandSignal | null;
+  productId: number; type: "T1" | "T2"; what: string;
+}) {
+  const [detail, setDetail] = useState<SignalDetail | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function load() {
+    setBusy(true);
+    setFailed(false);
+    try {
+      setDetail(await radarApi.signalDetail(productId, type));
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
       <div className="flex items-baseline justify-between">
@@ -493,6 +527,43 @@ function SignalCard({ title, region, signal }: { title: string; region: string; 
             </div>
           ) : (
             <p className="mt-2 text-xs text-slate-400">유형 분포 없음</p>
+          )}
+          <p className="mt-2 text-xs text-slate-400">{what}</p>
+
+          {signal.count > 0 && detail === null && (
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={busy}
+              className="mt-2 rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              {busy ? "불러오는 중…" : "무엇인지 보기"}
+            </button>
+          )}
+          {failed && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">목록을 불러오지 못했습니다. 잠시 뒤 다시 눌러 주세요.</p>}
+
+          {detail !== null && (
+            <ul className="mt-2 space-y-1">
+              {detail.items.map((item) => (
+                <li key={item.contentId} className="text-xs text-slate-600 dark:text-slate-300">
+                  {item.title || "이름을 읽지 못한 곳"}
+                  <span className="ml-1 text-slate-400">
+                    {CONTENT_TYPE_LABEL[item.contentTypeId] ?? item.contentTypeId}
+                    {item.eventStart !== null && ` · ${item.eventStart} ~ ${item.eventEnd ?? ""}`}
+                    {item.eventStart === null && item.createdDate !== null && ` · ${item.createdDate} 등록`}
+                  </span>
+                </li>
+              ))}
+              {detail.items.length === 0 && (
+                <li className="text-xs text-slate-400">
+                  {detail.unavailable === "BUDGET"
+                    ? "오늘 조회량을 다 써서 목록은 내일 볼 수 있어요. 건수는 그대로입니다."
+                    : detail.unavailable === "FETCH_FAILED"
+                      ? "목록 조회가 실패했습니다. 건수는 세어 둔 값이라 그대로입니다."
+                      : "지금 목록에서는 찾지 못했습니다."}
+                </li>
+              )}
+            </ul>
           )}
         </>
       )}

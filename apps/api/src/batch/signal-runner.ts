@@ -2,7 +2,8 @@ import type { KtoClient } from '../external/kto';
 import { isKtoError } from '../external/kto';
 import {
   festivalQueryDate, reachedOlderThan, summarizeFestivals, summarizeNewContents, summarizeVisitors,
-  toKtoDay, toSignalContent, toVisitorRow, type Signal, type SignalContent, type SignalWindow,
+  isNewInWindow, opensInWindow, toKtoDay, toSignalContent, toVisitorRow,
+  type Signal, type SignalContent, type SignalWindow,
 } from '../engine/signals';
 
 /**
@@ -28,6 +29,26 @@ import {
 export const MAX_PAGES = 5;
 /** 한 페이지 건수 */
 export const ROWS_PER_PAGE = 100;
+
+
+/**
+ * 화면에 보여 줄 신호 한 줄 (#644).
+ *
+ * **이름은 공사 원문이라 저장하지 않는다** (DR-PR-001). 세는 것과 달리 보여 줄 때는
+ * 이름이 없으면 「그래서 무엇이 새로 생겼는지」를 말할 수 없어, 표시할 때만 조달한다.
+ */
+export interface SignalListItem {
+  readonly contentId: string;
+  readonly title: string;
+  readonly contentTypeId: string;
+  /** `YYYYMMDDHHmmss` — T1 의 근거 */
+  readonly createdTime: string;
+  readonly eventStart: string | null;
+  readonly eventEnd: string | null;
+}
+
+/** 목록은 한 페이지만 본다 — 건수는 이미 세어 뒀고 여기서는 몇 줄 보여 주는 것이 전부다 */
+export const LIST_ROWS = 100;
 
 export interface SignalRunnerOptions {
   readonly kto: () => KtoClient;
@@ -95,6 +116,48 @@ export class SignalRunner {
     return summarizeFestivals(collected, window, keywords);
   }
 
+
+  /**
+   * T1 목록 — 그 창에 새로 등록된 곳 (#644). 세는 조건은 `isNewInWindow` 로 같다.
+   *
+   * 한 페이지(100건)만 본다. 등록일 내림차순이라 새 것이 앞에 오고, 창을 벗어난 줄은
+   * 조건이 걸러 낸다. 조회에 실패하면 `null` — 목록을 못 보여 주는 것이지 건수가 틀린 게 아니다.
+   */
+  async listT1(window: SignalWindow, limit: number): Promise<readonly SignalListItem[] | null> {
+    if (window.ldongRegnCd === null) return null;
+    try {
+      const res = await this.kto().areaBasedList({
+        lDongRegnCd: window.ldongRegnCd,
+        ...(window.ldongSignguCd === null ? {} : { lDongSignguCd: window.ldongSignguCd }),
+        arrange: 'D',
+        numOfRows: LIST_ROWS,
+        pageNo: 1,
+      });
+      return pickItems(res.items, window, isNewInWindow, limit);
+    } catch (e) {
+      if (!isKtoError(e)) throw e;
+      return null;
+    }
+  }
+
+  /** T2 목록 — 그 창에 열리는 행사 (#644). 세는 조건은 `opensInWindow` 로 같다 */
+  async listT2(window: SignalWindow, limit: number): Promise<readonly SignalListItem[] | null> {
+    if (window.ldongRegnCd === null) return null;
+    try {
+      const res = await this.kto().searchFestival({
+        eventStartDate: festivalQueryDate(window),
+        lDongRegnCd: window.ldongRegnCd,
+        ...(window.ldongSignguCd === null ? {} : { lDongSignguCd: window.ldongSignguCd }),
+        numOfRows: LIST_ROWS,
+        pageNo: 1,
+      });
+      return pickItems(res.items, window, opensInWindow, limit);
+    } catch (e) {
+      if (!isKtoError(e)) throw e;
+      return null;
+    }
+  }
+
   /**
    * T3 — 지난해 같은 달 방문자 수 (FR-MO-059 · EI-KT-026).
    *
@@ -118,4 +181,28 @@ export class SignalRunner {
     }
     return windows.map((w) => summarizeVisitors(rows, w));
   }
+}
+
+/** 응답 줄에서 표시할 것만 골라 낸다. 세는 조건과 같은 함수를 받아 쓴다 (#644) */
+function pickItems(
+  items: readonly Record<string, unknown>[],
+  window: SignalWindow,
+  matches: (c: SignalContent, w: SignalWindow) => boolean,
+  limit: number,
+): readonly SignalListItem[] {
+  const out: SignalListItem[] = [];
+  for (const raw of items) {
+    const content = toSignalContent(raw);
+    if (!matches(content, window)) continue;
+    out.push({
+      contentId: content.contentId,
+      title: String(raw.title ?? ''),
+      contentTypeId: content.contentTypeId,
+      createdTime: content.createdTime,
+      eventStart: content.eventStart,
+      eventEnd: content.eventEnd,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
 }

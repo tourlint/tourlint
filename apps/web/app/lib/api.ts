@@ -754,10 +754,32 @@ export interface RegionSignal {
   t3: { count: number; basisMonth: string; source: string; computedAt: string } | null;
 }
 
+/** 수요 신호 한 줄이 가리키는 곳 (#644). 이름은 서버가 표시용으로 조달한 값이다 */
+export interface SignalDetailItem {
+  contentId: string;
+  title: string;
+  contentTypeId: string;
+  createdDate: string | null;
+  eventStart: string | null;
+  eventEnd: string | null;
+}
+
+export interface SignalDetail {
+  productId: number;
+  type: "T1" | "T2";
+  window: { from: string; to: string } | null;
+  items: SignalDetailItem[];
+  /** 목록을 못 보여 주는 이유. 건수는 저장된 값이라 그대로다 */
+  unavailable: "BUDGET" | "FETCH_FAILED" | "NO_REGION" | null;
+}
+
 export const radarApi = {
   summary: () => request<RadarSummary>("/radar/summary"),
   // signals 는 productId 가 필수다 — T2(행사 밀도) 창이 그 상품의 여행일에서 나온다
   signals: (productId: number) => request<RadarSignals>(`/radar/signals?productId=${productId}`),
+  // 건수 옆 「무엇인지 보기」 — 누를 때만 조회한다 (#644)
+  signalDetail: (productId: number, type: "T1" | "T2") =>
+    request<SignalDetail>(`/radar/signals/detail?productId=${productId}&type=${type}`),
   regionSignals: () => request<RegionSignal[]>("/radar/region-signals"),
   // 배치가 꺼진 기간에만. 켜져 있으면 서버가 403 이다
   refreshRegionSignals: () => request<RegionSignal[]>("/radar/region-signals/refresh", { method: "POST" }),
