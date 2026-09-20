@@ -38,3 +38,15 @@ export function nextCheckText(nextAt: string | null, todayIso: string): string {
   }
   return `다음 확인은 ${label} 아침이에요`;
 }
+
+/**
+ * 0 건의 뜻 (#644).
+ *
+ * 「0 건」은 **확인해 봤더니 없다**와 **아직 확인 전이다**가 다르다. 배치가 처리한 마지막
+ * 날짜(covered)가 어제보다 오래됐으면 아직 안 본 날이 남아 있다는 뜻이다 — 그때 0 을
+ * 「문제 없음」으로 읽으면 안 된다.
+ */
+export function zeroMeaning(covered: string | null, todayIso: string): string {
+  if (covered === null) return "아직 확인 전이에요";
+  return covered >= addDaysIso(todayIso, -1) ? "확인할 것이 없어요" : "아직 확인 전이에요";
+}
