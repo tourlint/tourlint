@@ -161,10 +161,55 @@ export class RadarService {
       return { productId, type, window: null, items: [], unavailable: 'NO_REGION' };
     }
 
+    return { productId, ...await this.listInWindow(window, type) };
+  }
+
+  /**
+   * 관심 지역 카드의 「무엇인지」 (#650). 상품 쪽과 같은 방식이다.
+   *
+   * 창은 카드가 쓰는 것과 같다 — T1 은 가장 최근 30일 창, T2 는 그 카드의 달이다.
+   * **요청 계정의 관심 지역인지 확인한다** — 아무 지역이나 조회하면 남의 관심사를 떠보는
+   * 통로가 되고 예산도 거기에 쓰인다.
+   */
+  async regionSignalDetailOf(
+    accountId: number,
+    region: { regnCd: string; signguCd: string | null },
+    month: string,
+    type: 'T1' | 'T2',
+    now: Date = new Date(),
+  ): Promise<Record<string, unknown>> {
+    const watches = await this.radar.watchRegions(accountId);
+    const mine = watches.some((w) => w.ldongRegnCd === region.regnCd
+      && (w.ldongSignguCd ?? null) === region.signguCd && w.month === month);
+    if (!mine) {
+      throw new DomainException(
+        HttpStatus.NOT_FOUND, 'NOT_FOUND', '관심 지역에서 찾을 수 없습니다. 목록에서 다시 선택해 주세요.',
+      );
+    }
+
+    const scope = { ldongRegnCd: region.regnCd, ldongSignguCd: region.signguCd };
+    const today = kstToday(now);
+    const window = type === 'T1'
+      ? (await this.signals.findLatestT1(scope, today))?.window ?? t1Window(today, scope)
+      : monthWindow(month, scope);
+    if (window === null) return { region, month, type, window: null, items: [], unavailable: 'NO_REGION' };
+
+    return { region, month, ...await this.listInWindow(window, type) };
+  }
+
+  /**
+   * 창 하나의 목록을 조달한다 (#644 · #650).
+   *
+   * 예산이 다 찼으면 목록만 못 본다 — 건수는 이미 저장된 값이라 그대로 보인다.
+   */
+  private async listInWindow(
+    window: { from: string; to: string; ldongRegnCd: string | null; ldongSignguCd: string | null },
+    type: 'T1' | 'T2',
+  ): Promise<Record<string, unknown>> {
     const setting = await this.state.setting();
     const gate = await ktoBudgetGuard('KOR', { counter: this.calls, dailyQuota: setting.dailyQuota }).check('PLAN');
     if (!gate.allowed) {
-      return { productId, type, window: { from: window.from, to: window.to }, items: [], unavailable: 'BUDGET' };
+      return { type, window: { from: window.from, to: window.to }, items: [], unavailable: 'BUDGET' };
     }
 
     const runner = new SignalRunner({ kto: () => createKtoClient(this.calls) });
@@ -173,7 +218,6 @@ export class RadarService {
       : await runner.listT2(window, DETAIL_LIMIT);
 
     return {
-      productId,
       type,
       window: { from: window.from, to: window.to },
       items: items === null ? [] : items.map(toDetailItem),

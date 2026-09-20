@@ -67,6 +67,32 @@ export class RadarController {
     return this.service.signalDetailOf(account.accountId, id, type);
   }
 
+  /**
+   * 관심 지역 카드의 「무엇인지」 (#650).
+   *
+   * 요청 계정의 관심 지역만 답한다 — 아무 지역이나 열어 주면 남의 관심사를 떠보는 통로가 된다.
+   */
+  @Get('radar/region-signals/detail')
+  async regionSignalDetail(
+    @CurrentAccount() account: SessionAccount,
+    @Query('regnCd') regnCd?: string,
+    @Query('signguCd') signguCd?: string,
+    @Query('month') month?: string,
+    @Query('type') type?: string,
+  ): Promise<Record<string, unknown>> {
+    if (regnCd === undefined || regnCd === '') throw new BadRequestException('regnCd 가 필요합니다.');
+    if (month === undefined || !/^\d{4}-\d{2}$/.test(month)) {
+      throw new BadRequestException('month 는 YYYY-MM 형식입니다.');
+    }
+    if (type !== 'T1' && type !== 'T2') throw new BadRequestException('type 은 T1 또는 T2 입니다.');
+    return this.service.regionSignalDetailOf(
+      account.accountId,
+      { regnCd, signguCd: signguCd === undefined || signguCd === '' ? null : signguCd },
+      month,
+      type,
+    );
+  }
+
   /** 관심 지역 새 소식 — 관심 지역(시군구 + 달)마다 T1 · T2 · T3 (FR-MO-059 · 060) */
   @Get('radar/region-signals')
   async regionSignals(@CurrentAccount() account: SessionAccount): Promise<readonly Record<string, unknown>[]> {
