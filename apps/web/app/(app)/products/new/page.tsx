@@ -14,6 +14,8 @@ import { RegionSelect } from "./region-select";
 import { canAnchor } from "./schedule-place-search";
 import { ScheduleEditor } from "./schedule-editor";
 import { RegisterPlacePicker } from "./register-place-picker";
+import { LeaveConfirm } from "./leave-confirm";
+import { afterSaveHref, hasInput, type AfterSave } from "./save-intent";
 import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
 import {
@@ -100,8 +102,10 @@ export default function ProductNewPage() {
   const [schedule, setSchedule] = useState<Schedule>([[]]);
 
   const [submitted, setSubmitted] = useState(false);
-  const [saving, setSaving] = useState(false);
+  // 어느 버튼으로 저장 중인지. 둘 다 잠그되 "저장 중…"은 누른 쪽에만 적는다 (#657)
+  const [saving, setSaving] = useState<AfterSave | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
 
   // 세션이 만료돼 저장이 튕겼다가 재로그인하고 돌아오면 작성분을 되살린다 (EX-SY-002).
   // 임시저장은 세션 만료 순간에만 쓰므로 평소 사용에는 초안이 없다. 한 번 복원하면 지운다.
@@ -192,9 +196,17 @@ export default function ProductNewPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    await save("plan");
+  }
+
+  /**
+   * 저장한다. `plan` 이면 장소 고르기로 이어 가고, `list` 면 기획 목록으로 돌아간다 —
+   * 상품은 기획중으로 남는다 (#657). 저장 조건은 둘 다 같다.
+   */
+  async function save(next: AfterSave) {
     setSubmitted(true);
     if (errors.length > 0) return;
-    setSaving(true);
+    setSaving(next);
     setSaveError(null);
     try {
       const res = await fetch("/api/v1/products", {
@@ -212,12 +224,20 @@ export default function ProductNewPage() {
       if (!res.ok) throw new Error();
       const created = (await res.json()) as { productId?: number };
       // 저장 후 기획 화면으로 — 거기서 이어서 장소를 고르고 검수로 넘어간다 (FR-PL-004)
-      const suffix = openType !== null ? `?openType=${encodeURIComponent(openType)}` : "";
-      router.push(created.productId != null ? `/products/${created.productId}/plan${suffix}` : "/");
+      router.push(afterSaveHref(next, created.productId ?? null, openType));
     } catch {
       setSaveError("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-      setSaving(false);
+      setSaving(null);
     }
+  }
+
+  /** 취소. 작성한 게 있으면 묻고, 빈 폼이면 그냥 나간다 (#657) */
+  function leave() {
+    if (hasInput({ name, regnCode: region.regnCode, startDate, nights, target, concept, headcount, transport, schedule })) {
+      setLeaving(true);
+      return;
+    }
+    router.push("/planning");
   }
 
   return (
@@ -341,7 +361,7 @@ export default function ProductNewPage() {
         )}
         {method === "nl" && <NlPanel onApplied={applyUpload} onEdit={() => setMethod("direct")} />}
 
-        {/* 저장 검증 결과 (UI-S2-012 박수↔일정 불일치 포함) */}
+        {/* 저장 검증 결과 — 기본정보 3칸만 본다 (EX-IN-005 개정 · #519) */}
         {submitted && errors.length > 0 && (
           <div
             role="alert"
@@ -361,19 +381,29 @@ export default function ProductNewPage() {
           </p>
         )}
 
-        <div className="flex items-center justify-end gap-3">
-          <Link
-            href="/planning"
+        {/* 나가는 길 셋 — 버리기 · 남겨 두기 · 이어 가기 (#657) */}
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={leave}
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             취소
-          </Link>
+          </button>
+          <button
+            type="button"
+            disabled={saving !== null}
+            onClick={() => void save("list")}
+            className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-300 dark:hover:bg-indigo-900/60"
+          >
+            {saving === "list" ? "저장 중…" : "저장"}
+          </button>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving !== null}
             className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {saving ? "저장 중…" : "저장하고 장소 고르기"}
+            {saving === "plan" ? "저장 중…" : "저장하고 장소 고르기"}
           </button>
         </div>
       </form>
@@ -394,6 +424,8 @@ export default function ProductNewPage() {
           />
         </aside>
       </div>
+
+      {leaving && <LeaveConfirm onStay={() => setLeaving(false)} onLeave={() => router.push("/planning")} />}
     </>
   );
 }
