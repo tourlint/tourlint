@@ -24,10 +24,13 @@ import { CatalogController } from './catalog/catalog.controller';
 import { ContentController } from './content/content.controller';
 import { ContentService } from './content/content.service';
 import { CatalogService } from './catalog/catalog.service';
+
+/** 부팅 예열이 공사 응답을 기다리는 시간. 사용자 요청(기본 10초)보다 길다 (#662) */
+const WARM_TIMEOUT_MS = 25_000;
 import { DemoController } from './demo/demo.controller';
 import { evaluateBudget, ktoBudgetGuard } from './external/budget-guard';
 import { KakaoMobilityClient, createKakaoTransport } from './external/kakao';
-import { createKtoClient, type KtoClient } from './external/kto';
+import { KtoClient, createKtoClient, createKtoTransport } from './external/kto';
 import { LlmClient, createProvider, readLlmConfig } from './external/llm';
 import { LlmNotConfiguredError } from './external/llm';
 import type { ContentTypeId } from '@tourlint/shared';
@@ -161,7 +164,18 @@ import { SettingsRepository } from './settings/settings.repository';
     {
       // 지역·분류 코드 프록시. KTO_MODE=fixture 면 fixtures/kto 리플레이 (예산 0)
       provide: CatalogService,
-      useFactory: (pool: Pool) => new CatalogService(() => createKtoClient(new PgApiCallLogger(pool))),
+      useFactory: (pool: Pool) =>
+        new CatalogService(
+          () => createKtoClient(new PgApiCallLogger(pool)),
+          // 부팅 예열은 기다리는 사람이 없다. 느린 길이면 끝까지 기다려 받아 둔다 (#662).
+          // 재시도는 예열 고리가 세므로 클라이언트 재시도는 끈다 — 시도별 시간을 보려면 하나씩 나가야 한다
+          () =>
+            new KtoClient({
+              transport: createKtoTransport({ ...process.env, KTO_TIMEOUT_MS: String(WARM_TIMEOUT_MS) }),
+              logger: new PgApiCallLogger(pool),
+              maxRetries: 0,
+            }),
+        ),
       inject: [DB_POOL],
     },
     {
