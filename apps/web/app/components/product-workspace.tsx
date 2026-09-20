@@ -289,6 +289,8 @@ export function ProductWorkspace({
         </div>
       )}
 
+      {workspace === "home" && <JudgeGuide />}
+
       <div className={workspace === "home" ? "home-content-grid" : ""}>
         <section
           className="products-panel"
@@ -721,4 +723,35 @@ function ProductActions({ product, onDelete }: { product: WorkspaceProduct; onDe
       삭제
     </button>
   </div>;
+}
+
+/**
+ * 심사위원용 체험 가이드 진입점 (#609).
+ *
+ * 가이드는 노션에 있는데 서비스 어디에도 링크가 없어, 제출 URL 로 들어온 심사위원이
+ * 「이걸 어떻게 보나」를 스스로 찾아야 했다. 첫 화면 맨 위에 둔다.
+ *
+ * 노션을 못 여는 환경을 위해 같은 가이드의 PDF 도 같이 준다. 가이드를 고치면
+ * `apps/web/public/judge-guide.pdf` 를 다시 내보내 교체한다.
+ */
+const JUDGE_GUIDE_URL =
+  "https://app.notion.com/p/TourLint-2-3-3dfec0325d5b802e922fd492799f00e1?source=copy_link";
+
+export function JudgeGuide() {
+  return (
+    <section className="judge-guide" aria-label="심사위원 체험 가이드">
+      <p className="judge-guide-text">
+        심사위원이라면 여기서 기능 설명을 보세요. 상품 하나로 기획부터 출시까지 따라 하는
+        가이드입니다.
+      </p>
+      <span className="judge-guide-links">
+        <a href={JUDGE_GUIDE_URL} target="_blank" rel="noreferrer" className="text-link">
+          체험 가이드 열기 <WorkspaceIcon name="arrow" />
+        </a>
+        <a href="/judge-guide.pdf" download className="text-link">
+          PDF 내려받기 <WorkspaceIcon name="arrow" />
+        </a>
+      </span>
+    </section>
+  );
 }
