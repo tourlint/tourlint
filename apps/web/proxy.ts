@@ -9,9 +9,18 @@ import { NextResponse, type NextRequest } from "next/server";
  */
 const SESSION_COOKIE = "tourlint_session";
 
+/**
+ * 로그인 없이도 받을 수 있어야 하는 것 (#609).
+ *
+ * 심사위원 체험 가이드 PDF 는 노션을 못 여는 환경을 위한 것이다. 로그인으로 보내면
+ * 그 환경에서 받을 방법이 없어진다. 계정 정보가 없는 공개 문서다.
+ */
+const PUBLIC_PATHS = new Set(["/judge-guide.pdf"]);
+
 export function proxy(req: NextRequest): NextResponse {
   const hasSession = req.cookies.has(SESSION_COOKIE);
   const isLoginPage = req.nextUrl.pathname === "/login";
+  if (PUBLIC_PATHS.has(req.nextUrl.pathname)) return NextResponse.next();
 
   if (!hasSession && !isLoginPage) {
     return NextResponse.redirect(new URL("/login", req.url));
