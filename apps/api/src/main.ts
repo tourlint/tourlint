@@ -6,6 +6,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { setupOpenApi } from './openapi/setup';
 import { getPool } from './persistence/db';
 import { bootstrapDemoAccount, demoEmail } from './seed/demo-seed';
+import { CatalogService } from './catalog/catalog.service';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -24,6 +25,20 @@ async function bootstrap(): Promise<void> {
   console.log(`TourLint API → http://localhost:${port}  ·  문서 /docs  ·  상태 /health`);
 
   await ensureDemoAccountOnBoot();
+  warmCatalogOnBoot(app.get(CatalogService));
+}
+
+/**
+ * 지역 · 분류 코드를 배경에서 미리 받아 둔다 (#662).
+ *
+ * 기다리지 않는다 — 부팅을 늦출 일이 아니고, 실패해도 사용자 요청이 다시 시도한다.
+ * 로그의 걸린 시간이 운영에서 공사로 나가는 길의 상태를 말해 준다.
+ */
+function warmCatalogOnBoot(catalog: CatalogService): void {
+  void catalog.warm((line) => {
+    // eslint-disable-next-line no-console
+    console.log(line);
+  });
 }
 
 /**
