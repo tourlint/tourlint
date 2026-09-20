@@ -4,14 +4,20 @@
 //
 // 등록 폼의 ScheduleEditor 를 그대로 쓴다. 다른 것은 항목이 서버 id 를 들고 있다는 점뿐이고,
 // 저장할 때 그 id 로 무엇을 지우고 무엇을 새로 넣을지 정한다 (app/lib/schedule-diff).
+//
+// 기획 중 상품의 「기획 이어하기」가 여기로 온다 (#665). 그래서 등록 화면과 같은 2단이다 —
+// 왼쪽 폼 · 오른쪽 장소 담기 (UI-S2-036 「등록 전·저장 후 모두 같은 패널」). 고른 장소는
+// 폼 상태에만 들어가고 저장할 때 확정 상태로 나간다.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { isApiError, itemApi, productApi, type ProductDetail, type ProductUpdate } from "../../../../lib/api";
+import { isApiError, itemApi, productApi, type PlanPlace, type ProductDetail, type ProductUpdate } from "../../../../lib/api";
 import { isEmptyPlan, planSchedule, type EditedItem } from "../../../../lib/schedule-diff";
 import { Field, Section, SelectInput, TextInput } from "../../new/controls";
 import { ScheduleEditor } from "../../new/schedule-editor";
+import { RegisterPlacePicker } from "../../new/register-place-picker";
+import { canAnchor } from "../../new/schedule-place-search";
 import {
   TRANSPORT_OPTIONS,
   type ItemType,
@@ -38,6 +44,8 @@ export function EditForm({ productId }: { productId: number }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // 오른쪽 장소 담기의 「근처 3km」 기준이 되는 줄. 등록 화면과 같다
+  const [anchorId, setAnchorId] = useState<string | null>(null);
 
   // setState 는 전부 await 뒤에서 한다 (effect 안 동기 setState 금지 — 화면 3 과 같은 모양)
   useEffect(() => {
@@ -65,6 +73,28 @@ export function EditForm({ productId }: { productId: number }) {
     };
   }, [productId]);
 
+  // 장소 담기에서 고른 곳을 폼 일정에 끼운다. 저장할 때 확정 상태로 나간다 (#665)
+  const insertSeq = useRef(0);
+  function handleInsert(p: PlanPlace, dayIdx: number, insertAt: number, itemType: ScheduleItem["itemType"]) {
+    insertSeq.current += 1;
+    const item: ScheduleItem = {
+      id: `pk-${insertSeq.current}`,
+      start: "",
+      end: "",
+      place: p.title,
+      itemType,
+      content: { contentId: p.contentId, contentTypeId: p.contentTypeId, mapx: p.mapx, mapy: p.mapy, lcls1: p.lcls1, lcls2: p.lcls2, lcls3: null },
+    };
+    setSchedule((prev) =>
+      prev.map((items, i) => {
+        if (i !== dayIdx) return items;
+        const next = [...items];
+        next.splice(Math.max(0, Math.min(insertAt, next.length)), 0, item);
+        return next;
+      }),
+    );
+  }
+
   async function save() {
     if (loaded === null || basic === null) return;
     setBusy(true);
@@ -84,10 +114,18 @@ export function EditForm({ productId }: { productId: number }) {
          */
         const newIds = new Map<number, number>();
         for (const [i, add] of plan.added.entries()) {
-          const created = await itemApi.add(productId, {
-            dayNo: add.dayNo, startTime: add.startTime, endTime: add.endTime,
-            placeLabel: add.placeLabel, itemType: add.itemType,
-          });
+          // 장소 담기로 고른 곳은 확정으로 넣는다 — 손으로 친 줄과 호출이 다르다 (FR-PL-013)
+          const created = add.content
+            ? await itemApi.addPicked(productId, {
+                dayNo: add.dayNo,
+                itemType: add.itemType,
+                // 분류가 빈 곳도 있다. 서버는 빈 값을 없는 것으로 받는다 (validatePickedItem)
+                content: { ...add.content, lcls1: add.content.lcls1 ?? "", lcls2: add.content.lcls2 ?? "" },
+              })
+            : await itemApi.add(productId, {
+                dayNo: add.dayNo, startTime: add.startTime, endTime: add.endTime,
+                placeLabel: add.placeLabel, itemType: add.itemType,
+              });
           newIds.set(i, created.itemId);
         }
 
@@ -129,6 +167,13 @@ export function EditForm({ productId }: { productId: number }) {
   }
 
   const region = [loaded.region.regnName, loaded.region.signguName].filter(Boolean).join(" ");
+  const planning = loaded.plannedAt === null;
+
+  // 「근처 3km」 기준. 관광지를 골라 좌표가 있는 줄만 기준이 된다 (등록 화면과 같다)
+  const anchorRow = schedule.flat().find((it) => it.id === anchorId && canAnchor(it.content));
+  const anchor = anchorRow?.content
+    ? { contentId: anchorRow.content.contentId, mapx: anchorRow.content.mapx as number, mapy: anchorRow.content.mapy as number, label: anchorRow.place || "고른 장소" }
+    : null;
 
   return (
     <>
@@ -140,12 +185,18 @@ export function EditForm({ productId }: { productId: number }) {
         <span className="text-slate-700 dark:text-slate-200">편집</span>
       </nav>
 
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">상품 편집</h1>
+      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
+        {planning ? "상품 기획" : "상품 편집"}
+      </h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        일정을 고치면 지난 검수 결과는 낡습니다. 저장한 뒤 다시 검수해 주세요.
+        {planning
+          ? "저장한 내용을 그대로 이어서 채웁니다. 저장하면 장소를 확정하고 검수를 시작할 수 있어요."
+          : "일정을 고치면 지난 검수 결과는 낡습니다. 저장한 뒤 다시 검수해 주세요."}
       </p>
 
-      <div className="mt-6 space-y-6">
+      {/* 왼쪽 폼 · 오른쪽 장소 담기 2단 (UI-S2-036 · UI-S2-047) */}
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[1fr_24rem]">
+        <div className="min-w-0 space-y-6">
         <Section title="기본정보">
           <Field label="상품명" required>
             <TextInput value={basic.name} onChange={(e) => setBasic({ ...basic, name: e.target.value })} />
@@ -199,7 +250,16 @@ export function EditForm({ productId }: { productId: number }) {
           </Field>
         </Section>
 
-        <ScheduleEditor nights={loaded.nights as Nights} schedule={schedule} onChange={setSchedule} />
+        <ScheduleEditor
+          nights={loaded.nights as Nights}
+          schedule={schedule}
+          onChange={setSchedule}
+          regnCd={loaded.ldongRegnCd}
+          signguCd={loaded.ldongSignguCd}
+          regionLabel={loaded.region.signguName || loaded.region.regnName || "이 지역"}
+          anchorId={anchorId}
+          onAnchorChange={setAnchorId}
+        />
 
         {err !== null && <p className="text-sm text-rose-600 dark:text-rose-400">{err}</p>}
 
@@ -234,6 +294,22 @@ export function EditForm({ productId }: { productId: number }) {
             </button>
           </div>
         </div>
+        </div>
+
+        {/* 오른쪽 장소 담기 — 등록 화면과 같은 패널. 고른 곳은 저장할 때 확정으로 나간다 */}
+        <aside className="lg:sticky lg:top-4">
+          <RegisterPlacePicker
+            regnCd={loaded.ldongRegnCd}
+            signguCd={loaded.ldongSignguCd}
+            startDate={basic.startDate}
+            nights={loaded.nights as Nights}
+            regionLabel={loaded.region.signguName || loaded.region.regnName || "이 지역"}
+            openType={null}
+            anchor={anchor}
+            schedule={schedule}
+            onInsert={handleInsert}
+          />
+        </aside>
       </div>
     </>
   );
@@ -269,6 +345,7 @@ function toEdited(schedule: Schedule): EditedItem[] {
         endTime: it.end,
         placeLabel: it.place,
         itemType: it.itemType,
+        ...(it.content ? { content: it.content } : {}),
       });
     });
   });

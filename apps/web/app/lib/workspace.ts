@@ -57,8 +57,16 @@ export function productStage(p: WorkspaceProduct): Stage {
   });
 }
 
+/**
+ * 카드 · 「기획 이어하기」가 여는 곳.
+ *
+ * 기획 중 상품은 **편집 화면**으로 간다 (#665). 장소 확정 화면(`/plan`)으로 보냈더니
+ * 기본정보만 저장하고 들어온 사람은 오른쪽 장소 담기 말고는 할 수 있는 게 없었다 — 일정을
+ * 손으로 채우지도, 타깃 · 콘셉트를 마저 고르지도 못했다. 편집 화면은 등록 화면과 같은
+ * 2단이라 저장한 값을 그대로 이어서 채운다. 저장하면 `/plan` 으로 간다.
+ */
 export function productHref(p: WorkspaceProduct): string {
-  return `/products/${p.productId}${productStage(p) === "PLANNING" ? "/plan" : ""}`;
+  return `/products/${p.productId}${productStage(p) === "PLANNING" ? "/edit" : ""}`;
 }
 
 export function belongsTo(p: WorkspaceProduct, workspace: Workspace): boolean {
