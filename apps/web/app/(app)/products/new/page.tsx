@@ -19,9 +19,11 @@ import { afterSaveHref, hasInput, type AfterSave } from "./save-intent";
 import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
 import {
+  INPUT_METHODS,
   NIGHTS_OPTIONS,
   TRANSPORT_OPTIONS,
   dayCount,
+  type InputMethod,
   type Nights,
   type Schedule,
   type ScheduleItem,
@@ -38,14 +40,6 @@ import {
 } from "@tourlint/shared";
 import type { PlanOrigin } from "../../../lib/api";
 
-type Method = "direct" | "upload" | "nl";
-
-const METHODS: { value: Method; label: string; disabled?: boolean }[] = [
-  { value: "direct", label: "직접 입력" },
-  { value: "upload", label: "엑셀·CSV 업로드" },
-  { value: "nl", label: "자연어 붙여넣기" },
-];
-
 interface Region {
   regnCode: string;
   regnName: string;
@@ -55,7 +49,7 @@ interface Region {
 
 export default function ProductNewPage() {
   const router = useRouter();
-  const [method, setMethod] = useState<Method>("direct");
+  const [method, setMethod] = useState<InputMethod>("direct");
 
   // A. 기본정보
   const [name, setName] = useState("");
@@ -261,7 +255,7 @@ export default function ProductNewPage() {
         <div className="min-w-0">
       {/* 등록 방식 선택 (UI-S2-001). 자연어 붙여넣기는 후속 단계. */}
       <div className="mt-0">
-        <Segmented value={method} options={METHODS} onChange={setMethod} ariaLabel="등록 방식" />
+        <Segmented value={method} options={INPUT_METHODS} onChange={setMethod} ariaLabel="등록 방식" />
         {method === "direct" && (
           <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
             일정은 비워 두고 저장해도 됩니다 — 다음 기획 화면에서 장소 담기로 채울 수 있어요. 엑셀·CSV 업로드나 자연어 붙여넣기로 한 번에 채울 수도 있습니다.
@@ -437,7 +431,7 @@ export default function ProductNewPage() {
 const DRAFT_KEY = "tourlint:product-new-draft";
 
 interface Draft {
-  method: Method;
+  method: InputMethod;
   name: string;
   region: Region;
   startDate: string;
