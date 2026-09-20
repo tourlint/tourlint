@@ -2,6 +2,18 @@
 
 export type Nights = 0 | 1 | 2;
 
+/**
+ * 일정을 채우는 방식 3종 (UI-S2-001). 등록 화면과 편집 화면이 같이 쓴다 — 저장한 뒤에
+ * 이어서 채우는 사람도 엑셀 · 자연어로 한 번에 채울 수 있어야 한다 (#670).
+ */
+export type InputMethod = "direct" | "upload" | "nl";
+
+export const INPUT_METHODS: { value: InputMethod; label: string; disabled?: boolean }[] = [
+  { value: "direct", label: "직접 입력" },
+  { value: "upload", label: "엑셀·CSV 업로드" },
+  { value: "nl", label: "자연어 붙여넣기" },
+];
+
 // 박수는 자유 입력이 아니라 선택형이다 (SC-PD-001).
 export const NIGHTS_OPTIONS: { value: Nights; label: string }[] = [
   { value: 0, label: "당일" },

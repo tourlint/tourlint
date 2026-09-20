@@ -14,12 +14,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isApiError, itemApi, productApi, type PlanPlace, type ProductDetail, type ProductUpdate } from "../../../../lib/api";
 import { isEmptyPlan, planSchedule, type EditedItem } from "../../../../lib/schedule-diff";
-import { Field, Section, SelectInput, TextInput } from "../../new/controls";
+import { Field, Section, Segmented, SelectInput, TextInput } from "../../new/controls";
 import { ScheduleEditor } from "../../new/schedule-editor";
 import { RegisterPlacePicker } from "../../new/register-place-picker";
+import { UploadPanel, type ParsedItemDTO } from "../../new/upload-panel";
+import { NlPanel } from "../../new/nl-panel";
+import { importedSchedule } from "../../new/imported-schedule";
 import { canAnchor } from "../../new/schedule-place-search";
 import {
+  INPUT_METHODS,
   TRANSPORT_OPTIONS,
+  type InputMethod,
   type ItemType,
   type Nights,
   type Schedule,
@@ -46,6 +51,9 @@ export function EditForm({ productId }: { productId: number }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   // 오른쪽 장소 담기의 「근처 3km」 기준이 되는 줄. 등록 화면과 같다
   const [anchorId, setAnchorId] = useState<string | null>(null);
+  // 일정을 채우는 방식 3종. 등록 화면과 같다 (UI-S2-001 · #670)
+  const [method, setMethod] = useState<InputMethod>("direct");
+  const [importNote, setImportNote] = useState<string | null>(null);
 
   // setState 는 전부 await 뒤에서 한다 (effect 안 동기 setState 금지 — 화면 3 과 같은 모양)
   useEffect(() => {
@@ -72,6 +80,27 @@ export function EditForm({ productId }: { productId: number }) {
       cancelled = true;
     };
   }, [productId]);
+
+  /**
+   * 엑셀 · 자연어로 읽은 일정을 폼에 채운다 (UI-S2-010 · #670).
+   *
+   * 등록 화면과 다른 점 하나 — **박수는 바꿀 수 없다.** 그래서 읽은 박수를 따르지 않고 이
+   * 상품의 일수에 맞춰 넣고, 넘치는 일차의 항목은 버린 수를 알린다. 조용히 사라지면
+   * 저장한 뒤에야 없어진 걸 안다.
+   */
+  const importSeq = useRef(0);
+  function applyImport(_nights: number, items: ParsedItemDTO[]) {
+    if (loaded === null) return;
+    importSeq.current += 1;
+    const { schedule: next, put, dropped } = importedSchedule(items, loaded.dayCount, importSeq.current);
+    setAnchorId(null);
+    setSchedule(next);
+    setImportNote(
+      dropped === 0
+        ? `${put}개 항목을 넣었어요. 저장하면 지금 일정이 이걸로 바뀝니다.`
+        : `${put}개 항목을 넣었어요. ${dropped}개는 이 상품의 일수를 넘어 넣지 못했습니다 — 박수는 편집에서 바꿀 수 없어요.`,
+    );
+  }
 
   // 장소 담기에서 고른 곳을 폼 일정에 끼운다. 저장할 때 확정 상태로 나간다 (#665)
   const insertSeq = useRef(0);
@@ -197,6 +226,21 @@ export function EditForm({ productId }: { productId: number }) {
       {/* 왼쪽 폼 · 오른쪽 장소 담기 2단 (UI-S2-036 · UI-S2-047) */}
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[1fr_24rem]">
         <div className="min-w-0 space-y-6">
+        {/* 일정을 채우는 방식 3종. 등록 화면과 같다 (UI-S2-001 · #670) */}
+        <div>
+          <Segmented value={method} options={INPUT_METHODS} onChange={setMethod} ariaLabel="일정 채우는 방식" />
+          <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+            {method === "direct"
+              ? "일정은 비워 두고 저장해도 됩니다 — 오른쪽 장소 담기로 채울 수 있어요. 엑셀·CSV 업로드나 자연어 붙여넣기로 한 번에 채울 수도 있습니다."
+              : "읽어 온 일정은 지금 일정을 대신합니다. 저장하기 전에 직접 편집으로 확인하세요."}
+          </p>
+          {importNote !== null && (
+            <p role="status" className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+              {importNote}
+            </p>
+          )}
+        </div>
+
         <Section title="기본정보">
           <Field label="상품명" required>
             <TextInput value={basic.name} onChange={(e) => setBasic({ ...basic, name: e.target.value })} />
@@ -250,16 +294,20 @@ export function EditForm({ productId }: { productId: number }) {
           </Field>
         </Section>
 
-        <ScheduleEditor
-          nights={loaded.nights as Nights}
-          schedule={schedule}
-          onChange={setSchedule}
-          regnCd={loaded.ldongRegnCd}
-          signguCd={loaded.ldongSignguCd}
-          regionLabel={loaded.region.signguName || loaded.region.regnName || "이 지역"}
-          anchorId={anchorId}
-          onAnchorChange={setAnchorId}
-        />
+        {method === "direct" && (
+          <ScheduleEditor
+            nights={loaded.nights as Nights}
+            schedule={schedule}
+            onChange={setSchedule}
+            regnCd={loaded.ldongRegnCd}
+            signguCd={loaded.ldongSignguCd}
+            regionLabel={loaded.region.signguName || loaded.region.regnName || "이 지역"}
+            anchorId={anchorId}
+            onAnchorChange={setAnchorId}
+          />
+        )}
+        {method === "upload" && <UploadPanel onApplied={applyImport} onEdit={() => setMethod("direct")} />}
+        {method === "nl" && <NlPanel onApplied={applyImport} onEdit={() => setMethod("direct")} />}
 
         {err !== null && <p className="text-sm text-rose-600 dark:text-rose-400">{err}</p>}
 
