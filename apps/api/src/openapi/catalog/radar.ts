@@ -186,6 +186,46 @@ export const RADAR: readonly Endpoint[] = [
     ],
   },
   {
+    route: 'GET /api/v1/radar/region-signals/detail',
+    tag: '레이더',
+    summary: '관심 지역 새 소식 — 무엇인지',
+    description: '관심 지역 카드의 건수가 가리키는 곳을 이름과 날짜로 돌려줍니다. 본인 관심 지역만 답합니다.',
+    params: {
+      regnCd: { description: '시도 코드', required: true, type: 'string', example: '51' },
+      signguCd: { description: '시군구 코드. 비우면 시도 전체', required: false, type: 'string', example: '150' },
+      month: { description: '관심 지역의 달 `YYYY-MM`', required: true, type: 'string', example: '2026-11' },
+      type: { description: 'T1(새로 등록된 곳) 또는 T2(그 달 행사)', required: true, type: 'string', example: 'T1' },
+    },
+    responses: {
+      200: {
+        description: '성공. 목록을 못 받으면 `items` 가 비고 `unavailable` 에 이유가 들어갑니다',
+        example: {
+          region: { regnCd: '51', signguCd: '150' },
+          month: '2026-11',
+          type: 'T1',
+          window: { from: '2026-08-21', to: '2026-09-19' },
+          items: [{
+            contentId: '3568894',
+            title: '강릉 솔향수목원 야간개장',
+            contentTypeId: '12',
+            createdDate: '2026-09-12',
+            eventStart: null,
+            eventEnd: null,
+          }],
+          unavailable: null,
+        },
+      },
+    },
+    errors: [
+      {
+        status: 404,
+        reasonCode: 'NOT_FOUND',
+        when: '내 관심 지역이 아닌 지역 · 달',
+        message: '관심 지역에서 찾을 수 없습니다. 목록에서 다시 선택해 주세요.',
+      },
+    ],
+  },
+  {
     route: 'GET /api/v1/radar/region-signals',
     tag: '레이더',
     summary: '관심 지역 소식',

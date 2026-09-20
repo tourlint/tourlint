@@ -780,6 +780,11 @@ export const radarApi = {
   // 건수 옆 「무엇인지 보기」 — 누를 때만 조회한다 (#644)
   signalDetail: (productId: number, type: "T1" | "T2") =>
     request<SignalDetail>(`/radar/signals/detail?productId=${productId}&type=${type}`),
+  // 관심 지역 카드의 「무엇인지 보기」 (#650)
+  regionSignalDetail: (regnCd: string, signguCd: string | null, month: string, type: "T1" | "T2") =>
+    request<SignalDetail>(
+      `/radar/region-signals/detail?regnCd=${regnCd}&signguCd=${signguCd ?? ""}&month=${month}&type=${type}`,
+    ),
   regionSignals: () => request<RegionSignal[]>("/radar/region-signals"),
   // 배치가 꺼진 기간에만. 켜져 있으면 서버가 403 이다
   refreshRegionSignals: () => request<RegionSignal[]>("/radar/region-signals/refresh", { method: "POST" }),

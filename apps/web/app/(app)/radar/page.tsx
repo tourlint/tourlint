@@ -824,6 +824,75 @@ function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => v
   );
 }
 
+/**
+ * 관심 지역 카드 한 줄 (#650).
+ *
+ * 건수만 있으면 「이 지역으로 새 상품 기획」을 누를지 정할 수 없다 — 어디가 새로 생겼는지
+ * 알아야 한다. 이름은 저장하지 않아 누를 때 조달한다. 상품 쪽(#644)과 같은 방식이다.
+ */
+function RegionSignalLine({
+  label, count, region, month, type,
+}: {
+  label: string; count: number;
+  region: { regnCd: string; signguCd: string | null }; month: string; type: "T1" | "T2";
+}) {
+  const [detail, setDetail] = useState<SignalDetail | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function load() {
+    setBusy(true);
+    setFailed(false);
+    try {
+      setDetail(await radarApi.regionSignalDetail(region.regnCd, region.signguCd, month, type));
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li>
+      {label}
+      {count > 0 && detail === null && (
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={busy}
+          className="ml-2 rounded border border-slate-300 px-1.5 py-0.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          {busy ? "불러오는 중…" : "무엇인지 보기"}
+        </button>
+      )}
+      {failed && <span className="ml-2 text-xs text-rose-600 dark:text-rose-400">불러오지 못했습니다</span>}
+      {detail !== null && (
+        <ul className="mt-1 space-y-0.5 pl-3">
+          {detail.items.map((item) => (
+            <li key={item.contentId} className="text-xs text-slate-500 dark:text-slate-400">
+              {item.title || "이름을 읽지 못한 곳"}
+              <span className="ml-1 text-slate-400">
+                {CONTENT_TYPE_LABEL[item.contentTypeId] ?? item.contentTypeId}
+                {item.eventStart !== null && ` · ${item.eventStart} ~ ${item.eventEnd ?? ""}`}
+                {item.eventStart === null && item.createdDate !== null && ` · ${item.createdDate} 등록`}
+              </span>
+            </li>
+          ))}
+          {detail.items.length === 0 && (
+            <li className="text-xs text-slate-400">
+              {detail.unavailable === "BUDGET"
+                ? "오늘 조회량을 다 써서 목록은 내일 볼 수 있어요. 건수는 그대로입니다."
+                : detail.unavailable === "FETCH_FAILED"
+                  ? "목록 조회가 실패했습니다. 건수는 세어 둔 값이라 그대로입니다."
+                  : "지금 목록에서는 찾지 못했습니다."}
+            </li>
+          )}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal; regionName: string }) {
   const newContents = s.t1?.count ?? null;
   const events = s.t2?.count ?? null;
@@ -846,8 +915,12 @@ function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal; regio
         {hits.map((h) => (
           <li key={h.keyword}>‘{h.keyword}’과(와) 맞는 곳 {h.contentIds?.length}곳</li>
         ))}
-        {events !== null && <li>이달 행사 {events}건</li>}
-        {newContents !== null && <li>새로 등록된 곳 {newContents}곳</li>}
+        {events !== null && (
+          <RegionSignalLine label={`이달 행사 ${events}건`} count={events} region={s.region} month={s.month} type="T2" />
+        )}
+        {newContents !== null && (
+          <RegionSignalLine label={`새로 등록된 곳 ${newContents}곳`} count={newContents} region={s.region} month={s.month} type="T1" />
+        )}
         {/* t3 는 관측된 방문자 수만. null 이면 아예 적지 않는다 (0 으로 적지 않는다) */}
         {s.t3 !== null && <li>지난해 {Number(s.t3.basisMonth.slice(5, 7))}월 방문자 {s.t3.count.toLocaleString()}명</li>}
       </ul>
