@@ -75,8 +75,8 @@ describe("workspace navigation and product scope", () => {
     expect(reviewFilter("PLANNING")).toBe("ALL");
     expect(reviewFilter(["REVIEW", "RELEASED"])).toBe("ALL");
   });
-  it("opens draft schedules directly and leaves audit routes intact", () => {
-    expect(productHref(draft)).toBe("/products/1/plan");
+  it("🔴 기획 중 상품은 이어서 채울 수 있는 편집 화면으로 연다 (#665)", () => {
+    expect(productHref(draft)).toBe("/products/1/edit");
     expect(productHref(review)).toBe("/products/2");
     expect(productHref(released)).toBe("/products/4");
   });

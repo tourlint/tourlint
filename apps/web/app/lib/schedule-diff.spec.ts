@@ -65,3 +65,26 @@ describe("일정 편집 비교 (FR-IN-014)", () => {
     expect(plan.order.map((i) => i.itemId)).toEqual([2]);
   });
 });
+
+describe("장소 담기로 고른 줄 (#665)", () => {
+  const picked = {
+    contentId: "126508", contentTypeId: 12, mapx: 128.8, mapy: 37.8,
+    lcls1: "NA", lcls2: "NA01", lcls3: null,
+  };
+
+  it("🔴 고른 관광지를 새 항목에 달아 둔다 — 저장할 때 확정으로 넣어야 한다", () => {
+    const plan = planSchedule([], [item({ itemId: undefined, content: picked })]);
+    expect(plan.added).toHaveLength(1);
+    expect(plan.added[0].content).toEqual(picked);
+  });
+
+  it("고른 곳이 아니면 달려 있지 않다 — 손으로 친 줄은 미확정으로 들어간다", () => {
+    const plan = planSchedule([], [item({ itemId: undefined })]);
+    expect(plan.added[0].content).toBeUndefined();
+  });
+
+  it("이미 저장된 줄은 고른 관광지를 견주지 않는다 — 바뀐 값만 보낸다", () => {
+    const plan = planSchedule([item()], [item({ content: picked })]);
+    expect(isEmptyPlan(plan)).toBe(true);
+  });
+});

@@ -10,7 +10,7 @@ const noop = () => undefined;
 describe("상품 작업 진입점", () => {
   it("기획 카드의 이동과 삭제는 별도 요소이며 링크 안에 버튼을 넣지 않는다", () => {
     const html = renderToStaticMarkup(<ProductCard product={draft} onDelete={noop} />);
-    expect(html).toContain('href="/products/42/plan"');
+    expect(html).toContain('href="/products/42/edit"');
     expect(html).toContain('aria-label="강릉 일정 기획 이어하기"');
     expect(html).toContain('aria-label="강릉 일정 삭제"');
     for (const anchor of html.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>/g)) expect(anchor[0]).not.toContain('<button');
