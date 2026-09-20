@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { Field, Section, Segmented, SelectInput, TextInput } from "./controls";
 import { RegionSelect } from "./region-select";
 import { canAnchor } from "./schedule-place-search";
+import { pruneEmptyItems, scheduleErrors } from "./schedule-check";
 import { ScheduleEditor } from "./schedule-editor";
 import { RegisterPlacePicker } from "./register-place-picker";
 import { LeaveConfirm } from "./leave-confirm";
@@ -151,9 +152,11 @@ export default function ProductNewPage() {
     });
   }
 
+  // 추가만 하고 만 줄은 보내지 않는다. 남은 줄이 채워졌는지는 여기서 본다 (#673)
+  const filled = useMemo(() => pruneEmptyItems(schedule), [schedule]);
   const errors = useMemo(
-    () => validate({ name, region, startDate, nights, schedule }),
-    [name, region, startDate, nights, schedule],
+    () => [...validate({ name, region, startDate, nights, schedule: filled }), ...scheduleErrors(filled)],
+    [name, region, startDate, nights, filled],
   );
 
   // 고른 줄(체크한 일정)의 좌표. 관광지를 골라 좌표가 있는 줄만 근처 3km 기준이 된다.
@@ -207,7 +210,7 @@ export default function ProductNewPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload({ name, region, startDate, nights, target, concept, headcount, transport, schedule, planOrigin })),
+        body: JSON.stringify(buildPayload({ name, region, startDate, nights, target, concept, headcount, transport, schedule: filled, planOrigin })),
       });
       if (res.status === 401) {
         // 세션 만료 — 작성분을 담아 두고 재로그인으로 유도한다 (EX-SY-002). 돌아오면 복원된다.
@@ -215,12 +218,14 @@ export default function ProductNewPage() {
         router.push("/login");
         return;
       }
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error(await reason(res));
       const created = (await res.json()) as { productId?: number };
       // 저장 후 기획 화면으로 — 거기서 이어서 장소를 고르고 검수로 넘어간다 (FR-PL-004)
       router.push(afterSaveHref(next, created.productId ?? null, openType));
-    } catch {
-      setSaveError("저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } catch (e) {
+      // 서버가 무엇이 잘못됐는지 말해 준다. 일반 문장은 그 말이 없을 때만 쓴다 (#673)
+      const said = e instanceof Error ? e.message : "";
+      setSaveError(said !== "" ? said : "저장에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       setSaving(null);
     }
   }
@@ -422,6 +427,16 @@ export default function ProductNewPage() {
       {leaving && <LeaveConfirm onStay={() => setLeaving(false)} onLeave={() => router.push("/planning")} />}
     </>
   );
+}
+
+/** 실패 응답에서 서버가 적어 보낸 이유를 꺼낸다. 없으면 빈 문자열 (#673) */
+async function reason(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { message?: unknown };
+    return typeof body.message === "string" ? body.message : "";
+  } catch {
+    return "";
+  }
 }
 
 // ── 세션 만료 대비 임시저장 (EX-SY-002) ──────────────────────────────────────

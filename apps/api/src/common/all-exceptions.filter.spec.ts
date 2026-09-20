@@ -113,3 +113,56 @@ describe('입력 형식 오류 (EX-CM-021 · #612)', () => {
     expect(body.reasonCode).toBe('DISMISS_REASON_REQUIRED');
   });
 });
+
+describe('거절 로그 (#673)', () => {
+  /** 5xx 만 남기던 때는 운영에서 저장이 계속 막히는데 로그에 실패한 적이 없는 것처럼 보였다 */
+  function logged(exception: unknown): { warn: string[]; error: unknown[][] } {
+    const warn: string[] = [];
+    const error: unknown[][] = [];
+    const res = {
+      status: () => res,
+      json: () => undefined,
+      setHeader: () => undefined,
+    };
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => res,
+        getRequest: () => ({ method: 'POST', url: '/api/v1/products' }),
+      }),
+    } as unknown as ArgumentsHost;
+    const filter = new AllExceptionsFilter();
+    vi.spyOn(filter['logger'], 'warn').mockImplementation((line: unknown) => {
+      warn.push(String(line));
+      return undefined;
+    });
+    vi.spyOn(filter['logger'], 'error').mockImplementation((...args: unknown[]) => {
+      error.push(args);
+      return undefined;
+    });
+    filter.catch(exception, host);
+    return { warn, error };
+  }
+
+  it('🔴 400 도 한 줄 남긴다 — 경로와 사유코드로 찾을 수 있어야 한다', () => {
+    const { warn } = logged(new BadRequestException('3일차 4번 장소명을 입력하세요.'));
+    expect(warn).toHaveLength(1);
+    expect(warn[0]).toContain('POST /api/v1/products');
+    expect(warn[0]).toContain('INPUT_INVALID');
+  });
+
+  /**
+   * 거절 메시지에는 사용자가 친 장소명이 들어 있고 그건 공사 원문일 수 있다
+   * (DB 명세서 6-4 — 응답 본문 로깅 금지).
+   */
+  it('🔴 거절 메시지는 로그에 남기지 않는다', () => {
+    const { warn, error } = logged(new BadRequestException('3일차 4번 장소명을 입력하세요.'));
+    expect(warn.join(' ')).not.toContain('장소명');
+    expect(error).toHaveLength(0);
+  });
+
+  it('5xx 는 그대로 error 로 남긴다 — 예외까지 함께', () => {
+    const { warn, error } = logged(new Error('터짐'));
+    expect(warn).toHaveLength(0);
+    expect(error).toHaveLength(1);
+  });
+});

@@ -20,6 +20,7 @@ import { RegisterPlacePicker } from "../../new/register-place-picker";
 import { UploadPanel, type ParsedItemDTO } from "../../new/upload-panel";
 import { NlPanel } from "../../new/nl-panel";
 import { importedSchedule } from "../../new/imported-schedule";
+import { pruneEmptyItems, scheduleErrors } from "../../new/schedule-check";
 import { canAnchor } from "../../new/schedule-place-search";
 import {
   INPUT_METHODS,
@@ -126,13 +127,20 @@ export function EditForm({ productId }: { productId: number }) {
 
   async function save() {
     if (loaded === null || basic === null) return;
+    // 추가만 하고 만 줄은 보내지 않고, 채우다 만 줄은 짚어 준다 (#673)
+    const filled = pruneEmptyItems(schedule);
+    const rowErrors = scheduleErrors(filled);
+    if (rowErrors.length > 0) {
+      setErr(rowErrors.join(" "));
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
       const update = changedBasic(loaded, basic);
       if (Object.keys(update).length > 0) await productApi.update(productId, update);
 
-      const plan = planSchedule(toEdited(toSchedule(loaded)), toEdited(schedule));
+      const plan = planSchedule(toEdited(toSchedule(loaded)), toEdited(filled));
       if (!isEmptyPlan(plan)) {
         for (const itemId of plan.removed) await itemApi.remove(itemId);
         for (const p of plan.patched) await itemApi.patch(p.itemId, p.patch);
