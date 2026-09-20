@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import { describe, expect, it } from 'vitest';
 import type { BriefProduct, ChangeRow } from '../radar/radar.repository';
 import {
@@ -148,7 +149,7 @@ describe('TodayBriefService — 오늘 할 일 (FR-AG-030 · 031)', () => {
     expect(result.todos[2]?.region).toEqual({ regnCd: '51', signguCd: '150', month: '2026-10' });
     expect(result.todos.map((t) => t.action)).toEqual(['REAUDIT', 'REAUDIT', 'NEW_PLAN']);
     expect(result.incomplete).toBeNull();
-    expect(result.basisAt).toBe('2026-09-16T05:00:00.000Z');
+    expect(result.basisAt).toBe('2026-09-16T14:00:00+09:00');
   });
 
   it('🔴 후보에 없는 할 일은 버린다 — 알림 · 새 소식에 없는 것을 만들어 내지 않는다 (FR-AG-003)', async () => {
@@ -241,7 +242,7 @@ describe('TodayBriefService — 오늘 할 일 (FR-AG-030 · 031)', () => {
 
     expect(result.todos).toEqual([]);
     expect(result.incomplete).toEqual({ reasonCode: 'LLM_UNAVAILABLE', itemIds: [] });
-    expect(result.basisAt).toBe('2026-09-16T05:00:00.000Z');
+    expect(result.basisAt).toBe('2026-09-16T14:00:00+09:00');
   });
 
   it('🔴 같은 계정의 같은 에이전트가 도는 중이면 429 다 (EX-AG-004)', async () => {
@@ -261,7 +262,7 @@ describe('TodayBriefService — 오늘 할 일 (FR-AG-030 · 031)', () => {
       lock: new AgentLock(),
     }).brief(1, NOW);
 
-    expect(result.basisAt).toBe(NOW.toISOString());
+    expect(result.basisAt).toBe(kstIso(NOW));
   });
 
   it('모델을 못 쓰면 거절하지 않고 사람이 하는 길을 둔다 (FR-AG-005)', async () => {

@@ -1,4 +1,4 @@
-import { findingMessage, SETTING_DEFAULTS, STANDARD_VERSION, type Severity } from '@tourlint/shared';
+import { findingMessage, SETTING_DEFAULTS, STANDARD_VERSION, type Severity, kstIso } from '@tourlint/shared';
 import type { ContentView } from '../external/kto';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 
@@ -336,8 +336,8 @@ export function assembleReport(input: AssembleInput): ReportModel {
     patchHistory: input.patches,
     unverified: run.findings.filter(needsAttention).map(toFinding),
     provenance: {
-      fetchedAt: run.executedAt.toISOString(),
-      generatedAt: input.generatedAt.toISOString(),
+      fetchedAt: kstIso(run.executedAt),
+      generatedAt: kstIso(input.generatedAt),
       targetContentCount: run.targetCount,
       dataFingerprint: input.dataFingerprint,
       rulesetVersion: run.rulesetVersion,

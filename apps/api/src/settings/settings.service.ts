@@ -3,8 +3,7 @@ import {
   COMPANY_SETTING_LIMITS,
   SETTING_DEFAULTS,
   SEVERITY_WEIGHT_DEFAULT,
-  STANDARD_VERSION,
-} from '@tourlint/shared';
+  STANDARD_VERSION, kstIso,} from '@tourlint/shared';
 import { nextBatchAt } from '../batch/sync-window';
 import { DomainException } from '../common/domain.exception';
 import {
@@ -69,7 +68,7 @@ export class SettingsService {
       );
     }
     if (errors.length > 0) throw new BadRequestException(errors.join(' '));
-    const saved = await this.repo.saveCompany(accountId, patch, new Date().toISOString());
+    const saved = await this.repo.saveCompany(accountId, patch, kstIso(new Date()));
     const global = await this.repo.global();
     return this.toView(saved, global);
   }

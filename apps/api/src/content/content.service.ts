@@ -1,4 +1,4 @@
-import { CONTENT_TYPE_ID, type ContentTypeId } from '@tourlint/shared';
+import { CONTENT_TYPE_ID, type ContentTypeId, kstIso } from '@tourlint/shared';
 import { fetchContentView, type KtoClient } from '../external/kto';
 import type { ConditionWant, PlaceConditionService } from '../plan/place-conditions.service';
 
@@ -31,7 +31,7 @@ export class ContentService {
 
     return {
       contentId: view.ktoContentId,
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: kstIso(new Date()),
       /*
        * 비표출로 전환된 콘텐츠는 명칭 · 주소 · 이미지를 내보내지 않는다
        * (PM-NG-009 · FR-AU-070 · 071). `fetchContentView` 가 애초에 부르지도 않는다.

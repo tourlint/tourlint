@@ -120,7 +120,7 @@ describe('리포트 모델 조립', () => {
 
   it('데이터 출처에 조회 시각 · 지문 · 규칙셋 버전이 있다 (FR-PA-062 · UI-S6-005)', () => {
     const p = assembleReport(input()).provenance;
-    expect(p.fetchedAt).toBe('2026-08-29T01:00:00.000Z');
+    expect(p.fetchedAt).toBe('2026-08-29T10:00:00+09:00');
     expect(p.dataFingerprint).toBe('ab12cd34');
     expect(p.rulesetVersion).toBe('r1');
   });

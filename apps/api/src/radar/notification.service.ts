@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { DomainException } from '../common/domain.exception';
@@ -41,7 +42,7 @@ export class NotificationService {
   async markRead(id: number, accountId: number): Promise<Record<string, unknown>> {
     const readAt = await this.repo.markRead(id, accountId);
     if (readAt === null) throw notFound();
-    return { id, readAt: readAt.toISOString() };
+    return { id, readAt: kstIso(readAt) };
   }
 
   /**
@@ -64,7 +65,7 @@ export class NotificationService {
 
     const dismissedAt = await this.repo.dismiss(id, accountId);
     if (dismissedAt === null) throw notFound();
-    return { id, dismissedAt: dismissedAt.toISOString() };
+    return { id, dismissedAt: kstIso(dismissedAt) };
   }
 }
 
@@ -101,9 +102,9 @@ function toResponse(n: StoredNotification): Record<string, unknown> {
      * 눌러 보고 403 을 받는 것은 화면이 규정을 모른다는 뜻이다.
      */
     dismissable: isDismissable(hidden),
-    readAt: n.readAt === null ? null : n.readAt.toISOString(),
-    dismissedAt: n.dismissedAt === null ? null : n.dismissedAt.toISOString(),
-    createdAt: n.createdAt.toISOString(),
+    readAt: n.readAt === null ? null : kstIso(n.readAt),
+    dismissedAt: n.dismissedAt === null ? null : kstIso(n.dismissedAt),
+    createdAt: kstIso(n.createdAt),
   };
 }
 

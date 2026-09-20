@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import { createHash } from 'node:crypto';
 import type { EndTimeSource, ItemType, MatchStatus } from '@tourlint/shared';
 import type { ItineraryItemRow } from './audit-runner';
@@ -65,7 +66,7 @@ export function toSnapshot(
 ): ItinerarySnapshot {
   return {
     snapshotVersion: SNAPSHOT_VERSION,
-    snapshotAt: snapshotAt.toISOString(),
+    snapshotAt: kstIso(snapshotAt),
     productId,
     items: items.map((i) => ({
       id: i.id,

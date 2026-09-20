@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Transport } from '@tourlint/shared';
+import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Transport, kstIso } from '@tourlint/shared';
 import { CURRENT_RUN_LATERAL, toCurrentRun, type CurrentRun } from '../persistence/current-run';
 import { withTransaction } from '../persistence/db';
 import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct, WalkItemInput } from './product.dto';
@@ -105,7 +105,7 @@ function isoDate(v: Date | string): string {
 
 function isoStamp(v: Date | string | null): string | null {
   if (v === null) return null;
-  return typeof v === 'string' ? v : v.toISOString();
+  return typeof v === 'string' ? v : kstIso(v);
 }
 
 export class ProductRepository {
@@ -138,7 +138,7 @@ export class ProductRepository {
         nights: product.nights,
         dayCount: product.nights + 1,
         releasedAt: null,
-        createdAt: created.created_at.toISOString(),
+        createdAt: kstIso(created.created_at),
       };
     });
   }
