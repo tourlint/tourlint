@@ -783,47 +783,63 @@ describe('R08 대체 후보는 앞 항목 주변에서 찾는다 (FR-RU-083 ③)
   });
 });
 
-describe('외부 조회 상한을 굶는 finding 에 먼저 준다 (NF-PF-014)', () => {
-  it('🔴 앞선 finding 이 상한을 다 먹지 않는다', async () => {
+describe('외부 조회 상한은 차단부터 쓴다 (#602 · NF-PF-014)', () => {
+  const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
+  const profileOf: TargetProfileLookup = (targetKey, conceptKey) =>
+    ({ targetKey, conceptKey, expectedLcls2: ['FD01', 'FD05'], expectsNight: false } as TargetProfileSeed);
+
+  /** 좌표는 픽스처 `detailCommon2` 의 실제 값이다 — 없으면 대체 후보를 못 찾는다 */
+  // 10/13 은 화요일 — 가람집옹심이가 매주 화요일 휴무다. 2일차로 옮길 수 있어 0콜 수정안이 있다
+  const restDay = item({ id: 1, dayNo: 1, seq: 1, startTime: '12:00', endTime: '13:00', itemType: 'MEAL',
+                         placeLabel: '가람집옹심이', ktoContentId: '2868839', contentTypeId: 39, lclsSystm2: 'FD01',
+                         mapX: 128.9393320379, mapY: 37.7611934162 });
+  // 농산물도매시장은 18:00 에 닫는다 — 17:30~18:30 방문은 운영시간 차단이다
+  const afterClose = item({ id: 2, dayNo: 1, seq: 2, startTime: '17:30', endTime: '18:30',
+                            placeLabel: '농산물도매시장', ktoContentId: '1756581', contentTypeId: 38,
+                            mapX: 128.9182652483, mapY: 37.7367152805 });
+  const sightDay2 = item({ id: 3, dayNo: 2, seq: 1, startTime: '10:00', endTime: '11:00', placeLabel: '오죽헌',
+                           ktoContentId: '129784', contentTypeId: 14, lclsSystm2: 'VE07',
+                           mapX: 128.8797, mapY: 37.7791 });
+  // 갈골한과체험전시관은 휴무일 정보가 없어 확인 불가다 — 0콜로 낼 것이 없어 굶는 쪽이다
+  const uncertain = item({ id: 4, dayNo: 2, seq: 2, startTime: '13:00', endTime: '14:00',
+                           placeLabel: '갈골한과체험전시관', ktoContentId: '3539725', contentTypeId: 14,
+                           lclsSystm2: 'VE05', mapX: 128.8433165066, mapY: 37.8245592109 });
+
+  it('🔴 한 콜뿐이면 차단이 쓴다 — 주의가 먼저 가져가면 차단에 대체가 안 붙는다', async () => {
     /*
-     * 위치기반 조회는 상한이 있다. 앞에서부터 쓰면 앞선 finding 들이 다 먹고 뒤가 굶는다 —
-     * 실제로 차단 두 건이 상한 3콜을 소진해 **R10 이 수정안 하나 없이** 화면에 떴다.
-     *
-     * 0콜로 아무것도 못 낸 finding 이 먼저다. 「고칠 방법이 하나도 없다」와 「셋 중 둘만
-     * 있다」는 사용자에게 다른 문제다.
-     *
-     * 여기서 R01 은 옮길 날이 있어 0콜 수정안이 나오고, R10 은 외부 조회뿐이라 굶는다.
+     * 원래 순서는 규칙 번호 순이고 상한은 굶는 finding 부터 썼다. 그래서 **차단인 휴무일은
+     * 0콜 수정안(날짜 이동)이 있다는 이유로 뒤로 밀려** 대체를 못 받았다 — 사용자는 다른 것을
+     * 고치고 재검수해야 대체를 봤다 (#602). 차단이 먼저다.
      */
-    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
-    const lcls2 = 'FD05';
-    const profileOf: TargetProfileLookup = (targetKey, conceptKey) =>
-      ({ targetKey, conceptKey, expectedLcls2: ['FD01', lcls2], expectsNight: false } as TargetProfileSeed);
+    const result = await runner({ profileOf, maxReplacementCalls: 1 }).run(withTarget, [restDay, sightDay2]);
 
-    const result = await runner({ profileOf, maxReplacementCalls: 1 }).run(withTarget, [
-      // 10/13 은 화요일 — 가람집옹심이가 매주 화요일 휴무다
-      item({ id: 1, dayNo: 1, seq: 1, startTime: '10:00', endTime: '11:00', placeLabel: '가람집옹심이',
-             ktoContentId: '2868839', contentTypeId: 39, lclsSystm2: 'FD01',
-             mapX: 128.9393320379, mapY: 37.7611934162 }),
-      item({ id: 2, dayNo: 1, seq: 2, startTime: '18:00', endTime: '19:00', placeLabel: '경포대',
-             ktoContentId: '125790', contentTypeId: 12, lclsSystm2: 'HS01',
-             mapX: 128.8961, mapY: 37.7955 }),
-      item({ id: 3, dayNo: 2, seq: 1, startTime: '10:00', endTime: '11:00', placeLabel: '오죽헌',
-             ktoContentId: '129784', contentTypeId: 14, lclsSystm2: 'VE07',
-             mapX: 128.8797, mapY: 37.7791 }),
-      item({ id: 4, dayNo: 2, seq: 2, startTime: '17:00', endTime: '18:00', placeLabel: '남산공원',
-             ktoContentId: '3022373', contentTypeId: 12, lclsSystm2: 'LS01',
-             mapX: 128.8934, mapY: 37.7473 }),
-    ]);
+    const r01 = result.findings.find((f) => f.reasonCode === 'REST_DAY_CONFLICT');
+    expect(r01?.severity, 'R01 차단이 안 났다').toBe('BLOCKER');
+    expect((r01?.patches ?? []).map((p) => p.type), '차단에 대체가 안 붙었다')
+      .toEqual(expect.arrayContaining(['TIME_SHIFT', 'REPLACE_CONTENT']));
+    // 한 콜을 차단이 썼으니 주의(R10)는 이번 검수에 못 받는다
+    expect(result.findings.find((f) => f.ruleCode === 'R10')?.patches ?? []).toHaveLength(0);
+  });
 
-    const r01 = result.findings.find((f) => f.ruleCode === 'R01');
-    const r10 = result.findings.find((f) => f.ruleCode === 'R10');
-    expect(r01, 'R01 이 안 났다').toBeDefined();
-    expect(r10, 'R10 이 안 났다').toBeDefined();
+  it('🔴 기본 상한이면 차단 둘 · 확인 불가 · R10 이 모두 수정안을 받는다', async () => {
+    /*
+     * 상한을 앞에서부터 쓰던 때 **차단 두 건이 3콜을 소진해 R10 이 수정안 하나 없이** 떴다.
+     * 등급 순으로 바꾼 뒤에도 그 일이 다시 나면 안 된다.
+     *
+     * **기본 상한이 4콜인 이유가 여기 있다** (#602). 3콜이면 마지막 순서인 확인 불가가 굶는다 —
+     * 차단이 대체를 얻는 대신 확인 불가가 갖고 있던 대체를 잃으면 고친 것이 아니다.
+     */
+    const result = await runner({ profileOf }).run(withTarget, [restDay, afterClose, uncertain, sightDay2]);
 
-    // R01 은 0콜로 낼 것이 있다 — 옮길 날이 있다
-    expect((r01?.patches ?? []).map((p) => p.type)).toContain('TIME_SHIFT');
-    // R10 은 외부 조회뿐이다. 상한 한 콜은 이쪽이 써야 한다
-    expect((r10?.patches ?? []).length, 'R10 이 수정안 없이 남았다').toBeGreaterThan(0);
+    const blockers = result.findings.filter((f) => f.ruleCode === 'R01' && f.severity === 'BLOCKER');
+    expect(blockers.length, '차단 두 건이 안 났다').toBe(2);
+    for (const f of blockers) {
+      expect((f.patches ?? []).map((p) => p.type), `${f.reasonCode} 에 대체가 없다`).toContain('REPLACE_CONTENT');
+    }
+    const unsure = result.findings.find((f) => f.reasonCode === 'REST_DAY_UNCERTAIN');
+    expect((unsure?.patches ?? []).map((p) => p.type), '확인 불가가 굶었다').toContain('REPLACE_CONTENT');
+    expect((result.findings.find((f) => f.ruleCode === 'R10')?.patches ?? []).length,
+      'R10 이 수정안 없이 남았다').toBeGreaterThan(0);
   });
 });
 
