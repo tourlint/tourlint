@@ -1,5 +1,5 @@
 import {
-  CONTENT_TYPE_ID, INTRO_FIELDS, SETTING_DEFAULTS, SEVERITY_WEIGHT_DEFAULT, STANDARD_VERSION, findProfile,
+  CONTENT_TYPE_ID, INTRO_FIELDS, SETTING_DEFAULTS, SEVERITY, SEVERITY_WEIGHT_DEFAULT, STANDARD_VERSION, findProfile,
   type ContentTypeId, type EndTimeSource, type ExceptionReasonCode, type ItemType, type MatchStatus, type Severity,
   type SettingSnapshot, type TargetProfileSeed, type Transport,
 } from '@tourlint/shared';
@@ -146,10 +146,14 @@ export interface AuditRunnerOptions {
    */
   readonly previousFingerprints?: ReadonlyMap<string, FingerprintSnapshot>;
   /**
-   * 대체 관광지 탐색(`locationBasedList2`) 호출 상한. 기본 3콜.
+   * 대체 관광지 탐색(`locationBasedList2`) 호출 상한. 기본 4콜.
    *
    * 수정안은 판정이 아니라 **거들기**다. 여기서 예산을 많이 쓰면 정작 검수할 몫이 줄어든다
-   * (API 설계 6-1 8단계 "약 3콜").
+   * (API 설계 6-1 8단계).
+   *
+   * 3콜이었는데 한 콜을 더 줬다 (#602). 차단부터 쓰도록 순서를 고치니 3콜로는 마지막
+   * 확인 불가가 굶었다 — TP-03 에서 차단 휴무일이 대체를 얻는 대신 확인 불가 휴무일이
+   * 갖고 있던 대체 둘을 잃었다. 4콜이면 둘 다 받는다.
    */
   readonly maxReplacementCalls?: number;
   /**
@@ -238,7 +242,7 @@ export class AuditRunner {
     this.weights = options.weights ?? SEVERITY_WEIGHT_DEFAULT;
     this.settings = options.settings ?? DEFAULT_AUDIT_SETTINGS;
     this.previous = options.previousFingerprints ?? new Map();
-    this.maxReplacementCalls = options.maxReplacementCalls ?? 3;
+    this.maxReplacementCalls = options.maxReplacementCalls ?? 4;
     this.kakao = options.kakao ?? null;
     this.kma = options.kma ?? null;
     this.climate = options.climate ?? null;
@@ -493,14 +497,21 @@ export class AuditRunner {
     }));
 
     /*
-     * ── 2) 외부 조회는 굶는 것부터 ────────────────────────────────
+     * ── 2) 외부 조회는 차단부터, 같은 등급 안에서는 굶는 것부터 ───
      *
-     * **0콜로 아무것도 못 낸 finding 이 우선이다.** 「고칠 방법이 하나도 없다」와 「셋 중
-     * 둘만 있다」는 사용자에게 다른 문제다. 그다음은 원래 순서 — 차단이 앞에 온다.
+     * **등급이 먼저다** (#602). 원래 순서는 규칙 번호 순이라 같은 R01 안에서도 주의가 차단보다
+     * 앞에 온다. TP-03 을 돌려 보면 확인 불가인 휴무일이 상한을 먼저 가져가고 **차단인 휴무일에는
+     * 대체가 하나도 안 붙는다** — 사용자는 다른 것을 고치고 재검수해야 그제서야 대체를 봤다.
+     *
+     * 등급이 같으면 **0콜로 아무것도 못 낸 finding 이 우선이다.** 「고칠 방법이 하나도 없다」와
+     * 「셋 중 둘만 있다」는 사용자에게 다른 문제다. 그다음은 원래 순서.
      */
     const order = [...drafts.keys()].sort((a, b) => {
-      const empty = Number((drafts[b] as { patches: Patch[] }).patches.length === 0)
-        - Number((drafts[a] as { patches: Patch[] }).patches.length === 0);
+      const left = drafts[a] as { finding: Finding; patches: Patch[] };
+      const right = drafts[b] as { finding: Finding; patches: Patch[] };
+      const severity = SEVERITY.indexOf(left.finding.severity) - SEVERITY.indexOf(right.finding.severity);
+      if (severity !== 0) return severity;
+      const empty = Number(right.patches.length === 0) - Number(left.patches.length === 0);
       return empty !== 0 ? empty : a - b;
     });
 

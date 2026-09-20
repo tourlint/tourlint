@@ -1,5 +1,5 @@
 import { type Severity } from '@tourlint/shared';
-import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
+import { placeLine, type AuditItem, type AuditRule, type Finding, type ItineraryContext } from './types';
 
 /**
  * R06 — 콘텐츠 변경 감지 · R06-b 비표출 전환 (FR-RU-060 ~ 068).
@@ -102,7 +102,7 @@ function evaluateItem(item: AuditItem): Finding | null {
       severity: 'UNVERIFIED',
       reasonCode: 'PARSE_SCHEMA_INVALID',
       targetItemId: item.id,
-      message: `${item.placeLabel} — 공사 데이터가 바뀌었지만 내용을 해석하지 못했습니다. 운영기관에 직접 확인해 주세요.`,
+      message: placeLine(item, '공사 데이터가 바뀌었지만 내용을 해석하지 못했습니다. 운영기관에 직접 확인해 주세요.'),
       evidence: { verdict: verdict.kind, normalized: null, ktoContentId: item.content.ktoContentId },
       requiresExternal: false,
       externalSource: null,

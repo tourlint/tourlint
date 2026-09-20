@@ -299,7 +299,9 @@ export function assembleReport(input: AssembleInput): ReportModel {
     return {
       ruleCode: f.ruleCode,
       severity: f.severity,
-      message: findingMessage(f.ruleCode, f.message, f.evidence, placeOf),
+      // 이름 없이 저장된 문장은 여기서 채운다 — 리포트는 공사 명칭을 이미 읽어 뒀다 (#606)
+      message: findingMessage(f.ruleCode, f.message, f.evidence, placeOf,
+        f.targetItemId === null ? null : placeOf.get(f.targetItemId) ?? null),
       dismissed: f.dismissed,
       dismissReason: f.dismissed ? f.dismissReason : null,
       confirmed: f.confirmed,

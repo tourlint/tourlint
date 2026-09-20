@@ -164,7 +164,9 @@ export class AuditController {
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('run', runId, account.accountId);
     const run = await this.service.getRun(runId);
-    return toUnverifiedResponse(run, await this.service.itemsOf(run.productId));
+    const items = await this.service.itemsOf(run.productId);
+    // 장소 담기로 넣은 항목은 이름이 없다. 그 항목만 여기서 조회해 채운다 (#606)
+    return toUnverifiedResponse(run, items, await this.service.displayLabels(items));
   }
 
   /**

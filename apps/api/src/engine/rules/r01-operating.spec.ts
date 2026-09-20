@@ -377,6 +377,24 @@ describe('대상 제외 (FR-AU-011 · FR-RU-014)', () => {
   });
 });
 
+/**
+ * 장소 담기 · 수정안 삽입으로 들어온 항목은 `place_label` 이 비어 있다 — 명칭은 공사 원문이라
+ * 저장하지 않는다 (DR-PR-001). 이름을 그대로 끼우면 「 — 휴무일 정보를 확인할 수 없습니다」
+ * 처럼 앞이 빈 문장이 저장됐다 (#606).
+ */
+describe('이름이 없는 항목의 문장 (#606)', () => {
+  it('🔴 앞에 빈 자리를 남기지 않는다', () => {
+    const [f] = evaluate({ contentTypeId: 12, raw: { usetime: '09:00~18:00' }, date: '2026-10-13', placeLabel: '' });
+    expect(f?.reasonCode).toBe('REST_DAY_UNCERTAIN');
+    expect(f?.message).toBe('휴무일 정보를 확인할 수 없습니다');
+  });
+
+  it('이름이 있으면 그대로 앞에 붙인다', () => {
+    const [f] = evaluate({ contentTypeId: 12, raw: { usetime: '09:00~18:00' }, date: '2026-10-13', placeLabel: '리고엠' });
+    expect(f?.message).toBe('리고엠 — 휴무일 정보를 확인할 수 없습니다');
+  });
+});
+
 describe('결정론성 (NF-MT-001)', () => {
   it('같은 입력이면 언제나 같은 판정이다', () => {
     const runs = Array.from({ length: 5 }, () =>

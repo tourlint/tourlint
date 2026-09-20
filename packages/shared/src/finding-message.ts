@@ -6,8 +6,31 @@ const CONTENT_NAMES: Record<string, string> = {
   '32': '숙박', '38': '쇼핑', '39': '음식점',
 };
 
+/** 메시지 앞에 `장소명 — ` 을 붙이는 규칙. 나머지 규칙은 상품 전체를 말해 이름이 없다 */
+const PLACE_RULES = new Set(['R01', 'R02', 'R05', 'R06']);
+
+/** 이름이 비어 저장된 자리 — 옛 결과에는 `" — 본문"` · `"null — 본문"` 으로 남아 있다 */
+const EMPTY_LABEL = /^\s*(?:null\s*)?—\s*/;
+
+/**
+ * 장소 이름을 **표시할 때** 메시지 앞에 채운다 (#606).
+ *
+ * 규칙은 판정 시점에 `장소명 — 본문` 으로 문장을 굳히는데, 장소 담기 · 수정안 삽입으로 들어온
+ * 항목은 `place_label` 이 비어 있다. 명칭이 공사 원문이라 저장하지 않기 때문이다
+ * (DR-PR-001). 그래서 화면에 「 — 휴무일 정보를 확인할 수 없습니다」 가 떴다.
+ *
+ * 이름은 부르는 쪽이 정한다 — 사용자가 적은 이름이 있으면 그것, 없으면 표시 시점에 조회한
+ * 공사 명칭이다. 이름을 못 얻으면 본문만 보여 준다. 지어내지 않는다.
+ */
+export function withPlaceName(message: string, name?: string | null): string {
+  const core = message.replace(EMPTY_LABEL, '');
+  const label = name?.trim() ?? '';
+  if (label === '') return core;
+  return core.startsWith(`${label} —`) ? core : `${label} — ${core}`;
+}
+
 /** 판정·감점은 유지하고 저장된 결과도 같은 말로 표시한다. 분류명을 추측하지 않는다. */
-export function findingMessage(rule: string, original: string, evidence: Record<string, unknown>, names: ReadonlyMap<number, string> = new Map()): string {
+export function findingMessage(rule: string, original: string, evidence: Record<string, unknown>, names: ReadonlyMap<number, string> = new Map(), targetName?: string | null): string {
   if (rule === 'R04' && typeof evidence.count === 'number' && typeof evidence.threshold === 'number') {
     const places = Array.isArray(evidence.itemIds)
       ? [...new Set(evidence.itemIds.map(id => names.get(Number(id))).filter((name): name is string => !!name))].slice(0, 3) : [];
@@ -35,5 +58,5 @@ export function findingMessage(rule: string, original: string, evidence: Record<
     const profile = original.split(' 상품인데 ')[0];
     if (missing.length && original.includes(' 상품인데 ')) return `${profile} 여행에 어울리는 ${missing.join('·')} 방문이 아직 없어요. 해당 장소를 추가해 일정을 보완해 보세요.`;
   }
-  return original;
+  return PLACE_RULES.has(rule) ? withPlaceName(original, targetName) : original;
 }
