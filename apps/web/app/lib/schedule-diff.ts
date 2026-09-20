@@ -5,9 +5,16 @@
  * 테스트로 잡는다.
  */
 
+import type { MatchedContent } from '../(app)/products/new/types';
+
 export interface EditedItem {
   /** 서버 항목 id. 새로 추가한 항목은 없다 */
   readonly itemId?: number;
+  /**
+   * 장소 담기에서 고른 관광지 (#665). 새 항목에만 있다 — 이게 있으면 확정 상태로 넣어야
+   * 하므로 저장할 때 다른 호출로 나간다. 견주기(`changedFields`)는 이 값을 보지 않는다.
+   */
+  readonly content?: MatchedContent | null;
   readonly dayNo: number;
   readonly seq: number;
   readonly startTime: string;
