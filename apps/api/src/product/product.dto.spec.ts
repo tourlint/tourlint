@@ -168,3 +168,21 @@ describe('validateUpdate', () => {
     expect(update).toEqual({});
   });
 });
+
+/**
+ * 기존 상품 복사는 만들지 않기로 했고 FR-CM-007 도 삭제했다 (#615). 화면에도 API 에도
+ * 복사 진입점이 없었는데 검증만 그 값을 받아 주고 있었다.
+ */
+describe('기획 출처 (DR-PR-009)', () => {
+  it('🔴 CLONE 은 받지 않는다 — 기존 상품 복사는 없앴다', () => {
+    const { product } = validateCreate(base({ planOrigin: { startedBy: "CLONE" } }));
+    expect(product?.planOrigin).toBeNull();
+  });
+
+  it('남은 네 가지는 그대로 받는다', () => {
+    for (const startedBy of ['MANUAL', 'UPLOAD', 'TEXT', 'SIGNAL']) {
+      const { product } = validateCreate(base({ planOrigin: { startedBy } }));
+      expect(product?.planOrigin, startedBy).toMatchObject({ startedBy });
+    }
+  });
+});

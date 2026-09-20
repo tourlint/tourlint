@@ -54,7 +54,7 @@ export interface CreateProductDto {
  * 공사 원문(제목 · 주소)은 넣지 않는다.
  */
 export interface PlanOrigin {
-  readonly startedBy: 'MANUAL' | 'UPLOAD' | 'TEXT' | 'CLONE' | 'SIGNAL';
+  readonly startedBy: 'MANUAL' | 'UPLOAD' | 'TEXT' | 'SIGNAL';
   readonly signal?: {
     readonly type: string;
     readonly regnCd: string;
@@ -65,7 +65,9 @@ export interface PlanOrigin {
   };
 }
 
-const STARTED_BY = ['MANUAL', 'UPLOAD', 'TEXT', 'CLONE', 'SIGNAL'] as const;
+// 'CLONE' 은 뺐다 — 기존 상품 복사는 만들지 않기로 했고 FR-CM-007 도 삭제했다 (#615).
+// 옛 기록에 남아 있을 수 있어 화면은 그 값을 계속 읽는다. 새로 들어오는 것만 막는다
+const STARTED_BY = ['MANUAL', 'UPLOAD', 'TEXT', 'SIGNAL'] as const;
 
 /** 검증을 통과한 항목 — 저장 계층이 그대로 쓴다 */
 export interface ValidItem {
