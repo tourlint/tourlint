@@ -1104,6 +1104,28 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       for (const r of rows) expect(r.note === null).toBe(!r.excludedFromScore);
     });
 
+    it('🔴 이름을 저장하지 않은 항목도 관광지명이 나온다 (#606)', async () => {
+      /*
+       * 장소 담기 · 삽입 확정으로 들어온 항목은 `place_label` 이 비어 있다 — 명칭이 공사
+       * 원문이라 저장하지 않는다 (DR-PR-001). 화면에는 「 — 휴무일 정보를 확인할 수
+       * 없습니다」 로 떴다. 이름은 표시할 때 조달한다.
+       */
+      await pool.query(
+        `UPDATE itinerary_item SET place_label = NULL WHERE product_id = $1 AND kto_content_id = '3539725'`,
+        [productId],
+      );
+      const { runId } = await runOnce();
+      const run = await service.getRun(runId);
+      const items = await service.itemsOf(run.productId);
+      const body = toUnverifiedResponse(run, items, await service.displayLabels(items));
+
+      const rows = body.items as { placeLabel: string | null; contentid: string | null; reason: string }[];
+      const row = rows.find((r) => r.contentid === '3539725');
+      expect(row, '갈골한과체험전시관의 확인 필요 항목이 없다').toBeDefined();
+      expect(row?.placeLabel, '저장은 안 했지만 표시 이름은 있어야 한다').toBe('갈골한과체험전시관');
+      expect(row?.reason).toBe('갈골한과체험전시관 — 휴무일 정보를 확인할 수 없습니다');
+    });
+
     it('일정 항목을 못 넘겨도 빈 값으로 응답한다 — 목록이 깨지지 않는다', async () => {
       const { runId } = await runOnce();
       const rows = toUnverifiedResponse(await service.getRun(runId)).items as
