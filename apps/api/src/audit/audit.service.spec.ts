@@ -1121,6 +1121,22 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(runs[0]?.auditRunId).toBeGreaterThan(runs[1]?.auditRunId ?? 0);
       expect(runs[0]?.readinessScore).toBeGreaterThanOrEqual(0);
     });
+
+    it('🔴 응답의 일시는 KST 다 (TM-015 · API 설계 3-2)', async () => {
+      /*
+       * 화면은 받은 문자열을 그대로 잘라 쓴다. UTC 로 내보내면 오전에 돌린 검수가 새벽으로
+       * 찍힌다 — 2026-09-11 감사 치명 3번.
+       */
+      const { runId } = await runOnce();
+      const run = await service.getRun(runId);
+      const stamps = [
+        (toRunResponse(run).executedAt as string),
+        ((toRunListResponse(await service.listRuns(productId)).runs as { executedAt: string }[])[0]?.executedAt ?? ''),
+      ];
+      for (const at of stamps) expect(at, at).toMatch(/\+09:00$/);
+      // 같은 시각을 가리킨다 — 표기만 바뀐다. 초 아래는 명세 예시에 없어 적지 않는다
+      expect(new Date(stamps[0] ?? '').getTime()).toBe(Math.floor(run.executedAt.getTime() / 1000) * 1000);
+    });
   });
 });
 

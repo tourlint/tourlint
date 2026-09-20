@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import type { Pool } from 'pg';
 import { currentRunOf } from '../persistence/current-run';
 import type { ItinerarySnapshot } from '../audit/patch-snapshot';
@@ -113,7 +114,7 @@ export class ReportRepository {
       nights: Number(row.nights),
       headCount: row.head_count === null ? null : Number(row.head_count),
       transport: row.transport,
-      releasedAt: row.released_at === null ? null : row.released_at.toISOString(),
+      releasedAt: row.released_at === null ? null : kstIso(row.released_at),
     };
   }
 

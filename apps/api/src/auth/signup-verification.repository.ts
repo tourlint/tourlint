@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import { BadRequestException } from '@nestjs/common';
 import { randomInt, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
@@ -75,7 +76,7 @@ export class SignupVerificationRepository {
         [email, verificationId, codeHash, expiresAt, now,
           inWindow ? old.window_started_at : now, inWindow ? old.send_count + 1 : 1],
       );
-      return { verificationId, code, expiresAt: expiresAt.toISOString(), resendAfterSeconds: 60 };
+      return { verificationId, code, expiresAt: kstIso(expiresAt), resendAfterSeconds: 60 };
     });
   }
 

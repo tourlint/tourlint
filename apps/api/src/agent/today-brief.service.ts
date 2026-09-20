@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import type { AgentIncomplete, TodayItem } from '@tourlint/shared';
 import { kstToday } from '../batch/sync-window';
 import type { LlmClient } from '../external/llm';
@@ -121,7 +122,7 @@ export class TodayBriefService {
       this.radar.regionSignals(accountId, now),
       this.radar.lastBatchAt(),
     ]);
-    const basisAt = (lastBatchAt ?? now).toISOString();
+    const basisAt = kstIso(lastBatchAt ?? now);
     const { candidates, quiet } = buildCandidates(products, changes.rows, regions);
     // 볼 상품도 관심 지역도 없으면 모델을 부르지 않는다
     if (candidates.length === 0 && quiet.length === 0) {

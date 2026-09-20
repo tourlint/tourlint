@@ -1,3 +1,4 @@
+import { kstIso } from '@tourlint/shared';
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
 import type { Pool } from 'pg';
 import type { KtoService } from '@tourlint/shared';
@@ -57,10 +58,10 @@ export class RadarService {
       unread: counts.unread,
       affectedProducts: counts.affectedProducts,
       changedContents: counts.changedContents,
-      lastBatchAt: batch?.lastRunAt?.toISOString() ?? null,
+      lastBatchAt: batch?.lastRunAt == null ? null : kstIso(batch.lastRunAt),
       nextBatchAt: nextBatchAt(now, setting.batchTime, setting.batchEnabled),
       lastBatch: batch === null ? null : {
-        runAt: batch.lastRunAt === null ? null : batch.lastRunAt.toISOString(),
+        runAt: batch.lastRunAt === null ? null : kstIso(batch.lastRunAt),
         covered: batch.lastCovered,
         status: batch.lastStatus,
         itemCount: batch.lastItemCount,
@@ -157,7 +158,7 @@ export class RadarService {
           count: t3.count,
           basisMonth: t3.window.from.slice(0, 7),
           source: VISITOR_SOURCE,
-          computedAt: t3.computedAt.toISOString(),
+          computedAt: kstIso(t3.computedAt),
         },
       };
     }));
@@ -207,7 +208,7 @@ function toSignalResponse(s: StoredSignal | null): Record<string, unknown> | nul
     count: s.count,
     byType: s.byType,
     window: { from: s.window.from, to: s.window.to },
-    computedAt: s.computedAt.toISOString(),
+    computedAt: kstIso(s.computedAt),
   };
 }
 
@@ -251,7 +252,7 @@ function toChangeResponse(row: ChangeRow): Record<string, unknown> {
     condition: row.condition,
     hidden: row.hidden,
     what: copy.what,
-    detectedAt: row.detectedAt.toISOString(),
+    detectedAt: kstIso(row.detectedAt),
     modifiedTime: row.modifiedTime,
     // FR-MO-058 — 지문 비교값. 조건 2·3 은 지문 이력이 없어 둘 다 null 이다
     fingerprint: { from: row.hashFrom, to: row.hashTo },

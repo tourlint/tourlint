@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { EXTERNAL_UNAVAILABLE_MESSAGE, type ExceptionReasonCode, type ExceptionUnit } from '@tourlint/shared';
+import { EXTERNAL_UNAVAILABLE_MESSAGE, type ExceptionReasonCode, type ExceptionUnit, kstIso } from '@tourlint/shared';
 import type { Request, Response } from 'express';
 import { isExternalError } from '../external/external.error';
 import { RateLimitException } from './domain.exception';
@@ -63,7 +63,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? { fieldErrors: body.fieldErrors }
         : {}),
       traceId,
-      occurredAt: new Date().toISOString(),
+      occurredAt: kstIso(new Date()),
     });
   }
 }
