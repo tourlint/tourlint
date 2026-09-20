@@ -1512,3 +1512,28 @@ select {
     transition: none !important;
   }
 }
+
+/* 심사위원 체험 가이드 진입점 — 홈 맨 위 한 줄 (#609) */
+.judge-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 15px 21px;
+  background: #eaf0ed;
+  border: 1px solid #dce6df;
+  border-radius: 15px;
+}
+.judge-guide-text {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #375b4b;
+  margin: 0;
+}
+.judge-guide-links {
+  display: inline-flex;
+  gap: 18px;
+  flex-shrink: 0;
+}

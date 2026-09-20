@@ -81,7 +81,7 @@ export const PRODUCTS: readonly Endpoint[] = [
         headCount: '예상 인원. 1 이상',
         transport: '이동수단 — CHARTER_BUS(전세버스) · CAR(자가용) · PUBLIC_TRANSIT(대중교통)',
         planOrigin: '기획을 시작한 방법(선택)',
-        'planOrigin.startedBy': 'MANUAL · UPLOAD · TEXT · CLONE · SIGNAL',
+        'planOrigin.startedBy': 'MANUAL · UPLOAD · TEXT · SIGNAL',
         days: '일차별 일정. 배열 순서대로 1일차부터',
         'days.day': '일차. 배열 순서대로 1일차부터',
         'days.items': '그 날 일정 항목. 비워도 됩니다',

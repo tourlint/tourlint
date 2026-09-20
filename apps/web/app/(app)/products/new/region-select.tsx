@@ -19,6 +19,22 @@ export interface RegionValue {
   signguName: string;
 }
 
+/**
+ * 시군구 드롭다운 맨 위 칸의 문구 (UI-S2-004).
+ *
+ * **고르지 않으면 그 시도 전체다.** 「선택」 이라고 쓰면 하나를 꼭 골라야 하는 줄 알고
+ * 시군구를 정하게 된다 — 서울 전역을 보려던 사람이 종로구만 보게 된다 (#583).
+ * 값은 그대로 빈 문자열이고 문구만 「전체」 다.
+ */
+export function signguHint(
+  state: { regnCode: string; error: boolean; loading: boolean; count: number },
+): string {
+  if (state.regnCode === "") return "시도 먼저 선택";
+  if (state.error) return "불러오기 실패";
+  if (state.loading) return "불러오는 중…";
+  return state.count === 0 ? "해당 없음" : "전체";
+}
+
 /** 실패는 던진다 — 빈 목록(정상)과 조회 실패(재시도 필요)를 구분해야 한다 (EX-IN-010) */
 async function loadCodes(url: string): Promise<CodeItem[]> {
   const res = await fetch(url, { credentials: "include" });
@@ -89,16 +105,9 @@ export function RegionSelect({
   const signgus = loaded.regnCode === value.regnCode ? loaded.items : [];
   const loadingSanggu = value.regnCode !== "" && loaded.regnCode !== value.regnCode && !signguError;
 
-  const signguPlaceholder =
-    value.regnCode === ""
-      ? "시도 먼저 선택"
-      : signguError
-        ? "불러오기 실패"
-        : loadingSanggu
-          ? "불러오는 중…"
-          : signgus.length === 0
-            ? "해당 없음"
-            : "선택";
+  const signguPlaceholder = signguHint({
+    regnCode: value.regnCode, error: signguError, loading: loadingSanggu, count: signgus.length,
+  });
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
