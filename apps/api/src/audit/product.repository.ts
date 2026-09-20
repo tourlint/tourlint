@@ -93,7 +93,7 @@ interface ItemRow {
   start_time: string;
   end_time: string | null;
   end_time_source: EndTimeSource;
-  place_label: string;
+  place_label: string | null;
   item_type: ItemType;
   kto_content_id: string | null;
   content_type_id: number | null;
@@ -116,7 +116,8 @@ function toItem(row: ItemRow): ItineraryItemRow {
     startTime: toHhMm(row.start_time),
     endTime: row.end_time === null ? null : toHhMm(row.end_time),
     endTimeSource: row.end_time_source,
-    placeLabel: row.place_label,
+    // 장소 담기로 넣은 항목은 이름이 없다(NULL). 그대로 두면 문장에 "null" 이 찍힌다 (#606)
+    placeLabel: row.place_label ?? '',
     itemType: row.item_type,
     ktoContentId: row.kto_content_id,
     contentTypeId: row.content_type_id,

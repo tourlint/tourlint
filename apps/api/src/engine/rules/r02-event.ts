@@ -1,6 +1,6 @@
 import type { Severity } from '@tourlint/shared';
 import { parseIsoDate, type CalendarDate } from '../calendar/dates';
-import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
+import { placeLine, type AuditItem, type AuditRule, type Finding, type ItineraryContext } from './types';
 
 /**
  * R02 — 행사 기간 불일치 (FR-RU-020 ~ 023).
@@ -72,7 +72,7 @@ export class R02EventPeriodRule implements AuditRule {
     const verdict = evaluateEventPeriod(visit, period);
     if (verdict === 'IN_PERIOD') return null;
     if (verdict === 'UNKNOWN') {
-      return unverified(item, `${item.placeLabel} — 행사 기간 정보가 없어 개최 여부를 확인할 수 없습니다`);
+      return unverified(item, placeLine(item, '행사 기간 정보가 없어 개최 여부를 확인할 수 없습니다'));
     }
 
     const range = `${period.start ?? '?'} ~ ${period.end ?? '?'}`;
@@ -85,8 +85,8 @@ export class R02EventPeriodRule implements AuditRule {
       targetItemId: item.id,
       message:
         verdict === 'ENDED'
-          ? `${item.placeLabel} — 행사가 ${period.end ?? ''} 에 끝났습니다 (방문 ${item.date})`
-          : `${item.placeLabel} — 행사가 ${period.start ?? ''} 에 시작합니다 (방문 ${item.date})`,
+          ? placeLine(item, `행사가 ${period.end ?? ''} 에 끝났습니다 (방문 ${item.date})`)
+          : placeLine(item, `행사가 ${period.start ?? ''} 에 시작합니다 (방문 ${item.date})`),
       evidence: { verdict, eventPeriod: period, visitDate: item.date, range },
       requiresExternal: false,
       externalSource: null,

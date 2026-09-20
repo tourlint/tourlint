@@ -9,7 +9,10 @@ import { toMinutes } from '../normalize/primitives';
 import type {
   ConditionalRule, DayOfWeek, HoursEntry, NormalizedOperatingInfo, TimeOfDay,
 } from '../normalize/types';
-import { confidenceOfPaths, type AuditItem, type AuditRule, type Finding, type ItineraryContext } from './types';
+import {
+  confidenceOfPaths, placeLine,
+  type AuditItem, type AuditRule, type Finding, type ItineraryContext,
+} from './types';
 
 /**
  * R01 — 운영시간 · 휴무일 불일치 (FR-RU-010 ~ 014).
@@ -281,7 +284,7 @@ export class R01OperatingRule implements AuditRule {
     const date = parseIsoDate(item.date);
     // 파싱 전면 실패 · 날짜 이상 — 정상으로 판정하지 않는다 (FR-AU-009)
     if (n === null || date === null) {
-      return [unverified(item, `${item.placeLabel} — 운영정보를 해석하지 못했습니다`, {}, 'PARSE_SCHEMA_INVALID')];
+      return [unverified(item, placeLine(item, '운영정보를 해석하지 못했습니다'), {}, 'PARSE_SCHEMA_INVALID')];
     }
 
     const findings: Finding[] = [];
@@ -302,7 +305,7 @@ export class R01OperatingRule implements AuditRule {
           item,
           severity: map.severity,
           reasonCode: map.reason,
-          message: `${item.placeLabel} — ${dateLabel(date)} ${closed.detail}`,
+          message: placeLine(item, `${dateLabel(date)} ${closed.detail}`),
           confidence,
           // 1-5 는 그 자체로 이미 추정이다. 확인 필요 목록에 함께 올린다
           needsConfirmation: closed.kind === 'CLOSED_UNCERTAIN',
@@ -313,7 +316,7 @@ export class R01OperatingRule implements AuditRule {
     }
 
     if (closed.kind === 'UNKNOWN') {
-      findings.push(unverified(item, `${item.placeLabel} — 휴무일 정보를 확인할 수 없습니다`, {
+      findings.push(unverified(item, placeLine(item, '휴무일 정보를 확인할 수 없습니다'), {
         step: closed.step, date: item.date,
       }, 'REST_DAY_UNCERTAIN'));
       return findings;
@@ -324,7 +327,7 @@ export class R01OperatingRule implements AuditRule {
     if (selected === null) {
       // 휴무가 아니라 운영시간을 모르는 것이다. `REST_DAY_UNCERTAIN` 을 달면 화면에
       // "휴무일 확인 불가" 로 뜬다
-      findings.push(unverified(item, `${item.placeLabel} — 운영시간 정보를 확인할 수 없습니다`, {
+      findings.push(unverified(item, placeLine(item, '운영시간 정보를 확인할 수 없습니다'), {
         step: '2-4', date: item.date,
       }, 'PARSE_MISSING'));
       return findings;
@@ -429,7 +432,7 @@ function partialClosedFindings(
       severity: 'WARNING',
       reasonCode: 'REST_DAY_UNCERTAIN',
       targetItemId: item.id,
-      message: `${item.placeLabel} — ${dateLabel(date)} ${p.scope} 휴관 (시설 일부)`,
+      message: placeLine(item, `${dateLabel(date)} ${p.scope} 휴관 (시설 일부)`),
       evidence: { step: 'DR-NM-022', scope: p.scope, on: p.on, date: item.date },
       requiresExternal: false,
       externalSource: null,
@@ -463,13 +466,13 @@ function hoursMessage(item: AuditItem, entry: HoursEntry, verdict: HoursVerdict)
   const visit = item.endTime === null ? item.startTime : `${item.startTime}~${item.endTime}`;
   switch (verdict) {
     case 'OUT_OF_HOURS':
-      return `${item.placeLabel} — 방문 ${visit} 이 운영시간 ${entry.open}~${entry.close} 을 벗어납니다`;
+      return placeLine(item, `방문 ${visit} 이 운영시간 ${entry.open}~${entry.close} 을 벗어납니다`);
     case 'AFTER_CUTOFF':
-      return `${item.placeLabel} — 도착 ${item.startTime} 이 마감 ${entry.admissionCutoff ?? ''} 이후입니다`;
+      return placeLine(item, `도착 ${item.startTime} 이 마감 ${entry.admissionCutoff ?? ''} 이후입니다`);
     case 'IN_BREAK':
-      return `${item.placeLabel} — 방문 ${visit} 이 휴게시간에 걸칩니다`;
+      return placeLine(item, `방문 ${visit} 이 휴게시간에 걸칩니다`);
     default:
-      return `${item.placeLabel} — 운영시간 확인이 필요합니다`;
+      return placeLine(item, '운영시간 확인이 필요합니다');
   }
 }
 
