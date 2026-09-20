@@ -209,11 +209,32 @@ describe.skipIf(URL === undefined)('RadarService — 관통', () => {
   describe('관심 지역 새 소식 (FR-MO-059 · 060 · API 4-8)', () => {
     const NOW = new Date('2026-09-15T12:00:00+09:00');
     const GANGNEUNG = { ldongRegnCd: '51', ldongSignguCd: '150' };
+    const GANGNEUNG_CODES = { regnCd: '51', signguCd: '150' };
     const watchOf = (accountId: number, regions: unknown[], keywords: string[] = []) =>
       pool.query(
         `INSERT INTO user_setting (account_id, watch_regions, watch_keywords) VALUES ($1, $2::jsonb, $3)`,
         [accountId, JSON.stringify(regions), keywords],
       );
+
+    it('🔴 내 관심 지역이 아니면 목록을 열어 주지 않는다 (#650)', async () => {
+      /*
+       * 「무엇인지 보기」는 공사 조회를 부른다. 아무 지역이나 열어 주면 남의 관심사를
+       * 떠보는 통로가 되고 예산도 거기에 쓰인다.
+       */
+      await watchOf(mine, [{ regnCd: '51', signguCd: '150', month: '2026-10' }]);
+
+      const e = await service
+        .regionSignalDetailOf(mine, { regnCd: '11', signguCd: '110' }, '2026-10', 'T1', NOW)
+        .catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(DomainException);
+      expect((e as DomainException).reasonCode).toBe('NOT_FOUND');
+
+      // 달이 다른 것도 내 관심 지역이 아니다
+      const other = await service
+        .regionSignalDetailOf(mine, GANGNEUNG_CODES, '2026-12', 'T1', NOW)
+        .catch((x: unknown) => x);
+      expect(other).toBeInstanceOf(DomainException);
+    });
 
     it('🔴 관심 지역마다 t1 · t2 · t3 를 싣고, 산출 전 · 지난해 코드와 안 이어지는 지역은 null 이다', async () => {
       await watchOf(mine, [
