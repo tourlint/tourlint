@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { KtoClient } from '../external/kto';
 import { FixtureKtoTransport } from '../external/kto';
+import type { KtoParams, KtoTransport, KtoTransportResult } from '../external/kto/transport';
 import { CatalogService } from './catalog.service';
 
 // fixtures/kto 의 실호출 스냅샷을 리플레이한다 (kto.factory 의 기본 경로와 동일).
@@ -47,5 +48,63 @@ describe('CatalogService', () => {
     await svc.regions();
     await svc.regions();
     expect(transport.replayCounts.get('ldongCode2')).toBe(1);
+  });
+});
+
+/**
+ * 앞에서 `failures` 번은 시간 초과로 끊고 그 뒤에는 스냅샷을 돌려주는 전송 계층.
+ * 운영에서 본 모양 그대로다 — 공사가 응답을 안 줘서 10초에 끊긴다 (#662).
+ */
+class FlakyTransport implements KtoTransport {
+  readonly kind = 'http' as const;
+  calls = 0;
+  private readonly inner = new FixtureKtoTransport(FIXTURE_DIR);
+  constructor(private failures: number) {}
+  async request(operation: Parameters<KtoTransport['request']>[0], params: KtoParams): Promise<KtoTransportResult> {
+    this.calls += 1;
+    if (this.failures > 0) {
+      this.failures -= 1;
+      throw new Error(`[${operation}] 응답 시간 초과 (10000ms)`);
+    }
+    return this.inner.request(operation, params);
+  }
+}
+
+const flaky = (failures: number): { make: () => KtoClient; warm: () => KtoClient; transport: FlakyTransport } => {
+  const transport = new FlakyTransport(failures);
+  const logger = new InMemoryApiCallLogger();
+  return {
+    make: () => new KtoClient({ transport, logger }),
+    // 예열 클라이언트는 운영과 같게 스스로 재시도하지 않는다 — 예열 고리가 시도를 센다
+    warm: () => new KtoClient({ transport, logger, maxRetries: 0 }),
+    transport,
+  };
+};
+
+describe('공사가 답하지 않을 때 (#662)', () => {
+  it('계속 끊기면 올린다 — 빈 목록으로 삼키지 않는다', async () => {
+    // KtoClient 가 EI-CM-005 대로 두 번 다시 부른 뒤 포기한다
+    await expect(new CatalogService(flaky(99).make).regions()).rejects.toThrow(/시간 초과/);
+  });
+
+  it('🔴 부팅 예열이 성공하면 사용자 요청은 공사를 부르지 않는다', async () => {
+    const { make, warm, transport } = flaky(0);
+    const svc = new CatalogService(make, warm);
+    const lines: string[] = [];
+    await svc.warm((line) => lines.push(line), 1);
+    const before = transport.calls;
+    await svc.regions();
+    await svc.categories();
+    expect(transport.calls).toBe(before);
+    expect(lines.join(' ')).toMatch(/지역 코드 예열 \d+건/);
+    expect(lines.join(' ')).toMatch(/분류 코드 예열 \d+건/);
+  });
+
+  it('예열이 끝내 실패해도 부팅을 막지 않는다 — 실패를 한 줄로 남긴다', async () => {
+    const lines: string[] = [];
+    const dead = flaky(99);
+    await new CatalogService(dead.make, dead.warm).warm((line) => lines.push(line), 1);
+    expect(lines.join(' ')).toMatch(/지역 코드 예열 3번째 실패/);
+    expect(lines.join(' ')).toMatch(/시간 초과/);
   });
 });
