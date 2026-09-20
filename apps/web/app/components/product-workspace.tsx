@@ -154,6 +154,7 @@ export function ProductWorkspace({
 
       {workspace === "home" && (
         <>
+          <JudgeGuide />
           <section className="welcome-panel" aria-label="여행상품 업무 안내">
             <div className="welcome-copy">
               <span className="hero-tag">
@@ -288,8 +289,6 @@ export function ProductWorkspace({
           </Link>
         </div>
       )}
-
-      {workspace === "home" && <JudgeGuide />}
 
       <div className={workspace === "home" ? "home-content-grid" : ""}>
         <section
@@ -740,18 +739,24 @@ const JUDGE_GUIDE_URL =
 export function JudgeGuide() {
   return (
     <section className="judge-guide" aria-label="심사위원 체험 가이드">
-      <p className="judge-guide-text">
-        심사위원이라면 여기서 기능 설명을 보세요. 상품 하나로 기획부터 출시까지 따라 하는
-        가이드입니다.
-      </p>
-      <span className="judge-guide-links">
-        <a href={JUDGE_GUIDE_URL} target="_blank" rel="noreferrer" className="text-link">
+      <span className="judge-guide-icon" aria-hidden="true">
+        <WorkspaceIcon name="book" width="26" height="26" />
+      </span>
+      <div className="judge-guide-copy">
+        <strong>심사위원이신가요?</strong>
+        <p>
+          상품 하나로 기획부터 출시까지 따라 하는 체험 가이드입니다. 순서대로 누르면 모든 기능을
+          거칩니다.
+        </p>
+      </div>
+      <div className="judge-guide-links">
+        <a href={JUDGE_GUIDE_URL} target="_blank" rel="noreferrer" className="judge-guide-open">
           체험 가이드 열기 <WorkspaceIcon name="arrow" />
         </a>
-        <a href="/judge-guide.pdf" download className="text-link">
+        <a href="/judge-guide.pdf" download className="judge-guide-pdf">
           PDF 내려받기 <WorkspaceIcon name="arrow" />
         </a>
-      </span>
+      </div>
     </section>
   );
 }

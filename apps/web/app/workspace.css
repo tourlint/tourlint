@@ -1521,27 +1521,99 @@ select {
   }
 }
 
-/* 심사위원 체험 가이드 진입점 — 홈 맨 위 한 줄 (#609) */
+/* 심사위원 체험 가이드 진입점 — 홈 맨 위. 지나치지 않게 배경을 채운다 (#609 · #653) */
 .judge-guide {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 18px;
-  padding: 15px 21px;
-  background: #eaf0ed;
-  border: 1px solid #dce6df;
-  border-radius: 15px;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 20px 24px;
+  border-radius: 18px;
+  background: linear-gradient(103deg, #19705a 0%, #2a8c6d 58%, #35a07c 100%);
+  box-shadow: 0 10px 24px -14px rgba(16, 78, 62, 0.75);
 }
-.judge-guide-text {
+.judge-guide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.judge-guide-copy {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.judge-guide-copy strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+.judge-guide-copy p {
+  margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.7;
-  color: #375b4b;
-  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
 }
 .judge-guide-links {
   display: inline-flex;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: 10px;
   flex-shrink: 0;
+}
+.judge-guide-open,
+.judge-guide-pdf {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 17px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+.judge-guide-open svg,
+.judge-guide-pdf svg {
+  width: 15px;
+  height: 15px;
+}
+.judge-guide-open {
+  background: #fff;
+  color: #14604d;
+}
+.judge-guide-open:hover {
+  background: #e7f3ed;
+}
+.judge-guide-pdf {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: #fff;
+}
+.judge-guide-pdf:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+@media (max-width: 640px) {
+  .judge-guide-links {
+    width: 100%;
+  }
+  .judge-guide-open,
+  .judge-guide-pdf {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  .judge-guide {
+    background: linear-gradient(103deg, #14523f 0%, #1d6a52 58%, #257c61 100%);
+    box-shadow: none;
+  }
+  .judge-guide-open {
+    color: #0f4c3b;
+  }
 }
