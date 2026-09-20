@@ -1,0 +1,27 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { JudgeGuide } from "./product-workspace";
+
+/**
+ * 가이드는 노션에 있는데 서비스 어디에도 링크가 없었다. 제출 URL 로 들어온 심사위원이
+ * 「이걸 어떻게 보나」를 스스로 찾아야 했다 (#609).
+ */
+describe("심사위원 체험 가이드 진입점 (#609)", () => {
+  const html = renderToStaticMarkup(<JudgeGuide />);
+
+  it("🔴 공개 가이드는 새 탭으로 연다", () => {
+    expect(html).toContain("app.notion.com");
+    const link = html.match(/<a[^>]*app\.notion\.com[^>]*>/)?.[0] ?? "";
+    expect(link).toContain('target="_blank"');
+    // 새 탭으로 여는 링크에 rel 이 없으면 연 쪽 창을 건드릴 수 있다
+    expect(link).toContain('rel="noreferrer"');
+  });
+
+  it("🔴 노션을 못 여는 환경을 위해 PDF 도 준다", () => {
+    expect(html).toMatch(/<a[^>]*href="\/judge-guide\.pdf"[^>]*download/);
+  });
+
+  it("무엇인지 한 줄로 알려 준다", () => {
+    expect(html).toContain("심사위원이라면");
+  });
+});
