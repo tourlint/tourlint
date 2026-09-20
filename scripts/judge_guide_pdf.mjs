@@ -46,14 +46,25 @@ function text(s, { size = 10, font = 'body', gap = 4, color = '#111111', indent 
   doc.y += gap;
 }
 
+// 캡처 최대 높이. 폭을 다 쓰면 1280×860 이 335pt 라 한 장을 거의 먹고 뒤가 빈다. 250 으로
+// 묶어 설명 바로 아래에 붙는 크기로 낮춘다. 자리가 이보다 좁으면 그 자리에 맞춰 더 줄인다.
+const IMG_MAX_H = 250;
+const IMG_MIN_H = 140; // 이만큼도 안 남았을 때만 다음 장으로 (아래 공백을 최소화)
 function image(rel) {
   const path = join(ROOT, 'docs/judge-guide', rel);
   if (!existsSync(path)) return;
-  // 남은 높이에 안 들어가면 다음 장으로. 캡처가 잘려 나가면 읽을 수 없다
-  const room = doc.page.height - MARGIN - doc.y;
-  if (room < 160) doc.addPage();
-  doc.image(path, MARGIN, doc.y, { fit: [WIDTH, doc.page.height - MARGIN - doc.y - 10] });
-  doc.y += Math.min(doc.page.height - MARGIN - doc.y - 10, 300) + 10;
+  const img = doc.openImage(path);
+  // 남은 자리가 너무 좁을 때만 다음 장으로 넘긴다. 예전엔 폭 맞춤 높이(335)가 안 들어가면
+  // 무조건 넘겨 하단이 크게 비었다 — 이제 남은 자리를 채우도록 줄여 공백을 없앤다.
+  const room = () => doc.page.height - MARGIN - doc.y - 8;
+  if (room() < IMG_MIN_H) doc.addPage();
+  // 폭 · 남은 높이 · 최대 높이 셋 중 가장 작은 배율. 확대는 안 한다.
+  // pdfkit 은 image 뒤 doc.y 를 옮기지 않으므로 **그려진 높이**만큼 직접 내려 겹침을 막는다.
+  const scale = Math.min(WIDTH / img.width, Math.min(room(), IMG_MAX_H) / img.height, 1);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  doc.image(path, MARGIN + (WIDTH - w) / 2, doc.y, { width: w, height: h }); // 가운데 정렬
+  doc.y += h + 8;
 }
 
 const lines = readFileSync(GUIDE, 'utf8').split('\n');
