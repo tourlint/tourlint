@@ -816,7 +816,7 @@ export interface TodayItem {
   productId: number | null;
   region: { regnCd: string; signguCd: string | null; month: string } | null;
   reason: string;
-  action: "REAUDIT" | "NEW_PLAN";
+  action: "REAUDIT" | "VIEW_RESULT" | "NEW_PLAN";
 }
 
 export interface TodayBrief {

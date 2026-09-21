@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.39</td>
+<td>API · 백엔드 설계 v2.40</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -1049,7 +1049,7 @@ POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "item
 <tr>
 <td>POST</td>
 <td>`/api/v1/radar/today`</td>
-<td>`{basisAt, todos: [{kind: CHANGE|NEWS, productId?, region?, reason, action: REAUDIT|NEW_PLAN}], quiet: [{productId, text}]}`. 순서 · 종류 · 대상은 서버가 정하고 모델은 이유 한 줄만 쓴다 — 알림 · 새 소식에 없는 항목은 버린다. `basisAt` 은 마지막 배치 시각(없으면 지금)이다. 저장 없음</td>
+<td>`{basisAt, todos: [{kind: CHANGE|NEWS, productId?, region?, reason, action: REAUDIT|VIEW_RESULT|NEW_PLAN}], quiet: [{productId, text}]}`. 순서 · 종류 · 대상은 서버가 정하고 모델은 이유 한 줄만 쓴다 — 알림 · 새 소식에 없는 항목은 버린다. `basisAt` 은 마지막 배치 시각(없으면 지금)이다. 저장 없음</td>
 <td>FR-AG-030 · 031 · 0콜 + LLM 1회</td>
 </tr>
 </table>
@@ -3027,6 +3027,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
 	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.40 (2026.09.22) — #735: `POST /radar/today` 의 `action` 에 `VIEW_RESULT` 를 더했다 — 그 상품의 바뀐 정보 알림이 전부 마지막 검수(`audit_run.created_at`)보다 앞일 때다. 화면 버튼은 「검수 결과 보기」 이고 가는 곳은 `REAUDIT` 과 같다.
 	v2.39 (2026.09.21) — #728: `REPLACE_CONTENT` payload 에 선택 필드 `fromItemId` 를 더했다 — `distanceMeters` 를 잰 기준 항목이다. R08 은 앞 항목 주변에서 찾으므로 그 항목 id 가 실리고, 없으면 바꿀 장소 자리에서 잰 거리다. 화면은 「앞 일정 ○○에서 약 400m」 · 「지금 장소에서 약 1.3km」 로 적는다. 후보 정렬 · 제외 규칙은 기능 요구사항 FR-PA-003 · FR-RU-043.
 	v2.38 (2026.09.21) — #712 · #713: `PUT /settings` 가 `watchRegions` 의 같은 (시도 · 시군구 · 달)을 하나로 접는다(한도는 접은 뒤에 센다). `POST /patch-preview` 의 `before` · `after` 는 이름이 빈 항목(장소 담기 · 수정안 삽입)의 이름을 응답에만 채우고 `previewToken` 은 채우기 전 항목으로 만든다. 판정 문구의 R07 「식사()가 …」 는 표시할 때 대상 항목 이름으로 채우고, 못 얻으면 괄호를 지운다. 저장값은 그대로다(DR-PR-001).
 	v2.37 (2026.09.21) — #710 · #711: 5-9 「현재 결과」 에 사람이 일정을 고친 경우를 더했다. 검수한 뒤 일정 편집으로 차단이 생기는 일정을 만들고도 재검수 없이 출시 승인이 통과했다(PM-NG-002). 상품 상세에 `auditState` 를 실어 화면이 새로 고쳐도 「바뀌기 전 결과」 안내와 출시 · 리포트 잠금을 유지한다. 스키마 변경은 없다. 검수 시작 직후 결과 화면은 첫 결과가 생길 때까지 이력을 다시 읽는다 — 「검수 실행」 을 보여 같은 일정을 두 번 검수하게 했다.

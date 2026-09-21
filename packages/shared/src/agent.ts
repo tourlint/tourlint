@@ -31,7 +31,8 @@ export interface TodayItem {
   /** 시군구 코드(3자리)는 시도 코드와 함께여야 한 곳으로 정해진다. 세종은 `signguCd` 가 null. `month` 는 YYYY-MM */
   region: { regnCd: string; signguCd: string | null; month: string } | null;
   reason: string;
-  action: 'REAUDIT' | 'NEW_PLAN';
+  /** `VIEW_RESULT` — 바뀐 뒤에 이미 다시 검수한 상품. 버튼은 「검수 결과 보기」 다 (#735) */
+  action: 'REAUDIT' | 'VIEW_RESULT' | 'NEW_PLAN';
 }
 
 /**
