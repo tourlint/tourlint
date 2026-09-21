@@ -262,6 +262,8 @@ export interface Patch {
     endTime?: string;
     itemType?: string;
     distanceMeters?: number;
+    /** 거리를 잰 기준 일정. 없으면 바꿀 장소 자리에서 잰 것이다 (#728) */
+    fromItemId?: number;
   };
 }
 

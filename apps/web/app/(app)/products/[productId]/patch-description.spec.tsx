@@ -38,6 +38,15 @@ describe("수정안의 실제 대상과 전후 표시 (#567)", () => {
     expect(result.note).toContain("1.3km");
     expect(describePatch(patch("REPLACE_CONTENT", 2), product).changes[0]?.after).toBe("대체 장소 이름 확인 불가");
   });
+  it("🔴 거리가 어디서부터인지 적는다 — 앞 일정에서 찾았으면 그 이름, 아니면 지금 장소 (#728)", () => {
+    const fromPrev = describePatch(patch("REPLACE_CONTENT", 2, { distanceMeters: 400, fromItemId: 1 }), product);
+    expect(fromPrev.note).toBe("앞 일정 강릉 경포대에서 약 400m · 방문 일차·시간은 유지됩니다.");
+    const fromSelf = describePatch(patch("REPLACE_CONTENT", 2, { distanceMeters: 1250 }), product);
+    expect(fromSelf.note).toBe("지금 장소에서 약 1.3km · 방문 일차·시간은 유지됩니다.");
+    // 기준 일정을 못 찾아도 「앞 일정에서」 라고는 말한다 — 지금 장소 기준이라고 잘못 적지 않는다
+    expect(describePatch(patch("REPLACE_CONTENT", 2, { distanceMeters: 400, fromItemId: 99 }), product).note).toContain("앞 일정에서 약 400m");
+    expect(JSON.stringify(fromPrev)).not.toContain("대체 장소까지");
+  });
   it("새 식사와 장소 추가는 일차·시간·종류를 명시한다", () => {
     const result = describePatch(patch("INSERT_ITEM", 1, { dayNo: 2, startTime: "12:00", endTime: "13:00", itemType: "MEAL" }), product);
     expect(result.action).toBe("식사 추가");

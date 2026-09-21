@@ -21,6 +21,20 @@ function current(item: ScheduleItem | undefined): string {
   return item ? when(item.day, item.start, item.end) : "현재 일정 확인 불가";
 }
 
+/**
+ * 대체 장소가 어디서 얼마나 떨어져 있는지 (#728).
+ *
+ * 「대체 장소까지 약 0.4km」 만으로는 어디서부터인지 알 수 없다. 이동시간 수정안은 **앞 일정**
+ * 에서 찾으므로 그 이름을 적고, 그 밖에는 바꾸기 전 장소에서 잰 거리다.
+ */
+function distanceNote(meters: number | undefined, fromItemId: number | undefined, items: ScheduleItem[]): string {
+  if (meters === undefined) return "";
+  const distance = meters < 1000 ? `${Math.round(meters / 10) * 10}m` : `${Math.round(meters / 100) / 10}km`;
+  if (fromItemId === undefined) return `지금 장소에서 약 ${distance} · `;
+  const from = items.find(it => it.itemId === fromItemId)?.place.trim();
+  return `앞 일정${from ? ` ${from}` : ""}에서 약 ${distance} · `;
+}
+
 /** 변경 대상은 finding의 첫 장소가 아닌 각 patch.targetItemId다. 적용 전 현재 일정 기준이다. */
 export function describePatch(patch: Patch, product: Pick<ProductDetail, "days"> | null): Description {
   const items = product?.days.flatMap(d => d.items.map(it => ({ ...it, day: d.day }))) ?? [];
@@ -48,7 +62,7 @@ export function describePatch(patch: Patch, product: Pick<ProductDetail, "days">
       return {
         action: "방문 장소 교체",
         changes: [{ ...base, before: base.place, after: patch.placeName ?? "대체 장소 이름 확인 불가" }],
-        note: `${p.distanceMeters !== undefined ? `대체 장소까지 약 ${Math.round(p.distanceMeters / 100) / 10}km · ` : ""}방문 일차·시간은 유지됩니다.`,
+        note: `${distanceNote(p.distanceMeters, p.fromItemId, items)}방문 일차·시간은 유지됩니다.`,
       };
     case "INSERT_ITEM":
       return {

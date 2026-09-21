@@ -26,6 +26,12 @@ export interface ReplaceContentPayload {
   readonly mapy: number | null;
   readonly distanceMeters: number;
   readonly parseConfidence: ParseConfidence | null;
+  /**
+   * `distanceMeters` 를 잰 기준 항목. 없으면 바꿀 장소 자리에서 잰 것이다.
+   *
+   * R08 은 앞 일정에서 찾는다 — 「대체 장소까지 0.4km」 만으로는 어디서부터인지 알 수 없다 (#728).
+   */
+  readonly fromItemId?: number;
 }
 
 export interface TimeShiftPayload {
