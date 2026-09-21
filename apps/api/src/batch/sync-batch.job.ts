@@ -322,16 +322,24 @@ export class SyncBatchJob {
          */
         const kept: ImpactCandidate[] = [];
         const hashes = new Map<number, ChangeHashes>();
+        /*
+         * 조건 1 에서 「안 바뀌었다」 로 넘긴 상품 (#704). **그 곳을 일정에 넣은 상품은 조건 1 의
+         * 판정이 전부다.** 이걸 기억하지 않으면 바로 아래 조건 2 · 3 이 같은 콘텐츠로 같은 상품을
+         * 다시 잡는다 — 일정에 든 행사가 지문은 그대로인데 「행사 정보가 바뀌었습니다」 로 나갔다.
+         */
+        const settled = new Set<number>();
         for (const candidate of direct.get(content.contentId) ?? []) {
           const decision = await this.judge(candidate.productId, changed, detail, previous);
           if (decision.reaudit) toReaudit.add(candidate.productId);
           if (!decision.notify) {
             unchanged++;
+            settled.add(candidate.productId);
             continue;
           }
           kept.push(candidate);
           hashes.set(candidate.productId, decision.hashes);
         }
+        const others = settled.size === 0 ? watched : watched.filter((c) => !settled.has(c.productId));
 
         const dwell = dwellOf(content.lclsSystm2);
         const chances = opportunity.length > 0 && fresh.includes(content)
@@ -344,8 +352,8 @@ export class SyncBatchJob {
         // 같은 곳이 한 상품에 여러 조건으로 걸리면 번호가 작은 것 하나만 남는다 — 바뀐 정보가 새 소식을 이긴다
         const impacts = mergeImpacts(
           matchByContent(kept),
-          matchByRegion(changed, watched, today),
-          matchByEventPeriod(changed, watched),
+          matchByRegion(changed, others, today),
+          matchByEventPeriod(changed, others),
           chances,
         );
         allImpacts.push(...impacts);
@@ -609,6 +617,13 @@ function toNotification(impact: Impact, content: ChangedContent, hashes: ChangeH
       modifiedTime: content.modifiedTime,
       // 비표출 전환은 R06 이 차단으로 판정한다. 알림에도 그 사실을 남긴다
       hidden: content.showFlag === '0',
+      /*
+       * 행사 기간 (#703). 조건 3 을 건 근거인데 남기지 않아 카드가 「행사 정보가 바뀌었습니다」 밖에
+       * 못 말했다. 원문(`20261031`)이 아니라 읽어 낸 날짜다 — 이름 · 주소 같은 원문은 여전히 안 남긴다.
+       */
+      ...(content.eventPeriod?.start != null && content.eventPeriod.end != null
+        ? { eventPeriod: { start: content.eventPeriod.start, end: content.eventPeriod.end } }
+        : {}),
     },
   };
 }

@@ -75,6 +75,30 @@ export function diffNormalized(before: unknown, after: unknown): readonly Change
 }
 
 /** 휴무 표기. 「연중무휴」 · 「월·화」 · 「확인 불가」 */
+/** 지금 판독값 한 줄 */
+export interface ReadingLine {
+  readonly label: string;
+  readonly value: string;
+}
+
+/**
+ * 지금 판독값 (#703). 견줄 이전 검수가 없을 때 — 검수한 뒤에 담은 곳 — 전 → 후 대신 보인다.
+ * 읽지 못한 항목은 뺀다. 「확인 불가」 를 늘어놓는 것은 알려 주는 것이 없다.
+ */
+export function readNormalized(value: unknown): readonly ReadingLine[] {
+  if (!isObject(value)) return [];
+  const n = value as Normalized;
+  const out: ReadingLine[] = [];
+  if (n.alwaysOpen === true || Array.isArray(n.weeklyClosed)) out.push({ label: '휴무일', value: closedLabel(n) });
+  const hours = hoursLabel(n.openHours);
+  if (hours !== '확인 불가') out.push({ label: '운영시간', value: hours });
+  const checkIn = timeLabel(n.checkIn);
+  if (checkIn !== '확인 불가') out.push({ label: '입실', value: checkIn });
+  const checkOut = timeLabel(n.checkOut);
+  if (checkOut !== '확인 불가') out.push({ label: '퇴실', value: checkOut });
+  return out;
+}
+
 function closedLabel(n: Normalized): string {
   if (n.alwaysOpen === true) return '연중무휴';
   const days = Array.isArray(n.weeklyClosed) ? n.weeklyClosed : [];

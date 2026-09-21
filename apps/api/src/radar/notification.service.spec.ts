@@ -243,6 +243,108 @@ describe.skipIf(URL === undefined)('NotificationService — 관통', () => {
     });
   });
 
+  describe('무엇이 어떻게 바뀌었는지 · 해당 일정 (#703 · UI-S7-003 · 004)', () => {
+    const HOURS = (close: string): string => JSON.stringify({ weeklyClosed: ['MON'], openHours: { open: '09:00', close } });
+
+    async function addItem(contentId: string, label: string, dayNo = 1, start = '14:00'): Promise<void> {
+      await pool.query(
+        `INSERT INTO itinerary_item
+           (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, kto_content_id, match_status)
+         VALUES ($1, $2, 1, $3, 'INPUT', $4, 'SIGHT', $5, 'CONFIRMED')`,
+        [productId, dayNo, start, label, contentId],
+      );
+    }
+
+    /** 검수 실행 하나와 그 실행이 남긴 판독 결과. `at` 은 알림 시각과의 앞뒤를 가른다 */
+    async function auditedAt(contentId: string, normalized: string, at: string): Promise<void> {
+      const run = await pool.query<{ id: string }>(
+        `INSERT INTO audit_run (product_id, executed_at, ruleset_version, target_count, weight_snapshot)
+         VALUES ($1, now() + $2::interval, '1.2.4', 1, '{"BLOCKER":25,"ERROR":10,"WARNING":4,"UNVERIFIED":3}'::jsonb)
+         RETURNING id`, [productId, at]);
+      await pool.query(
+        `INSERT INTO content_fingerprint
+           (audit_run_id, kto_content_id, content_type_id, fetched_at, kto_modified_time, show_flag,
+            field_names, field_hash, normalized_json, parse_confidence)
+         VALUES ($1, $2, 12, now() + $3::interval, '20260918143012', 1, ARRAY['usetime'], $4, $5::jsonb, 'CONFIRMED')`,
+        [run.rows[0]?.id, contentId, at, 'a'.repeat(64), normalized]);
+    }
+
+    const first = async (svc: NotificationService = service): Promise<Record<string, unknown>> =>
+      ((await svc.list(mine, LIST)).content as Record<string, unknown>[])[0] ?? {};
+
+    it('🔴 일정에 든 곳이면 몇 일차 몇 시인지와 사용자가 적은 이름을 준다 — 공사를 부르지 않는다', async () => {
+      await addItem('126508', '오죽헌', 2, '14:00');
+      await insert({ contentId: '126508' });
+      const asked: string[] = [];
+      const named = new NotificationService(pool, { resolve: (ids) => { asked.push(...ids); return Promise.resolve(new Map()); } });
+      const row = await first(named);
+      expect(row.placeName).toBe('오죽헌');
+      expect(row.schedule).toEqual({ dayNo: 2, startTime: '14:00' });
+      expect(row.impact).toBe('2일차 14:00 일정입니다.');
+      expect(asked).toEqual([]);
+    });
+
+    it('🔴 알림 직전 검수와 알림 뒤 첫 검수의 판독 결과 차이를 준다 (UI-S7-004)', async () => {
+      await addItem('126508', '오죽헌');
+      await auditedAt('126508', HOURS('18:00'), '-2 hours');
+      await insert({ contentId: '126508' });
+      await auditedAt('126508', HOURS('17:00'), '2 hours');
+      // 그 뒤에 또 돈 검수는 이 알림이 말하던 변경이 아니다
+      await auditedAt('126508', HOURS('16:00'), '5 hours');
+
+      const row = await first();
+      expect(row.changes).toEqual([{ label: '운영시간', before: '09:00~18:00', after: '09:00~17:00' }]);
+      expect(row.what).toBe('운영시간 정보가 바뀌었습니다.');
+      expect(row.current).toEqual([]);
+    });
+
+    it('🔴 견줄 이전 검수가 없으면 지금 판독값을 준다 — 검수한 뒤에 담은 곳', async () => {
+      await addItem('126508', '황생가칼국수');
+      await insert({ contentId: '126508' });
+      await auditedAt('126508', HOURS('21:30'), '1 hour');
+
+      const row = await first();
+      expect(row.changes).toEqual([]);
+      expect(row.what).toContain('이전 검수 기록이 없습니다');
+      expect(row.current).toEqual([{ label: '휴무일', value: '월' }, { label: '운영시간', value: '09:00~21:30' }]);
+    });
+
+    it('아직 다시 검수 전이면 차이도 지금 값도 없다', async () => {
+      await addItem('126508', '오죽헌');
+      await auditedAt('126508', HOURS('18:00'), '-2 hours');
+      await insert({ contentId: '126508' });
+      const row = await first();
+      expect(row.changes).toEqual([]);
+      expect(row.current).toEqual([]);
+      expect(row.what).toContain('다시 검수하면');
+    });
+
+    it('일정에 없는 곳은 schedule 이 null 이고 이름은 볼 때 읽은 것이다', async () => {
+      await insert({ condition: 3, contentId: '2874909' });
+      const named = new NotificationService(pool, { resolve: () => Promise.resolve(new Map([['2874909', '여수밤바다 불꽃축제']])) });
+      const row = await first(named);
+      expect(row.schedule).toBeNull();
+      expect(row.placeName).toBe('여수밤바다 불꽃축제');
+    });
+
+    it('🔴 행사 기간과 겹치는 여행 일차, 관광정보 수정일을 준다', async () => {
+      // 상품은 2026-10-13 출발 1박
+      await pool.query(
+        `INSERT INTO notification (product_id, kind, match_condition, kto_content_id, change_key, body)
+         VALUES ($1, 'RISK', 3, 'fest', $2, $3::jsonb)`,
+        [productId, `k-${String(counter++)}`, JSON.stringify({
+          condition: 3, hidden: false, contentTypeId: '15', modifiedTime: '20260918143012',
+          eventPeriod: { start: '2026-10-14', end: '2026-10-20' },
+        })],
+      );
+      const row = await first();
+      expect(row.eventPeriod).toEqual({ start: '2026-10-14', end: '2026-10-20' });
+      expect(row.overlapDays).toEqual([2]);
+      expect(row.modifiedOn).toBe('2026-09-18');
+      expect(row.what).toBe('행사 기간은 10월 14일 ~ 10월 20일입니다. 여행 2일차와 겹칩니다.');
+    });
+  });
+
   it('안 읽은 건수를 함께 준다 — 헤더 배지가 쓴다', async () => {
     await insert();
     await insert({ contentId: '777' });
