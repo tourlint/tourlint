@@ -37,6 +37,9 @@ export interface PlaceNameSource {
  */
 export const NAME_BUDGET_MS = 2_500;
 
+/** 이름을 동시에 읽는 수 (#697). 한 쪽은 많아야 20곳이라 6이면 1초 안팎이다 */
+export const NAME_CONCURRENCY = 6;
+
 @Injectable()
 export class NotificationService {
   private readonly repo: NotificationRepository;
@@ -74,31 +77,49 @@ export class NotificationService {
    * 끝까지 돌게 둔다. 읽은 이름이 캐시에 남아 다음 요청에는 붙는다.
    */
   private async placeNames(rows: readonly StoredNotification[]): Promise<ReadonlyMap<string, string>> {
-    if (this.names === undefined) return new Map();
-    const ids = rows.filter((n) => !hiddenOf(n) && n.ktoContentId !== null && n.ktoContentId !== '')
-      .map((n) => n.ktoContentId as string);
+    const source = this.names;
+    if (source === undefined) return new Map();
+    const ids = [...new Set(rows.filter((n) => !hiddenOf(n) && n.ktoContentId !== null && n.ktoContentId !== '')
+      .map((n) => n.ktoContentId as string))];
     if (ids.length === 0) return new Map();
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      const late = new Promise<null>((done) => {
-        timer = setTimeout(() => { done(null); }, this.nameBudgetMs);
-      });
-      const names = this.names.resolve(ids);
-      // 한도를 넘긴 뒤 실패해도 처리되지 않은 거절로 남지 않게 한다
-      names.catch(() => undefined);
-      const settled = await Promise.race([names, late]);
-      if (settled === null) {
-        this.logger.warn(`알림 ${String(ids.length)}건의 이름이 ${String(this.nameBudgetMs)}ms 안에 안 왔다. 이름 없이 내보낸다`);
-        return new Map();
+
+    /*
+     * **동시에 읽고, 한도에 걸리면 읽은 데까지 내보낸다** (#697). 순서대로 읽으면 한 건 0.2 ~ 0.3초라
+     * 12곳에 3초가 걸려 한도를 넘고, 통째로 버리면 첫 화면에 이름이 하나도 안 붙는다.
+     * 느린 한 곳 때문에 나머지를 버리지 않는다.
+     */
+    const found = new Map<string, string>();
+    const queue = [...ids];
+    let failure: string | null = null;
+    const worker = async (): Promise<void> => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        try {
+          const name = (await source.resolve([id])).get(id);
+          if (name !== undefined) found.set(id, name);
+        } catch (e) {
+          failure = (e as Error).message;
+        }
       }
-      return settled;
-    } catch (e) {
-      // 콘텐츠 id 와 사유만 남긴다. 응답 본문은 남기지 않는다 (DB 명세서 6-4)
-      this.logger.warn(`알림 ${String(ids.length)}건의 이름을 못 읽었다: ${(e as Error).message}`);
-      return new Map();
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
+    };
+    const all = Promise.all(Array.from({ length: Math.min(NAME_CONCURRENCY, ids.length) }, worker));
+
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<'LATE'>((done) => {
+      timer = setTimeout(() => { done('LATE'); }, this.nameBudgetMs);
+    });
+    const settled = await Promise.race([all, late]);
+    if (timer !== undefined) clearTimeout(timer);
+
+    if (settled === 'LATE') {
+      this.logger.warn(
+        `알림 이름 ${String(ids.length)}곳 중 ${String(found.size)}곳만 ${String(this.nameBudgetMs)}ms 안에 읽었다. 나머지는 이름 없이 내보낸다`,
+      );
+    } else if (failure !== null) {
+      // 콘텐츠 수와 사유만 남긴다. 응답 본문은 남기지 않는다 (DB 명세서 6-4)
+      this.logger.warn(`알림 이름을 일부 못 읽었다: ${String(failure)}`);
     }
+    // 한도 뒤에도 일꾼은 계속 돌며 found 를 고친다. 지금까지 읽은 것만 떼어 돌려준다
+    return new Map(found);
   }
 
   async markRead(id: number, accountId: number): Promise<Record<string, unknown>> {
