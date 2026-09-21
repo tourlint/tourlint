@@ -92,6 +92,31 @@ describe('조건 3 — 행사기간 겹침', () => {
     expect(matchByEventPeriod(changed({ eventPeriod: period }), [before])).toEqual([]);
   });
 
+  it('🔴 다른 지역의 행사는 날짜가 겹쳐도 안 걸린다 — 강릉 상품에 고흥유자축제 (#689)', () => {
+    const goheung = changed({ eventPeriod: period, ldongRegnCd: '12', ldongSignguCd: '770' });
+    expect(matchByEventPeriod(goheung, [candidate()])).toEqual([]);
+  });
+
+  it('🔴 시군구 코드가 같아도 시도가 다르면 안 걸린다 — 춘천(51-110)과 종로(11-110)', () => {
+    const jongno = changed({ eventPeriod: period, ldongRegnCd: '11', ldongSignguCd: '110' });
+    const chuncheon = candidate({ ldongRegnCd: '51', ldongSignguCd: '110' });
+    expect(matchByEventPeriod(jongno, [chuncheon])).toEqual([]);
+  });
+
+  it('시군구가 없는 상품은 같은 시도의 행사를 받는다 — 시도만 고른 제주 상품', () => {
+    const jeju = candidate({ ldongRegnCd: '50', ldongSignguCd: null });
+    const seogwipo = changed({ eventPeriod: period, ldongRegnCd: '50', ldongSignguCd: '130' });
+    expect(matchByEventPeriod(seogwipo, [jeju])).toHaveLength(1);
+    // 다른 시도는 여전히 아니다
+    expect(matchByEventPeriod(changed({ eventPeriod: period }), [jeju])).toEqual([]);
+  });
+
+  it('🔴 행사가 어디서 열리는지 모르면 걸지 않는다', () => {
+    const unknown = changed({ eventPeriod: period, ldongRegnCd: null, ldongSignguCd: null });
+    expect(matchByEventPeriod(unknown, [candidate()])).toEqual([]);
+    expect(matchByEventPeriod(unknown, [candidate({ ldongSignguCd: null })])).toEqual([]);
+  });
+
   it('🔴 기간을 모르면 판정하지 않는다 — 「안 겹친다」로 읽지 않는다', () => {
     expect(matchByEventPeriod(changed({ eventPeriod: null }), [candidate()])).toEqual([]);
     expect(matchByEventPeriod(changed({ eventPeriod: { start: '2026-09-11', end: null } }), [candidate()]))

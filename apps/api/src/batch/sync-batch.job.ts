@@ -127,12 +127,12 @@ export interface SyncBatchOptions {
   readonly previousFingerprints?: (productId: number) => Promise<ReadonlyMap<string, FingerprintSnapshot>>;
   /** 영향받은 상품의 재검수를 건다 (FR-MO-013). 없으면 알림만 만든다 */
   readonly requestAudit?: (productId: number) => Promise<void>;
-  /** 감시 대상 상한. 안 주면 환경변수 (FR-MO-020) */
+  /** 감시 대상 상한 — **계정별**이다 (#690). 안 주면 환경변수 (FR-MO-020) */
   readonly watchLimit?: number;
 }
 
 /**
- * 감시 대상 상품 수 상한 (FR-MO-020).
+ * 감시 대상 상품 수 상한 (FR-MO-020). **계정마다** 출발일 임박순으로 이만큼 본다 (#690).
  *
  * **설정 화면 항목이 아니다.** FR-OP-021 이 설정을 10종으로 못박았고 FR-OP-024 는 전역 값을
  * 「배치 실행 시각 · 일일 호출 예산」 둘로 한정한다. FR-MO-020 자체가 「개발 기간 중」으로
