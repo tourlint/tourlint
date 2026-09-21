@@ -132,8 +132,25 @@ export function AuditResult({ productId }: { productId: number }) {
         const latest = runs.runs.find((r) => r.isCurrent === true)
           ?? [...runs.runs].sort((a, b) => b.executedAt.localeCompare(a.executedAt))[0];
         if (latest) {
-          try { setScheduleChanged(sessionStorage.getItem(`review-changed:${productId}`) === String(latest.auditRunId)); } catch { /* 저장소 사용 불가 */ }
+          // 검수한 뒤에 일정을 고쳤는지는 서버가 말한다 — 브라우저 기억만으로는 새로 고치거나 편집 화면을
+          // 다녀오면 잊는다. 그 틈에 고치기 전 결과로 출시가 통과했다 (#710)
+          let remembered = false;
+          try { remembered = sessionStorage.getItem(`review-changed:${productId}`) === String(latest.auditRunId); } catch { /* 저장소 사용 불가 */ }
+          setScheduleChanged(remembered || isEditedSinceAudit(detail));
           await loadRun(latest.auditRunId);
+        } else if (detail.plannedAt !== null) {
+          /*
+           * 검수 시작(handoff)이 건 작업이 아직 도는 중이다 (#711). 여기서 「아직 검수하지 않았습니다 ·
+           * 검수 실행」 을 그리면 사용자가 눌러 같은 일정을 한 번 더 검수한다 — 가이드 10단계가 그랬다.
+           */
+          setRunning(true);
+          // 기다리는 동안 「불러오는 중…」 이 아니라 검수 중임을 보인다
+          setLoading(false);
+          const runId = await waitForFirstRun(productId, () => cancelled);
+          if (cancelled) return;
+          setRunning(false);
+          if (runId !== null) await loadRun(runId);
+          else setData(null);
         }
         else setData(null);
       } catch (err) {
@@ -344,7 +361,7 @@ export function AuditResult({ productId }: { productId: number }) {
       </div>
 
       {scheduleChanged && <div role="status" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        장소를 추가해 일정이 바뀌었어요. 아래 결과는 추가 전 결과입니다. ‘지금 재검수’를 눌러 새 일정의 문제와 수정안을 확인하세요.
+        검수한 뒤에 일정이 바뀌었어요. 아래 결과는 바뀌기 전 결과입니다. ‘지금 재검수’를 눌러 새 일정의 문제와 수정안을 확인하세요.
       </div>}
       {placeContext && product && <ReviewPlaceDrawer product={product} context={placeContext} changed={scheduleChanged}
         onInserted={onPlaceInserted} onClose={() => setPlaceContext(null)}
@@ -441,7 +458,8 @@ export function AuditResult({ productId }: { productId: number }) {
 function EmptyState({ running, progress, onRun }: { running: boolean; progress: string | null; onRun: () => void }) {
   return (
     <div className="mt-10 rounded-2xl border border-dashed border-slate-300 py-16 text-center dark:border-slate-700">
-      <p className="text-sm text-slate-500 dark:text-slate-400">아직 검수하지 않았습니다.</p>
+      {/* 도는 중에 「아직 검수하지 않았습니다」 를 보이면 멈춘 화면으로 읽힌다 (#711) */}
+      <p className="text-sm text-slate-500 dark:text-slate-400">{running ? "검수하고 있어요. 끝나면 결과가 여기에 나와요." : "아직 검수하지 않았습니다."}</p>
       {running ? (
         <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">{progress ?? "검수를 시작하는 중…"}</p>
       ) : (
@@ -1615,4 +1633,32 @@ function formatStamp(iso: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 검수한 뒤에 사람이 일정을 고쳤는가. 서버가 상품 상세로 알려 준다 (#710) */
+export function isEditedSinceAudit(detail: ProductDetail | null): boolean {
+  return detail?.auditState?.kind === "STALE" && detail.auditState.reason === "EDIT";
+}
+
+/** 첫 검수 결과를 기다리는 간격과 한도 (#711). 15곳 검수가 5 ~ 15초라 1분이면 넉넉하다 */
+export const FIRST_RUN_POLL_MS = 1500;
+export const FIRST_RUN_POLL_TRIES = 40;
+
+/**
+ * 검수 시작이 건 작업이 끝나 첫 결과가 생길 때까지 기다린다 (#711). 한도를 넘기면 null —
+ * 그때는 지금처럼 「검수 실행」 을 보인다.
+ */
+export async function waitForFirstRun(
+  productId: number,
+  cancelled: () => boolean,
+  listRuns: (id: number) => Promise<{ runs: { auditRunId: number }[] }> = auditApi.listRuns,
+  wait: (ms: number) => Promise<void> = sleep,
+): Promise<number | null> {
+  for (let i = 0; i < FIRST_RUN_POLL_TRIES; i += 1) {
+    await wait(FIRST_RUN_POLL_MS);
+    if (cancelled()) return null;
+    const first = (await listRuns(productId)).runs[0];
+    if (first !== undefined) return first.auditRunId;
+  }
+  return null;
 }

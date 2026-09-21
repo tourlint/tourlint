@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Severity, type Transport, kstIso } from '@tourlint/shared';
 import { calculateReadiness, type ScorableFinding } from '../engine/score';
-import { CURRENT_RUN_LATERAL, toCurrentRun, type CurrentRun } from '../persistence/current-run';
+import { CURRENT_RUN_LATERAL, currentRunOf, toCurrentRun, type CurrentRun } from '../persistence/current-run';
 import { withTransaction } from '../persistence/db';
 import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct, WalkItemInput } from './product.dto';
 
@@ -290,7 +290,21 @@ export class ProductRepository {
         WHERE id = $${params.length - 1} AND account_id = $${params.length}`,
       params,
     );
-    return (rowCount ?? 0) > 0;
+    const updated = (rowCount ?? 0) > 0;
+    /*
+     * 출발일 · 이동수단 · 타깃 · 콘셉트는 판정을 바꾼다 — 요일(휴무) · 이동시간 · 상품 구성이 달라진다.
+     * 검수한 그 일정이 아니게 되므로 항목을 건드려 「검수 뒤에 바뀌었다」 로 읽히게 한다 (#710).
+     * 이름 · 인원은 판정과 무관하다. `product.updated_at` 은 이름만 바꿔도 올라가 기준으로 못 쓴다.
+     */
+    const judged = input.startDate !== undefined || input.transport !== undefined
+      || input.targetKey !== undefined || input.conceptKey !== undefined;
+    if (updated && judged) await this.touchItems(productId);
+    return updated;
+  }
+
+  /** 일정이 바뀌었다는 흔적을 남긴다. 「지금 일정의 검수 실행」 판정이 이 시각을 본다 (#710 · `current-run`) */
+  private async touchItems(productId: number): Promise<void> {
+    await this.pool.query(`UPDATE itinerary_item SET updated_at = now() WHERE product_id = $1`, [productId]);
   }
 
   async remove(accountId: number, productId: number): Promise<boolean> {
@@ -318,10 +332,11 @@ export class ProductRepository {
       kind: 'LATEST' | 'RESTORED' | 'STALE' | null;
       run_id: string | null;
       latest_id: string | null;
+      stale_reason: 'PATCH' | 'EDIT' | null;
       current_blockers: number | null;
       latest_blockers: number | null;
     }>(
-      `SELECT cur.kind, cur.run_id, cur.latest_id,
+      `SELECT cur.kind, cur.run_id, cur.latest_id, cur.stale_reason,
               ar.blocker_cnt AS current_blockers, lr.blocker_cnt AS latest_blockers
          FROM product p
          ${CURRENT_RUN_LATERAL}
@@ -337,6 +352,11 @@ export class ProductRepository {
       currentBlockers: row.current_blockers,
       latestBlockers: row.latest_blockers,
     };
+  }
+
+  /** 지금 일정에 대응하는 검수 실행. 상품 상세가 화면에 알려 준다 (#710) */
+  async currentRun(productId: number): Promise<CurrentRun | null> {
+    return currentRunOf(this.pool, productId);
   }
 
   /** 출시 승인 시각을 기록한다. `trg_check_release` 가 마지막으로 한 번 더 막는다 */
@@ -593,7 +613,8 @@ export class ProductRepository {
     }
     params.push(itemId, accountId);
     const { rows } = await this.pool.query<ItemRaw>(
-      `UPDATE itinerary_item i SET ${sets.join(', ')}
+      // updated_at — 검수한 뒤에 고쳤는지를 이 시각으로 가린다 (#710)
+      `UPDATE itinerary_item i SET ${sets.join(', ')}, updated_at = now()
          FROM product p
         WHERE i.id = $${params.length - 1} AND i.product_id = p.id AND p.account_id = $${params.length}
        RETURNING i.id, i.day_no, i.seq, i.start_time, i.end_time, i.place_label, i.item_type, i.kto_content_id, i.match_status`,
@@ -605,12 +626,17 @@ export class ProductRepository {
 
   /** 항목 삭제. 남의 항목이면 false. */
   async deleteItem(accountId: number, itemId: number): Promise<boolean> {
-    const { rowCount } = await this.pool.query(
+    const { rows } = await this.pool.query<{ product_id: string }>(
       `DELETE FROM itinerary_item i USING product p
-        WHERE i.id = $1 AND i.product_id = p.id AND p.account_id = $2`,
+        WHERE i.id = $1 AND i.product_id = p.id AND p.account_id = $2
+        RETURNING i.product_id`,
       [itemId, accountId],
     );
-    return (rowCount ?? 0) > 0;
+    const deleted = rows[0];
+    if (deleted === undefined) return false;
+    // 지운 줄은 흔적이 안 남는다. 남은 줄을 건드려 일정이 바뀌었음을 남긴다 (#710)
+    await this.touchItems(Number(deleted.product_id));
+    return true;
   }
 
   /**
@@ -633,7 +659,14 @@ export class ProductRepository {
 
       await client.query(`UPDATE itinerary_item SET seq = seq + 10000 WHERE product_id = $1`, [productId]);
       for (const o of order) {
-        await client.query(`UPDATE itinerary_item SET day_no = $1, seq = $2 WHERE id = $3 AND product_id = $4`, [
+        // 바로 위에서 seq 를 10000 만큼 비켜 두었다. 실제로 자리가 바뀐 줄만 updated_at 을 올린다 —
+        // 편집 화면은 순서가 그대로여도 전체를 보낸다 (#710)
+        await client.query(
+          `UPDATE itinerary_item
+              SET updated_at = CASE WHEN day_no IS DISTINCT FROM $1 OR seq - 10000 IS DISTINCT FROM $2
+                                    THEN now() ELSE updated_at END,
+                  day_no = $1, seq = $2
+            WHERE id = $3 AND product_id = $4`, [
           o.dayNo,
           o.seq,
           o.itemId,
