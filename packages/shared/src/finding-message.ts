@@ -29,6 +29,18 @@ export function withPlaceName(message: string, name?: string | null): string {
   return core.startsWith(`${label} —`) ? core : `${label} — ${core}`;
 }
 
+/**
+ * R07 「식사(이름)가 60분으로 …」 의 빈 괄호를 채운다 (#713).
+ *
+ * 장소 담기로 넣은 식당은 `place_label` 이 비어 저장된 문장이 「식사()가 60분으로」 다. 이름은
+ * 공사 원문이라 저장할 수 없으니(DR-PR-001) 여기서 표시할 때 채운다. 이름을 못 얻으면 괄호를
+ * 지운다 — 빈 괄호를 보이지도, 지어내지도 않는다.
+ */
+function fillMealName(message: string, name?: string | null): string {
+  const label = name?.trim() ?? '';
+  return message.replace(/(식사|휴식)\(\)/, (_, kind: string) => (label === '' ? kind : `${kind}(${label})`));
+}
+
 /** 판정·감점은 유지하고 저장된 결과도 같은 말로 표시한다. 분류명을 추측하지 않는다. */
 export function findingMessage(rule: string, original: string, evidence: Record<string, unknown>, names: ReadonlyMap<number, string> = new Map(), targetName?: string | null): string {
   if (rule === 'R04' && typeof evidence.count === 'number' && typeof evidence.threshold === 'number') {
@@ -42,10 +54,12 @@ export function findingMessage(rule: string, original: string, evidence: Record<
   if (rule === 'R07') {
     const span = evidence.span as { minutes?: number } | undefined;
     const minutes = span?.minutes;
+    const named = fillMealName(original, targetName);
     if (typeof minutes === 'number') {
       const duration = `${Math.floor(minutes / 60)}시간${minutes % 60 ? ` ${minutes % 60}분` : ''}`;
-      return original.replace(/연속 [\d.]+시간/, `전체 ${duration}`).replace('공백 구간에 식사를 넣어 주세요.', '일정 사이에 식사나 휴식을 넣어 주세요.');
+      return named.replace(/연속 [\d.]+시간/, `전체 ${duration}`).replace('공백 구간에 식사를 넣어 주세요.', '일정 사이에 식사나 휴식을 넣어 주세요.');
     }
+    return named;
   }
   if (rule === 'R10' && evidence.unverified === true) {
     const target = TARGET_LABEL[evidence.targetKey as TargetKey] ?? '선택한 고객';
