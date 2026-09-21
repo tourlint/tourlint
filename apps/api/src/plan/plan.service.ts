@@ -275,7 +275,7 @@ export class PlanService {
       notice = ranked.notice ?? notice;
     }
 
-    const filtered = places.filter((p) => matchesFilters(p, query));
+    const filtered = facilitiesLast(places.filter((p) => matchesFilters(p, query)));
     return {
       scope: { kind: query.sort === 'near' && query.anchor !== null ? 'NEAR' : 'SIGNGU', label: scopeLabel(query, region) },
       totalCount: filtered.length,
@@ -406,11 +406,12 @@ export class PlanService {
       .filter((p) => matchesFilters(p, query))
       // 응답이 거리순으로 오지 않는다 (2026.09.15 실호출)
       .sort(byDistance);
+    const ordered = facilitiesLast(places);
 
     return {
       scope: { kind: 'NEAR3KM', label: '넣을 위치 근처 3km' },
-      totalCount: places.length,
-      items: pageOf(places, query.page),
+      totalCount: ordered.length,
+      items: pageOf(ordered, query.page),
       disabled: null,
       notice: accessible === null || pet === null ? PARTIAL_NOTICE : null,
     };
@@ -664,6 +665,18 @@ function toPlace(
 /** 비표출(`showflag` 0)은 뺀다. 값이 없으면 표출로 본다 — 목록 응답에 없을 수 있다 */
 function visibleItems(page: KtoListPage): readonly Record<string, unknown>[] {
   return page.items.filter((item) => item.showflag === undefined || String(item.showflag) !== '0');
+}
+
+/**
+ * 화장실 같은 편의시설은 목록 맨 뒤로 보낸다 (#730).
+ *
+ * 공사가 `강문해변화장실` 을 랜드마크관광으로 분류해 두어 가나다순 · 거리순 목록의 맨 위에
+ * 나왔다. 빼지는 않는다 — 종류별 건수는 공사의 `totalCount` 라 빼면 숫자가 안 맞는다.
+ * 나머지 순서는 그대로다. 수정안 쪽은 아예 거른다(`patch-remote.ts` · #584).
+ */
+export function facilitiesLast<T extends { readonly title: string }>(places: readonly T[]): readonly T[] {
+  const isFacility = (p: T): boolean => p.title.includes('화장실');
+  return [...places.filter((p) => !isFacility(p)), ...places.filter(isFacility)];
 }
 
 function matchesFilters(place: PlanPlace, query: PlacesQuery): boolean {

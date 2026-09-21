@@ -6,7 +6,7 @@ import type { BudgetDecision } from '../external/budget-guard';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { FixtureKtoTransport, KtoClient, KtoFetchError, type KtoParams, type KtoTransport, type KtoTransportResult } from '../external/kto';
 import { PlanCache } from './plan-cache';
-import { PlanService, type BriefingQuery, type PlacesQuery } from './plan.service';
+import { PlanService, facilitiesLast, type BriefingQuery, type PlacesQuery } from './plan.service';
 
 const FIXTURES = join(__dirname, '../../../../fixtures/kto');
 const GANGNEUNG = { regnCd: '51', signguCd: '150' };
@@ -246,6 +246,17 @@ describe('PlanService — 조회 조건과 경계', () => {
     expect(onlyPet.items.map((p) => p.contentId)).toEqual(['2']);
   });
 
+  it('🔴 화장실은 목록 맨 뒤다 — 건수는 그대로다 (#730)', async () => {
+    const transport = new RecordingTransport({
+      areaBasedList2: listBody([
+        place({ contentid: '1', title: '강문해변화장실' }), place({ contentid: '2', title: '경포대' }), place({ contentid: '3', title: '오죽헌' }),
+      ]),
+    });
+    const result = await service(transport).places(placesQuery());
+    expect(result.items.map((p) => p.contentId)).toEqual(['2', '3', '1']);
+    expect(result.totalCount).toBe(3);
+  });
+
   it('🔴 비표출로 바뀐 곳은 목록에서 뺀다', async () => {
     const transport = new RecordingTransport({
       areaBasedList2: listBody([place({ contentid: '1', showflag: '1' }), place({ contentid: '2', showflag: '0' })]),
@@ -482,5 +493,18 @@ describe('장소 담기 전체 페이지 (#564)', () => {
     const result = await service(new PagedTransport(34)).places(placesQuery({ sort: 'near' }));
     expect(result.scope.kind).toBe('SIGNGU');
     expect(result.scope.label).not.toContain('반경');
+  });
+});
+
+describe('장소 목록의 편의시설 (#730)', () => {
+  it('🔴 화장실은 맨 뒤로 보낸다 — 빼지 않고, 나머지 순서는 그대로다', () => {
+    const titles = ['강문해변화장실', '경포대', '강릉 선교장', '안목해변 공중화장실', '오죽헌'];
+    const ordered = facilitiesLast(titles.map((title) => ({ title })));
+    expect(ordered.map((p) => p.title)).toEqual(['경포대', '강릉 선교장', '오죽헌', '강문해변화장실', '안목해변 공중화장실']);
+  });
+
+  it('편의시설이 없으면 그대로다', () => {
+    const places = [{ title: '경포대' }, { title: '오죽헌' }];
+    expect(facilitiesLast(places)).toEqual(places);
   });
 });

@@ -17,12 +17,12 @@ export function DwellTable() {
   const rows = Object.entries(DWELL_MINUTES_SEED).sort(([a], [b]) => a.localeCompare(b));
   return (
     <>
-      <p className="mb-2 text-xs text-slate-400">종료 시각이 없는 항목의 체류시간을 중분류별로 보완합니다 (분). 표준 값입니다.</p>
+      <p className="mb-2 text-xs text-slate-400">종료 시각이 없는 항목의 체류시간을 장소 종류별로 보완합니다 (분). 표준 값입니다.</p>
       <div className={SCROLL}>
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500 dark:bg-slate-900 dark:text-slate-400">
             <tr>
-              <th className="p-2 font-medium">중분류</th>
+              <th className="p-2 font-medium">장소 종류</th>
               <th className="p-2 font-medium">체류시간(분)</th>
             </tr>
           </thead>
@@ -46,12 +46,12 @@ export function IndoorOutdoorTable() {
   const rows = Object.entries(INDOOR_OUTDOOR_SEED).sort(([a], [b]) => a.localeCompare(b));
   return (
     <>
-      <p className="mb-2 text-xs text-slate-400">중분류가 실내인지 야외인지 지정합니다. R09 야외 비중 판정에 쓰입니다. 표준 값입니다.</p>
+      <p className="mb-2 text-xs text-slate-400">장소 종류가 실내인지 야외인지 지정합니다. 날씨 · 우천 판정의 야외 비중에 쓰입니다. 표준 값입니다.</p>
       <div className={SCROLL}>
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500 dark:bg-slate-900 dark:text-slate-400">
             <tr>
-              <th className="p-2 font-medium">중분류</th>
+              <th className="p-2 font-medium">장소 종류</th>
               <th className="p-2 font-medium">실내 · 야외</th>
             </tr>
           </thead>
