@@ -726,6 +726,7 @@ function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => v
   const [signals, setSignals] = useState<RegionSignal[]>([]);
   const [draft, setDraft] = useState("");
   const [kwError, setKwError] = useState<string | null>(null);
+  const [regionError, setRegionError] = useState<string | null>(null);
   const [region, setRegion] = useState<RegionValue>({ regnCode: "", regnName: "", signguCode: "", signguName: "" });
   const [month, setMonth] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -786,6 +787,13 @@ function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => v
 
   async function addRegion() {
     if (region.regnCode === "" || month === "") return;
+    const signguCd = region.signguCode === "" ? null : region.signguCode;
+    // 키워드처럼 같은 것을 또 넣지 않는다 (#712 · UI-S7-014)
+    if (hasRegion(regions, region.regnCode, signguCd, month)) {
+      setRegionError("이미 등록한 지역이에요.");
+      return;
+    }
+    setRegionError(null);
     const next = [
       ...regions,
       { regnCd: region.regnCode, signguCd: region.signguCode === "" ? null : region.signguCode, month },
@@ -875,6 +883,7 @@ function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => v
             관심 지역 추가
           </button>
         </div>
+        {regionError && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{regionError}</p>}
       </div>
 
       {/*
@@ -1064,4 +1073,12 @@ export function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal
       </ul>
     </div>
   );
+}
+
+/** 같은 (시도 · 시군구 · 달)이 이미 있는가 (#712). 서버도 같은 기준으로 접는다 */
+export function hasRegion(
+  regions: readonly { regnCd: string; signguCd: string | null; month: string }[],
+  regnCd: string, signguCd: string | null, month: string,
+): boolean {
+  return regions.some((r) => r.regnCd === regnCd && (r.signguCd ?? null) === signguCd && r.month === month);
 }
