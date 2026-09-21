@@ -193,6 +193,40 @@ describe.skipIf(URL === undefined)('NotificationService — 관통', () => {
       await new Promise((done) => { setTimeout(done, 100); });
     });
 
+    it('🔴 느린 한 곳 때문에 읽은 이름까지 버리지 않는다 — 한도에 걸리면 읽은 데까지 (#697)', async () => {
+      await insert({ contentId: 'fast' });
+      await insert({ contentId: 'stuck' });
+      const partial = new NotificationService(pool, {
+        resolve: (ids) => ids[0] === 'stuck'
+          ? new Promise(() => undefined)
+          : Promise.resolve(new Map(ids.map((id) => [id, `이름-${id}`]))),
+      }, 50);
+      const names = ((await partial.list(mine, LIST)).content as Record<string, unknown>[])
+        .map((n) => [n.ktoContentId, n.placeName]);
+      expect(names).toContainEqual(['fast', '이름-fast']);
+      expect(names).toContainEqual(['stuck', null]);
+    });
+
+    it('🔴 여러 곳을 동시에 읽는다 — 순서대로면 12곳에 3초라 한도를 넘는다 (#697)', async () => {
+      for (let i = 0; i < 12; i += 1) await insert({ contentId: `c${String(i)}` });
+      let running = 0;
+      let peak = 0;
+      const slow = new NotificationService(pool, {
+        resolve: async (ids) => {
+          running += 1;
+          peak = Math.max(peak, running);
+          await new Promise((done) => { setTimeout(done, 40); });
+          running -= 1;
+          return new Map(ids.map((id) => [id, id]));
+        },
+      }, 300);
+      const res = await slow.list(mine, LIST);
+      // 12 × 40ms = 480ms 라 순서대로면 300ms 한도 안에 다 못 읽는다
+      expect((res.content as Record<string, unknown>[]).filter((n) => n.placeName !== null)).toHaveLength(12);
+      expect(peak).toBeGreaterThan(1);
+      expect(peak).toBeLessThanOrEqual(6);
+    });
+
     it('못 찾은 곳만 null 이다 — 찾은 것까지 버리지 않는다', async () => {
       await insert({ contentId: '111' });
       await insert({ contentId: '222' });
