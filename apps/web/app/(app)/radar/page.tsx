@@ -229,7 +229,8 @@ export default function RadarPage() {
       <TodayAgentCard />
 
       {/* 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) */}
-      <WatchAndNews onError={setError} automatic={summary?.nextBatchAt != null} />
+      <WatchAndNews onError={setError} automatic={summary?.nextBatchAt != null}
+        checkedText={lastCheckedText(summary?.lastBatchAt ?? null, todayIso())} />
 
       {/* 바뀐 정보 · 새 소식 탭 (UI-S7-003). 검수 등급 색 마커를 쓰지 않는다. */}
       <div id="notifications" className="mt-6 flex gap-2 border-b border-slate-200 dark:border-slate-800">
@@ -720,7 +721,7 @@ function TodoRow({ item }: { item: TodayItem }) {
 }
 
 // ── 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) ────────────
-function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => void; automatic: boolean }) {
+function WatchAndNews({ onError, automatic, checkedText }: { onError: (m: string | null) => void; automatic: boolean; checkedText: string }) {
   const [keywords, setKeywords] = useState<string[]>([]);
   const [regions, setRegions] = useState<{ regnCd: string; signguCd: string | null; month: string }[]>([]);
   const [signals, setSignals] = useState<RegionSignal[]>([]);
@@ -730,15 +731,19 @@ function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => v
   const [region, setRegion] = useState<RegionValue>({ regnCode: "", regnName: "", signguCode: "", signguName: "" });
   const [month, setMonth] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshedNote, setRefreshedNote] = useState<string | null>(null);
 
   async function refreshNews() {
     if (refreshing) return;
     setRefreshing(true);
+    setRefreshedNote(null);
     onError(null);
     try {
       // 자동 확인이 켜져 있으면 배치가 저장한 최신 결과를 읽는다.
       // 수동 집계 API는 자동 확인이 꺼진 기간에만 허용된다.
       setSignals(await (automatic ? radarApi.regionSignals() : radarApi.refreshRegionSignals()));
+      // 눌러도 화면이 그대로면 고장처럼 보인다 (#715). 무엇을 했고 언제 것인지 한 줄로 말한다
+      setRefreshedNote(refreshNote(automatic, checkedText));
     } catch (e) {
       onError(isApiError(e) ? e.message : "새 소식을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -833,6 +838,7 @@ function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => v
           {refreshing ? "새 소식 확인 중…" : "새 소식 확인"}
         </button>
       </div>
+      {refreshedNote && <p role="status" className="mt-2 text-right text-xs text-slate-500 dark:text-slate-400">{refreshedNote}</p>}
 
       {/* 관심 키워드 */}
       <div className="mt-3">
@@ -1081,4 +1087,14 @@ export function hasRegion(
   regnCd: string, signguCd: string | null, month: string,
 ): boolean {
   return regions.some((r) => r.regnCd === regnCd && (r.signguCd ?? null) === signguCd && r.month === month);
+}
+
+/**
+ * 「새 소식 확인」 을 누른 뒤의 한 줄 (#715). 자동 확인이 켜져 있으면 아침에 확인해 둔 결과를 다시
+ * 읽는 것이라 그 시각을 함께 말한다 — 지금 새로 센 것처럼 읽히면 안 된다.
+ */
+export function refreshNote(automatic: boolean, checkedText: string): string {
+  return automatic
+    ? `가장 최근에 확인한 결과를 다시 불러왔어요. ${checkedText}`
+    : "지금 다시 확인했어요.";
 }
