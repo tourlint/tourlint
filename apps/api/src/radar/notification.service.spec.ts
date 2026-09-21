@@ -132,6 +132,61 @@ describe.skipIf(URL === undefined)('NotificationService — 관통', () => {
     expect((await service.list(mine, { ...LIST, unreadOnly: true })).totalElements).toBe(1);
   });
 
+  describe('바뀐 곳 이름 (UI-S7-003 · #685)', () => {
+    function withNames(resolve: (ids: readonly string[]) => Promise<ReadonlyMap<string, string>>): {
+      service: NotificationService; asked: string[][];
+    } {
+      const asked: string[][] = [];
+      return {
+        asked,
+        service: new NotificationService(pool, {
+          resolve: (ids) => {
+            asked.push([...ids]);
+            return resolve(ids);
+          },
+        }),
+      };
+    }
+
+    it('표시 시점에 읽은 이름이 카드에 붙는다', async () => {
+      await insert({ condition: 3, contentId: '2874909' });
+      const { service: named } = withNames(() => Promise.resolve(new Map([['2874909', '여수밤바다 불꽃축제']])));
+      const first = ((await named.list(mine, LIST)).content as Record<string, unknown>[])[0];
+      expect(first?.placeName).toBe('여수밤바다 불꽃축제');
+    });
+
+    it('🔴 표출이 중단된 곳은 묻지도 내보내지도 않는다 (FR-AU-071)', async () => {
+      await insert({ hidden: true, contentId: '3536916' });
+      const { service: named, asked } = withNames(() => Promise.resolve(new Map([['3536916', '새면 안 되는 이름']])));
+      const first = ((await named.list(mine, LIST)).content as Record<string, unknown>[])[0];
+      expect(first?.placeName).toBeNull();
+      expect(asked.flat()).not.toContain('3536916');
+    });
+
+    it('🔴 이름을 못 읽어도 알림 목록은 나온다 — 예산 소진 · 공사 지연', async () => {
+      await insert({ contentId: '126508' });
+      const { service: named } = withNames(() => Promise.reject(new Error('BUDGET_EXHAUSTED')));
+      const res = await named.list(mine, LIST);
+      expect(res.totalElements).toBe(1);
+      expect((res.content as Record<string, unknown>[])[0]?.placeName).toBeNull();
+    });
+
+    it('못 찾은 곳만 null 이다 — 찾은 것까지 버리지 않는다', async () => {
+      await insert({ contentId: '111' });
+      await insert({ contentId: '222' });
+      const { service: named } = withNames(() => Promise.resolve(new Map([['111', '찾은 곳']])));
+      const names = ((await named.list(mine, LIST)).content as Record<string, unknown>[])
+        .map((n) => [n.ktoContentId, n.placeName]);
+      expect(names).toContainEqual(['111', '찾은 곳']);
+      expect(names).toContainEqual(['222', null]);
+    });
+
+    it('이름 길이 없이 만든 서비스는 null 을 준다', async () => {
+      await insert();
+      expect(((await service.list(mine, LIST)).content as Record<string, unknown>[])[0]?.placeName).toBeNull();
+    });
+  });
+
   it('안 읽은 건수를 함께 준다 — 헤더 배지가 쓴다', async () => {
     await insert();
     await insert({ contentId: '777' });

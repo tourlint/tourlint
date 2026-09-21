@@ -307,7 +307,7 @@ export const RADAR: readonly Endpoint[] = [
     route: 'GET /api/v1/notifications',
     tag: '레이더',
     summary: '알림 목록',
-    description: '바뀐 정보 · 새 소식 알림을 최신순으로 돌려줍니다.',
+    description: '바뀐 정보 · 새 소식 알림을 최신순으로 돌려줍니다. `placeName` 은 바뀐 곳 · 새로 생긴 곳의 이름이며, 저장하지 않고 볼 때 읽습니다 — 표출이 중단된 곳과 못 읽은 곳은 `null` 입니다.',
     params: {
       kind: {
         description: '`RISK` 바뀐 정보 · `OPPORTUNITY` 새 소식. 없으면 둘 다',
@@ -333,6 +333,7 @@ export const RADAR: readonly Endpoint[] = [
               productName: PRODUCT_NAME,
               startDate: '2026-11-17',
               ktoContentId: '129784',
+              placeName: '강릉 오죽헌·시립박물관',
               what: '일정에 포함된 관광지의 운영정보가 바뀌었습니다.',
               impact: '휴무일 · 운영시간이 달라졌다면 기존 검수 결과가 더 이상 맞지 않습니다.',
               action: '다시 검수해 판정을 갱신하세요.',
