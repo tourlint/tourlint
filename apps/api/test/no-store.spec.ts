@@ -46,6 +46,19 @@ const SOURCE_ONLY = new Set([
   'addr1', 'addr2', 'restdate', 'restdatefood', 'overview', 'usetime', 'opentimefood',
 ]);
 
+/**
+ * 시간 범위만으로 된 원문 (`09:00~18:00`) — needle 로 쓰지 않는다 (#751).
+ *
+ * 「매주 화요일」 과 같은 충돌이다. R01 은 정규화한 개점 · 폐점 시각을 `운영시간 HH:MM~HH:MM` 으로
+ * **다시 적는데**, 어떤 콘텐츠의 `usetime` 이 마침 그 정규형 그대로라 판정 문구와 글자가 같아진다.
+ * 11자라 길이 기준은 넘는다. 원문을 실은 것이 아니므로 뺀다 — `09:00~18:00 (입장마감 17:00)` 처럼
+ * 문장이 붙은 것은 여전히 남는다.
+ */
+const BARE_TIME_RANGE = /^\d{1,2}:\d{2}\s*[~\-–]\s*\d{1,2}:\d{2}$/;
+export function isBareTimeRange(value: string): boolean {
+  return BARE_TIME_RANGE.test(value.trim());
+}
+
 function collectFromFixtures(): { sourceOnly: string[]; titles: string[] } {
   const sourceOnly = new Set<string>();
   const titles = new Set<string>();
@@ -54,7 +67,7 @@ function collectFromFixtures(): { sourceOnly: string[]; titles: string[] } {
     if (v === null || typeof v !== 'object') return;
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
       if (typeof val === 'string' && val.trim().length >= MIN_NEEDLE) {
-        if (SOURCE_ONLY.has(k)) sourceOnly.add(val.trim());
+        if (SOURCE_ONLY.has(k) && !isBareTimeRange(val)) sourceOnly.add(val.trim());
         if (k === 'title') titles.add(val.trim());
       }
       walk(val);
@@ -226,6 +239,16 @@ describe.skipIf(URL === undefined)('무저장 원칙 전수 검사 (DB 명세서
   afterAll(async () => {
     await pool.query('DELETE FROM account WHERE id = $1', [accountId]);
     await pool.end();
+  });
+
+  it('🔴 시간 범위만으로 된 원문은 needle 이 아니다 — 문장이 붙은 것은 남는다 (#751)', () => {
+    expect(isBareTimeRange('09:00~18:00')).toBe(true);
+    expect(isBareTimeRange(' 9:00 ~ 18:00 ')).toBe(true);
+    expect(isBareTimeRange('09:00~18:00 (입장마감 17:00)')).toBe(false);
+    expect(isBareTimeRange('매표시간 09:00~17:00 관람시간 09:00~18:00')).toBe(false);
+    expect(needles.some((n) => isBareTimeRange(n))).toBe(false);
+    // 시간이 든 원문 **문장**은 여전히 찾는다 — 통째로 빼 버린 것이 아니다
+    expect(needles.some((n) => /\d{2}:\d{2}/.test(n))).toBe(true);
   });
 
   it('needle 과 검수 결과가 실제로 있다 — 빈 검사를 통과로 보지 않는다', async () => {
