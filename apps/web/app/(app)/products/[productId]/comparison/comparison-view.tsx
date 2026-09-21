@@ -88,7 +88,7 @@ export function ComparisonView({ productId }: { productId: number }) {
     <>
       <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
         <Link href="/" className="hover:underline">
-          대시보드
+          홈
         </Link>
         <span className="mx-2">/</span>
         <Link href={`/products/${productId}`} className="hover:underline">
@@ -195,7 +195,7 @@ export function ComparisonView({ productId }: { productId: number }) {
   );
 }
 
-function MetricTable({ metrics }: { metrics: ComparisonMetric[] }) {
+export function MetricTable({ metrics }: { metrics: ComparisonMetric[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
@@ -243,8 +243,8 @@ function MetricRow({ metric: m }: { metric: ComparisonMetric }) {
         </>
       ) : (
         <>
-          <td className="p-3 tabular-nums text-slate-600 dark:text-slate-300">{fmt(m.before)}</td>
-          <td className="p-3 tabular-nums font-medium text-slate-900 dark:text-slate-100">{fmt(m.after)}</td>
+          <td className="p-3 tabular-nums text-slate-600 dark:text-slate-300">{formatMetric(m.key, m.before)}</td>
+          <td className="p-3 tabular-nums font-medium text-slate-900 dark:text-slate-100">{formatMetric(m.key, m.after)}</td>
           <td className="p-3">
             <Delta metric={m} />
           </td>
@@ -265,13 +265,29 @@ function Delta({ metric: m }: { metric: ComparisonMetric }) {
     : "text-rose-600 dark:text-rose-400";
   return (
     <span className={`tabular-nums font-medium ${cls}`}>
-      {diff > 0 ? "▲" : "▼"} {Math.abs(diff)}
+      {diff > 0 ? "▲" : "▼"} {formatMetric(m.key, Math.abs(diff))}
     </span>
   );
 }
 
-function fmt(v: number | null | undefined): string {
-  return v == null ? "-" : String(v);
+/**
+ * 지표 값에 단위를 붙인다 (#726).
+ *
+ * 응답은 분 · 미터 숫자다. 그대로 찍으면 `189 → 213` · `122307 → 140418` 이라 거리는 읽을 수
+ * 없다. 건수 · 점수는 표의 이름이 단위를 말해 주므로 그대로 둔다.
+ */
+export function formatMetric(key: string, v: number | null | undefined): string {
+  if (v == null) return "-";
+  if (key === "travelMinutes") {
+    const hours = Math.floor(v / 60);
+    const minutes = v % 60;
+    if (hours === 0) return `${minutes}분`;
+    return minutes === 0 ? `${hours}시간` : `${hours}시간 ${minutes}분`;
+  }
+  if (key === "travelMeters") {
+    return v < 1000 ? `${v}m` : `${(Math.round(v / 100) / 10).toFixed(1)}km`;
+  }
+  return String(v);
 }
 
 function formatStamp(iso: string): string {

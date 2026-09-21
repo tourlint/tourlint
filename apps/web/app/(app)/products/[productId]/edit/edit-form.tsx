@@ -215,7 +215,7 @@ export function EditForm({ productId }: { productId: number }) {
   return (
     <>
       <nav className="mb-6 text-sm text-slate-500 dark:text-slate-400">
-        <Link href="/" className="hover:underline">대시보드</Link>
+        <Link href="/" className="hover:underline">홈</Link>
         <span className="mx-1">/</span>
         <Link href={`/products/${productId}${loaded.plannedAt === null ? "/plan" : ""}`} className="hover:underline">{loaded.name}</Link>
         <span className="mx-1">/</span>
