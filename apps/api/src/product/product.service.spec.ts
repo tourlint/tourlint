@@ -208,9 +208,23 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
 
   it('🔴 수정안을 반영하고 재검수 전이면 거부한다 — 판정한 실행이 없다', async () => {
     const stale: Basis = {
-      current: { kind: 'STALE', runId: null, latestRunId: 9 }, currentBlockers: null, latestBlockers: 0,
+      current: { kind: 'STALE', runId: null, latestRunId: 9, reason: 'PATCH' }, currentBlockers: null, latestBlockers: 0,
     };
     await expect(svc(stale).release(1, 1)).rejects.toMatchObject({ reasonCode: 'FORBIDDEN_ACTION' });
+  });
+
+  it('🔴 검수한 뒤에 일정을 고쳤으면 거부하고 까닭을 말한다 — 가장 최근 실행이 차단 0 이어도 (#710)', async () => {
+    /*
+     * 2026-09-21 운영. 검수 100점 → 식사를 03:00 으로 옮김 → 출시 승인 200. 다시 검수하니 차단 1.
+     * 가장 최근 실행은 고치기 전 일정의 것이라 차단 0 이다 — 그 숫자로 판정하면 안 된다.
+     */
+    const edited: Basis = {
+      current: { kind: 'STALE', runId: null, latestRunId: 9, reason: 'EDIT' }, currentBlockers: null, latestBlockers: 0,
+    };
+    await expect(svc(edited).release(1, 1)).rejects.toMatchObject({
+      reasonCode: 'FORBIDDEN_ACTION',
+      message: '검수한 뒤에 일정이 바뀌었습니다. 다시 검수한 뒤 출시해 주세요.',
+    });
   });
 
   it('되돌린 일정이 깨끗해도 가장 최근 실행에 차단이 있으면 다시 검수하게 한다 — 트리거보다 먼저 사유를 말한다', async () => {

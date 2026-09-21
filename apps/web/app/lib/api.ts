@@ -114,6 +114,11 @@ export interface ProductDetail {
   planOrigin: PlanOrigin | null;
   /** 직접 입력 · 장소 담기로 넣음 · 직접 정한 곳(검수 제외) 항목 수 */
   composition: { manual: number; picker: number; excluded: number };
+  /**
+   * 지금 일정과 검수 결과의 관계 (#710). `STALE` + `EDIT` 이면 화면의 결과는 고치기 전 일정의 것이라
+   * 출시 · 리포트를 잠그고 다시 검수하게 한다. 옛 서버 응답에는 없을 수 있다
+   */
+  auditState?: { kind: "NONE" | "LATEST" | "RESTORED" | "STALE"; reason: "PATCH" | "EDIT" | null };
   days: { day: number; items: ProductItem[] }[];
 }
 

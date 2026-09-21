@@ -96,7 +96,10 @@ export class ProductService {
       throw forbidden('검수하지 않은 상품은 출시할 수 없습니다. 먼저 검수를 실행해 주세요.');
     }
     if (current.kind === 'STALE') {
-      throw forbidden('수정안을 반영한 일정의 재검수가 아직 끝나지 않았습니다. 재검수 결과를 확인한 뒤 출시해 주세요.');
+      // 검수한 그 일정이 아니다. 고친 뒤의 일정에 차단이 있는지는 다시 검수해야 안다 (#710 · PM-NG-002)
+      throw forbidden(current.reason === 'EDIT'
+        ? '검수한 뒤에 일정이 바뀌었습니다. 다시 검수한 뒤 출시해 주세요.'
+        : '수정안을 반영한 일정의 재검수가 아직 끝나지 않았습니다. 재검수 결과를 확인한 뒤 출시해 주세요.');
     }
     if ((currentBlockers ?? 0) > 0) {
       throw forbidden(`차단 ${String(currentBlockers)}건을 해결해야 출시할 수 있습니다.`);
@@ -121,6 +124,7 @@ export class ProductService {
   async detail(accountId: number, productId: number): Promise<Record<string, unknown>> {
     const row = await this.repo.detail(accountId, productId);
     if (row === null) throw notFound(productId);
+    const current = await this.repo.currentRun(productId);
     const names = await this.regionNames([row]);
     return {
       productId: row.id,
@@ -139,6 +143,13 @@ export class ProductService {
       plannedAt: row.plannedAt,
       planOrigin: row.planOrigin,
       composition: row.composition,
+      /*
+       * 지금 일정과 검수 결과의 관계 (#710). `STALE` + `EDIT` 이면 화면의 결과는 고치기 전 일정의 것이다 —
+       * 화면이 브라우저 기억으로만 알던 것을 서버가 말해 준다. 새로 고쳐도, 편집 화면을 다녀와도 같다.
+       */
+      auditState: current === null
+        ? { kind: 'NONE', reason: null }
+        : { kind: current.kind, reason: current.kind === 'STALE' ? current.reason : null },
       createdAt: row.createdAt,
       days: toDays(await this.withDisplayNames(await this.withCurrentNames(productId, row.items))),
     };
