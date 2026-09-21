@@ -121,7 +121,47 @@ describe('할 일 후보와 순서 (FR-AG-030)', () => {
       [change({ placeLabel: '오죽헌' }), change({ notificationId: 10, placeLabel: '경포대' })],
       [],
     );
-    expect(built[0]?.facts).toMatchObject({ changedCount: 2, places: ['오죽헌', '경포대'] });
+    expect(built[0]?.facts).toMatchObject({ changedCount: 2, changedPlaces: ['오죽헌', '경포대'] });
+  });
+
+  it('🔴 새 소식(조건 4 ~ 6)만 온 상품은 다시 검수할 일이 아니다 — 조용한 상품에 그 수만 붙는다 (#724)', () => {
+    const { candidates: built, quiet, newPlaces } = buildCandidates(
+      [product({ productId: 46 })],
+      [change({ productId: 46, condition: 4, placeLabel: null }), change({ productId: 46, notificationId: 10, condition: 5, placeLabel: null })],
+      [],
+    );
+    expect(built).toHaveLength(0);
+    expect(quiet.map((p) => p.productId)).toEqual([46]);
+    expect(newPlaces.get(46)).toBe(2);
+  });
+
+  it('🔴 바뀐 곳은 조건 1 ~ 3 과 표출 중단만 센다. 새 소식은 newPlaceCount 로 따로 준다', () => {
+    const { candidates: built } = buildCandidates(
+      [product()],
+      [
+        change({ placeLabel: '오죽헌' }),
+        change({ notificationId: 10, condition: 3, placeLabel: '강릉커피축제' }),
+        change({ notificationId: 11, condition: 6, placeLabel: null }),
+        change({ notificationId: 12, condition: 5, hidden: true, placeLabel: '경포대' }),
+      ],
+      [],
+    );
+    expect(built[0]?.facts).toMatchObject({
+      changedCount: 3, changedPlaces: ['오죽헌', '강릉커피축제', '경포대'], newPlaceCount: 1,
+    });
+  });
+
+  it('새 소식이 없으면 newPlaceCount 를 싣지 않는다 — 0 을 주면 모델이 「0곳」 을 적는다', () => {
+    const { candidates: built } = buildCandidates([product()], [change()], []);
+    expect(built[0]?.facts).not.toHaveProperty('newPlaceCount');
+  });
+
+  it('🔴 관심 지역 사실은 무엇을 센 값인지 이름에 드러난다 — count · month 로 주면 「관련 뉴스」 가 된다 (#724)', () => {
+    const { candidates: built } = buildCandidates([], [], [regionRow({
+      t1: { count: 1, keywordHits: [{ keyword: '커피', contentIds: ['1'] }, { keyword: '역사', contentIds: [] }] },
+    })]);
+    expect(built[0]?.facts).toEqual({ newPlaceCount: 1, matchedKeywords: ['커피'] });
+    expect(built[0]?.region).toEqual({ regnCd: '51', signguCd: '150', month: '2026-10' });
   });
 });
 
@@ -185,6 +225,24 @@ describe('TodayBriefService — 오늘 할 일 (FR-AG-030 · 031)', () => {
     }).brief(1, NOW);
 
     expect(result.quiet).toEqual([{ productId: 55, text: '태백 당일 산행은 바뀐 정보가 없어요.' }]);
+  });
+
+  it('🔴 새 소식만 온 상품은 도구 결과의 조용한 상품 쪽에 newPlaceCount 와 함께 간다 (#724)', async () => {
+    const provider = new ScriptedLlmProvider([
+      [candidates('t1')],
+      [submit({ todos: [], quiet: [{ productId: 46, text: '하동 힐링 1박 2일은 바뀐 정보가 없고 새로 등록된 곳이 2곳 있어요.' }] })],
+    ]);
+    const result = await service({
+      products: [product({ productId: 46, name: '하동 힐링 1박 2일' })],
+      changes: [change({ productId: 46, condition: 4 }), change({ productId: 46, notificationId: 10, condition: 5 })],
+      provider,
+    }).brief(1, NOW);
+
+    expect(result.todos).toEqual([]);
+    expect(result.quiet).toHaveLength(1);
+    const toolResult = JSON.stringify(provider.requests[1]?.turns ?? []);
+    expect(toolResult).toContain('newPlaceCount');
+    expect(toolResult).not.toContain('changedCount');
   });
 
   it('🔴 같은 상품의 한 줄은 하나다 — 같은 상품이 두 번 적히지 않는다', async () => {
