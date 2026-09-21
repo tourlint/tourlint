@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { QuietRegionRow, RegionNewsCard, hasRegion, hasRegionNews, quietRegionText, recentDays } from "./page";
+import { QuietRegionRow, RegionNewsCard, hasRegion, hasRegionNews, quietRegionText, recentDays, refreshNote } from "./page";
 import type { RegionSignal } from "../../lib/api";
 
 const window30 = { from: "2026-08-23", to: "2026-09-21" };
@@ -90,5 +90,18 @@ describe("관심 지역 중복 (#712)", () => {
     expect(hasRegion(mine, "51", "210", "2026-12")).toBe(false);
     expect(hasRegion(mine, "51", "150", "2026-11")).toBe(false);
     expect(hasRegion(mine, "51", null, "2026-11")).toBe(false);
+  });
+});
+
+describe("새 소식 확인을 누른 뒤 (#715)", () => {
+  it("🔴 자동 확인 중이면 언제 확인한 결과인지 말한다 — 지금 새로 센 것처럼 적지 않는다", () => {
+    const note = refreshNote(true, "오늘 오전 5시에 확인했어요");
+    expect(note).toContain("다시 불러왔어요");
+    expect(note).toContain("오늘 오전 5시에 확인했어요");
+    expect(note).not.toContain("지금 다시 확인");
+  });
+
+  it("직접 확인한 경우는 지금 확인했다고 말한다", () => {
+    expect(refreshNote(false, "")).toBe("지금 다시 확인했어요.");
   });
 });
