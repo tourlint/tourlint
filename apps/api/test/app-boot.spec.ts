@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { RootController } from '../src/root/root.controller';
 import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
+import { AuditService } from '../src/audit/audit.service';
+import { WalkNameResolver } from '../src/plan/walk-names';
 
 /**
  * 앱이 실제로 뜨는지 본다.
@@ -55,6 +57,13 @@ describe('앱 부팅', () => {
   it('모듈이 조립된다 — 주입이 전부 풀린다', () => {
     expect(bootError, `부팅 실패: ${String(bootError)}`).toBeNull();
     expect(app).toBeDefined();
+  });
+
+  it('🔴 검수 서비스에 걷기 길 이름 조회기가 실제로 꽂힌다 — 선택 주입은 안 풀려도 조용하다 (#739)', () => {
+    const audit = app.get(AuditService) as unknown as { walkNames?: unknown };
+    expect(audit.walkNames).toBeInstanceOf(WalkNameResolver);
+    // 상품 응답 · 리포트와 같은 인스턴스여야 10분 캐시를 나눠 쓴다
+    expect(audit.walkNames).toBe(app.get(WalkNameResolver));
   });
 
   it('실엔진 엔드포인트가 등록돼 있다', () => {
