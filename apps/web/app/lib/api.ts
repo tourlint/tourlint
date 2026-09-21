@@ -717,6 +717,16 @@ export interface RadarNotification {
   ktoContentId: string;
   // 바뀐 곳 · 새로 생긴 곳의 이름. 서버가 볼 때 읽어 준다 — 못 읽었거나 표출이 중단된 곳은 null (UI-S7-003)
   placeName: string | null;
+  // 그 곳이 일정에 든 줄. 일정에 없는 곳이면 null (UI-S7-003 「해당 일정」)
+  schedule: { dayNo: number; startTime: string } | null;
+  // 판독 결과 전 → 후 (UI-S7-004). 견줄 검수가 둘 다 있을 때만 채워진다
+  changes: { label: string; before: string; after: string }[];
+  // 견줄 이전 검수가 없을 때의 지금 판독값
+  current: { label: string; value: string }[];
+  // 공사가 그 관광정보를 고친 날 (YYYY-MM-DD)
+  modifiedOn: string | null;
+  eventPeriod: { start: string; end: string } | null;
+  overlapDays: number[];
   what: string;
   impact: string;
   action: string;

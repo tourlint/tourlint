@@ -218,12 +218,40 @@ export class NotificationRepository {
     );
 
     params.push(filter.size, filter.page * filter.size);
+    /*
+     * 카드가 「무엇이 어떻게 바뀌었는지 · 몇 일차 일정인지」 를 말하려면 필요한 것들 (#703 · UI-S7-003).
+     *  - it: 그 곳이 일정에 들어 있으면 일차 · 시각 · 사용자가 적은 이름 (DB 명세서 4-5 — 공사 0콜)
+     *  - fb · fa: 알림 **직전** 검수와 알림 **뒤 첫** 검수의 판독 결과. 최신 두 개가 아니라 알림 시각을
+     *    기준으로 가른다 — 그 뒤 재검수가 여러 번 돌아도 이 알림이 말하던 변경은 그대로다.
+     */
     const { rows } = await this.pool.query<NotificationRow>(
       `SELECT n.id, n.product_id, n.kind, n.match_condition, n.kto_content_id,
               n.change_hash_from, n.change_hash_to, n.body, n.read_at, n.dismissed_at,
-              n.created_at, p.name AS product_name, p.start_date
+              n.created_at, p.name AS product_name, p.start_date, p.nights,
+              it.day_no, it.start_time, it.place_label,
+              fb.normalized_json AS normalized_before,
+              fa.normalized_json AS normalized_after
          FROM notification n
          JOIN product p ON p.id = n.product_id
+         LEFT JOIN LATERAL (
+           SELECT i.day_no, i.start_time, i.place_label FROM itinerary_item i
+            WHERE i.product_id = n.product_id AND i.kto_content_id = n.kto_content_id
+            ORDER BY i.day_no, i.seq LIMIT 1
+         ) it ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT f.normalized_json FROM content_fingerprint f
+             JOIN audit_run r ON r.id = f.audit_run_id
+            WHERE r.product_id = n.product_id AND f.kto_content_id = n.kto_content_id
+              AND f.fetched_at < n.created_at
+            ORDER BY f.fetched_at DESC LIMIT 1
+         ) fb ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT f.normalized_json FROM content_fingerprint f
+             JOIN audit_run r ON r.id = f.audit_run_id
+            WHERE r.product_id = n.product_id AND f.kto_content_id = n.kto_content_id
+              AND f.fetched_at >= n.created_at
+            ORDER BY f.fetched_at ASC LIMIT 1
+         ) fa ON TRUE
         WHERE ${clause}
         ORDER BY n.created_at DESC, n.id DESC
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -318,6 +346,13 @@ export interface StoredNotification {
   readonly readAt: Date | null;
   readonly dismissedAt: Date | null;
   readonly createdAt: Date;
+  /** 박수. 행사 기간이 여행 몇 일차와 겹치는지 셀 때 쓴다. 목록 조회에서만 채운다 */
+  readonly nights: number | null;
+  /** 그 곳이 일정에 들어 있으면 그 줄. 이름은 **사용자가 적은 것**이다 (DB 명세서 4-5) */
+  readonly schedule: { readonly dayNo: number; readonly startTime: string; readonly placeLabel: string | null } | null;
+  /** 알림 직전 검수 · 알림 뒤 첫 검수의 판독 결과. 없으면 null — 지어내지 않는다 */
+  readonly normalizedBefore: unknown;
+  readonly normalizedAfter: unknown;
 }
 
 export interface NotificationPage {
@@ -339,6 +374,13 @@ interface NotificationRow {
   created_at: Date;
   product_name: string;
   start_date: Date | string;
+  // 아래는 목록 조회에만 있다. 한 건 조회(읽음 · 무시)는 쓰지 않는다
+  nights?: number | null;
+  day_no?: number | null;
+  start_time?: string | null;
+  place_label?: string | null;
+  normalized_before?: unknown;
+  normalized_after?: unknown;
 }
 
 function toStored(row: NotificationRow): StoredNotification {
@@ -356,6 +398,17 @@ function toStored(row: NotificationRow): StoredNotification {
     readAt: row.read_at,
     dismissedAt: row.dismissed_at,
     createdAt: row.created_at,
+    nights: row.nights ?? null,
+    schedule: row.day_no == null || row.start_time == null
+      ? null
+      : {
+        dayNo: Number(row.day_no),
+        // TIME 은 `HH:MM:SS` 로 온다
+        startTime: String(row.start_time).slice(0, 5),
+        placeLabel: row.place_label == null || row.place_label.trim() === '' ? null : row.place_label,
+      },
+    normalizedBefore: row.normalized_before ?? null,
+    normalizedAfter: row.normalized_after ?? null,
   };
 }
 

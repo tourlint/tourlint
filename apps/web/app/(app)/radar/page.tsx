@@ -93,6 +93,15 @@ interface ProductLite {
   productId: number;
   name: string;
   region?: { regnName?: string; signguName?: string };
+  // 알림 뒤에 다시 검수했는지 · 지금 결과가 어떤지를 카드가 말할 때 쓴다 (#703)
+  latestAudit?: AuditNow | null;
+}
+
+/** 상품의 지금 검수 결과. 목록 응답의 `latestAudit` 에서 카드가 쓰는 것만 */
+export interface AuditNow {
+  executedAt: string;
+  readinessScore: number | null;
+  counts: { blocker: number; error: number; warning: number; unverified: number };
 }
 
 // 공사 콘텐츠 유형 코드 → 라벨. 신호 유형 분포(byType)에 쓴다.
@@ -244,7 +253,12 @@ export default function RadarPage() {
       ) : (
         <ul className="mt-6 space-y-3">
           {items.map((n) => (
-            <NotificationCard key={n.notificationId} notification={n} onDismiss={() => dismiss(n.notificationId)} />
+            <NotificationCard
+              key={n.notificationId}
+              notification={n}
+              audit={products.find((p) => p.productId === n.productId)?.latestAudit ?? null}
+              onDismiss={() => dismiss(n.notificationId)}
+            />
           ))}
         </ul>
       )}
@@ -311,9 +325,31 @@ function KindBadge({ kind }: { kind: NotificationKind }) {
   );
 }
 
-export function NotificationCard({ notification: n, onDismiss }: { notification: RadarNotification; onDismiss: () => void }) {
+/** `2026-09-18` → `9월 18일` */
+function koreanDay(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m === null ? iso : `${Number(m[2])}월 ${Number(m[3])}일`;
+}
+
+/**
+ * 알림 뒤에 다시 검수했으면 지금 결과를 말한다 (#703). 「다시 검수하세요」 를 이미 다시 검수한
+ * 상품에도 똑같이 적으면 할 일이 남은 것처럼 읽힌다. 조건 1 은 배치가 자동으로 다시 검수한다.
+ */
+export function reauditLine(createdAt: string, audit: AuditNow | null): string | null {
+  if (audit === null) return null;
+  const alerted = Date.parse(createdAt);
+  const audited = Date.parse(audit.executedAt);
+  if (Number.isNaN(alerted) || Number.isNaN(audited) || audited < alerted) return null;
+  const score = audit.readinessScore === null ? "점수 없음(부분 검수)" : `지금 ${audit.readinessScore}점`;
+  return `알림 뒤에 다시 검수했어요 · ${score} · 차단 ${audit.counts.blocker} · 오류 ${audit.counts.error}`;
+}
+
+export function NotificationCard({
+  notification: n, audit = null, onDismiss,
+}: { notification: RadarNotification; audit?: AuditNow | null; onDismiss: () => void }) {
   const [busy, setBusy] = useState(false);
   const hasFingerprint = n.fingerprint.from !== null && n.fingerprint.to !== null;
+  const reaudited = n.kind === "RISK" ? reauditLine(n.createdAt, audit) : null;
 
   async function handleDismiss() {
     setBusy(true);
@@ -339,9 +375,31 @@ export function NotificationCard({ notification: n, onDismiss }: { notification:
       )}
       <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{n.what}</p>
 
+      {/* 판독 결과 전 → 후 (UI-S7-004). 문장만으로는 무엇이 어떻게 바뀌었는지 모른다 (#703) */}
+      {n.changes.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 text-sm" data-changes>
+          {n.changes.map((c) => (
+            <li key={c.label} className="text-slate-700 dark:text-slate-200">
+              <span className="mr-2 text-xs text-slate-400">{c.label}</span>
+              <span className="text-slate-500 line-through decoration-slate-300 dark:text-slate-400">{c.before}</span>
+              <span className="mx-1.5 text-slate-400">→</span>
+              <span className="font-medium">{c.after}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* 견줄 이전 검수가 없으면 지금 값을 보인다 — 검수한 뒤에 담은 곳 */}
+      {n.changes.length === 0 && n.current.length > 0 && (
+        <p className="mt-1.5 text-sm text-slate-700 dark:text-slate-200" data-current>
+          <span className="mr-2 text-xs text-slate-400">지금 관광정보</span>
+          {n.current.map((c) => `${c.label} ${c.value}`).join(" · ")}
+        </p>
+      )}
+
       <dl className="mt-2 space-y-1 text-xs">
         {n.impact && <Row label="영향">{n.impact}</Row>}
-        {n.action && <Row label="조치">{n.action}</Row>}
+        {(reaudited ?? n.action) && <Row label="조치">{reaudited ?? n.action}</Row>}
+        {n.modifiedOn && <Row label="수정일">관광정보가 {koreanDay(n.modifiedOn)}에 수정됐어요</Row>}
       </dl>
 
       {/* 지문 비교값은 접힌 근거 칸 안에만 둔다 (UI-CM-030 · UI-S7-003). 밖에 두면 만드는 쪽 말이 샌다 */}
@@ -360,7 +418,8 @@ export function NotificationCard({ notification: n, onDismiss }: { notification:
           href={`/products/${n.productId}`}
           className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-500"
         >
-          {n.kind === "RISK" ? "다시 검수" : "수정안 보기"}
+          {/* 이미 다시 검수했으면 할 일은 결과를 보는 것이다 — 홈 보드와 같은 이름을 쓴다 (#703) */}
+          {n.kind === "RISK" ? (reaudited === null ? "다시 검수" : "검수 결과 보기") : "수정안 보기"}
         </Link>
         {/* 비표출 전환 알림에는 미루기 수단을 노출하지 않는다 (UI-S7-005) */}
         {n.dismissable && (
