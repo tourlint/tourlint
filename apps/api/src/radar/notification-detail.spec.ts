@@ -28,7 +28,9 @@ describe('알림이 실제로 말할 수 있는 것 (#703 · UI-S7-003 · 004)',
 
   it('🔴 견줄 이전 검수가 없으면 그렇게 말한다 — 바뀐 것을 지어내지 않는다 (FR-RU-051)', () => {
     const copy = describeNotification(facts({ hasBefore: false }));
-    expect(copy.what).toContain('이전 검수 기록이 없습니다');
+    expect(copy.what).toBe('검수한 뒤에 담은 곳이라 비교할 이전 검수 기록이 없습니다.');
+    // 같은 뜻을 화면마다 다른 말로 적지 않는다 — 전후 「비교」 와 같은 낱말이다 (#743)
+    expect(copy.what).not.toContain('견줄');
     expect(copy.what).not.toContain('바뀌었습니다');
   });
 
