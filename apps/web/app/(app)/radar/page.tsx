@@ -518,9 +518,9 @@ function DemandSignalSection({
       ) : (
         <>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <SignalCard title="T1 · 새로 등록된 곳" region={regionLabel} signal={signals.t1}
+            <SignalCard title="새로 등록된 곳" region={regionLabel} signal={signals.t1}
               productId={productId} type="T1" what="이 기간에 관광정보에 새로 올라온 곳입니다." />
-            <SignalCard title="T2 · 여행일에 열리는 행사" region={regionLabel} signal={signals.t2}
+            <SignalCard title="여행일에 열리는 행사" region={regionLabel} signal={signals.t2}
               productId={productId} type="T2" what="출발일 앞뒤로 이 지역에서 열리는 행사입니다." />
           </div>
           <p className="mt-3 text-xs text-slate-400">{signals.notice}</p>
@@ -877,13 +877,24 @@ function WatchAndNews({ onError, automatic }: { onError: (m: string | null) => v
         </div>
       </div>
 
-      {/* 관심 지역 새 소식 */}
-      {signals.length > 0 && (
+      {/*
+        * 관심 지역 새 소식. 소식이 있는 지역을 카드로 먼저, 없는 지역은 아래 한 줄로 (#705) —
+        * 「행사 0건 · 새로 등록된 곳 0곳」 카드가 소식 있는 카드와 같은 크기로 섞여 있었다.
+        * 등록한 지역을 숨기지는 않는다. 어디 갔는지 찾게 만들면 안 된다.
+        */}
+      {signals.some(hasRegionNews) && (
         <div className="mt-6 grid gap-3 md:grid-cols-2">
-          {signals.map((s, i) => (
-            <RegionNewsCard key={i} signal={s} regionName={regionLabel(regionNames, s.region.regnCd, s.region.signguCd)} />
+          {signals.filter(hasRegionNews).map((s) => (
+            <RegionNewsCard key={`${s.region.regnCd}-${s.region.signguCd}-${s.month}`} signal={s} regionName={regionLabel(regionNames, s.region.regnCd, s.region.signguCd)} />
           ))}
         </div>
+      )}
+      {signals.some((s) => !hasRegionNews(s)) && (
+        <ul className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800" data-quiet-regions>
+          {signals.filter((s) => !hasRegionNews(s)).map((s) => (
+            <QuietRegionRow key={`${s.region.regnCd}-${s.region.signguCd}-${s.month}`} signal={s} regionName={regionLabel(regionNames, s.region.regnCd, s.region.signguCd)} />
+          ))}
+        </ul>
       )}
     </section>
   );
@@ -958,10 +969,68 @@ function RegionSignalLine({
   );
 }
 
-function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal; regionName: string }) {
+/** `2026-10` → 10 */
+function monthOf(month: string): number {
+  return Number(month.slice(5, 7));
+}
+
+/** 새로 등록된 곳을 센 기간 (일). 창이 없으면 null */
+export function recentDays(signal: RegionSignal): number | null {
+  const w = signal.t1?.window;
+  if (w === undefined) return null;
+  const days = Math.round((Date.parse(w.to) - Date.parse(w.from)) / 86_400_000) + 1;
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
+/** 이 지역에 지금 볼 소식이 있는가 — 행사 · 새로 등록된 곳 · 키워드와 맞는 곳 중 하나라도 */
+export function hasRegionNews(s: RegionSignal): boolean {
+  const hits = [...(s.t1?.keywordHits ?? []), ...(s.t2?.keywordHits ?? [])].some((h) => (h.contentIds?.length ?? 0) > 0);
+  return (s.t1?.count ?? 0) > 0 || (s.t2?.count ?? 0) > 0 || hits;
+}
+
+/**
+ * 소식이 없는 지역을 한 줄로 말한다 (#705). 0 을 늘어놓지 않고 그 뜻을 적는다 (UI-S7-010 과 같은 취지).
+ * 아직 세어 보지 않은 지역(방금 추가)은 「없다」 가 아니라 「아직」 이다.
+ */
+export function quietRegionText(s: RegionSignal): string {
+  if (s.t1 === null && s.t2 === null) return "방금 추가한 지역이에요. 다음 확인 때 채워져요.";
+  const month = monthOf(s.month);
+  const days = recentDays(s);
+  return `${month}월 행사와 ${days === null ? "최근" : `최근 ${days}일`} 새로 등록된 곳은 아직 없어요.`;
+}
+
+function visitorsText(s: RegionSignal): string | null {
+  // 관측된 방문자 수만. null 이면 아예 적지 않는다 (0 으로 적지 않는다)
+  return s.t3 === null ? null : `지난해 ${monthOf(s.t3.basisMonth)}월 방문자 ${s.t3.count.toLocaleString()}명`;
+}
+
+function planHref(s: RegionSignal): string {
+  return `/products/new?regnCd=${s.region.regnCd}&signguCd=${s.region.signguCd ?? ""}&month=${s.month}&origin=SIGNAL`;
+}
+
+export function QuietRegionRow({ signal: s, regionName }: { signal: RegionSignal; regionName: string }) {
+  const visitors = visitorsText(s);
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+      <span className="text-slate-600 dark:text-slate-300">
+        <span className="font-medium text-slate-700 dark:text-slate-200">{regionName} · {s.month}</span>
+        <span className="ml-2 text-slate-400">{quietRegionText(s)}</span>
+        {visitors !== null && <span className="ml-2 text-xs text-slate-400">{visitors}</span>}
+      </span>
+      <Link href={planHref(s)} className="shrink-0 text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400">
+        이 지역으로 새 상품 기획
+      </Link>
+    </li>
+  );
+}
+
+export function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal; regionName: string }) {
   const newContents = s.t1?.count ?? null;
   const events = s.t2?.count ?? null;
   const hits = (s.t1?.keywordHits ?? []).filter((h) => (h.contentIds?.length ?? 0) > 0);
+  const month = monthOf(s.month);
+  const days = recentDays(s);
+  const visitors = visitorsText(s);
   return (
     <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
       <div className="flex items-baseline justify-between">
@@ -969,36 +1038,30 @@ function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal; regio
           {regionName} · {s.month}
         </h3>
         <Link
-          href={`/products/new?regnCd=${s.region.regnCd}&signguCd=${s.region.signguCd ?? ""}&month=${s.month}&origin=SIGNAL`}
+          href={planHref(s)}
           className="shrink-0 rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
         >
           이 지역으로 새 상품 기획
         </Link>
       </div>
 
+      {/*
+        * 숫자마다 기준 기간을 사용자 말로 적는다 (UI-S7-015 · #705). 「이달 행사」 는 지금 달로 읽히고,
+        * 기간은 「근거 보기」 안에 「새 콘텐츠 기준 기간 …」 같은 만드는 쪽 말로 접혀 있었다.
+        * 0 인 줄은 적지 않는다 — 둘 다 0 인 지역은 아래 한 줄 목록으로 간다.
+        */}
       <ul className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">
         {hits.map((h) => (
           <li key={h.keyword}>‘{h.keyword}’과(와) 맞는 곳 {h.contentIds?.length}곳</li>
         ))}
-        {events !== null && (
-          <RegionSignalLine label={`이달 행사 ${events}건`} count={events} region={s.region} month={s.month} type="T2" />
+        {events !== null && events > 0 && (
+          <RegionSignalLine label={`${month}월 행사 ${events}건`} count={events} region={s.region} month={s.month} type="T2" />
         )}
-        {newContents !== null && (
-          <RegionSignalLine label={`새로 등록된 곳 ${newContents}곳`} count={newContents} region={s.region} month={s.month} type="T1" />
+        {newContents !== null && newContents > 0 && (
+          <RegionSignalLine label={`${days === null ? "최근" : `최근 ${days}일`} 새로 등록된 곳 ${newContents}곳`} count={newContents} region={s.region} month={s.month} type="T1" />
         )}
-        {/* t3 는 관측된 방문자 수만. null 이면 아예 적지 않는다 (0 으로 적지 않는다) */}
-        {s.t3 !== null && <li>지난해 {Number(s.t3.basisMonth.slice(5, 7))}월 방문자 {s.t3.count.toLocaleString()}명</li>}
+        {visitors !== null && <li>{visitors}</li>}
       </ul>
-
-      {/* 기준 기간 · 출처는 접힌 근거 칸에 (UI-CM-030). 점수 · 인기 · 예측은 쓰지 않는다 */}
-      <details className="mt-2" data-evidence>
-        <summary className="cursor-pointer text-xs text-slate-400">근거 보기</summary>
-        <div className="mt-1 space-y-0.5 text-xs text-slate-400">
-          {s.t1 && <p>새 콘텐츠 기준 기간 {s.t1.window.from} ~ {s.t1.window.to}</p>}
-          {s.t2 && <p>행사 기준 기간 {s.t2.window.from} ~ {s.t2.window.to}</p>}
-          {s.t3 && <p>방문자 기준 {s.t3.basisMonth} · {s.t3.source}</p>}
-        </div>
-      </details>
     </div>
   );
 }
