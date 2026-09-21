@@ -361,6 +361,32 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(String(now?.placeLabel ?? '')).not.toBe('');
     });
 
+    it('🔴 장소 담기로 넣어 이름이 빈 항목도 미리보기에 이름이 나온다 — 저장값과 토큰은 그대로 (#713)', async () => {
+      /*
+       * 장소 담기 · 수정안 삽입으로 들어온 항목은 `place_label` 이 비어 있다. 미리보기만 이름을 안
+       * 채워 기존 · 수정 후 일정에 `18:00 숙박` 처럼 이름 없는 줄이 나왔다 (2026-09-21 운영).
+       */
+      const picks = await runAndPick();
+      const target = await pool.query<{ id: string; place_label: string }>(
+        `SELECT id, place_label FROM itinerary_item
+          WHERE product_id = $1 AND kto_content_id IS NOT NULL ORDER BY day_no, seq LIMIT 1`, [productId]);
+      const itemId = Number(target.rows[0]?.id);
+      const token = (await service.previewPatches(productId, [pick(picks)])).previewToken;
+      await pool.query(`UPDATE itinerary_item SET place_label = '' WHERE id = $1`, [itemId]);
+
+      const preview = await service.previewPatches(productId, [pick(picks)]);
+      expect(String(preview.before.find((i) => i.id === itemId)?.placeLabel ?? '')).not.toBe('');
+      expect(String(preview.after.find((i) => i.id === itemId)?.placeLabel ?? '')).not.toBe('');
+
+      // 표시용 이름은 저장하지 않는다 (DR-PR-001)
+      const stored = await pool.query<{ place_label: string }>(`SELECT place_label FROM itinerary_item WHERE id = $1`, [itemId]);
+      expect(stored.rows[0]?.place_label).toBe('');
+      // 이름이 빈 것도 「일정이 바뀐 것」 이라 토큰은 달라진다. 채운 이름이 토큰에 섞이지 않았는지는 아래로 본다
+      const again = await service.previewPatches(productId, [pick(picks)]);
+      expect(again.previewToken).toBe(preview.previewToken);
+      expect(token).toMatch(/^pv_[0-9a-f]{12}$/);
+    });
+
     it('충돌 여부와 반영 전후 일정을 돌려준다 — 아무것도 저장하지 않는다', async () => {
       const picks = await runAndPick();
       expect(picks.length).toBeGreaterThan(0);
