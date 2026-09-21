@@ -171,6 +171,28 @@ describe.skipIf(URL === undefined)('NotificationService — 관통', () => {
       expect((res.content as Record<string, unknown>[])[0]?.placeName).toBeNull();
     });
 
+    it('🔴 이름 조회가 끝나지 않아도 목록은 한도 안에 나온다 — 공사가 막힌 동안 30초 뒤 500 (#694)', async () => {
+      await insert({ contentId: '126508' });
+      // 영영 안 끝나는 조회. 2026-09-21 운영에서 공사 호출이 전부 시간 초과가 나던 때가 이랬다
+      const stuck = new NotificationService(pool, { resolve: () => new Promise(() => undefined) }, 30);
+      const started = Date.now();
+      const res = await stuck.list(mine, LIST);
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(res.totalElements).toBe(1);
+      expect((res.content as Record<string, unknown>[])[0]?.placeName).toBeNull();
+    });
+
+    it('한도를 넘긴 뒤에 조회가 실패해도 처리되지 않은 거절이 남지 않는다', async () => {
+      await insert({ contentId: '126508' });
+      const lateFail = new NotificationService(pool, {
+        resolve: () => new Promise((_, reject) => { setTimeout(() => { reject(new Error('KTO_TIMEOUT')); }, 60); }),
+      }, 20);
+      const res = await lateFail.list(mine, LIST);
+      expect(res.totalElements).toBe(1);
+      // 거절이 도착할 때까지 기다린다. 안 막았으면 vitest 가 unhandled rejection 으로 실패시킨다
+      await new Promise((done) => { setTimeout(done, 100); });
+    });
+
     it('못 찾은 곳만 null 이다 — 찾은 것까지 버리지 않는다', async () => {
       await insert({ contentId: '111' });
       await insert({ contentId: '222' });
