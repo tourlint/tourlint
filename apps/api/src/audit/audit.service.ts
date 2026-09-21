@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { Pool } from 'pg';
 import {
   findingMessage, kstIso, LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, withPlaceName, type Severity,
@@ -28,6 +28,7 @@ import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job
 import { AuditRunner, type ItineraryItemRow, type ProductRow } from './audit-runner';
 import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
 import { PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds } from './place-name';
+import { WalkNameResolver } from '../plan/walk-names';
 import { RULES, RULESET_VERSION, RULE_EXPLANATIONS } from './rule-registry';
 import type { AuditSettings } from '../engine/rules/types';
 import type { NormalizedOperatingInfo } from '../engine/normalize/types';
@@ -88,6 +89,9 @@ const NOT_FOUND_MESSAGE: Readonly<Record<OwnedKind, string>> = {
   patchApplication: '수정 이력을 찾을 수 없습니다. 목록을 새로 고쳐 주세요.',
 };
 
+/** 이름을 못 찾은 걷기 길의 표시 이름. 현재 일정표(`ProductService.detail`)와 같은 말이다 */
+export const WALK_FALLBACK_LABEL = '걷기 길';
+
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
@@ -111,7 +115,11 @@ export class AuditService {
   /** 돌고 있는 검수들. 테스트가 완료를 기다릴 수 있게 붙잡아 둔다 */
   private readonly inFlight = new Set<Promise<void>>();
 
-  constructor(@Inject(DB_POOL) private readonly pool: Pool) {
+  constructor(
+    @Inject(DB_POOL) private readonly pool: Pool,
+    /** 걷기 길의 표시 이름. 상품 응답 · 리포트와 같은 것을 쓴다 — 10분 캐시를 나눠 쓰려고 주입받는다 (#739) */
+    @Optional() @Inject(WalkNameResolver) private readonly walkNames?: WalkNameResolver,
+  ) {
     this.jobs = new AuditJobRepository(pool);
     this.products = new ProductRepository(pool);
     this.results = new AuditResultRepository(pool);
@@ -249,15 +257,27 @@ export class AuditService {
    * 이름을 못 읽으면 비워 둔다 — 지어내지 않는다.
    */
   async displayLabels(items: readonly ItineraryItemRow[]): Promise<ReadonlyMap<number, string>> {
-    const missing = items.filter((i) => i.placeLabel.trim() === '' && i.ktoContentId !== null);
-    const found = missing.length === 0
-      ? new Map<string, string>()
-      : await this.placeNames().resolve(missing.map((i) => i.ktoContentId ?? ''));
+    const unnamed = items.filter((i) => i.placeLabel.trim() === '');
+    const missing = unnamed.filter((i) => i.ktoContentId !== null);
+    // 걷기 길은 `walk_id` 만 가진 행이다 — 코스 이름은 공사 원문이라 저장하지 않는다 (DR-MD-005 · #739)
+    const walks = unnamed.filter((i) => i.ktoContentId === null && (i.walkId ?? null) !== null);
+    const [found, walkFound] = await Promise.all([
+      missing.length === 0
+        ? Promise.resolve(new Map<string, string>())
+        : this.placeNames().resolve(missing.map((i) => i.ktoContentId ?? '')),
+      walks.length === 0 || this.walkNames === undefined
+        ? Promise.resolve(new Map<string, string>())
+        : this.walkNames.resolve(walks.map((i) => i.walkId ?? '')),
+    ]);
     const out = new Map<number, string>();
     for (const item of items) {
-      const label = item.placeLabel.trim() === ''
-        ? found.get(item.ktoContentId ?? '') ?? ''
-        : item.placeLabel;
+      let label = item.placeLabel;
+      if (label.trim() === '') {
+        label = item.ktoContentId !== null
+          ? found.get(item.ktoContentId) ?? ''
+          // 이름을 못 찾은 걷기 길은 현재 일정표와 같이 적는다 (`ProductService.detail`)
+          : (item.walkId ?? null) !== null ? walkFound.get(item.walkId ?? '') ?? WALK_FALLBACK_LABEL : '';
+      }
       if (label !== '') out.set(item.id, label);
     }
     return out;
@@ -355,7 +375,7 @@ export class AuditService {
    * 「일정이 바뀌었는가」 판정에 섞이면 안 된다.
    */
   private async withMissingNames(items: readonly ItineraryItemRow[]): Promise<readonly ItineraryItemRow[]> {
-    if (!items.some((i) => i.placeLabel.trim() === '' && i.ktoContentId !== null)) return items;
+    if (!items.some((i) => i.placeLabel.trim() === '' && (i.ktoContentId !== null || (i.walkId ?? null) !== null))) return items;
     const labels = await this.displayLabels(items);
     return items.map((i) => (i.placeLabel.trim() === '' ? { ...i, placeLabel: labels.get(i.id) ?? '' } : i));
   }

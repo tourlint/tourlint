@@ -387,6 +387,37 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(token).toMatch(/^pv_[0-9a-f]{12}$/);
     });
 
+    it('🔴 걷기 길 줄도 미리보기에 이름이 나온다 — 못 찾으면 「걷기 길」 (#739)', async () => {
+      /*
+       * 걷기 길은 `walk_id` 만 가진 행이라 `place_label` 이 비어 있다(DR-MD-005). #713 은 관광지만
+       * 채워 미리보기에 `09:30~12:00 관광` 으로 나왔다.
+       */
+      const picks = await runAndPick();
+      const named = await pool.query<{ id: string }>(
+        `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status, walk_id)
+         VALUES ($1, 1, 90, '20:00', '21:00', 'INPUT', '', 'SIGHT', 'EXCLUDED', 'T_CRS_1'),
+                ($1, 1, 91, '21:10', '21:40', 'INPUT', '', 'SIGHT', 'EXCLUDED', 'T_CRS_NONE') RETURNING id`,
+        [productId]);
+      const [foundId, missingId] = named.rows.map((r) => Number(r.id));
+      const calls: string[][] = [];
+      const withWalks = new AuditService(pool, {
+        resolve: async (ids: readonly string[]) => { calls.push([...ids]); return new Map([['T_CRS_1', '바우길 5구간 바다 호숫길']]); },
+      } as never);
+
+      const preview = await withWalks.previewPatches(productId, [pick(picks)]);
+      expect(preview.before.find((i) => i.id === foundId)?.placeLabel).toBe('바우길 5구간 바다 호숫길');
+      expect(preview.after.find((i) => i.id === foundId)?.placeLabel).toBe('바우길 5구간 바다 호숫길');
+      expect(preview.before.find((i) => i.id === missingId)?.placeLabel).toBe('걷기 길');
+      expect(calls[0]?.sort()).toEqual(['T_CRS_1', 'T_CRS_NONE']);
+
+      // 코스 이름은 저장하지 않는다
+      const stored = await pool.query<{ place_label: string }>(
+        `SELECT place_label FROM itinerary_item WHERE id = ANY($1::bigint[])`, [[foundId, missingId]]);
+      expect(stored.rows.map((r) => r.place_label)).toEqual(['', '']);
+      // 채운 이름은 토큰에 섞이지 않는다 — 이름 조회기가 없어도 같은 토큰이다
+      expect((await service.previewPatches(productId, [pick(picks)])).previewToken).toBe(preview.previewToken);
+    });
+
     it('충돌 여부와 반영 전후 일정을 돌려준다 — 아무것도 저장하지 않는다', async () => {
       const picks = await runAndPick();
       expect(picks.length).toBeGreaterThan(0);
