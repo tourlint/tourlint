@@ -163,6 +163,54 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     expect(await repo.reorderItems(accountB, p, order)).toBeNull();
   });
 
+  describe('목록 점수 — 무시를 반영해 다시 계산한다 (FR-AU-046 · #684)', () => {
+    async function auditedWithTwoWarnings(): Promise<{ productId: number; findingId: number }> {
+      const { productId } = await repo.create(accountA, sample());
+      // 저장값 92 는 주의 2건(각 4점)을 뺀 실행 시점 점수다
+      const run = await pool.query<{ id: string }>(
+        `INSERT INTO audit_run (product_id, executed_at, ruleset_version, readiness_score, warn_cnt, target_count, weight_snapshot)
+         VALUES ($1, now(), '1.2.4', 92, 2, 3, '{"BLOCKER":25,"ERROR":10,"WARNING":4,"UNVERIFIED":3}'::jsonb)
+         RETURNING id`,
+        [productId],
+      );
+      const found = await pool.query<{ id: string }>(
+        `INSERT INTO finding (audit_run_id, rule_code, rule_version, severity, reason_code, message, evidence)
+         VALUES ($1, 'R04', '1.0.0', 'WARNING', 'CONTENT_IMBALANCE', '관광지 방문이 몰려 있어요', '{}'::jsonb),
+                ($1, 'R10', '1.0.0', 'WARNING', 'TARGET_MISMATCH', '어울리는 방문이 아직 없어요', '{}'::jsonb)
+         RETURNING id`,
+        [run.rows[0]?.id],
+      );
+      return { productId, findingId: Number(found.rows[0]?.id) };
+    }
+
+    async function listedScore(productId: number): Promise<number | null | undefined> {
+      const { rows } = await repo.list(accountA, 0, 100);
+      return rows.find((r) => r.id === productId)?.latestAudit?.readinessScore;
+    }
+
+    it('무시한 것이 없으면 저장값과 같다', async () => {
+      const { productId } = await auditedWithTwoWarnings();
+      expect(await listedScore(productId)).toBe(92);
+    });
+
+    it('🔴 주의 1건을 무시하면 목록도 96점이다 — 결과 화면과 같은 값', async () => {
+      const { productId, findingId } = await auditedWithTwoWarnings();
+      await pool.query(`UPDATE finding SET dismissed_at = now(), dismiss_reason = '기획 의도' WHERE id = $1`, [findingId]);
+      expect(await listedScore(productId)).toBe(96);
+
+      // 건수는 무시한 것까지 센 저장값 그대로다. 결과 화면의 counts 와 같다
+      const { rows } = await repo.list(accountA, 0, 100);
+      expect(rows.find((r) => r.id === productId)?.latestAudit?.counts.warning).toBe(2);
+    });
+
+    it('무시를 풀면 92점으로 돌아온다', async () => {
+      const { productId, findingId } = await auditedWithTwoWarnings();
+      await pool.query(`UPDATE finding SET dismissed_at = now(), dismiss_reason = '기획 의도' WHERE id = $1`, [findingId]);
+      await pool.query(`UPDATE finding SET dismissed_at = NULL, dismiss_reason = NULL WHERE id = $1`, [findingId]);
+      expect(await listedScore(productId)).toBe(92);
+    });
+  });
+
   describe('출시 승인 (PM-NG-002 · EX-AU-008 · DR-IN-007)', () => {
     it('검수한 적 없는 상품은 판정할 실행이 없다 — 차단 0건과 다르다', async () => {
       const { productId } = await repo.create(accountA, sample());
