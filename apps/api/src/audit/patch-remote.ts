@@ -52,8 +52,13 @@ export interface ReplacementOptions {
   readonly avoid?: { readonly axis: 'contentTypeId' | 'lclsSystm3'; readonly key: string };
 }
 
-/** R04 유형 축에서 대신 넣을 수 있는 관광 유형. 음식점 · 숙박 · 행사 · 코스는 방문지 대체가 아니다 */
-const SIGHT_TYPES: ReadonlySet<number> = new Set([12, 14, 28, 38]);
+/**
+ * R04 유형 축에서 대신 넣을 수 있는 관광 유형 — 관광지 · 문화시설 · 레포츠.
+ *
+ * 음식점 · 숙박 · 행사 · 코스는 방문지 대체가 아니다. **쇼핑(38)도 뺀다** — 전통시장도 있지만
+ * 마트 · 회센터가 같은 유형이라, 가까운 순으로 고르면 등대 자리에 마트가 왔다 (#748).
+ */
+const SIGHT_TYPES: ReadonlySet<number> = new Set([12, 14, 28]);
 
 /** 식사 자리에 권하지 않는 중분류 — 주점 · 카페/찻집. 원래 그 분류였으면 그대로 둔다 */
 const NOT_A_MEAL: ReadonlySet<string> = new Set(['FD04', 'FD05']);
