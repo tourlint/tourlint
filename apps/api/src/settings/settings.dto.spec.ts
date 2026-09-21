@@ -52,6 +52,36 @@ describe('validateCompanyUpdate — 회사 기준은 표준보다 엄격하게�
     expect(r.patch.watchRegions?.[1]).toEqual({ regnCd: '36110', signguCd: null, month: '2026-11' });
   });
 
+  it('🔴 같은 지역 · 달은 하나로 접는다 — 달이나 시군구가 다르면 다른 지역이다 (#712)', () => {
+    const r = validateCompanyUpdate({
+      watchRegions: [
+        { regnCd: '51', signguCd: '210', month: '2026-11' },
+        { regnCd: '51', signguCd: '210', month: '2026-11' },
+        { regnCd: '51', signguCd: '210', month: '2026-12' },
+        { regnCd: '51', signguCd: '150', month: '2026-11' },
+        { regnCd: '36110', signguCd: null, month: '2026-11' },
+        { regnCd: '36110', month: '2026-11' },
+      ],
+    });
+    expect(r.errors).toEqual([]);
+    expect(r.patch.watchRegions).toEqual([
+      { regnCd: '51', signguCd: '210', month: '2026-11' },
+      { regnCd: '51', signguCd: '210', month: '2026-12' },
+      { regnCd: '51', signguCd: '150', month: '2026-11' },
+      { regnCd: '36110', signguCd: null, month: '2026-11' },
+    ]);
+  });
+
+  it('한도는 접은 뒤에 센다 — 중복 때문에 넘긴 요청은 막지 않는다', () => {
+    const same = Array.from({ length: 60 }, () => ({ regnCd: '51', signguCd: '210', month: '2026-11' }));
+    const r = validateCompanyUpdate({ watchRegions: same });
+    expect(r.errors).toEqual([]);
+    expect(r.patch.watchRegions).toHaveLength(1);
+
+    const distinct = Array.from({ length: 51 }, (_, i) => ({ regnCd: '51', signguCd: String(100 + i), month: '2026-11' }));
+    expect(validateCompanyUpdate({ watchRegions: distinct }).errors.length).toBeGreaterThan(0);
+  });
+
   it('월 형식이 틀린 관심 지역은 거부한다', () => {
     const r = validateCompanyUpdate({ watchRegions: [{ regnCd: '51', signguCd: '150', month: '2026/10' }] });
     expect(r.errors.length).toBeGreaterThan(0);

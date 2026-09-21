@@ -56,4 +56,26 @@ describe('장소 이름은 표시할 때 채운다 (#606)', () => {
     expect(findingMessage('R01', '휴무일 정보를 확인할 수 없습니다', {}, new Map(), '리고엠'))
       .toBe('리고엠 — 휴무일 정보를 확인할 수 없습니다');
   });
+
+  describe('R07 식사 이름 — 장소 담기로 넣은 식당은 이름이 비어 저장된다 (#713)', () => {
+    const stored = '1일차 10:00~20:00 연속 10시간 중 식사()가 60분으로 회사 기준 90분보다 짧습니다. TourLint 표준 60분은 충족합니다. 시간을 늘리거나 뒤 일정을 미뤄 주세요.';
+
+    it('🔴 표시할 때 읽은 이름으로 빈 괄호를 채운다', () => {
+      const shown = findingMessage('R07', stored, { span: { minutes: 600 } }, new Map(), '맛드린');
+      expect(shown).toContain('식사(맛드린)가 60분으로');
+      expect(shown).toContain('전체 10시간');
+    });
+
+    it('🔴 이름을 못 얻으면 괄호를 지운다 — 빈 괄호를 보이지 않는다', () => {
+      const shown = findingMessage('R07', stored, { span: { minutes: 600 } });
+      expect(shown).toContain('식사가 60분으로');
+      expect(shown).not.toContain('()');
+    });
+
+    it('이름이 이미 든 문장은 그대로다 · 휴식도 같은 방식이다', () => {
+      const named = stored.replace('식사()', '식사(가람집옹심이)');
+      expect(findingMessage('R07', named, { span: { minutes: 600 } }, new Map(), '다른 이름')).toContain('식사(가람집옹심이)가');
+      expect(findingMessage('R07', '2일차 09:00~18:00 연속 9시간 중 휴식()가 20분으로 최소 60분보다 짧습니다.', {}, new Map(), '안목 카페')).toContain('휴식(안목 카페)가');
+    });
+  });
 });

@@ -3,7 +3,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { auditApi, patchApi, productApi, planApi, itemApi, type RunSummary, type Finding, type ProductDetail, type ProductItem } from "../../../lib/api";
-import { AuditResult, FindingsSection } from "./audit-result";
+import { AuditResult, FindingsSection, FIRST_RUN_POLL_MS, FIRST_RUN_POLL_TRIES, isEditedSinceAudit, waitForFirstRun } from "./audit-result";
 
 const router = { replace: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -128,16 +128,16 @@ it('검수에서 장소 추가 → 현재 일정 갱신 → 기존 수정안·�
   await click('닫기');
   expect(schedule().textContent).toContain('추가한 식당');
   expect(host.textContent).toContain('수정안 0개 선택됨');
-  expect(host.textContent).toContain('아래 결과는 추가 전 결과');
+  expect(host.textContent).toContain('아래 결과는 바뀌기 전 결과');
   expect(host.querySelector('fieldset')?.disabled).toBe(true);
   expect([...host.querySelectorAll('button')].find(b => b.textContent === '출시 승인')?.disabled).toBe(true);
   expect(host.textContent).not.toContain('리포트 생성');
   // 같은 검수 결과로 새로고침해도 보류 상태를 복원한다.
   await act(async () => root.render(<AuditResult key="reload" productId={42} />));
-  expect(host.textContent).toContain('아래 결과는 추가 전 결과');
+  expect(host.textContent).toContain('아래 결과는 바뀌기 전 결과');
   await click('지금 재검수');
   expect(auditApi.runAudit).toHaveBeenCalledWith(42, 'MANUAL');
-  expect(host.textContent).not.toContain('아래 결과는 추가 전 결과');
+  expect(host.textContent).not.toContain('아래 결과는 바뀌기 전 결과');
   expect(host.querySelector('fieldset')?.disabled).toBe(false);
 });
 
@@ -157,4 +157,53 @@ it('🔴 수정안을 되돌린 뒤 새로 열면 반영 전 실행부터 연다
   await act(async () => root.render(<AuditResult productId={42} />));
   expect(getRun).toHaveBeenCalledWith(8);
   expect(getRun).not.toHaveBeenCalledWith(9);
+});
+
+it('🔴 검수한 뒤에 일정을 고쳤으면 새로 연 화면도 출시 · 리포트를 잠근다 — 서버가 말해 준다 (#710)', async () => {
+  // 브라우저 기억(sessionStorage)이 없는 상태다. 일정 편집을 저장하고 돌아온 경우가 이렇다
+  const edited = { ...product, productId: 43, dayCount: 2, ldongRegnCd: '51', name: '고친 상품', region: { regnName: '강원', signguName: '강릉' }, composition: { manual: 3, picker: 0, excluded: 0 }, releasedAt: null,
+    auditState: { kind: 'STALE', reason: 'EDIT' }, days: [{ day: 1, items: [{ ...item, mapx: 128, mapy: 37 }] }] };
+  vi.spyOn(productApi, 'detail').mockResolvedValue(edited as Awaited<ReturnType<typeof productApi.detail>>);
+  vi.spyOn(auditApi, 'listRuns').mockResolvedValue({ totalCount: 1, runs: [run] });
+  vi.spyOn(auditApi, 'getRun').mockResolvedValue(run);
+  vi.spyOn(auditApi, 'getFindings').mockResolvedValue({ content: [], totalElements: 0 });
+  vi.spyOn(auditApi, 'getUnverified').mockResolvedValue({ totalCount: 0, items: [] });
+  await act(async () => root.render(<AuditResult productId={43} />));
+  expect(host.textContent).toContain('검수한 뒤에 일정이 바뀌었어요');
+  expect([...host.querySelectorAll('button')].find(b => b.textContent === '출시 승인')?.disabled).toBe(true);
+  expect(host.textContent).not.toContain('리포트 생성');
+});
+
+it('🔴 검수 시작 직후에는 「검수 실행」 을 보이지 않고 첫 결과를 기다린다 (#711)', async () => {
+  const started = { ...product, productId: 44, dayCount: 2, ldongRegnCd: '51', name: '방금 넘긴 상품', region: { regnName: '강원', signguName: '강릉' }, composition: { manual: 3, picker: 0, excluded: 0 }, releasedAt: null,
+    plannedAt: '2026-09-21T19:06:48+09:00', days: [{ day: 1, items: [{ ...item, mapx: 128, mapy: 37 }] }] };
+  vi.spyOn(productApi, 'detail').mockResolvedValue(started as Awaited<ReturnType<typeof productApi.detail>>);
+  // 처음 두 번은 아직 결과가 없다 — 검수 시작이 건 작업이 도는 중이다
+  const runs = vi.spyOn(auditApi, 'listRuns')
+    .mockResolvedValueOnce({ totalCount: 0, runs: [] })
+    .mockResolvedValueOnce({ totalCount: 0, runs: [] })
+    .mockResolvedValue({ totalCount: 1, runs: [run] });
+  vi.spyOn(auditApi, 'getRun').mockResolvedValue(run);
+  vi.spyOn(auditApi, 'getFindings').mockResolvedValue({ content: [], totalElements: 0 });
+  vi.spyOn(auditApi, 'getUnverified').mockResolvedValue({ totalCount: 0, items: [] });
+  vi.useFakeTimers();
+  try {
+    await act(async () => root.render(<AuditResult productId={44} />));
+    expect(host.textContent).toContain('검수하고 있어요');
+    expect([...host.querySelectorAll('button')].some(b => b.textContent === '검수 실행')).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(FIRST_RUN_POLL_MS * 2 + 50); });
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(runs.mock.calls.length).toBeGreaterThanOrEqual(3);
+  expect(host.textContent).not.toContain('검수하고 있어요');
+  expect(host.textContent).toContain('출시 준비도');
+});
+
+it('첫 결과가 끝내 안 생기면 기다리기를 그만두고 null 을 준다', async () => {
+  let calls = 0;
+  const got = await waitForFirstRun(1, () => false, async () => { calls += 1; return { runs: [] }; }, async () => undefined);
+  expect(got).toBeNull();
+  expect(calls).toBe(FIRST_RUN_POLL_TRIES);
+  expect(isEditedSinceAudit(null)).toBe(false);
 });

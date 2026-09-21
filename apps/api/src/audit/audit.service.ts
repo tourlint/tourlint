@@ -340,10 +340,24 @@ export class AuditService {
       // 확정 요청이 이 값을 되돌려주면 그 사이 일정이 바뀌었는지 알 수 있다 (EX-PA-002)
       previewToken: snapshotToken(items),
       conflict: { hasConflict: conflict.hasConflict, pairs: conflict.conflicts },
-      before: items,
-      after: await this.withReplacedNames(items, applied.items),
+      before: await this.withMissingNames(items),
+      after: await this.withMissingNames(await this.withReplacedNames(items, applied.items)),
       skipped: applied.skipped,
     };
+  }
+
+  /**
+   * 이름이 빈 항목의 이름을 **응답에만** 채운다 (#713).
+   *
+   * 장소 담기 · 수정안 삽입으로 들어온 항목은 `place_label` 이 비어 있다(DR-PR-001). 현재 일정표와
+   * 직접 확인할 곳은 `displayLabels` 로 채우는데 미리보기만 빠져 `18:00 숙박` · `12:05~13:35 관광`
+   * 처럼 이름 없는 줄이 나왔다. `previewToken` 은 채우기 전 항목으로 만든다 — 표시용 이름이
+   * 「일정이 바뀌었는가」 판정에 섞이면 안 된다.
+   */
+  private async withMissingNames(items: readonly ItineraryItemRow[]): Promise<readonly ItineraryItemRow[]> {
+    if (!items.some((i) => i.placeLabel.trim() === '' && i.ktoContentId !== null)) return items;
+    const labels = await this.displayLabels(items);
+    return items.map((i) => (i.placeLabel.trim() === '' ? { ...i, placeLabel: labels.get(i.id) ?? '' } : i));
   }
 
   /**

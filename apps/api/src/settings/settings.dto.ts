@@ -82,11 +82,10 @@ function regions(v: unknown, errors: string[]): WatchRegion[] | undefined {
     errors.push('관심 지역은 목록이어야 합니다.');
     return undefined;
   }
-  if (v.length > MAX_REGIONS) {
-    errors.push(`관심 지역은 최대 ${MAX_REGIONS}개까지 등록할 수 있습니다.`);
-    return undefined;
-  }
   const out: WatchRegion[] = [];
+  // 같은 (시도 · 시군구 · 달)은 하나로 접는다 — 키워드가 그러듯 (#712). 가이드가 모든 심사위원에게
+  // 같은 지역을 추가하라고 해서 공용 계정에 같은 칩이 사람 수만큼 쌓였다
+  const seen = new Set<string>();
   for (const item of v) {
     if (typeof item !== 'object' || item === null) {
       errors.push('관심 지역 항목의 형식이 올바르지 않습니다.');
@@ -106,7 +105,16 @@ function regions(v: unknown, errors: string[]): WatchRegion[] | undefined {
       errors.push('관심 지역의 월은 YYYY-MM 형식이어야 합니다.');
       return undefined;
     }
-    out.push({ regnCd: r.regnCd, signguCd: signguCd as string | null, month: r.month });
+    const regnCd = r.regnCd.trim();
+    const key = `${regnCd}|${signguCd === null ? '' : signguCd.trim()}|${r.month}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ regnCd, signguCd: signguCd === null ? null : signguCd.trim(), month: r.month });
+  }
+  // 한도는 접은 뒤에 센다. 중복 때문에 한도를 넘긴 요청을 막을 까닭이 없다
+  if (out.length > MAX_REGIONS) {
+    errors.push(`관심 지역은 최대 ${MAX_REGIONS}개까지 등록할 수 있습니다.`);
+    return undefined;
   }
   return out;
 }

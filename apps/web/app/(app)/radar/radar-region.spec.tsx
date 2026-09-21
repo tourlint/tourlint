@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { QuietRegionRow, RegionNewsCard, hasRegionNews, quietRegionText, recentDays } from "./page";
+import { QuietRegionRow, RegionNewsCard, hasRegion, hasRegionNews, quietRegionText, recentDays, refreshNote } from "./page";
 import type { RegionSignal } from "../../lib/api";
 
 const window30 = { from: "2026-08-23", to: "2026-09-21" };
@@ -75,5 +75,33 @@ describe("소식이 없는 지역 — 0 을 늘어놓지 않고 한 줄로 (#705
     const fresh = signal({ t1: null, t2: null, t3: null });
     expect(quietRegionText(fresh)).toBe("방금 추가한 지역이에요. 다음 확인 때 채워져요.");
     expect(renderToStaticMarkup(<QuietRegionRow signal={fresh} regionName="경주시" />)).not.toContain("아직 없어요");
+  });
+});
+
+describe("관심 지역 중복 (#712)", () => {
+  const mine = [{ regnCd: "51", signguCd: "210", month: "2026-11" }, { regnCd: "36110", signguCd: null, month: "2026-11" }];
+
+  it("🔴 같은 시도 · 시군구 · 달이면 이미 있는 것이다", () => {
+    expect(hasRegion(mine, "51", "210", "2026-11")).toBe(true);
+    expect(hasRegion(mine, "36110", null, "2026-11")).toBe(true);
+  });
+
+  it("달이나 시군구가 다르면 다른 지역이다", () => {
+    expect(hasRegion(mine, "51", "210", "2026-12")).toBe(false);
+    expect(hasRegion(mine, "51", "150", "2026-11")).toBe(false);
+    expect(hasRegion(mine, "51", null, "2026-11")).toBe(false);
+  });
+});
+
+describe("새 소식 확인을 누른 뒤 (#715)", () => {
+  it("🔴 자동 확인 중이면 언제 확인한 결과인지 말한다 — 지금 새로 센 것처럼 적지 않는다", () => {
+    const note = refreshNote(true, "오늘 오전 5시에 확인했어요");
+    expect(note).toContain("다시 불러왔어요");
+    expect(note).toContain("오늘 오전 5시에 확인했어요");
+    expect(note).not.toContain("지금 다시 확인");
+  });
+
+  it("직접 확인한 경우는 지금 확인했다고 말한다", () => {
+    expect(refreshNote(false, "")).toBe("지금 다시 확인했어요.");
   });
 });
