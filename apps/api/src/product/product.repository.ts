@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
-import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Transport, kstIso } from '@tourlint/shared';
+import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Severity, type Transport, kstIso } from '@tourlint/shared';
+import { calculateReadiness, type ScorableFinding } from '../engine/score';
 import { CURRENT_RUN_LATERAL, toCurrentRun, type CurrentRun } from '../persistence/current-run';
 import { withTransaction } from '../persistence/db';
 import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct, WalkItemInput } from './product.dto';
@@ -159,6 +160,7 @@ export class ProductRepository {
                  WHERE n.product_id = p.id AND n.read_at IS NULL AND n.dismissed_at IS NULL)::int AS unread,
               ar.id AS run_id, ar.executed_at, ar.readiness_score, ar.is_partial,
               ar.blocker_cnt, ar.error_cnt, ar.warn_cnt, ar.unverified_cnt,
+              ar.weight_snapshot, ar.target_count, ar.failed_count,
               cur.kind AS current_kind, lr.blocker_cnt AS latest_blocker_cnt
          FROM product p
          ${CURRENT_RUN_LATERAL}
@@ -171,7 +173,51 @@ export class ProductRepository {
       [accountId, size, page * size],
     );
 
-    return { rows: rows.map(toListRow), total };
+    const scores = await this.currentScores(rows);
+    return { rows: rows.map((r) => toListRow(r, scores)), total };
+  }
+
+  /**
+   * 목록에 보일 점수를 **조회 시점에 다시 계산한다** (FR-AU-046).
+   *
+   * `audit_run.readiness_score` 는 실행 시점 기록이라 무시 · 무시 해제가 반영되지 않는다.
+   * 그 값을 그대로 보이면 결과 화면(`AuditResultRepository.findById`)과 점수가 갈린다 —
+   * 주의 1건을 무시한 상품이 결과 화면에서는 83점, 목록에서는 79점이었다 (#684).
+   *
+   * 실행마다 묻지 않고 한 번에 읽는다. 목록은 홈 · 검수 · 레이더가 열릴 때마다 불린다.
+   */
+  private async currentScores(rows: readonly ListRaw[]): Promise<ReadonlyMap<string, number | null>> {
+    const out = new Map<string, number | null>();
+    const runs = rows.filter((r): r is ListRaw & { run_id: string } => r.run_id !== null);
+    if (runs.length === 0) return out;
+
+    const found = await this.pool.query<{ audit_run_id: string; severity: Severity; reason_code: string; dismissed_at: Date | null }>(
+      `SELECT audit_run_id, severity, reason_code, dismissed_at
+         FROM finding WHERE audit_run_id = ANY($1::bigint[])`,
+      [runs.map((r) => r.run_id)],
+    );
+    const byRun = new Map<string, ScorableFinding[]>();
+    for (const f of found.rows) {
+      const list = byRun.get(f.audit_run_id) ?? [];
+      list.push({
+        severity: f.severity,
+        reasonCode: f.reason_code as ScorableFinding['reasonCode'],
+        dismissed: f.dismissed_at !== null,
+        // 확인 필요 건수는 점수에 들어가지 않는다. 목록은 그 값을 쓰지 않는다
+        needsConfirmation: false,
+      });
+      byRun.set(f.audit_run_id, list);
+    }
+
+    for (const r of runs) {
+      out.set(r.run_id, calculateReadiness({
+        findings: byRun.get(r.run_id) ?? [],
+        weights: r.weight_snapshot ?? undefined,
+        targetCount: r.target_count ?? 0,
+        failedCount: r.failed_count ?? 0,
+      }).score);
+    }
+    return out;
   }
 
   async detail(accountId: number, productId: number): Promise<ProductDetailRow | null> {
@@ -649,6 +695,9 @@ interface ListRaw {
   error_cnt: number | null;
   warn_cnt: number | null;
   unverified_cnt: number | null;
+  weight_snapshot: Readonly<Record<Severity, number>> | null;
+  target_count: number | null;
+  failed_count: number | null;
   planned_at: Date | string | null;
   released_at: Date | string | null;
 }
@@ -666,14 +715,15 @@ export function isReleasable(
   return (currentBlockers ?? 0) === 0 && (latestBlockers ?? 0) === 0;
 }
 
-function toListRow(r: ListRaw): ProductListRow {
+function toListRow(r: ListRaw, scores: ReadonlyMap<string, number | null>): ProductListRow {
   const latestAudit =
     r.run_id === null
       ? null
       : {
           auditRunId: Number(r.run_id),
           executedAt: isoStamp(r.executed_at) ?? '',
-          readinessScore: r.readiness_score,
+          // 저장값이 아니라 다시 계산한 값이다. 못 찾으면(있을 수 없다) 저장값으로 둔다
+          readinessScore: scores.has(r.run_id) ? (scores.get(r.run_id) ?? null) : r.readiness_score,
           isPartial: r.is_partial ?? false,
           counts: {
             blocker: r.blocker_cnt ?? 0,
