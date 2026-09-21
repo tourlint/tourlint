@@ -8,7 +8,9 @@ import {
   type NotificationFilter,
   type StoredNotification,
 } from '../persistence/notification.repository';
-import { isDismissable, notificationCopy } from './notification-copy';
+import { diffNormalized, readNormalized } from './change-diff';
+import { isDismissable } from './notification-copy';
+import { describeNotification, modifiedOn, overlapDays } from './notification-detail';
 
 /**
  * 위험 · 기회 알림 조회 (F13 · FR-MO-033 ~ 037).
@@ -79,7 +81,9 @@ export class NotificationService {
   private async placeNames(rows: readonly StoredNotification[]): Promise<ReadonlyMap<string, string>> {
     const source = this.names;
     if (source === undefined) return new Map();
-    const ids = [...new Set(rows.filter((n) => !hiddenOf(n) && n.ktoContentId !== null && n.ktoContentId !== '')
+    // 사용자가 일정에 적어 둔 이름이 있으면 그것을 쓴다 — 공사를 부르지 않는다 (DB 명세서 4-5)
+    const ids = [...new Set(rows
+      .filter((n) => !hiddenOf(n) && n.ktoContentId !== null && n.ktoContentId !== '' && n.schedule?.placeLabel == null)
       .map((n) => n.ktoContentId as string))];
     if (ids.length === 0) return new Map();
 
@@ -165,7 +169,16 @@ function hiddenOf(n: StoredNotification): boolean {
  */
 function toResponse(n: StoredNotification, names: ReadonlyMap<string, string>): Record<string, unknown> {
   const hidden = hiddenOf(n);
-  const copy = notificationCopy(n.condition, hidden);
+  const eventPeriod = eventPeriodOf(n.body);
+  const hasBefore = n.normalizedBefore !== null;
+  const hasAfter = n.normalizedAfter !== null;
+  const changes = hasBefore && hasAfter ? diffNormalized(n.normalizedBefore, n.normalizedAfter) : [];
+  const overlap = overlapDays(n.startDate, n.nights, eventPeriod);
+  const copy = describeNotification({
+    condition: n.condition, hidden, schedule: n.schedule, changes, hasBefore, hasAfter,
+    eventPeriod, overlapDays: overlap,
+  });
+  const resolved = n.ktoContentId === null ? null : (names.get(n.ktoContentId) ?? null);
   return {
     notificationId: n.id,
     kind: n.kind,
@@ -174,18 +187,24 @@ function toResponse(n: StoredNotification, names: ReadonlyMap<string, string>): 
     productName: n.productName,
     startDate: n.startDate,
     ktoContentId: n.ktoContentId,
-    // 표시 시점에 읽은 이름. 못 읽었거나 표출이 중단된 곳은 null 이다
-    placeName: hidden || n.ktoContentId === null ? null : (names.get(n.ktoContentId) ?? null),
+    // 사용자가 적은 이름이 먼저다. 일정에 없는 곳만 볼 때 읽은 이름을 쓴다. 표출이 중단된 곳은 null
+    placeName: hidden ? null : (n.schedule?.placeLabel ?? resolved),
+    // 그 곳이 일정에 든 줄 (UI-S7-003 「해당 일정」). 일정에 없는 곳이면 null
+    schedule: n.schedule === null ? null : { dayNo: n.schedule.dayNo, startTime: n.schedule.startTime },
+    // 판독 결과 전 → 후 (UI-S7-004). 견줄 검수가 둘 다 있을 때만 채운다
+    changes,
+    // 견줄 이전 검수가 없을 때 보일 지금 판독값. 행사(15)는 휴무일 · 운영시간으로 말하는 곳이 아니다
+    current: !hasBefore && hasAfter && Number(n.body.contentTypeId) !== 15 ? readNormalized(n.normalizedAfter) : [],
+    // 공사가 그 관광정보를 고친 날
+    modifiedOn: modifiedOn(n.body.modifiedTime),
+    eventPeriod,
+    overlapDays: overlap,
     what: copy.what,
     impact: copy.impact,
     action: copy.action,
     hidden,
     // FR-MO-058 — 지문 비교값. 조건 2·3 은 지문 이력이 없어 둘 다 null 이다
     fingerprint: { from: n.hashFrom, to: n.hashTo },
-    /*
-     * FR-MO-037 · PM-NG-010 — 무시할 수 있는지를 화면이 미리 알아야 버튼을 감출 수 있다.
-     * 눌러 보고 403 을 받는 것은 화면이 규정을 모른다는 뜻이다.
-     */
     dismissable: isDismissable(hidden),
     readAt: n.readAt === null ? null : kstIso(n.readAt),
     dismissedAt: n.dismissedAt === null ? null : kstIso(n.dismissedAt),
@@ -193,7 +212,15 @@ function toResponse(n: StoredNotification, names: ReadonlyMap<string, string>): 
   };
 }
 
-/** 남의 것도 없는 것도 똑같이 404 다 (EX-SY-003 · PM-DA-003) */
+/** `body.eventPeriod`. 배치가 #703 뒤로 남긴다 — 그 전 알림에는 없다 */
+function eventPeriodOf(body: Readonly<Record<string, unknown>>): { start: string; end: string } | null {
+  const p = body.eventPeriod;
+  if (typeof p !== 'object' || p === null) return null;
+  const { start, end } = p as { start?: unknown; end?: unknown };
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  return typeof start === 'string' && typeof end === 'string' && iso.test(start) && iso.test(end) ? { start, end } : null;
+}
+
 function notFound(): DomainException {
   return new DomainException(
     HttpStatus.NOT_FOUND, 'NOT_FOUND', '알림을 찾을 수 없습니다. 목록을 새로 고쳐 주세요.',

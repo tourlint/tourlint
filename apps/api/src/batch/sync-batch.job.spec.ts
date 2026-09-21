@@ -424,6 +424,8 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     }).run();
 
     expect(result.impacts).toEqual([{ productId: 9, condition: 3, kind: 'RISK' }]);
+    // 조건 3 을 건 근거인 기간을 날짜로 남긴다 — 카드가 「행사 기간은 …」 을 말할 수 있다 (#703)
+    expect(notif.saved[0]?.body).toMatchObject({ eventPeriod: { start: '2026-09-05', end: '2026-09-15' } });
   });
 
   it('🔴 다른 시군구의 행사는 기간이 겹쳐도 알리지 않는다 (#689)', async () => {

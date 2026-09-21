@@ -617,6 +617,13 @@ function toNotification(impact: Impact, content: ChangedContent, hashes: ChangeH
       modifiedTime: content.modifiedTime,
       // 비표출 전환은 R06 이 차단으로 판정한다. 알림에도 그 사실을 남긴다
       hidden: content.showFlag === '0',
+      /*
+       * 행사 기간 (#703). 조건 3 을 건 근거인데 남기지 않아 카드가 「행사 정보가 바뀌었습니다」 밖에
+       * 못 말했다. 원문(`20261031`)이 아니라 읽어 낸 날짜다 — 이름 · 주소 같은 원문은 여전히 안 남긴다.
+       */
+      ...(content.eventPeriod?.start != null && content.eventPeriod.end != null
+        ? { eventPeriod: { start: content.eventPeriod.start, end: content.eventPeriod.end } }
+        : {}),
     },
   };
 }
