@@ -27,12 +27,26 @@ export interface PlaceNameSource {
   resolve(contentIds: readonly string[]): Promise<ReadonlyMap<string, string>>;
 }
 
+/**
+ * 이름 조회를 기다리는 한도 (#694).
+ *
+ * 2026-09-21 운영에서 공사 호출이 전부 시간 초과가 나던 12분 동안 이 목록이 30초 뒤 500 을
+ * 돌려줘 레이더 화면이 통째로 안 떴다. 실패는 흘려보냈지만 **느린 것**은 막지 않았기 때문이다 —
+ * 이름은 콘텐츠마다 순서대로 읽고, 호출 하나가 시간 초과 10초 × 재시도다.
+ * 평소 한 건은 0.2 ~ 0.5초라 2.5초면 한 쪽의 서로 다른 콘텐츠 대여섯 개를 읽는다.
+ */
+export const NAME_BUDGET_MS = 2_500;
+
 @Injectable()
 export class NotificationService {
   private readonly repo: NotificationRepository;
   private readonly logger = new Logger(NotificationService.name);
 
-  constructor(@Inject(DB_POOL) pool: Pool, private readonly names?: PlaceNameSource) {
+  constructor(
+    @Inject(DB_POOL) pool: Pool,
+    private readonly names?: PlaceNameSource,
+    private readonly nameBudgetMs: number = NAME_BUDGET_MS,
+  ) {
     this.repo = new NotificationRepository(pool);
   }
 
@@ -55,20 +69,35 @@ export class NotificationService {
    * **표출이 중단된 곳은 묻지 않는다** — 명칭을 다시 내보내지 않는다 (FR-AU-071). 공사도 그
    * 콘텐츠를 더는 돌려주지 않는다.
    *
-   * **못 읽어도 목록은 나간다.** 이름은 덧붙이는 값이다. 예산이 다 찼거나 공사가 느리다고
-   * 알림 자체를 못 보면 안 된다 — 그때는 지금처럼 문장만 보인다.
+   * **못 읽어도, 늦어도 목록은 나간다.** 이름은 덧붙이는 값이다. 예산이 다 찼거나 공사가 느리다고
+   * 알림 자체를 못 보면 안 된다 — 그때는 문장만 보인다. 한도를 넘긴 조회는 버리지 않고 뒤에서
+   * 끝까지 돌게 둔다. 읽은 이름이 캐시에 남아 다음 요청에는 붙는다.
    */
   private async placeNames(rows: readonly StoredNotification[]): Promise<ReadonlyMap<string, string>> {
     if (this.names === undefined) return new Map();
     const ids = rows.filter((n) => !hiddenOf(n) && n.ktoContentId !== null && n.ktoContentId !== '')
       .map((n) => n.ktoContentId as string);
     if (ids.length === 0) return new Map();
+    let timer: NodeJS.Timeout | undefined;
     try {
-      return await this.names.resolve(ids);
+      const late = new Promise<null>((done) => {
+        timer = setTimeout(() => { done(null); }, this.nameBudgetMs);
+      });
+      const names = this.names.resolve(ids);
+      // 한도를 넘긴 뒤 실패해도 처리되지 않은 거절로 남지 않게 한다
+      names.catch(() => undefined);
+      const settled = await Promise.race([names, late]);
+      if (settled === null) {
+        this.logger.warn(`알림 ${String(ids.length)}건의 이름이 ${String(this.nameBudgetMs)}ms 안에 안 왔다. 이름 없이 내보낸다`);
+        return new Map();
+      }
+      return settled;
     } catch (e) {
       // 콘텐츠 id 와 사유만 남긴다. 응답 본문은 남기지 않는다 (DB 명세서 6-4)
       this.logger.warn(`알림 ${String(ids.length)}건의 이름을 못 읽었다: ${(e as Error).message}`);
       return new Map();
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 
