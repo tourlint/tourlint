@@ -254,15 +254,46 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
        * 아무것도 잘리지 않는다 — 먼 미래 상품이 그대로 나와 빨개졌다 (이슈 #431).
        * `1` 은 테이블이 몇 행이든 결정적이고, 2099-12-31 출발이 거기 남을 수 없다.
        */
-      const capped = await repo.watchedProducts('2026-08-27', 1);
-      expect(capped).toHaveLength(1);
-      expect(capped.map((c) => c.productId)).not.toContain(farId);
+      /*
+       * 상한은 계정별이다(#690). 공용 테스트 DB 에는 다른 계정의 상품도 있어 전체 길이는 볼 수
+       * 없다 — 내 계정에서 남은 것이 임박한 하나뿐인지를 본다.
+       */
+      const capped = (await repo.watchedProducts('2026-08-27', 1)).map((c) => c.productId);
+      expect(capped).toContain(productId);
+      expect(capped).not.toContain(farId);
 
       // 상한이 없으면 먼 미래 상품도 나오고, 순서는 출발일 오름차순이다 (한 번의 조회 안에서 본다)
       const all = await repo.watchedProducts('2026-08-27');
       expect(all.map((c) => c.productId)).toContain(farId);
       const dates = all.map((c) => c.startDate);
       expect(dates, '출발일 오름차순').toEqual([...dates].sort());
+    });
+
+    it('🔴 다른 계정의 이른 출발 상품이 내 자리를 빼앗지 않는다 — 상한은 계정별 (#690)', async () => {
+      const other = await pool.query<{ id: string }>(
+        `INSERT INTO account (email, password_hash) VALUES ($1, 'h') RETURNING id`,
+        [`notif-other-${Date.now()}@t.test`],
+      );
+      const otherId = Number(other.rows[0]?.id);
+      try {
+        // 내 상품(START)보다 먼저 떠나는 남의 상품 둘. 전체 상위 2개를 뽑던 때는 이 둘이 자리를 다 가졌다
+        const theirs = await pool.query<{ id: string }>(
+          `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+           VALUES ($1, '남의 상품 1', '51', '2026-08-28', 0, 'CAR', now()),
+                  ($1, '남의 상품 2', '51', '2026-08-29', 0, 'CAR', now()),
+                  ($1, '남의 상품 3', '51', '2026-08-30', 0, 'CAR', now())
+           RETURNING id`, [otherId]);
+        const theirIds = theirs.rows.map((r) => Number(r.id));
+
+        const watched = (await repo.watchedProducts('2026-08-27', 2)).map((c) => c.productId);
+        expect(watched, '내 상품은 남의 상품 수와 무관하게 남는다').toContain(productId);
+        // 남의 계정도 자기 상한만큼만 — 셋 중 임박한 둘
+        expect(watched).toContain(theirIds[0]);
+        expect(watched).toContain(theirIds[1]);
+        expect(watched).not.toContain(theirIds[2]);
+      } finally {
+        await pool.query(`DELETE FROM account WHERE id = $1`, [otherId]);
+      }
     });
 
     it('출발일 당일과 마지막 날은 아직 감시 대상이다', async () => {
