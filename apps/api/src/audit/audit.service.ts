@@ -18,6 +18,7 @@ import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger, RunScopedCallLogger } from '../persistence/api-call-log.repository';
 import type { ApiCallLogger } from '../external/api-call-log';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
+import { NotificationRepository } from '../persistence/notification.repository';
 import { ClimateNormalRepository } from '../persistence/climate-normal.repository';
 import { UserSettingRepository } from '../persistence/user-setting.repository';
 import {
@@ -578,7 +579,7 @@ export class AuditService {
     if (application === null || application.revertedAt !== null) {
       throw new DomainException(
         HttpStatus.NOT_FOUND, 'NOT_FOUND',
-        '비교할 수정 이력이 없습니다. 수정안을 반영하면 전후를 견줄 수 있습니다.', 'REQUEST',
+        '비교할 수정 이력이 없습니다. 수정안을 반영하면 전후를 비교할 수 있습니다.', 'REQUEST',
       );
     }
 
@@ -587,7 +588,7 @@ export class AuditService {
     if (before === null || after === null) {
       throw new DomainException(
         HttpStatus.NOT_FOUND, 'NOT_FOUND',
-        '반영 후 재검수가 아직 끝나지 않았습니다. 검수가 끝나면 전후를 견줄 수 있습니다.', 'REQUEST',
+        '반영 후 재검수가 아직 끝나지 않았습니다. 검수가 끝나면 전후를 비교할 수 있습니다.', 'REQUEST',
       );
     }
     return { application, before, after };
@@ -854,6 +855,8 @@ export class AuditService {
         onProgress: (done, total) => this.jobs.updateProgress(jobId, done, total),
         // 직전 검수의 지문. 비표출 전환과 판정 필드 변경이 여기서 잡힌다 (FR-MO-004)
         previousFingerprints: await this.results.previousFingerprints(productId),
+        // 배치가 표출 중단으로 기록한 곳. 상세 조회로는 볼 수 없다 (#745 · EI-KT-012)
+        hiddenContentIds: await new NotificationRepository(this.pool).hiddenContentIds(productId),
         // 이동시간 판정. 키가 없어도 검수는 돈다 — R08 만 확인 불가로 남는다 (EI-KM-009)
         kakao: this.buildKakaoClient(callLog),
         // 우천 리스크. 평년 표가 비어 있으면 D+11 이상만 확인 불가로 남는다 (이슈 #7)

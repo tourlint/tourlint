@@ -17,6 +17,7 @@ import type { AuditItem, AuditSettings, Finding, ItineraryContext, MatchedConten
 import { calculateReadiness, type ScoreResult } from '../engine/score';
 import { isKtoError, type KtoClient } from '../external/kto';
 import type { FingerprintToSave } from '../persistence/audit-result.repository';
+import { hiddenFinding } from '../engine/rules/r06-change';
 import { segmentKey, segmentsOf, type TravelSegment } from '../engine/rules/r08-travel';
 import type { DailyRainOutlook } from '../engine/rules/r09-rain';
 import type { TargetProfileContext } from '../engine/rules/r10-target';
@@ -146,6 +147,14 @@ export interface AuditRunnerOptions {
    */
   readonly previousFingerprints?: ReadonlyMap<string, FingerprintSnapshot>;
   /**
+   * 배치가 표출 중단(`showflag=0`)으로 기록해 둔 콘텐츠 (#745).
+   *
+   * 상세 조회에는 `showflag` 가 없고(EI-KT-012) 숨은 곳은 「없는 곳」 으로 온다. 이 목록에 있고
+   * 조회가 `CONTENT_NOT_FOUND` 면 확인 불가가 아니라 R06-b 차단이다 (FR-RU-065 · 068).
+   * 조회에 성공하면(다시 표출) 이 목록은 쓰지 않는다.
+   */
+  readonly hiddenContentIds?: ReadonlySet<string>;
+  /**
    * 대체 관광지 탐색(`locationBasedList2`) 호출 상한. 기본 4콜.
    *
    * 수정안은 판정이 아니라 **거들기**다. 여기서 예산을 많이 쓰면 정작 검수할 몫이 줄어든다
@@ -226,6 +235,7 @@ export class AuditRunner {
   private readonly weights: Readonly<Record<Severity, number>>;
   private readonly settings: AuditSettings;
   private readonly previous: ReadonlyMap<string, FingerprintSnapshot>;
+  private readonly hidden: ReadonlySet<string>;
   private readonly maxReplacementCalls: number;
   private readonly normalizeFallback:
     ((n: NormalizedOperatingInfo) => Promise<NormalizedOperatingInfo>) | null;
@@ -242,6 +252,7 @@ export class AuditRunner {
     this.weights = options.weights ?? SEVERITY_WEIGHT_DEFAULT;
     this.settings = options.settings ?? DEFAULT_AUDIT_SETTINGS;
     this.previous = options.previousFingerprints ?? new Map();
+    this.hidden = options.hiddenContentIds ?? new Set();
     this.maxReplacementCalls = options.maxReplacementCalls ?? 4;
     this.kakao = options.kakao ?? null;
     this.kma = options.kma ?? null;
@@ -332,7 +343,11 @@ export class AuditRunner {
     const { findings, failedRules } = evaluateAll(ctx);
 
     // 조회에 실패한 콘텐츠는 "정상" 이 아니라 "확인 불가" 다 (FR-AU-009 · FR-AU-027)
-    const isolated = isolationFindings(judged, failures);
+    const isolated = isolationFindings(judged, failures, this.hidden);
+    // 표출 중단으로 **판정한** 곳은 조회 실패가 아니다. 실패 수에 넣으면 부분 검수 판정이 흔들린다 (#745)
+    const failedCount = [...failures].filter(
+      ([contentId, f]) => !(f.reasonCode === 'CONTENT_NOT_FOUND' && this.hidden.has(contentId)),
+    ).length;
 
     // ── 8) 수정안 생성 (판정 이후 별도 단계) ──
     const all = await this.attachPatches([...findings, ...isolated], ctx, fetched);
@@ -345,7 +360,7 @@ export class AuditRunner {
       })),
       weights: this.weights,
       targetCount: targets.length,
-      failedCount: failures.size,
+      failedCount,
     });
 
     return {
@@ -353,7 +368,7 @@ export class AuditRunner {
       fingerprints,
       score,
       targetCount: targets.length,
-      failedCount: failures.size,
+      failedCount,
       rulesetVersion: RULESET_VERSION,
       weights: this.weights,
       executedAt,
@@ -970,12 +985,23 @@ function toIsoDate(value: unknown): string | null {
 function isolationFindings(
   items: readonly ItineraryItemRow[],
   failures: ReadonlyMap<string, FetchFailure>,
+  hidden: ReadonlySet<string> = new Set(),
 ): readonly Finding[] {
   const out: Finding[] = [];
   for (const item of items) {
     if (item.ktoContentId === null) continue;
     const failure = failures.get(item.ktoContentId);
     if (failure === undefined) continue;
+
+    /*
+     * 표출이 중단된 곳은 조회 실패가 아니라 **차단**이다 (FR-RU-065 · #745). 공사는 숨은 곳을
+     * 「없는 곳」 으로 답하므로 배치의 기록과 맞춰 본다. 기록이 없는 `CONTENT_NOT_FOUND` 는
+     * 그대로 확인 불가다 — 왜 없는지 모르는 것을 차단으로 올리지 않는다 (FR-RU-051).
+     */
+    if (failure.reasonCode === 'CONTENT_NOT_FOUND' && hidden.has(item.ktoContentId)) {
+      out.push(hiddenFinding(item.id, item.ktoContentId, { verdict: 'HIDDEN', detectedBy: 'BATCH' }));
+      continue;
+    }
 
     out.push({
       // 조회 자체가 안 된 것이라 휴무 판정과 무관하다. 사유는 실패한 이유 그대로 단다

@@ -61,34 +61,11 @@ function evaluateItem(item: AuditItem): Finding | null {
    *    지우면 사용자는 무엇이 사라졌는지 모른 채 일정이 비어 있는 걸 보게 된다.
    */
   if (verdict.kind === 'HIDDEN') {
-    return {
-      ruleCode: 'R06',
-      ruleVersion: R06_VERSION,
-      severity: 'BLOCKER',
-      reasonCode: 'CONTENT_HIDDEN',
-      targetItemId: item.id,
-      /*
-       * **명칭을 넣지 않는다** (FR-AU-071). 비표출로 전환된 콘텐츠는 finding 메시지와
-       * 리포트 어디에도 명칭·주소를 재출력하지 않고 `contentid` 와 감지 시각만 남긴다.
-       * 리포트는 이 문자열을 그대로 싣기 때문에(`report-render.ts`) 여기서 빼면 함께 지켜진다.
-       *
-       * 어느 항목인지는 `targetItemId` 가 말한다 — 화면은 일차·순서·시각으로 짚는다
-       * (API 설계 5-6 `target`).
-       */
-      message:
-        `공사 데이터에서 비표출로 전환된 관광지입니다. ` +
-        `사유는 알 수 없으며 그대로 둘 수 없습니다. 반경 20km 안 같은 유형 관광지로 교체하거나 일정에서 빼 주세요.`,
-      evidence: {
-        verdict: verdict.kind,
-        showFlagTurnedOff: true,
-        // 판정 필드 목록까지 달라졌다면 그 사실도 남긴다 (이슈 #13)
-        fieldNamesChanged: verdict.fieldNamesChanged,
-        ktoContentId: item.content.ktoContentId,
-      },
-      requiresExternal: false,
-      externalSource: null,
-      needsConfirmation: false,
-    };
+    return hiddenFinding(item.id, item.content.ktoContentId, {
+      verdict: verdict.kind,
+      // 판정 필드 목록까지 달라졌다면 그 사실도 남긴다 (이슈 #13)
+      fieldNamesChanged: verdict.fieldNamesChanged,
+    });
   }
 
   /*
@@ -113,4 +90,37 @@ function evaluateItem(item: AuditItem): Finding | null {
   // 그 밖의 판정(FIRST · UNCHANGED · CHANGED · INCOMPARABLE)은 finding 을 만들지 않는다.
   // 재판정은 러너가 이미 수행했고, 그 결과는 다른 규칙들이 낸다 (FR-RU-061).
   return null;
+}
+
+/**
+ * R06-b 의 finding. 규칙과 러너가 같은 문장 · 같은 모양을 쓴다.
+ *
+ * 러너도 쓰는 까닭 — 공사 상세 조회에는 `showflag` 가 없고(EI-KT-012) 표출이 중단된 곳은 그냥
+ * 「없는 곳」 으로 온다. 조회에 성공해야 도는 지문 비교로는 그 곳을 볼 수 없어, 배치가 남긴
+ * 표출 중단 기록과 조회 실패를 러너가 맞춰 본다 (#745).
+ *
+ * **명칭을 넣지 않는다** (FR-AU-071). 비표출로 전환된 콘텐츠는 finding 메시지와 리포트 어디에도
+ * 명칭 · 주소를 재출력하지 않고 `contentid` 와 감지 시각만 남긴다. 리포트는 이 문자열을 그대로
+ * 싣기 때문에(`report-render.ts`) 여기서 빼면 함께 지켜진다. 어느 항목인지는 `targetItemId` 가
+ * 말한다 — 화면은 일차 · 순서 · 시각으로 짚는다 (API 설계 5-6 `target`).
+ */
+export function hiddenFinding(
+  itemId: number,
+  ktoContentId: string,
+  evidence: Readonly<Record<string, unknown>>,
+): Finding {
+  return {
+    ruleCode: 'R06',
+    ruleVersion: R06_VERSION,
+    severity: 'BLOCKER',
+    reasonCode: 'CONTENT_HIDDEN',
+    targetItemId: itemId,
+    message:
+      `공사 데이터에서 비표출로 전환된 관광지입니다. ` +
+      `사유는 알 수 없으며 그대로 둘 수 없습니다. 반경 20km 안 같은 유형 관광지로 교체하거나 일정에서 빼 주세요.`,
+    evidence: { ...evidence, showFlagTurnedOff: true, ktoContentId },
+    requiresExternal: false,
+    externalSource: null,
+    needsConfirmation: false,
+  };
 }
