@@ -7,6 +7,7 @@ import { setupOpenApi } from './openapi/setup';
 import { getPool } from './persistence/db';
 import { bootstrapDemoAccount, demoEmail } from './seed/demo-seed';
 import { CatalogService } from './catalog/catalog.service';
+import { KtoReachability } from './health/kto-reachability';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -25,20 +26,23 @@ async function bootstrap(): Promise<void> {
   console.log(`TourLint API → http://localhost:${port}  ·  문서 /docs  ·  상태 /health`);
 
   await ensureDemoAccountOnBoot();
-  warmCatalogOnBoot(app.get(CatalogService));
+  warmCatalogOnBoot(app.get(CatalogService), app.get(KtoReachability));
 }
 
 /**
  * 지역 · 분류 코드를 배경에서 미리 받아 둔다 (#662).
  *
  * 기다리지 않는다 — 부팅을 늦출 일이 아니고, 실패해도 사용자 요청이 다시 시도한다.
+ * 닿을 때까지 뒤에서 다시 예열한다 (#700).
  * 로그의 걸린 시간이 운영에서 공사로 나가는 길의 상태를 말해 준다.
  */
-function warmCatalogOnBoot(catalog: CatalogService): void {
-  void catalog.warm((line) => {
+function warmCatalogOnBoot(catalog: CatalogService, reach: KtoReachability): void {
+  const log = (line: string): void => {
     // eslint-disable-next-line no-console
     console.log(line);
-  });
+  };
+  // 예열이 닿았는지를 /health 에 잇는다. 못 닿은 컨테이너는 배포 검사를 통과하지 못한다 (#700)
+  void reach.track(() => catalog.warm(log), log);
 }
 
 /**

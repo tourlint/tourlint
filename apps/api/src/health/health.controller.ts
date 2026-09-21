@@ -1,8 +1,9 @@
 import { kstIso } from '@tourlint/shared';
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Optional, Res } from '@nestjs/common';
 import { Client } from 'pg';
 import { Public } from '../auth/public.decorator';
 import { signupMailConfig } from '../auth/signup-email.sender';
+import { KtoReachability } from './kto-reachability';
 
 /**
  * `/health` — 애플리케이션 · DB · 설정 상태 확인 (NF-AV-004).
@@ -49,11 +50,19 @@ export function buildCommit(env: NodeJS.ProcessEnv = process.env): string | null
 
 type Check = 'ok' | 'missing' | 'unknown';
 
+/** 상태 코드만 쓴다. express 타입을 끌어오지 않으려고 좁혀 둔다 */
+interface StatusSetter {
+  status(code: number): unknown;
+}
+
 @Controller('health')
 export class HealthController {
+  /** 없으면(단위 테스트 · 픽스처 부팅) 공사 연결로 가르지 않는다 */
+  constructor(@Optional() private readonly reach?: KtoReachability) {}
+
   @Public()
   @Get()
-  async check(): Promise<Record<string, unknown>> {
+  async check(@Res({ passthrough: true }) res?: StatusSetter): Promise<Record<string, unknown>> {
     const started = Date.now();
     const url = process.env.DATABASE_URL;
 
@@ -106,8 +115,18 @@ export class HealthController {
      */
     const mode = process.env.KTO_MODE === 'fixture' ? 'fixture' : 'live';
 
+    /*
+     * **공사에 닿는가** (#700). 키가 있는 것과 닿는 것은 다르다 — 2026-09-21 에 새 컨테이너 다섯 중
+     * 둘이 키는 멀쩡한데 공사로 나가는 길이 막혀 있었다. 실호출 모드에서 아직 한 번도 못 닿았으면
+     * 503 을 준다. Railway 가 검사 시간 안에 200 을 못 받으면 배포를 실패로 두고 옛 컨테이너를
+     * 남긴다. 예열 결과가 나오기 전(`unknown`)도 503 이다 — 그 몇 초를 200 으로 흘리면 검사가 헛돈다.
+     */
+    const reachable = this.reach?.state ?? null;
+    const gated = mode === 'live' && ktoKey === 'ok' && reachable !== null && reachable !== 'ok';
+    if (gated) res?.status(HttpStatus.SERVICE_UNAVAILABLE);
+
     const ready = db === 'up' && schema === 'ok' && ktoKey === 'ok'
-      && kakaoKey === 'ok' && kmaKey === 'ok' && mode === 'live';
+      && kakaoKey === 'ok' && kmaKey === 'ok' && mode === 'live' && !gated;
 
     return {
       status: db === 'up' ? 'ok' : db === 'not-configured' ? 'ok' : 'degraded',
@@ -120,6 +139,8 @@ export class HealthController {
         tableCount,
         expectedTableCount: EXPECTED_TABLE_COUNT,
         ktoServiceKey: ktoKey,
+        // 부팅 예열이 공사에 닿았는가. 픽스처 모드 · 단위 테스트에서는 보지 않는다 (#700)
+        ktoReachable: reachable ?? 'not-checked',
         kakaoRestApiKey: kakaoKey,
         kmaServiceKey: kmaKey,
         llmApiKey: llmKey,
