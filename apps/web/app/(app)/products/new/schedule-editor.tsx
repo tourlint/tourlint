@@ -74,7 +74,7 @@ export function ScheduleEditor({
   return (
     <Section
       title="일정"
-      description="일차별로 방문 항목을 입력합니다. 종료시간을 비우면 중분류별 기본 체류시간이 적용됩니다. 「기준」을 누르면 근처 3km 장소를 볼 수 있습니다. 자연어·엑셀로 가져온 장소는 후보를 확인한 뒤 기준으로 연결됩니다."
+      description="일차별로 방문 항목을 입력합니다. 종료시간을 비우면 장소 종류별 기본 체류시간이 적용됩니다. 「기준」을 누르면 근처 3km 장소를 볼 수 있습니다. 자연어·엑셀로 가져온 장소는 후보를 확인한 뒤 기준으로 연결됩니다."
     >
       <div role="tablist" aria-label="일차 선택" className="flex flex-wrap gap-1">
         {Array.from({ length: days }, (_, d) => {

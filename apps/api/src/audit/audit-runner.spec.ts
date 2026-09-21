@@ -780,6 +780,42 @@ describe('R08 대체 후보는 앞 항목 주변에서 찾는다 (FR-RU-083 ③)
     expect(centers.length, '위치기반 조회를 안 했다').toBeGreaterThan(0);
     expect(centers[0]?.x).toBeCloseTo(GYEONGPO.x, 4);
     expect(centers[0]?.y).toBeCloseTo(GYEONGPO.y, 4);
+
+    // 거리를 앞 일정에서 쟀다고 payload 가 말한다 — 화면이 「앞 일정 ○○에서」 로 적는다 (#728)
+    const replaces = (first?.patches ?? []).filter((p) => p.type === 'REPLACE_CONTENT');
+    expect(replaces.length, '대체 후보가 안 나왔다').toBeGreaterThan(0);
+    for (const p of replaces) expect(p.payload).toMatchObject({ fromItemId: 1 });
+  });
+});
+
+describe('R04 대체 후보는 반복된 분류가 아닌 곳이다 (FR-RU-043 · #728)', () => {
+  it('🔴 같은 소분류가 몰렸다는 지적에 같은 소분류를 또 권하지 않는다', async () => {
+    const real = createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV);
+    const row = (id: string, l3: string, dist: string): Record<string, unknown> =>
+      ({ contentid: id, contenttypeid: '12', dist, mapx: '128.9', mapy: '37.8', lclsSystm2: l3.slice(0, 4), lclsSystm3: l3 });
+    const kto = {
+      ...real,
+      detailCommon: real.detailCommon.bind(real),
+      detailIntro: real.detailIntro.bind(real),
+      locationBasedList: async () => ({
+        items: [row('9001', 'NA020400', '100'), row('9002', 'HS010100', '800')], totalCount: 2,
+      }),
+    } as unknown as ReturnType<typeof createKtoClient>;
+
+    const beach = (id: number, contentId: string, start: string): ItineraryItemRow => item({
+      id, dayNo: 1, seq: id, startTime: start, endTime: `${start.slice(0, 2)}:50`, placeLabel: `해변 ${String(id)}`,
+      ktoContentId: contentId, contentTypeId: 12, lclsSystm1: 'NA', lclsSystm2: 'NA02', lclsSystm3: 'NA020400',
+      mapX: 128.9, mapY: 37.8,
+    });
+    const runner = new AuditRunner({ kto, clock });
+    const result = await runner.run(product, [beach(1, '125790', '09:00'), beach(2, '125769', '11:00'), beach(3, '2465063', '14:00')]);
+
+    const r04 = result.findings.find((f) => f.ruleCode === 'R04' && f.evidence.axis === 'lclsSystm3');
+    expect(r04, 'R04 소분류 편중이 안 났다').toBeDefined();
+    const ids = (r04?.patches ?? [])
+      .filter((p) => p.type === 'REPLACE_CONTENT')
+      .map((p) => (p.payload as { ktoContentId: string }).ktoContentId);
+    expect(ids).toEqual(['9002']);
   });
 });
 

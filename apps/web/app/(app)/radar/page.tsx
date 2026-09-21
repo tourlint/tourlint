@@ -226,7 +226,7 @@ export default function RadarPage() {
       </section>
 
       {/* 레이더 에이전트 — 오늘 할 일 정리 (FR-AG-030 · 031) */}
-      <TodayAgentCard />
+      <TodayAgentCard products={products} />
 
       {/* 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) */}
       <WatchAndNews onError={setError} automatic={summary?.nextBatchAt != null}
@@ -648,7 +648,7 @@ function formatStamp(iso: string): string {
 
 // ── 레이더 에이전트 — 오늘 할 일 (FR-AG-030 · 031) ────────────────────────────
 // 사람이 누를 때만 돈다. 서버가 정한 순서를 화면이 다시 정렬하지 않는다. 할 일마다 기존 버튼.
-function TodayAgentCard() {
+function TodayAgentCard({ products }: { products: ProductLite[] }) {
   const [brief, setBrief] = useState<TodayBrief | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -664,6 +664,12 @@ function TodayAgentCard() {
       setBusy(false);
     }
   }
+
+  // 관심 지역 할 일의 줄 머리에 적을 이름. 서버는 코드만 안다 (#724)
+  const regionNames = useRegionNames(
+    (brief?.todos ?? []).flatMap((t) => (t.region === null ? [] : [{ regnCd: t.region.regnCd, signguCd: t.region.signguCd }])),
+  );
+  const productNames = new Map(products.map((p) => [p.productId, p.name]));
 
   return (
     <section className="radar-today mt-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
@@ -686,13 +692,11 @@ function TodayAgentCard() {
           ) : (
             <ul className="space-y-2">
               {brief.todos.map((t, i) => (
-                <TodoRow key={i} item={t} />
+                <TodoRow key={i} item={t} subject={todoSubject(t, productNames, regionNames)} />
               ))}
             </ul>
           )}
-          {brief.quiet.map((q) => (
-            <p key={q.productId} className="text-xs text-slate-400">{q.text}</p>
-          ))}
+          <QuietProducts lines={brief.quiet} />
           {brief.incomplete && (
             <p className="text-xs text-amber-600 dark:text-amber-400">일부만 정리했어요. 잠시 후 다시 시도해 주세요.</p>
           )}
@@ -702,7 +706,42 @@ function TodayAgentCard() {
   );
 }
 
-function TodoRow({ item }: { item: TodayItem }) {
+/**
+ * 할 일 줄 머리 — 어느 상품 · 어느 지역의 일인지 (#724).
+ *
+ * 이유 문장은 AI 가 쓰고 이름은 화면이 적는다. 관심 지역은 서버가 코드만 알아(0콜) 문장에
+ * 지역이 빠졌었다. 이름을 못 찾으면 비운다 — 코드나 번호를 그대로 보이지 않는다.
+ */
+export function todoSubject(
+  item: TodayItem,
+  productNames: ReadonlyMap<number, string>,
+  regionNames: RegionNameMaps,
+): string | null {
+  if (item.productId !== null) return productNames.get(item.productId) ?? null;
+  if (item.region === null) return null;
+  const month = Number(item.region.month.slice(5, 7));
+  const name = regionLabel(regionNames, item.region.regnCd, item.region.signguCd);
+  return Number.isInteger(month) && month >= 1 ? `${name} · ${String(month)}월` : name;
+}
+
+/**
+ * 바뀐 정보가 없는 상품 (FR-AG-031). 한 줄씩이지만 상품이 많으면 할 일이 묻혀서 접어 둔다.
+ */
+export function QuietProducts({ lines }: { lines: { productId: number; text: string }[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <details className="text-xs text-slate-400" data-quiet-products>
+      <summary className="cursor-pointer select-none">바뀐 정보가 없는 상품 {lines.length}개</summary>
+      <div className="mt-1 space-y-1">
+        {lines.map((q) => (
+          <p key={q.productId}>{q.text}</p>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+export function TodoRow({ item, subject }: { item: TodayItem; subject: string | null }) {
   const href =
     item.action === "REAUDIT" && item.productId !== null
       ? `/products/${item.productId}`
@@ -712,7 +751,10 @@ function TodoRow({ item }: { item: TodayItem }) {
   const label = item.action === "REAUDIT" ? "다시 검수" : "이 지역으로 새 상품 기획";
   return (
     <li className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-      <span className="text-sm text-slate-700 dark:text-slate-200">{item.reason}</span>
+      <span className="text-sm text-slate-700 dark:text-slate-200">
+        {subject !== null && <span className="mr-2 font-semibold text-slate-900 dark:text-slate-100" data-todo-subject>{subject}</span>}
+        {item.reason}
+      </span>
       <Link href={href} className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
         {label}
       </Link>

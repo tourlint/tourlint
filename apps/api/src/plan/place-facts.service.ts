@@ -180,6 +180,9 @@ export function previousItem(items: readonly PlanItem[], item: PlanItem): PlanIt
   return sameDay.length === 0 ? null : (sameDay[sameDay.length - 1] ?? null);
 }
 
+/** 숙박 소개정보의 두 시각이 각각 무엇인지 */
+const STAY_LABEL: Readonly<Record<string, string>> = { checkintime: '입실', checkouttime: '퇴실' };
+
 /** 소개정보 응답 → 화면에 그대로 적는 값들. 유형마다 필드 이름이 다르다 (외부 연동 3-3 분기표) */
 export function factFields(
   contentTypeId: number | null,
@@ -191,8 +194,12 @@ export function factFields(
   const feeParking = known ? FEE_PARKING[type] : null;
 
   return {
-    // 숙박은 입실 · 퇴실 두 값을 함께 적는다
-    hours: joinText((intoFields?.use ?? []).map((field) => text(intro[field]))),
+    // 숙박은 입실 · 퇴실 두 값을 함께 적는다. 무엇인지 붙이지 않으면 「이용시간 15:00 · 11:00」 이 된다 (#730)
+    hours: joinText((intoFields?.use ?? []).map((field) => {
+      const value = text(intro[field]);
+      const label = STAY_LABEL[field];
+      return value === null || label === undefined ? value : `${label} ${value}`;
+    })),
     restDays: intoFields?.rest === null || intoFields?.rest === undefined ? null : text(intro[intoFields.rest]),
     fee: feeParking?.fee === null || feeParking?.fee === undefined ? null : text(intro[feeParking.fee]),
     parking: feeParking?.parking === null || feeParking?.parking === undefined ? null : text(intro[feeParking.parking]),

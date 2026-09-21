@@ -567,7 +567,11 @@ export class AuditRunner {
 
     if (wantsReplacement && target !== undefined) {
       return {
-        patches: await proposeReplacements(target, { kto: this.kto, knownConfidence, center }, startIndex),
+        patches: await proposeReplacements(target, {
+          kto: this.kto, knownConfidence, center,
+          ...(center === undefined || origin === undefined ? {} : { centerItemId: origin.id }),
+          ...avoidOf(finding, r04Target !== null),
+        }, startIndex),
         spent: 1,
       };
     }
@@ -937,6 +941,17 @@ function daysUntil(today: string, target: string): number | null {
 }
 
 /** 공사는 `YYYYMMDD` 로 준다. 스키마 표기 `YYYY-MM-DD` 로 옮긴다 */
+/** R04 가 지목한 반복 묶음 → 대체 후보에서 뺄 키. 근거가 비어 있으면 빼지 않는다 */
+function avoidOf(
+  finding: Finding,
+  isR04: boolean,
+): { avoid?: { axis: 'contentTypeId' | 'lclsSystm3'; key: string } } {
+  if (!isR04) return {};
+  const { axis, key } = finding.evidence;
+  if ((axis !== 'contentTypeId' && axis !== 'lclsSystm3') || typeof key !== 'string' || key === '') return {};
+  return { avoid: { axis, key } };
+}
+
 function readEventPeriod(intro: Record<string, unknown>): { start: string | null; end: string | null } {
   return { start: toIsoDate(intro.eventstartdate), end: toIsoDate(intro.eventenddate) };
 }

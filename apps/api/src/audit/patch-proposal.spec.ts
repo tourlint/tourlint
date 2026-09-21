@@ -279,6 +279,94 @@ describe('대체 후보 정렬 (FR-PA-003)', () => {
   });
 });
 
+describe('대체 후보의 종류 (#728)', () => {
+  const row = (id: string, type: string, dist: string, l2: string, l3 = ''): Record<string, unknown> =>
+    ({ contentid: id, contenttypeid: type, dist, mapx: '128.9', mapy: '37.8', lclsSystm2: l2, lclsSystm3: l3 });
+  /** 목록 한 장만 돌려주는 공사 클라이언트. 무엇으로 불렀는지 남긴다 */
+  const listing = (rows: readonly Record<string, unknown>[]) => {
+    const seen: Record<string, unknown>[] = [];
+    const kto = {
+      locationBasedList: async (params: Record<string, unknown>) => {
+        seen.push(params);
+        return { items: rows, totalCount: rows.length };
+      },
+    } as unknown as ReturnType<typeof createKtoClient>;
+    return { kto, seen };
+  };
+  const meal = (): AuditItem => ({
+    ...item({ type: 'MEAL', label: '점심' }),
+    lclsSystm2: 'FD01',
+    content: { ktoContentId: '500', contentTypeId: 39, normalized: null, showFlag: 1, eventPeriod: null, changeVerdict: null },
+  });
+
+  it('🔴 ①-2 같은 중분류가 가까운 다른 중분류보다 먼저다 — 한식당의 대체는 한식당부터', () => {
+    const ranked = rankCandidates([row('1', '39', '100', 'FD02'), row('2', '39', '500', 'FD01')], meal(), new Map());
+    expect(ranked.map((c) => c.ktoContentId)).toEqual(['2', '1']);
+  });
+
+  it('대상의 중분류를 모르면 종전대로 가까운 순이다', () => {
+    const unknown = { ...meal(), lclsSystm2: null };
+    const ranked = rankCandidates([row('1', '39', '100', 'FD02'), row('2', '39', '500', 'FD01')], unknown, new Map());
+    expect(ranked.map((c) => c.ktoContentId)).toEqual(['1', '2']);
+  });
+
+  it('🔴 식사 자리에는 카페 · 찻집과 주점을 권하지 않는다', async () => {
+    const { kto } = listing([row('1', '39', '50', 'FD05'), row('2', '39', '80', 'FD04'), row('3', '39', '900', 'FD03')]);
+    const patches = await proposeReplacements(meal(), { kto });
+    expect(patches.map((p) => (p.payload as { ktoContentId: string }).ktoContentId)).toEqual(['3']);
+  });
+
+  it('원래 카페였던 식사 항목은 카페로 바꿀 수 있다', async () => {
+    const cafe = { ...meal(), lclsSystm2: 'FD05' };
+    const { kto } = listing([row('1', '39', '50', 'FD05')]);
+    expect(await proposeReplacements(cafe, { kto })).toHaveLength(1);
+  });
+
+  it('관광 항목은 카페를 막지 않는다 — 식사 자리만의 규칙이다', async () => {
+    const { kto } = listing([row('1', '12', '50', 'FD05')]);
+    expect(await proposeReplacements(item(), { kto })).toHaveLength(1);
+  });
+
+  it('🔴 R04 소분류 축 — 반복된 소분류와 같은 곳 · 소분류를 모르는 곳은 뺀다', async () => {
+    const { kto, seen } = listing([
+      row('1', '12', '100', 'NA02', 'NA020400'),
+      row('2', '12', '200', 'NA02', ''),
+      row('3', '12', '900', 'HS01', 'HS010100'),
+    ]);
+    const patches = await proposeReplacements(item(), { kto, avoid: { axis: 'lclsSystm3', key: 'NA020400' } });
+    expect(patches.map((p) => (p.payload as { ktoContentId: string }).ktoContentId)).toEqual(['3']);
+    // 소분류 축은 같은 유형 안에서 찾는다
+    expect(seen[0]).toMatchObject({ contentTypeId: 12 });
+  });
+
+  it('🔴 R04 유형 축 — 유형 제한 없이 조회해 다른 관광 유형만 남긴다', async () => {
+    const { kto, seen } = listing([
+      row('1', '12', '100', 'NA02', 'NA020400'),
+      row('2', '39', '150', 'FD01', 'FD010100'),
+      row('3', '32', '200', 'AC03', 'AC030100'),
+      row('4', '14', '700', 'VE07', 'VE070100'),
+    ]);
+    const patches = await proposeReplacements(item(), { kto, avoid: { axis: 'contentTypeId', key: '12' } });
+    expect(patches.map((p) => (p.payload as { ktoContentId: string }).ktoContentId)).toEqual(['4']);
+    expect(seen[0]).not.toHaveProperty('contentTypeId');
+  });
+
+  it('🔴 앞 일정에서 찾았으면 payload 에 기준 항목을 싣는다 — 거리가 어디서부터인지 (R08)', async () => {
+    const { kto } = listing([row('1', '12', '400', 'NA02')]);
+    const [fromPrev] = await proposeReplacements(item(), { kto, center: { x: 128.9, y: 37.8 }, centerItemId: 77 });
+    expect(fromPrev?.payload).toMatchObject({ distanceMeters: 400, fromItemId: 77 });
+    const [fromSelf] = await proposeReplacements(item(), { kto });
+    expect(fromSelf?.payload).not.toHaveProperty('fromItemId');
+  });
+
+  it('화장실은 대체 장소로도 권하지 않는다', async () => {
+    const { kto } = listing([{ ...row('1', '12', '50', 'VE01'), title: '강문해변화장실' }, row('2', '12', '300', 'VE01')]);
+    const patches = await proposeReplacements(item(), { kto });
+    expect(patches.map((p) => (p.payload as { ktoContentId: string }).ktoContentId)).toEqual(['2']);
+    expect(JSON.stringify(patches)).not.toContain('화장실');
+  });
+});
+
 describe('대체 관광지 탐색', () => {
   const kto = (): ReturnType<typeof createKtoClient> => createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV);
 
