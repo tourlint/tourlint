@@ -429,7 +429,15 @@ import { SettingsRepository } from './settings/settings.repository';
     UsageService,
     // 지역 코드를 이름으로 바꾸는 데 CatalogService 를 쓴다 (fixture 리플레이라 예산 0)
     ReportService,
-    NotificationService,
+    {
+      // 알림 카드의 이름은 저장하지 않고 볼 때 읽는다 (UI-S7-003 · DB 명세서 6-4 · #685)
+      provide: NotificationService,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        return new NotificationService(pool, new PlaceNameResolver({ kto: () => createKtoClient(logs) }));
+      },
+      inject: [DB_POOL],
+    },
     RadarService,
   ],
 })

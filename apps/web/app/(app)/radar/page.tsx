@@ -330,7 +330,13 @@ export function NotificationCard({ notification: n, onDismiss }: { notification:
         <span className="text-xs text-slate-400">{n.startDate} 출발</span>
       </div>
 
-      {/* 바뀐 것과 해당 일정을 먼저 보인다 (UI-S7-003) */}
+      {/* 바뀐 것과 해당 일정을 먼저 보인다 (UI-S7-003). 이름이 없으면 어느 곳 이야기인지 알 수 없다 (#685) */}
+      {n.placeName && (
+        <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-50" data-place-name>
+          <span className="mr-1.5 text-xs font-medium text-slate-400">{n.kind === "RISK" ? "바뀐 곳" : "새로 생긴 곳"}</span>
+          {n.placeName}
+        </p>
+      )}
       <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{n.what}</p>
 
       <dl className="mt-2 space-y-1 text-xs">

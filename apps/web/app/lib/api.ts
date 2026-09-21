@@ -715,6 +715,8 @@ export interface RadarNotification {
   productName: string;
   startDate: string;
   ktoContentId: string;
+  // 바뀐 곳 · 새로 생긴 곳의 이름. 서버가 볼 때 읽어 준다 — 못 읽었거나 표출이 중단된 곳은 null (UI-S7-003)
+  placeName: string | null;
   what: string;
   impact: string;
   action: string;
