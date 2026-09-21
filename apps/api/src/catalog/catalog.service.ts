@@ -53,16 +53,18 @@ export class CatalogService {
    * 않는다. **걸린 시간을 남긴다:** 운영에서 공사로 나가는 길이 느린 것인지 막힌 것인지는
    * 이 숫자로만 갈린다. 실패해도 던지지 않는다. 부팅을 막을 일이 아니다.
    */
-  async warm(log: (line: string) => void, backoffMs = BACKOFF_MS): Promise<void> {
+  /** @returns 공사에 한 번이라도 닿았는가. `/health` 가 이 값으로 배포 검사를 가른다 (#700) */
+  async warm(log: (line: string) => void, backoffMs = BACKOFF_MS): Promise<boolean> {
     const kto = this.warmFactory();
-    await this.warmOne(log, backoffMs, '지역 코드', async () => {
+    const regions = await this.warmOne(log, backoffMs, '지역 코드', async () => {
       this.regionsCache = toCodeItems((await kto.ldongCode()).items);
       return this.regionsCache.length;
     });
-    await this.warmOne(log, backoffMs, '분류 코드', async () => {
+    const categories = await this.warmOne(log, backoffMs, '분류 코드', async () => {
       this.categoriesCache = toCodeItems((await kto.lclsSystmCode()).items);
       return this.categoriesCache.length;
     });
+    return regions || categories;
   }
 
   private async warmOne(
@@ -70,19 +72,20 @@ export class CatalogService {
     backoffMs: number,
     label: string,
     run: () => Promise<number>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     for (let attempt = 1; attempt <= WARM_ATTEMPTS; attempt += 1) {
       const started = Date.now();
       try {
         const count = await run();
         log(`${label} 예열 ${count}건 · ${Date.now() - started}ms · ${attempt}번째 시도`);
-        return;
+        return true;
       } catch (e) {
         // 시도마다 남긴다 — 걸린 시간이 느린 길과 막힌 길을 가른다
         log(`${label} 예열 ${attempt}번째 실패 · ${Date.now() - started}ms · ${e instanceof Error ? e.message : String(e)}`);
         if (attempt < WARM_ATTEMPTS) await sleep(backoffMs * attempt);
       }
     }
+    return false;
   }
 
   /**

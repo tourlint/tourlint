@@ -91,7 +91,8 @@ describe('공사가 답하지 않을 때 (#662)', () => {
     const { make, warm, transport } = flaky(0);
     const svc = new CatalogService(make, warm);
     const lines: string[] = [];
-    await svc.warm((line) => lines.push(line), 1);
+    // 닿았다고 답한다 — /health 가 이 값으로 배포 검사를 가른다 (#700)
+    expect(await svc.warm((line) => lines.push(line), 1)).toBe(true);
     const before = transport.calls;
     await svc.regions();
     await svc.categories();
@@ -103,7 +104,8 @@ describe('공사가 답하지 않을 때 (#662)', () => {
   it('예열이 끝내 실패해도 부팅을 막지 않는다 — 실패를 한 줄로 남긴다', async () => {
     const lines: string[] = [];
     const dead = flaky(99);
-    await new CatalogService(dead.make, dead.warm).warm((line) => lines.push(line), 1);
+    // 끝내 못 닿았다고 답한다 (#700)
+    expect(await new CatalogService(dead.make, dead.warm).warm((line) => lines.push(line), 1)).toBe(false);
     expect(lines.join(' ')).toMatch(/지역 코드 예열 3번째 실패/);
     expect(lines.join(' ')).toMatch(/시간 초과/);
   });
