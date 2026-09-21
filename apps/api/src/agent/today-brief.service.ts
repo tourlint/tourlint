@@ -33,8 +33,13 @@ const SYSTEM = [
   '너는 여행 상품 담당자의 오늘 할 일을 한 줄씩 정리해 주는 도우미다.',
   `${CANDIDATES_TOOL} 로 할 일 후보와, 할 일이 없는 상품을 받는다.`,
   '후보마다 key 를 그대로 두고 reason 한 줄만 쓴다. 순서를 바꾸거나 후보를 더하거나 빼지 않는다.',
-  '이유는 도구가 준 값(바뀐 곳 수 · 이름 · 관측 건수 · 달)으로만 쓴다. 판정 · 등급 · 점수 · 예측을 쓰지 않는다.',
-  '할 일이 없는 상품에는 바뀐 정보가 없다는 한 줄을 쓴다.',
+  '이유는 도구가 준 값으로만 쓴다. 판정 · 등급 · 점수 · 예측을 쓰지 않는다.',
+  '할 일의 상품 이름 · 지역 이름 · 달은 화면이 줄 머리에 따로 적는다. reason 에 다시 쓰지 않는다.',
+  'kind 가 CHANGE 면 담은 곳 changedCount 곳의 관광정보가 바뀐 것이다. changedPlaces 에 이름이 있으면 그 이름을 적는다.',
+  'newPlaceCount 는 새로 등록된 곳의 수다. 바뀐 것이 아니므로 「바뀌었다」고 쓰지 않고 「새로 등록된 곳이 N곳 있습니다」 처럼 쓴다.',
+  'kind 가 NEWS 면 관심 지역에 최근 새로 등록된 곳이 newPlaceCount 곳 있다는 뜻이다. 뉴스 · 기사 · 관측이라는 말로 바꾸지 않는다.',
+  'matchedKeywords 가 있으면 관심 키워드와 맞는 곳이 있다고 덧붙인다.',
+  '할 일이 없는 상품에는 상품 이름과 함께 바뀐 정보가 없다는 한 줄을 쓴다. newPlaceCount 가 있으면 새로 등록된 곳이 그만큼 있다고 덧붙인다.',
 ].join('\n');
 
 const RESULT_SCHEMA = {
@@ -123,20 +128,21 @@ export class TodayBriefService {
       this.radar.lastBatchAt(),
     ]);
     const basisAt = kstIso(lastBatchAt ?? now);
-    const { candidates, quiet } = buildCandidates(products, changes.rows, regions);
+    const { candidates, quiet, newPlaces } = buildCandidates(products, changes.rows, regions);
     // 볼 상품도 관심 지역도 없으면 모델을 부르지 않는다
     if (candidates.length === 0 && quiet.length === 0) {
       return { basisAt, todos: [], quiet: [], incomplete: null };
     }
 
     return this.lock.runExclusive(accountId, 'TODAY_BRIEF', async () =>
-      this.run(basisAt, candidates, quiet));
+      this.run(basisAt, candidates, quiet, newPlaces));
   }
 
   private async run(
     basisAt: string,
     candidates: readonly BriefCandidate[],
     quietProducts: readonly BriefProduct[],
+    newPlaces: ReadonlyMap<number, number>,
   ): Promise<TodayBriefResult> {
     let runner: AgentRunner;
     try {
@@ -149,7 +155,7 @@ export class TodayBriefService {
       purpose: 'TODAY_BRIEF',
       system: SYSTEM,
       input: describe(candidates, quietProducts),
-      tools: [candidatesTool(candidates, quietProducts)],
+      tools: [candidatesTool(candidates, quietProducts, newPlaces)],
       resultSchema: RESULT_SCHEMA,
       // 도구는 후보 목록 하나뿐이다. 두 번 부를 일이 없다
       maxToolCalls: 2,
@@ -206,7 +212,12 @@ export function buildCandidates(
   products: readonly BriefProduct[],
   changes: readonly ChangeRow[],
   regions: readonly Record<string, unknown>[],
-): { candidates: readonly BriefCandidate[]; quiet: readonly BriefProduct[] } {
+): {
+  candidates: readonly BriefCandidate[];
+  quiet: readonly BriefProduct[];
+  /** 조용한 상품에 온 새 소식 수. 없으면 키가 없다 */
+  newPlaces: ReadonlyMap<number, number>;
+} {
   const byProduct = new Map<number, ChangeRow[]>();
   for (const change of changes) {
     byProduct.set(change.productId, [...(byProduct.get(change.productId) ?? []), change]);
@@ -214,10 +225,18 @@ export function buildCandidates(
 
   const candidates: BriefCandidate[] = [];
   const quiet: BriefProduct[] = [];
+  const newPlaces = new Map<number, number>();
   for (const product of products) {
-    const changed = byProduct.get(product.productId) ?? [];
+    const rows = byProduct.get(product.productId) ?? [];
+    /*
+     * **새 소식(조건 4 ~ 6)은 바뀐 곳이 아니다.** 같이 세면 새로 등록된 곳 2건이 「2곳이
+     * 바뀌었습니다 · 다시 검수」 가 된다 (#724). 새 소식만 있는 상품은 다시 검수할 일이 없다.
+     */
+    const changed = rows.filter(isChange);
+    const added = rows.length - changed.length;
     if (changed.length === 0) {
       quiet.push(product);
+      if (added > 0) newPlaces.set(product.productId, added);
       continue;
     }
     candidates.push({
@@ -232,7 +251,8 @@ export function buildCandidates(
         released: product.released,
         changedCount: changed.length,
         // 사용자가 입력한 장소명이다. 공사 원문이 아니다 (DR-PR-001)
-        places: [...new Set(changed.map((c) => c.placeLabel).filter((p): p is string => p !== null))].slice(0, 5),
+        changedPlaces: [...new Set(changed.map((c) => c.placeLabel).filter((p): p is string => p !== null))].slice(0, 5),
+        ...(added > 0 ? { newPlaceCount: added } : {}),
       },
     });
   }
@@ -246,11 +266,17 @@ export function buildCandidates(
       productId: null,
       region: { regnCd: news.region.regnCd, signguCd: news.region.signguCd, month: news.region.month },
       action: 'NEW_PLAN',
-      facts: { month: news.region.month, count: news.count, keywords: news.keywords },
+      // 지역 이름은 싣지 않는다. 0콜로는 코드밖에 모른다 — 화면이 이름으로 바꿔 줄 머리에 적는다
+      facts: { newPlaceCount: news.count, matchedKeywords: news.keywords },
     });
   }
 
-  return { candidates, quiet };
+  return { candidates, quiet, newPlaces };
+}
+
+/** 조건 1 ~ 3 과 표출 중단이 「바뀐 정보」 다. 4 ~ 6 은 새 소식이다 (FR-MO-030 ~ 035) */
+function isChange(row: ChangeRow): boolean {
+  return row.hidden || row.condition <= 3;
 }
 
 /**
@@ -287,7 +313,11 @@ function toRegionNews(row: Record<string, unknown>): {
 }
 
 /** 후보 목록 도구. 공사를 부르지 않는다 — 상품 번호를 증거로 적는다 */
-function candidatesTool(candidates: readonly BriefCandidate[], quiet: readonly BriefProduct[]): AgentTool {
+function candidatesTool(
+  candidates: readonly BriefCandidate[],
+  quiet: readonly BriefProduct[],
+  newPlaces: ReadonlyMap<number, number>,
+): AgentTool {
   return {
     spec: {
       name: CANDIDATES_TOOL,
@@ -301,7 +331,10 @@ function candidatesTool(candidates: readonly BriefCandidate[], quiet: readonly B
       for (const product of quiet) evidence.add('productId', product.productId);
       return JSON.stringify({
         todos: candidates.map((c) => ({ key: c.key, kind: c.kind, ...c.facts })),
-        quiet: quiet.map((p) => ({ productId: p.productId, product: p.name, startDate: p.startDate })),
+        quiet: quiet.map((p) => ({
+          productId: p.productId, product: p.name, startDate: p.startDate,
+          ...(newPlaces.has(p.productId) ? { newPlaceCount: newPlaces.get(p.productId) } : {}),
+        })),
       });
     },
   };
