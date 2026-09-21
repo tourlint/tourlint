@@ -63,6 +63,34 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
     ...over,
   } as never);
 
+  describe('표출 중단으로 기록된 콘텐츠 (#745 · EI-KT-012)', () => {
+    const hiddenBody = (hidden: boolean): Record<string, unknown> =>
+      ({ condition: 1, contentTypeId: '12', modifiedTime: '20260828090000', hidden });
+
+    it('🔴 가장 최근 기록이 표출 중단인 곳만 준다 — 다시 표출된 곳과 남의 상품 것은 아니다', async () => {
+      await repo.insertMany([
+        save({ ktoContentId: '700001', changeKey: 'MT:1', body: hiddenBody(true) }),
+        save({ ktoContentId: '700002', changeKey: 'MT:1', body: hiddenBody(true) }),
+        save({ ktoContentId: '700003', changeKey: 'MT:1', body: hiddenBody(false) }),
+      ]);
+      // 700002 는 그 뒤 다시 표출됐다
+      await pool.query(`UPDATE notification SET created_at = now() - interval '1 day' WHERE product_id = $1`, [productId]);
+      await repo.insertMany([save({ ktoContentId: '700002', changeKey: 'MT:2', body: hiddenBody(false) })]);
+
+      expect([...(await repo.hiddenContentIds(productId))]).toEqual(['700001']);
+    });
+
+    it('무시한 알림이어도 센다 — 표출 중단은 무시해도 차단이다', async () => {
+      await repo.insertMany([save({ ktoContentId: '700001', changeKey: 'MT:1', body: hiddenBody(true) })]);
+      await pool.query(`UPDATE notification SET dismissed_at = now() WHERE product_id = $1`, [productId]);
+      expect((await repo.hiddenContentIds(productId)).has('700001')).toBe(true);
+    });
+
+    it('기록이 없으면 빈 집합이다', async () => {
+      expect((await repo.hiddenContentIds(productId)).size).toBe(0);
+    });
+  });
+
   describe('중복 방지 (FR-MO-036)', () => {
     it('🔴 지문이 없는 알림도 막힌다 — 조건 2 · 3 (DB 명세서 v1.7)', async () => {
       /*

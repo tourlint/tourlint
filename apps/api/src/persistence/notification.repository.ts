@@ -27,6 +27,28 @@ export class NotificationRepository {
   constructor(private readonly pool: Pool) {}
 
   /**
+   * 그 상품에서 **가장 최근 기록이 표출 중단인** 콘텐츠 (#745).
+   *
+   * 검수는 표출 중단을 직접 볼 수 없다 — 상세 조회에 `showflag` 가 없다(EI-KT-012). 배치가
+   * `areaBasedSyncList2` 에서 읽어 알림 본문에 남긴 `hidden` 이 유일한 기록이다. 같은 곳이 다시
+   * 표출되면 그 뒤 알림의 `hidden` 은 false 라 최신 한 건만 본다. 무시한 알림도 센다 — 표출
+   * 중단은 무시해도 차단이다 (FR-MO-044).
+   */
+  async hiddenContentIds(productId: number): Promise<ReadonlySet<string>> {
+    const { rows } = await this.pool.query<{ kto_content_id: string }>(
+      `SELECT kto_content_id FROM (
+         SELECT DISTINCT ON (n.kto_content_id) n.kto_content_id, n.body
+           FROM notification n
+          WHERE n.product_id = $1 AND n.kto_content_id IS NOT NULL
+          ORDER BY n.kto_content_id, n.created_at DESC, n.id DESC
+       ) latest
+        WHERE (latest.body->>'hidden')::boolean IS TRUE`,
+      [productId],
+    );
+    return new Set(rows.map((r) => r.kto_content_id));
+  }
+
+  /**
    * 알림을 넣는다. **같은 콘텐츠의 같은 변경은 다시 넣지 않는다** (FR-MO-036).
    *
    * `uq_notif_change (product_id, kto_content_id, change_key)` 가 DB 에서 막고, 여기서는
