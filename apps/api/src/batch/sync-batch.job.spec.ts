@@ -707,6 +707,34 @@ describe('지문 비교 — 판정 무관 변경은 안 알린다 (FR-MO-036 · 
     expect(s.audited).toEqual([]);
   });
 
+  it('🔴 조건 1 에서 넘긴 상품을 같은 콘텐츠의 조건 2 · 3 이 다시 잡지 않는다 (#704)', async () => {
+    /*
+     * 2026-09-21 운영: 여수 상품의 일정에 든 불꽃축제가 지문은 그대로라 조건 1 에서 넘어갔는데,
+     * 바로 뒤 조건 3 이 같은 행사로 같은 상품에 「행사 정보가 바뀌었습니다」 를 만들었다.
+     * 일정에 없는 상품(9)은 지금처럼 조건 3 으로 걸려야 한다.
+     */
+    const festival = { eventstartdate: '20260905', eventenddate: '20260915' };
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'c1', contenttypeid: '15' })] });
+    const mine = candidate({ productId: 7, startDate: '2026-09-10', nights: 1 });
+    const theirs = candidate({ productId: 9, startDate: '2026-09-10', nights: 1 });
+    const notif = stubNotifications({ withContent: { c1: [mine] }, watched: [mine, theirs] });
+
+    const result = await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async () => festival,
+      previousFingerprints: async (productId) =>
+        productId === 7
+          ? new Map([['c1', {
+            ...buildContentFingerprint({ contentTypeId: 15, raw: festival }),
+            showFlag: 1 as const, ktoModifiedTime: '20260101000000',
+          }]])
+          : new Map(),
+    }).run();
+
+    expect(result.impacts).toEqual([{ productId: 9, condition: 3, kind: 'RISK' }]);
+  });
+
   it('🔴 판정 필드가 바뀌면 알리고 지문 두 개를 함께 남긴다', async () => {
     const before = intro({ usetime: '10:00~17:00' });
     const s = setup(async () => new Map([['c1', snapshot(before)]]));
