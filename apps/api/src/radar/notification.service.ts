@@ -1,5 +1,5 @@
 import { kstIso } from '@tourlint/shared';
-import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { DomainException } from '../common/domain.exception';
 import { DB_POOL } from '../persistence/db';
@@ -19,18 +19,28 @@ import { isDismissable, notificationCopy } from './notification-copy';
  * **아무것도 새로 판정하지 않는다.** 조건 판정은 배치가 이미 끝냈고, 여기서는 저장된
  * 것을 계정 범위로 읽어 문구를 붙일 뿐이다.
  */
+/**
+ * 바뀐 곳의 이름을 **표시할 때** 읽는 길. `PlaceNameResolver` 가 이 모양이다.
+ * 공사 원문은 저장하지 않으므로(DB 명세서 6-4) 알림에도 이름 컬럼이 없다.
+ */
+export interface PlaceNameSource {
+  resolve(contentIds: readonly string[]): Promise<ReadonlyMap<string, string>>;
+}
+
 @Injectable()
 export class NotificationService {
   private readonly repo: NotificationRepository;
+  private readonly logger = new Logger(NotificationService.name);
 
-  constructor(@Inject(DB_POOL) pool: Pool) {
+  constructor(@Inject(DB_POOL) pool: Pool, private readonly names?: PlaceNameSource) {
     this.repo = new NotificationRepository(pool);
   }
 
   async list(accountId: number, filter: NotificationFilter): Promise<Record<string, unknown>> {
     const page = await this.repo.listFor(accountId, filter);
+    const names = await this.placeNames(page.rows);
     return {
-      content: page.rows.map(toResponse),
+      content: page.rows.map((n) => toResponse(n, names)),
       page: filter.page,
       size: filter.size,
       totalElements: page.total,
@@ -39,6 +49,29 @@ export class NotificationService {
   }
 
   /** 확인 처리 (FR-CM-005) */
+  /**
+   * 카드에 보일 이름 (UI-S7-003 · #685). 「행사 정보가 바뀌었습니다」만으로는 어느 행사인지 모른다.
+   *
+   * **표출이 중단된 곳은 묻지 않는다** — 명칭을 다시 내보내지 않는다 (FR-AU-071). 공사도 그
+   * 콘텐츠를 더는 돌려주지 않는다.
+   *
+   * **못 읽어도 목록은 나간다.** 이름은 덧붙이는 값이다. 예산이 다 찼거나 공사가 느리다고
+   * 알림 자체를 못 보면 안 된다 — 그때는 지금처럼 문장만 보인다.
+   */
+  private async placeNames(rows: readonly StoredNotification[]): Promise<ReadonlyMap<string, string>> {
+    if (this.names === undefined) return new Map();
+    const ids = rows.filter((n) => !hiddenOf(n) && n.ktoContentId !== null && n.ktoContentId !== '')
+      .map((n) => n.ktoContentId as string);
+    if (ids.length === 0) return new Map();
+    try {
+      return await this.names.resolve(ids);
+    } catch (e) {
+      // 콘텐츠 id 와 사유만 남긴다. 응답 본문은 남기지 않는다 (DB 명세서 6-4)
+      this.logger.warn(`알림 ${String(ids.length)}건의 이름을 못 읽었다: ${(e as Error).message}`);
+      return new Map();
+    }
+  }
+
   async markRead(id: number, accountId: number): Promise<Record<string, unknown>> {
     const readAt = await this.repo.markRead(id, accountId);
     if (readAt === null) throw notFound();
@@ -80,7 +113,7 @@ function hiddenOf(n: StoredNotification): boolean {
  * 관광지명을 담지 않는다 — 공사 원문이라 저장하지도 내보내지도 않는다 (FR-MO-002).
  * 화면은 `ktoContentId` 로 자기 일정의 `placeLabel` 을 찾아 붙인다.
  */
-function toResponse(n: StoredNotification): Record<string, unknown> {
+function toResponse(n: StoredNotification, names: ReadonlyMap<string, string>): Record<string, unknown> {
   const hidden = hiddenOf(n);
   const copy = notificationCopy(n.condition, hidden);
   return {
@@ -91,6 +124,8 @@ function toResponse(n: StoredNotification): Record<string, unknown> {
     productName: n.productName,
     startDate: n.startDate,
     ktoContentId: n.ktoContentId,
+    // 표시 시점에 읽은 이름. 못 읽었거나 표출이 중단된 곳은 null 이다
+    placeName: hidden || n.ktoContentId === null ? null : (names.get(n.ktoContentId) ?? null),
     what: copy.what,
     impact: copy.impact,
     action: copy.action,
