@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildCommit, EXPECTED_TABLE_COUNT, HealthController } from './health.controller';
+import { KtoReachability, RETRY_FAST_MS, RETRY_FAST_TIMES, RETRY_SLOW_MS, retryDelayMs } from './kto-reachability';
 
 /**
  * `/health` 는 **배포 후 확인 목록**이다. 값이 아니라 상태만 말한다.
@@ -31,6 +32,97 @@ describe('HealthController', () => {
     expect(serialized).not.toContain('SUPER-SECRET');
     // 있고 없고만 말한다
     expect((body.checks as Record<string, unknown>).ktoServiceKey).toBe('ok');
+  });
+
+  describe('공사에 닿는가 — 못 닿는 컨테이너는 배포 검사를 통과하지 못한다 (#700)', () => {
+    const noSleep = (): Promise<void> => Promise.resolve();
+    function statusSpy(): { status: (code: number) => void; code: number | null } {
+      const spy = { code: null as number | null, status: (code: number): void => { spy.code = code; } };
+      return spy;
+    }
+
+    it('🔴 실호출 모드에서 예열이 실패했으면 503 이다', async () => {
+      process.env.KTO_SERVICE_KEY = 'k';
+      const reach = new KtoReachability();
+      let tries = 0;
+      // 첫 시도 실패 뒤 다시 시도를 멈춰 세운다 — 두 번째 sleep 에서 영영 기다린다
+      void reach.track(() => { tries += 1; return Promise.resolve(false); }, undefined, () => new Promise(() => undefined));
+      await Promise.resolve();
+      await Promise.resolve();
+      const res = statusSpy();
+      const body = await new HealthController(reach).check(res);
+      expect(tries).toBe(1);
+      expect(res.code).toBe(503);
+      expect(body.ready).toBe(false);
+      expect((body.checks as Record<string, unknown>).ktoReachable).toBe('failed');
+    });
+
+    it('🔴 예열 결과가 나오기 전에도 503 이다 — 그 몇 초를 200 으로 흘리면 검사가 헛돈다', async () => {
+      process.env.KTO_SERVICE_KEY = 'k';
+      const res = statusSpy();
+      await new HealthController(new KtoReachability()).check(res);
+      expect(res.code).toBe(503);
+    });
+
+    it('닿았으면 상태 코드를 건드리지 않는다', async () => {
+      process.env.KTO_SERVICE_KEY = 'k';
+      const reach = new KtoReachability();
+      await reach.track(() => Promise.resolve(true), undefined, noSleep);
+      const res = statusSpy();
+      const body = await new HealthController(reach).check(res);
+      expect(res.code).toBeNull();
+      expect((body.checks as Record<string, unknown>).ktoReachable).toBe('ok');
+    });
+
+    it('픽스처 모드 · 키가 없는 부팅은 공사 연결로 가르지 않는다 — 로컬과 CI 가 503 이면 안 된다', async () => {
+      process.env.KTO_SERVICE_KEY = 'k';
+      process.env.KTO_MODE = 'fixture';
+      const fixture = statusSpy();
+      await new HealthController(new KtoReachability()).check(fixture);
+      expect(fixture.code).toBeNull();
+
+      delete process.env.KTO_MODE;
+      delete process.env.KTO_SERVICE_KEY;
+      const noKey = statusSpy();
+      await new HealthController(new KtoReachability()).check(noKey);
+      expect(noKey.code).toBeNull();
+    });
+
+    it('🔴 실패한 뒤에도 다시 시도해 닿으면 ok 로 바뀐다 — 잠깐 막힌 길은 검사 시간 안에 풀린다', async () => {
+      const reach = new KtoReachability();
+      const results = [false, false, true];
+      const waits: number[] = [];
+      const lines: string[] = [];
+      await reach.track(
+        () => Promise.resolve(results.shift() ?? true),
+        (line) => lines.push(line),
+        (ms) => { waits.push(ms); return Promise.resolve(); },
+      );
+      expect(reach.state).toBe('ok');
+      expect(waits).toEqual([RETRY_FAST_MS, RETRY_FAST_MS]);
+      // 못 닿았다는 줄은 한 번만, 회복은 몇 번 만인지와 함께
+      expect(lines.filter((l) => l.includes('닿지 못했다'))).toHaveLength(1);
+      expect(lines.some((l) => l.includes('회복') && l.includes('2번'))).toBe(true);
+    });
+
+    it('던지는 예열도 실패로 센다 — 여기서 새는 예외가 부팅을 죽이면 안 된다', async () => {
+      const reach = new KtoReachability();
+      let first = true;
+      await reach.track(() => {
+        if (first) { first = false; return Promise.reject(new Error('KTO_TIMEOUT')); }
+        return Promise.resolve(true);
+      }, undefined, noSleep);
+      expect(reach.state).toBe('ok');
+    });
+
+    it('🔴 다시 시도는 처음 5분만 촘촘하다 — 시간 초과도 호출 기록에 남아 예산 계산에 들어간다', () => {
+      expect(retryDelayMs(1)).toBe(RETRY_FAST_MS);
+      expect(retryDelayMs(RETRY_FAST_TIMES)).toBe(RETRY_FAST_MS);
+      expect(retryDelayMs(RETRY_FAST_TIMES + 1)).toBe(RETRY_SLOW_MS);
+      expect(RETRY_FAST_MS * RETRY_FAST_TIMES).toBeGreaterThanOrEqual(300_000);
+      // 느린 구간에서 하루 호출이 200건을 넘지 않는다
+      expect(86_400_000 / RETRY_SLOW_MS).toBeLessThanOrEqual(200);
+    });
   });
 
   it('인증키가 없으면 missing 이다 — 앱은 뜨지만 검수는 전부 실패한다', async () => {

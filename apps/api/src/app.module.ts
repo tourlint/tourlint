@@ -41,6 +41,7 @@ import { AuditResultRepository } from './persistence/audit-result.repository';
 import { BatchStateRepository } from './persistence/batch-state.repository';
 import { NotificationRepository } from './persistence/notification.repository';
 import { HealthController } from './health/health.controller';
+import { KtoReachability } from './health/kto-reachability';
 import { PlaceMatchController } from './match/place-match.controller';
 import { PlaceMatchRepository } from './match/place-match.repository';
 import { PlaceMatchService } from './match/place-match.service';
@@ -429,6 +430,8 @@ import { SettingsRepository } from './settings/settings.repository';
     UsageService,
     // 지역 코드를 이름으로 바꾸는 데 CatalogService 를 쓴다 (fixture 리플레이라 예산 0)
     ReportService,
+    // 부팅 예열이 채우고 /health 가 읽는다 (#700)
+    KtoReachability,
     {
       // 알림 카드의 이름은 저장하지 않고 볼 때 읽는다 (UI-S7-003 · DB 명세서 6-4 · #685)
       provide: NotificationService,
