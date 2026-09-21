@@ -105,15 +105,22 @@ export class NotificationRepository {
    *
    * **기획 중 상품은 뺀다** (`planned_at IS NULL` · B6 함정). 검수 시작 전 상품은 감시하지
    * 않는다 — 조건 2 · 3 도 검수 시작(handoff)부터다.
+   *
+   * **상한은 계정별로 센다** (#690). 전체에서 상위 N 개를 뽑으면 한 계정의 알림이 다른 계정의
+   * 상품 수에 달린다 — 2026-09-21 운영 배치는 알림 100건 중 96건을 다른 계정 상품에 만들었고,
+   * 이른 출발 상품이 다른 계정에 N 개 있으면 그 계정은 조건 2 ~ 6 을 하나도 못 받는다. 공사
+   * 호출은 늘지 않는다 — 상세 재호출 대상은 감시 상품 수가 아니라 그날 바뀐 행사 수다.
    */
   async watchedProducts(today: IsoDate, limit?: number): Promise<readonly ImpactCandidate[]> {
     const { rows } = await this.pool.query<CandidateRow>(
-      `SELECT p.id, p.start_date, p.nights, p.ldong_regn_cd, p.ldong_signgu_cd
-         FROM product p
-        WHERE p.planned_at IS NOT NULL
-          AND p.start_date + p.nights >= $1::date
-        ORDER BY p.start_date, p.id
-        LIMIT $2`,
+      `SELECT id, start_date, nights, ldong_regn_cd, ldong_signgu_cd
+         FROM (SELECT p.id, p.start_date, p.nights, p.ldong_regn_cd, p.ldong_signgu_cd,
+                      row_number() OVER (PARTITION BY p.account_id ORDER BY p.start_date, p.id) AS rank_in_account
+                 FROM product p
+                WHERE p.planned_at IS NOT NULL
+                  AND p.start_date + p.nights >= $1::date) ranked
+        WHERE $2::int IS NULL OR rank_in_account <= $2::int
+        ORDER BY start_date, id`,
       [today, limit ?? null],
     );
     return rows.map(toCandidate);
