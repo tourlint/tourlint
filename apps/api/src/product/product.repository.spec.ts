@@ -216,7 +216,25 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
       const { productId } = await repo.create(accountA, sample());
       expect(await repo.releaseBasis(accountA, productId)).toEqual({
         current: { kind: 'NONE', runId: null, latestRunId: null }, currentBlockers: null, latestBlockers: null,
+        itemCount: 3,
       });
+    });
+
+    it('🔴 검수 뒤에 항목을 전부 지우면 편집 흔적은 없지만 항목 수가 0 이다 (#738)', async () => {
+      const { productId } = await repo.create(accountA, sample());
+      await pool.query(
+        `INSERT INTO audit_run (product_id, executed_at, created_at, ruleset_version, readiness_score, target_count, blocker_cnt, weight_snapshot)
+         VALUES ($1, now() - interval '1 hour', now() - interval '1 hour', '1.2.4', 100, 3, 0, '{}'::jsonb)`,
+        [productId],
+      );
+      const detail = await repo.detail(accountA, productId);
+      for (const item of detail?.items ?? []) await repo.deleteItem(accountA, item.itemId);
+
+      const basis = await repo.releaseBasis(accountA, productId);
+      // 남은 행이 없어 #710 의 비교는 「바뀌지 않음」 이다 — 그래서 항목 수를 따로 본다
+      expect(basis?.current.kind).toBe('LATEST');
+      expect(basis?.currentBlockers).toBe(0);
+      expect(basis?.itemCount).toBe(0);
     });
 
     it('남의 상품은 undefined 다 — 없는 상품과 구분하지 않는다', async () => {

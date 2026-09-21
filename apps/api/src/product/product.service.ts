@@ -91,7 +91,14 @@ export class ProductService {
      * **지금 일정의 검수 결과로 판정한다** (#551). 가장 최근 실행만 보면, 차단을 없앤 수정안을
      * 되돌려 차단이 있는 일정으로 돌아가도 반영 후 실행(차단 0)을 보고 통과시켰다.
      */
-    const { current, currentBlockers, latestBlockers } = basis;
+    const { current, currentBlockers, latestBlockers, itemCount } = basis;
+    /*
+     * **빈 일정은 출시하지 않는다** (#738). 검수 뒤 편집은 남은 항목의 시각으로 알아채는데(#710),
+     * 항목을 전부 지우면 견줄 행이 없어 「바뀌지 않음」 이 되고 예전 검수(차단 0)로 통과했다.
+     */
+    if (itemCount === 0) {
+      throw forbidden('일정이 비어 있습니다. 장소를 담고 검수한 뒤 출시해 주세요.');
+    }
     if (current.kind === 'NONE') {
       throw forbidden('검수하지 않은 상품은 출시할 수 없습니다. 먼저 검수를 실행해 주세요.');
     }
