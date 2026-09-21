@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { STANDARD_VERSION, type TargetProfileSeed } from '@tourlint/shared';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
-import { createKtoClient, FixtureKtoTransport, KtoClient } from '../external/kto';
+import { ContentNotFoundError, createKtoClient, FixtureKtoTransport, KtoClient } from '../external/kto';
 import {
   AuditRunner, DEFAULT_AUDIT_CONCURRENCY, concurrencyFromEnv, departureStamp,
   uniqueContentIds, withConcurrency,
@@ -228,6 +228,60 @@ describe('AuditRunner — 관통', () => {
       expect(isolated?.message).toContain('없는 관광지');
       // 나머지는 그대로 판정된다
       expect(result.findings.some((f) => f.reasonCode === 'EVENT_ENDED')).toBe(true);
+    });
+
+    describe('표출이 중단된 곳 (FR-RU-065 · 068 · #745)', () => {
+      /** 실호출처럼 숨은 곳을 「없는 곳」 으로 답하는 공사 클라이언트. 나머지는 픽스처다 */
+      const ktoHiding = (hiddenId: string): ReturnType<typeof createKtoClient> => {
+        const real = createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV);
+        return {
+          ...real,
+          detailCommon: real.detailCommon.bind(real),
+          locationBasedList: real.locationBasedList.bind(real),
+          // 러너는 공통정보 실패를 삼키고 소개정보 실패로 그 곳을 격리한다
+          detailIntro: async (contentId: string, contentTypeId: number) => {
+            if (contentId === hiddenId) throw new ContentNotFoundError('detailIntro2', contentId);
+            return real.detailIntro(contentId, contentTypeId as never);
+          },
+        } as unknown as ReturnType<typeof createKtoClient>;
+      };
+      const items = [
+        item({ id: 1, dayNo: 1, seq: 1, placeLabel: '가람집옹심이', ktoContentId: '2868839', contentTypeId: 39, itemType: 'MEAL',
+               startTime: '12:00', endTime: '13:00' }),
+        item({ id: 2, dayNo: 2, seq: 1, placeLabel: '숨은 곳', ktoContentId: '3536916', contentTypeId: 12 }),
+      ];
+
+      it('🔴 배치가 표출 중단으로 기록한 곳은 확인 불가가 아니라 차단이다 — 출시할 수 없다', async () => {
+        const r = new AuditRunner({ kto: ktoHiding('3536916'), clock, hiddenContentIds: new Set(['3536916']) });
+        const result = await r.run(product, items);
+
+        const hidden = result.findings.filter((f) => f.targetItemId === 2);
+        expect(hidden).toHaveLength(1);
+        expect(hidden[0]).toMatchObject({
+          ruleCode: 'R06', severity: 'BLOCKER', reasonCode: 'CONTENT_HIDDEN', needsConfirmation: false,
+          evidence: { showFlagTurnedOff: true, ktoContentId: '3536916', detectedBy: 'BATCH' },
+        });
+        // 명칭을 다시 적지 않는다 (FR-AU-071)
+        expect(hidden[0]?.message).not.toContain('숨은 곳');
+        // 판정한 것이라 조회 실패로 세지 않는다 — 부분 검수로 빠지면 안 된다
+        expect(result.failedCount).toBe(0);
+        expect(result.score.isPartial).toBe(false);
+      });
+
+      it('🔴 배치 기록이 없는 「없는 곳」 은 그대로 확인 불가다 — 모르는 것을 차단으로 올리지 않는다', async () => {
+        const r = new AuditRunner({ kto: ktoHiding('3536916'), clock });
+        const result = await r.run(product, items);
+        const finding = result.findings.find((f) => f.targetItemId === 2);
+        expect(finding).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'CONTENT_NOT_FOUND', ruleCode: 'R05' });
+        expect(result.failedCount).toBe(1);
+      });
+
+      it('기록이 있어도 조회에 성공하면(다시 표출) 평소대로 판정한다', async () => {
+        const r = new AuditRunner({ kto: ktoHiding('0'), clock, hiddenContentIds: new Set(['2868839']) });
+        const result = await r.run(product, [items[0] as ItineraryItemRow]);
+        expect(result.findings.some((f) => f.reasonCode === 'CONTENT_HIDDEN')).toBe(false);
+        expect(result.failedCount).toBe(0);
+      });
     });
 
     it('실패가 50% 를 넘으면 점수를 내지 않는다 (FR-AU-029)', async () => {
