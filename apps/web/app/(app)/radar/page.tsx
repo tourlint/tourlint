@@ -741,14 +741,21 @@ export function QuietProducts({ lines }: { lines: { productId: number; text: str
   );
 }
 
+const TODO_LABEL: Record<TodayItem["action"], string> = {
+  REAUDIT: "다시 검수",
+  VIEW_RESULT: "검수 결과 보기",
+  NEW_PLAN: "이 지역으로 새 상품 기획",
+};
+
 export function TodoRow({ item, subject }: { item: TodayItem; subject: string | null }) {
   const href =
-    item.action === "REAUDIT" && item.productId !== null
+    item.action !== "NEW_PLAN" && item.productId !== null
       ? `/products/${item.productId}`
       : item.region
         ? `/products/new?regnCd=${item.region.regnCd}&signguCd=${item.region.signguCd ?? ""}&month=${item.region.month}&origin=SIGNAL`
         : "/";
-  const label = item.action === "REAUDIT" ? "다시 검수" : "이 지역으로 새 상품 기획";
+  // 이미 다시 검수한 상품이면 할 일은 결과를 보는 것이다 — 레이더 카드 · 홈 보드와 같은 이름 (#735)
+  const label = TODO_LABEL[item.action];
   return (
     <li className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
       <span className="text-sm text-slate-700 dark:text-slate-200">

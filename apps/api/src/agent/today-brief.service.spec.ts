@@ -35,7 +35,7 @@ class ScriptedLlmProvider implements LlmProvider {
 
 const product = (over: Partial<BriefProduct> = {}): BriefProduct => ({
   productId: 31, name: '강릉 감성 1박 2일', ldongRegnCd: '51', ldongSignguCd: '150',
-  startDate: '2026-10-23', nights: 1, released: true, ...over,
+  startDate: '2026-10-23', nights: 1, released: true, lastAuditAt: null, ...over,
 });
 
 const change = (over: Partial<ChangeRow> = {}): ChangeRow => ({
@@ -149,6 +149,32 @@ describe('할 일 후보와 순서 (FR-AG-030)', () => {
     expect(built[0]?.facts).toMatchObject({
       changedCount: 3, changedPlaces: ['오죽헌', '강릉커피축제', '경포대'], newPlaceCount: 1,
     });
+  });
+
+  it('🔴 바뀐 뒤에 이미 다시 검수한 상품은 「다시 검수」 가 아니라 결과 보기다 (#735)', () => {
+    // 알림은 05:00, 배치의 자동 재검수는 그 직후
+    const { candidates: built } = buildCandidates(
+      [product({ lastAuditAt: new Date('2026-09-15T05:00:40Z') })],
+      [change(), change({ notificationId: 10, detectedAt: new Date('2026-09-15T05:00:02Z') })],
+      [],
+    );
+    expect(built[0]?.action).toBe('VIEW_RESULT');
+    expect(built[0]?.facts).toMatchObject({ reauditedAfter: true, changedCount: 2 });
+  });
+
+  it('🔴 알림이 하나라도 마지막 검수 뒤에 왔으면 다시 검수할 일이다', () => {
+    const { candidates: built } = buildCandidates(
+      [product({ lastAuditAt: new Date('2026-09-15T05:00:40Z') })],
+      [change(), change({ notificationId: 10, detectedAt: new Date('2026-09-16T05:00:00Z') })],
+      [],
+    );
+    expect(built[0]?.action).toBe('REAUDIT');
+    expect(built[0]?.facts).not.toHaveProperty('reauditedAfter');
+  });
+
+  it('검수한 적이 없는 상품은 다시 검수다 — 모르는 것을 했다고 하지 않는다', () => {
+    const { candidates: built } = buildCandidates([product({ lastAuditAt: null })], [change()], []);
+    expect(built[0]?.action).toBe('REAUDIT');
   });
 
   it('새 소식이 없으면 newPlaceCount 를 싣지 않는다 — 0 을 주면 모델이 「0곳」 을 적는다', () => {

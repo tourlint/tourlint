@@ -33,6 +33,21 @@ describe("오늘 할 일 — 줄 머리 (#724)", () => {
   });
 });
 
+describe("오늘 할 일 — 버튼 (#735)", () => {
+  it("🔴 이미 다시 검수한 상품은 「검수 결과 보기」 다 — 레이더 카드와 같은 이름, 가는 곳은 상품 화면", () => {
+    const html = renderToStaticMarkup(<TodoRow item={{ ...change, action: "VIEW_RESULT" }} subject="경주 신라 역사기행 1박 2일" />);
+    expect(html).toContain("검수 결과 보기");
+    expect(html).not.toContain("다시 검수");
+    expect(html).toContain('href="/products/48"');
+  });
+
+  it("아직 다시 검수하지 않았으면 「다시 검수」 다", () => {
+    const html = renderToStaticMarkup(<TodoRow item={change} subject={null} />);
+    expect(html).toContain("다시 검수");
+    expect(html).toContain('href="/products/48"');
+  });
+});
+
 describe("바뀐 정보가 없는 상품 (FR-AG-031 · #724)", () => {
   it("🔴 접어 두고 몇 개인지만 먼저 보인다", () => {
     const lines = [1, 2, 3].map((id) => ({ productId: id, text: `상품 ${String(id)}은 바뀐 정보가 없어요.` }));
