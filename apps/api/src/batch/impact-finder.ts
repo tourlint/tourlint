@@ -56,6 +56,19 @@ export function sameDistrict(candidate: ImpactCandidate, content: SyncedContent)
     && candidate.ldongSignguCd === content.ldongSignguCd;
 }
 
+/**
+ * 그 행사가 이 상품의 여행지에서 열리는가 (조건 3 · FR-MO-030 ③ · #689).
+ *
+ * 기본은 조건 2 와 같은 시군구 일치다. **상품에 시군구가 없으면 시도로 본다** — 시도만 고른
+ * 상품(제주특별자치도 전체)은 시군구를 견줄 수 없는데, 그렇다고 아무 행사도 안 걸면 그 상품은
+ * 조건 3 을 영영 못 받는다. 행사 쪽 코드를 모르면 걸지 않는다 — 어디서 열리는지 모르는 행사를
+ * 「여행지의 행사」 라고 할 수 없다.
+ */
+export function sameDestination(candidate: ImpactCandidate, content: SyncedContent): boolean {
+  if (candidate.ldongSignguCd !== null) return sameDistrict(candidate, content);
+  return content.ldongRegnCd !== null && candidate.ldongRegnCd === content.ldongRegnCd;
+}
+
 /** 행사 개최 기간. 한쪽이라도 모르면 조건 3 은 판정하지 않는다 */
 export interface EventPeriod {
   readonly start: IsoDate | null;
@@ -118,7 +131,11 @@ export function matchByRegion(
 }
 
 /**
- * 조건 3 — 행사기간과 여행일이 겹치는 상품.
+ * 조건 3 — **여행지에서 열리는** 행사의 기간과 여행일이 겹치는 상품.
+ *
+ * 지역을 안 보던 때는 강릉 상품에 고흥유자축제 · 광주비엔날레 알림이 갔다(#689). 날짜만
+ * 겹치면 걸었기 때문이고, 10월 출발 상품 하나에 전국 행사 26건이 한 번에 붙었다.
+ * 조건 2 와 달리 ±7일 창은 없다 — 행사 기간이 여행일과 겹치는 것이 이미 날짜 조건이다.
  *
  * 행사가 아니거나 기간을 모르면 판정하지 않는다. **기간 결측을 「안 겹친다」로 읽지
  * 않는다** — 모르는 것을 근거로 알리지 않을 뿐, 겹치지 않는다고 말하지도 않는다
@@ -132,6 +149,7 @@ export function matchByEventPeriod(
   if (period === null || period.start === null || period.end === null) return [];
 
   return candidates
+    .filter((c) => sameDestination(c, content))
     .filter((c) => travelDatesOf(c).some((d) => d >= period.start! && d <= period.end!))
     .map((c) => ({ productId: c.productId, condition: 3 as const, kind: 'RISK' as const }));
 }

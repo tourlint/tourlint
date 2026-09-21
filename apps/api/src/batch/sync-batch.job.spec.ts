@@ -409,8 +409,11 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
 
   it('🔴 조건 3 은 가져온 행사기간으로 걸린다', async () => {
     const { repo: state } = stubState({ lastCovered: '2026-08-25' });
-    // 시군구를 어긋나게 둬서 조건 2 가 아니라 조건 3 으로 걸리는 것을 본다
-    const { kto } = stubKto({ '20260826': [item({ contentid: 'f', contenttypeid: '15', lDongSignguCd: '110' })] });
+    /*
+     * 같은 시군구의 행사다(#689 — 조건 3 도 여행지의 행사만 본다). 여행일 09-10 은 감지일
+     * 08-27 에서 14일 뒤라 조건 2 의 ±7일 창 밖이고, 그래서 조건 3 으로 걸린다.
+     */
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'f', contenttypeid: '15', lDongSignguCd: '150' })] });
     const notif = stubNotifications({
       watched: [candidate({ productId: 9, ldongSignguCd: '150', startDate: '2026-09-10', nights: 1 })],
     });
@@ -421,6 +424,21 @@ describe('2단계 — 영향 탐색 (FR-MO-013 · 030)', () => {
     }).run();
 
     expect(result.impacts).toEqual([{ productId: 9, condition: 3, kind: 'RISK' }]);
+  });
+
+  it('🔴 다른 시군구의 행사는 기간이 겹쳐도 알리지 않는다 (#689)', async () => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': [item({ contentid: 'f', contenttypeid: '15', lDongSignguCd: '110' })] });
+    const notif = stubNotifications({
+      watched: [candidate({ productId: 9, ldongSignguCd: '150', startDate: '2026-09-10', nights: 1 })],
+    });
+
+    const result = await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async () => ({ eventstartdate: '20260905', eventenddate: '20260915' }),
+    }).run();
+
+    expect(result.impacts).toEqual([]);
   });
 
   it('🔴 감시 상품이 없으면 행사 상세를 안 부른다', async () => {
