@@ -578,7 +578,7 @@ export class AuditService {
     if (application === null || application.revertedAt !== null) {
       throw new DomainException(
         HttpStatus.NOT_FOUND, 'NOT_FOUND',
-        '비교할 수정 이력이 없습니다. 수정안을 반영하면 전후를 견줄 수 있습니다.', 'REQUEST',
+        '비교할 수정 이력이 없습니다. 수정안을 반영하면 전후를 비교할 수 있습니다.', 'REQUEST',
       );
     }
 
@@ -587,7 +587,7 @@ export class AuditService {
     if (before === null || after === null) {
       throw new DomainException(
         HttpStatus.NOT_FOUND, 'NOT_FOUND',
-        '반영 후 재검수가 아직 끝나지 않았습니다. 검수가 끝나면 전후를 견줄 수 있습니다.', 'REQUEST',
+        '반영 후 재검수가 아직 끝나지 않았습니다. 검수가 끝나면 전후를 비교할 수 있습니다.', 'REQUEST',
       );
     }
     return { application, before, after };

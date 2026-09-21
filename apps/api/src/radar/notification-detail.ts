@@ -87,7 +87,7 @@ export function describeNotification(f: NotificationFacts): NotificationCopy {
 
 function whatChanged(f: NotificationFacts): string {
   if (f.changes.length > 0) return `${f.changes.map((c) => c.label).join(' · ')} 정보가 바뀌었습니다.`;
-  if (!f.hasBefore) return '검수한 뒤에 담은 곳이라 견줄 이전 검수 기록이 없습니다.';
+  if (!f.hasBefore) return '검수한 뒤에 담은 곳이라 비교할 이전 검수 기록이 없습니다.';
   if (!f.hasAfter) return '판정에 쓰는 관광정보가 바뀌었습니다. 다시 검수하면 무엇이 달라졌는지 보입니다.';
   return '휴무일 · 운영시간은 그대로이고 그 밖의 판정 정보가 바뀌었습니다.';
 }

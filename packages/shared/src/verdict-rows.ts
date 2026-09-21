@@ -44,7 +44,7 @@ const VERDICT: Readonly<Record<string, string>> = {
   ONGOING: '기간 안', OUT_OF_HOURS: '운영시간 밖', IN_BREAK: '쉬는 시간',
   // R06 은 지문 비교 결과를 그대로 담는다
   HIDDEN: '공사에서 표출 중단', CHANGED: '정보 바뀜',
-  FIRST: '첫 검수', UNCHANGED: '그대로', INCOMPARABLE: '견줄 이력 없음',
+  FIRST: '첫 검수', UNCHANGED: '그대로', INCOMPARABLE: '비교할 이력 없음',
 };
 
 /** 명절 · 법정공휴일 (정규화 `HOLIDAY_RULES`) */

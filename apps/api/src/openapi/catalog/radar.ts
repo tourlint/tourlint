@@ -307,7 +307,7 @@ export const RADAR: readonly Endpoint[] = [
     route: 'GET /api/v1/notifications',
     tag: '레이더',
     summary: '알림 목록',
-    description: '바뀐 정보 · 새 소식 알림을 최신순으로 돌려줍니다. 문장(`what` · `impact`)은 저장하지 않고 볼 때 사실로 만듭니다 — `schedule`(일정에 든 줄) · `changes`(알림 직전 검수와 알림 뒤 첫 검수의 판독 결과 차이) · `current`(견줄 이전 검수가 없을 때의 지금 값) · `modifiedOn`(관광정보 수정일) · `eventPeriod` · `overlapDays`(겹치는 여행 일차). `placeName` 은 사용자가 일정에 적은 이름이 먼저이고, 일정에 없는 곳만 볼 때 읽습니다. 표출이 중단된 곳과 못 읽은 곳은 `null` 입니다.',
+    description: '바뀐 정보 · 새 소식 알림을 최신순으로 돌려줍니다. 문장(`what` · `impact`)은 저장하지 않고 볼 때 사실로 만듭니다 — `schedule`(일정에 든 줄) · `changes`(알림 직전 검수와 알림 뒤 첫 검수의 판독 결과 차이) · `current`(비교할 이전 검수가 없을 때의 지금 값) · `modifiedOn`(관광정보 수정일) · `eventPeriod` · `overlapDays`(겹치는 여행 일차). `placeName` 은 사용자가 일정에 적은 이름이 먼저이고, 일정에 없는 곳만 볼 때 읽습니다. 표출이 중단된 곳과 못 읽은 곳은 `null` 입니다.',
     params: {
       kind: {
         description: '`RISK` 바뀐 정보 · `OPPORTUNITY` 새 소식. 없으면 둘 다',
