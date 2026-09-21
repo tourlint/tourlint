@@ -27,7 +27,12 @@ describe('소개정보 → 장소 정보 한 줄 (FR-PL-005)', () => {
     expect(factFields(39, { opentimefood: '10:00~21:00', restdatefood: '매주 화요일', parkingfood: '가능' }))
       .toEqual({ hours: '10:00~21:00', restDays: '매주 화요일', fee: null, parking: '가능', eventPeriod: null });
     expect(factFields(32, { checkintime: '15:00', checkouttime: '11:00', parkinglodging: '가능' }).hours)
-      .toBe('15:00 · 11:00');
+      .toBe('입실 15:00 · 퇴실 11:00');
+  });
+
+  it('🔴 숙박의 두 시각은 무엇인지 붙여 적는다 — 하나만 있어도 (#730)', () => {
+    expect(factFields(32, { checkouttime: '11:00' }).hours).toBe('퇴실 11:00');
+    expect(factFields(32, {}).hours).toBeNull();
   });
 
   it('🔴 축제는 기간과 요금이 함께 온다 — 기간을 모르면 적지 않는다', () => {

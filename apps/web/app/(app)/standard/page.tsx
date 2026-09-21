@@ -90,10 +90,10 @@ export default function StandardPage() {
           <RulesPanel />
         </Section>
 
-        <Section title="중분류별 기본 체류시간 (표준)">
+        <Section title="장소 종류별 기본 체류시간 (표준)">
           <DwellTable />
         </Section>
-        <Section title="중분류별 실내 · 야외 (표준)">
+        <Section title="장소 종류별 실내 · 야외 (표준)">
           <IndoorOutdoorTable />
         </Section>
         <Section title="R10 기대 콘텐츠 프로파일 (표준)">
