@@ -261,7 +261,7 @@ export const RADAR: readonly Endpoint[] = [
     route: 'POST /api/v1/radar/today',
     tag: '레이더',
     summary: '오늘 할 일 (AI)',
-    description: '바뀐 정보와 관심 지역 소식을 오늘 할 일 목록으로 정리합니다. 저장하지 않습니다.',
+    description: '바뀐 정보와 관심 지역 소식을 오늘 할 일 목록으로 정리합니다. 저장하지 않습니다. `action` 은 `REAUDIT`(다시 검수) · `VIEW_RESULT`(바뀐 뒤 이미 다시 검수함 — 검수 결과 보기) · `NEW_PLAN`(이 지역으로 새 상품 기획)입니다.',
     responses: {
       200: {
         description: '성공',

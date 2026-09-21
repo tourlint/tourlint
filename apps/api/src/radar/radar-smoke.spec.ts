@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DemandSignalRepository } from '../persistence/demand-signal.repository';
 import { t2Window } from '../engine/signals';
+import { RadarRepository } from './radar.repository';
 import { RadarService } from './radar.service';
 
 /**
@@ -116,6 +117,26 @@ describe.skipIf(URL === undefined)('레이더 스모크 — 대표 시나리오 
       t2: { count: 3 },
       t3: { count: 1_120_000, basisMonth: '2025-10' },
     });
+  });
+
+  it('🔴 오늘 할 일이 읽는 상품에 마지막 검수가 저장된 시각이 붙는다 — 알림과 같은 DB 시계다 (#735)', async () => {
+    const repo = new RadarRepository(pool);
+    const before = await repo.upcomingProducts(mine, '2026-09-20');
+    expect(before.map((p) => [p.productId, p.lastAuditAt])).toEqual([[productId, null]]);
+
+    // 배치의 자동 재검수 — 알림보다 뒤에 저장된다. 앞선 검수가 하나 더 있어도 마지막 것을 읽는다
+    await pool.query(
+      `INSERT INTO audit_run (product_id, executed_at, created_at, ruleset_version, readiness_score, target_count, blocker_cnt, weight_snapshot)
+       VALUES ($1, now() - interval '2 days', now() - interval '2 days', '1.2.4', 90, 3, 0, '{}'::jsonb),
+              ($1, now() + interval '1 minute', now() + interval '1 minute', '1.2.4', 80, 3, 0, '{}'::jsonb)`,
+      [productId],
+    );
+    const [after] = await repo.upcomingProducts(mine, '2026-09-20');
+    const { rows } = await pool.query<{ last_alert: Date }>(
+      'SELECT max(created_at) AS last_alert FROM notification WHERE product_id = $1', [productId],
+    );
+    expect(after?.lastAuditAt).toBeInstanceOf(Date);
+    expect((after?.lastAuditAt as Date).getTime()).toBeGreaterThan((rows[0]?.last_alert as Date).getTime());
   });
 
   it('🔴 남의 계정에는 아무것도 새지 않는다 (PM-DA-002)', async () => {

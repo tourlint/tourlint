@@ -71,6 +71,13 @@ export interface WatchedProduct extends ProductRegion {
 /** 오늘 할 일이 보는 상품 한 줄 (FR-AG-030) */
 export interface BriefProduct extends ProductRegion {
   readonly released: boolean;
+  /**
+   * 마지막 검수가 저장된 시각(`audit_run.created_at` · DB 시계). 검수한 적이 없으면 null.
+   *
+   * 알림(`notification.created_at`)과 견줘 「바뀐 뒤에 이미 다시 검수했는지」 를 본다 (#735).
+   * 둘 다 DB 시계라 앱 시계와 섞이지 않는다.
+   */
+  readonly lastAuditAt: Date | null;
 }
 
 export class RadarRepository {
@@ -248,12 +255,13 @@ export class RadarRepository {
   async upcomingProducts(accountId: number, today: string): Promise<readonly BriefProduct[]> {
     const { rows } = await this.pool.query<{
       id: string; name: string; ldong_regn_cd: string; ldong_signgu_cd: string | null;
-      start_date: Date | string; nights: number; released_at: Date | null;
+      start_date: Date | string; nights: number; released_at: Date | null; last_audit_at: Date | null;
     }>(
-      `SELECT id, name, ldong_regn_cd, ldong_signgu_cd, start_date, nights, released_at
-         FROM product
-        WHERE account_id = $1 AND start_date + nights >= $2::date
-        ORDER BY start_date, id`,
+      `SELECT p.id, p.name, p.ldong_regn_cd, p.ldong_signgu_cd, p.start_date, p.nights, p.released_at,
+              (SELECT max(r.created_at) FROM audit_run r WHERE r.product_id = p.id) AS last_audit_at
+         FROM product p
+        WHERE p.account_id = $1 AND p.start_date + p.nights >= $2::date
+        ORDER BY p.start_date, p.id`,
       [accountId, today],
     );
     return rows.map((r) => ({
@@ -264,6 +272,7 @@ export class RadarRepository {
       startDate: isoDate(r.start_date),
       nights: Number(r.nights),
       released: r.released_at !== null,
+      lastAuditAt: r.last_audit_at,
     }));
   }
 

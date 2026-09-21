@@ -19,7 +19,8 @@ import type { AgentLock } from './agent-lock';
  * ## 하지 않는 것
  *
  * 재검수를 대신 돌리지 않고 기획 초안을 만들지 않는다. 할 일마다 사람이 누르는 기존 버튼이
- * 붙는다 — \[다시 검수\] · \[이 지역으로 새 상품 기획\] (FR-AG-031). 목록은 저장하지 않는다.
+ * 붙는다 — \[다시 검수\](이미 다시 검수했으면 \[검수 결과 보기\]) · \[이 지역으로 새 상품 기획\]
+ * (FR-AG-031). 목록은 저장하지 않는다.
  */
 
 const CANDIDATES_TOOL = 'today_candidates';
@@ -36,6 +37,7 @@ const SYSTEM = [
   '이유는 도구가 준 값으로만 쓴다. 판정 · 등급 · 점수 · 예측을 쓰지 않는다.',
   '할 일의 상품 이름 · 지역 이름 · 달은 화면이 줄 머리에 따로 적는다. reason 에 다시 쓰지 않는다.',
   'kind 가 CHANGE 면 담은 곳 changedCount 곳의 관광정보가 바뀐 것이다. changedPlaces 에 이름이 있으면 그 이름을 적는다.',
+  'reauditedAfter 가 true 면 바뀐 뒤에 이미 다시 검수한 상품이다. 다시 검수하라고 쓰지 않고 「바뀐 뒤 다시 검수했습니다. 결과를 확인하세요」 처럼 쓴다.',
   'newPlaceCount 는 새로 등록된 곳의 수다. 바뀐 것이 아니므로 「바뀌었다」고 쓰지 않고 「새로 등록된 곳이 N곳 있습니다」 처럼 쓴다.',
   'kind 가 NEWS 면 관심 지역에 최근 새로 등록된 곳이 newPlaceCount 곳 있다는 뜻이다. 뉴스 · 기사 · 관측이라는 말로 바꾸지 않는다.',
   'matchedKeywords 가 있으면 관심 키워드와 맞는 곳이 있다고 덧붙인다.',
@@ -239,12 +241,19 @@ export function buildCandidates(
       if (added > 0) newPlaces.set(product.productId, added);
       continue;
     }
+    /*
+     * 배치는 알림을 만들며 그 상품을 다시 검수한다. 그 뒤에도 「다시 검수」 를 권하면 레이더
+     * 카드(「알림 뒤에 다시 검수했어요 · 검수 결과 보기」)와 말이 어긋난다 (#735). 알림이
+     * **하나라도** 마지막 검수 뒤에 왔으면 아직 다시 검수할 일이다.
+     */
+    const lastAuditAt = product.lastAuditAt;
+    const reaudited = lastAuditAt !== null && changed.every((c) => c.detectedAt.getTime() < lastAuditAt.getTime());
     candidates.push({
       key: `CHANGE:${String(product.productId)}`,
       kind: 'CHANGE',
       productId: product.productId,
       region: null,
-      action: 'REAUDIT',
+      action: reaudited ? 'VIEW_RESULT' : 'REAUDIT',
       facts: {
         product: product.name,
         startDate: product.startDate,
@@ -253,6 +262,7 @@ export function buildCandidates(
         // 사용자가 입력한 장소명이다. 공사 원문이 아니다 (DR-PR-001)
         changedPlaces: [...new Set(changed.map((c) => c.placeLabel).filter((p): p is string => p !== null))].slice(0, 5),
         ...(added > 0 ? { newPlaceCount: added } : {}),
+        ...(reaudited ? { reauditedAfter: true } : {}),
       },
     });
   }
