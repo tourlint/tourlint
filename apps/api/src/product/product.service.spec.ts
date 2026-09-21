@@ -182,7 +182,20 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
     );
   /** 가장 최근 실행이 곧 지금 일정의 실행인 보통의 경우 */
   const latest = (blockers: number): Basis => ({
-    current: { kind: 'LATEST', runId: 9, latestRunId: 9 }, currentBlockers: blockers, latestBlockers: blockers,
+    current: { kind: 'LATEST', runId: 9, latestRunId: 9 }, currentBlockers: blockers, latestBlockers: blockers, itemCount: 3,
+  });
+
+  it('🔴 일정이 비어 있으면 가장 최근 검수가 차단 0 이어도 거부한다 (#738)', async () => {
+    /*
+     * 검수(차단 0) 뒤 항목을 전부 지우면 남은 행이 없어 편집으로 안 잡힌다(#710 의 구멍).
+     * 예전 검수 결과로 빈 일정이 출시됐다.
+     */
+    const emptied: Basis = { current: { kind: 'LATEST', runId: 9, latestRunId: 9 }, currentBlockers: 0, latestBlockers: 0, itemCount: 0 };
+    await expect(svc(emptied).release(1, 1)).rejects.toMatchObject({
+      reasonCode: 'FORBIDDEN_ACTION',
+      status: 403,
+      message: '일정이 비어 있습니다. 장소를 담고 검수한 뒤 출시해 주세요.',
+    });
   });
 
   it('🔴 차단이 1건이면 403 FORBIDDEN_ACTION 이다 — 화면 버튼만으로 충족하지 않는다', async () => {
@@ -198,7 +211,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
      * 차단이 있는 반영 전으로 돌아가는데, 가장 최근 실행만 보던 승인은 통과시켰다.
      */
     const reverted: Basis = {
-      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 1, latestBlockers: 0,
+      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 1, latestBlockers: 0, itemCount: 3,
     };
     await expect(svc(reverted).release(1, 1)).rejects.toMatchObject({
       reasonCode: 'FORBIDDEN_ACTION',
@@ -208,7 +221,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
 
   it('🔴 수정안을 반영하고 재검수 전이면 거부한다 — 판정한 실행이 없다', async () => {
     const stale: Basis = {
-      current: { kind: 'STALE', runId: null, latestRunId: 9, reason: 'PATCH' }, currentBlockers: null, latestBlockers: 0,
+      current: { kind: 'STALE', runId: null, latestRunId: 9, reason: 'PATCH' }, currentBlockers: null, latestBlockers: 0, itemCount: 3,
     };
     await expect(svc(stale).release(1, 1)).rejects.toMatchObject({ reasonCode: 'FORBIDDEN_ACTION' });
   });
@@ -219,7 +232,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
      * 가장 최근 실행은 고치기 전 일정의 것이라 차단 0 이다 — 그 숫자로 판정하면 안 된다.
      */
     const edited: Basis = {
-      current: { kind: 'STALE', runId: null, latestRunId: 9, reason: 'EDIT' }, currentBlockers: null, latestBlockers: 0,
+      current: { kind: 'STALE', runId: null, latestRunId: 9, reason: 'EDIT' }, currentBlockers: null, latestBlockers: 0, itemCount: 3,
     };
     await expect(svc(edited).release(1, 1)).rejects.toMatchObject({
       reasonCode: 'FORBIDDEN_ACTION',
@@ -229,7 +242,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
 
   it('되돌린 일정이 깨끗해도 가장 최근 실행에 차단이 있으면 다시 검수하게 한다 — 트리거보다 먼저 사유를 말한다', async () => {
     const reverted: Basis = {
-      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 0, latestBlockers: 2,
+      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 0, latestBlockers: 2, itemCount: 3,
     };
     await expect(svc(reverted).release(1, 1)).rejects.toMatchObject({
       reasonCode: 'FORBIDDEN_ACTION',
@@ -238,7 +251,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
   });
 
   it('검수한 적 없는 상품도 거부한다', async () => {
-    const none: Basis = { current: { kind: 'NONE', runId: null, latestRunId: null }, currentBlockers: null, latestBlockers: null };
+    const none: Basis = { current: { kind: 'NONE', runId: null, latestRunId: null }, currentBlockers: null, latestBlockers: null, itemCount: 3 };
     await expect(svc(none).release(1, 1)).rejects.toMatchObject({ reasonCode: 'FORBIDDEN_ACTION' });
   });
 
@@ -255,7 +268,7 @@ describe('출시 승인 거부 (PM-NG-002)', () => {
 
   it('되돌린 일정도 차단이 없으면 승인한다 — 반영 전 실행이 지금 결과다', async () => {
     const reverted: Basis = {
-      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 0, latestBlockers: 0,
+      current: { kind: 'RESTORED', runId: 8, latestRunId: 9 }, currentBlockers: 0, latestBlockers: 0, itemCount: 3,
     };
     await expect(svc(reverted).release(1, 7)).resolves.toMatchObject({ productId: 7 });
   });

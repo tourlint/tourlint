@@ -327,6 +327,8 @@ export class ProductRepository {
     current: CurrentRun;
     currentBlockers: number | null;
     latestBlockers: number | null;
+    /** 지금 일정의 항목 수. 0 이면 검수할 대상이 없다 (#738) */
+    itemCount: number;
   } | undefined> {
     const { rows } = await this.pool.query<{
       kind: 'LATEST' | 'RESTORED' | 'STALE' | null;
@@ -335,9 +337,11 @@ export class ProductRepository {
       stale_reason: 'PATCH' | 'EDIT' | null;
       current_blockers: number | null;
       latest_blockers: number | null;
+      item_count: string;
     }>(
       `SELECT cur.kind, cur.run_id, cur.latest_id, cur.stale_reason,
-              ar.blocker_cnt AS current_blockers, lr.blocker_cnt AS latest_blockers
+              ar.blocker_cnt AS current_blockers, lr.blocker_cnt AS latest_blockers,
+              (SELECT count(*) FROM itinerary_item i WHERE i.product_id = p.id) AS item_count
          FROM product p
          ${CURRENT_RUN_LATERAL}
          LEFT JOIN audit_run ar ON ar.id = cur.run_id
@@ -351,6 +355,7 @@ export class ProductRepository {
       current: toCurrentRun(row),
       currentBlockers: row.current_blockers,
       latestBlockers: row.latest_blockers,
+      itemCount: Number(row.item_count),
     };
   }
 
