@@ -12,8 +12,11 @@ import { patchId, type Patch, type ReplaceContentPayload } from './patch-types';
  * 유일하게 외부 호출이 필요한 수정안이라 따로 뒀다. 판정이 끝난 **뒤** 별도 단계에서
  * 돌린다 — 규칙 평가는 메모리 전용이어야 하기 때문이다 (NF-PF-014 · API 설계 6-1 8단계).
  *
- * 정렬은 **① 동일 `contentTypeId` 우선 ② 거리 오름차순 ③ 해석 신뢰도 확정 우선** (FR-PA-003).
- * 공사 데이터에 평점이 없으므로 평점 정렬은 쓰지 않는다.
+ * 정렬은 **① 동일 `contentTypeId` 우선 ①-2 같은 중분류 우선 ② 거리 오름차순 ③ 해석 신뢰도
+ * 확정 우선** (FR-PA-003). 공사 데이터에 평점이 없으므로 평점 정렬은 쓰지 않는다.
+ *
+ * ①-2 가 없으면 음식점(39) 안에서 한식과 카페를 가리지 않는다 — 휴무인 점심 식당의 대체로
+ * 과자점 · 카페가 나왔다 (#728).
  *
  * ⚠️ 후보의 **명칭을 담지 않는다.** 명칭은 공사 원문이라 저장하면 DR-PR-001 위반이다.
  *    `ktoContentId` 만 담고 화면이 표시 시점에 조회한다.
@@ -35,7 +38,25 @@ export interface ReplacementOptions {
    * 자리에서 찾으면 여전히 먼 것들만 나온다.
    */
   readonly center?: { readonly x: number; readonly y: number };
+  /**
+   * `center` 가 어느 항목의 자리인지. 주면 payload 에 실어 화면이 「앞 일정 ○○에서 약 0.4km」 로
+   * 적는다. 안 주면 거리는 바꿀 장소에서 잰 것이다 (#728).
+   */
+  readonly centerItemId?: number;
+  /**
+   * R04 가 지목한 반복 묶음. 이 키와 같은 후보는 반영해도 지적이 그대로라 뺀다 (FR-RU-043).
+   *
+   * 축이 `contentTypeId` 면 같은 유형으로 조회해서는 고칠 후보가 안 나온다 — 유형 제한 없이
+   * 받아 다른 관광 유형만 남긴다.
+   */
+  readonly avoid?: { readonly axis: 'contentTypeId' | 'lclsSystm3'; readonly key: string };
 }
+
+/** R04 유형 축에서 대신 넣을 수 있는 관광 유형. 음식점 · 숙박 · 행사 · 코스는 방문지 대체가 아니다 */
+const SIGHT_TYPES: ReadonlySet<number> = new Set([12, 14, 28, 38]);
+
+/** 식사 자리에 권하지 않는 중분류 — 주점 · 카페/찻집. 원래 그 분류였으면 그대로 둔다 */
+const NOT_A_MEAL: ReadonlySet<string> = new Set(['FD04', 'FD05']);
 
 /**
  * 반경 안 같은 유형 관광지를 찾아 대체 수정안으로 만든다.
@@ -55,12 +76,15 @@ export async function proposeReplacements(
   if (center === null) return [];
 
   const radius = Math.min(options.radiusMeters ?? LOCATION_RADIUS_MAX_METERS, LOCATION_RADIUS_MAX_METERS);
+  const avoid = options.avoid;
+  const anyType = avoid?.axis === 'contentTypeId';
   let items: readonly Record<string, unknown>[];
   try {
     const page = await options.kto.locationBasedList({
       mapX: center.x, mapY: center.y, radius,
-      contentTypeId: target.content.contentTypeId,
-      numOfRows: 20,
+      ...(anyType ? {} : { contentTypeId: target.content.contentTypeId }),
+      // 유형 제한이 없으면 가까운 식당 · 숙박이 앞을 채운다. 넉넉히 받아 거른다
+      numOfRows: anyType ? 40 : 20,
     });
     items = page.items;
   } catch (e) {
@@ -69,14 +93,44 @@ export async function proposeReplacements(
     throw e;
   }
 
-  return rankCandidates(items, target, options.knownConfidence ?? new Map())
+  const usable = items
+    .filter((raw) => !isConvenienceFacility(raw))
+    .filter((raw) => fitsMeal(raw, target))
+    .filter((raw) => avoid === undefined || breaksRepeat(raw, avoid));
+
+  return rankCandidates(usable, target, options.knownConfidence ?? new Map())
     .slice(0, MAX_CANDIDATES)
     .map((c, i) => ({
       patchId: patchId(startIndex + i),
       type: 'REPLACE_CONTENT' as const,
       targetItemId: target.id,
-      payload: c,
+      payload: options.centerItemId === undefined ? c : { ...c, fromItemId: options.centerItemId },
     }));
+}
+
+/** 식사 항목의 대체는 식사가 되는 곳이어야 한다. 중분류를 모르는 후보는 막지 않는다 */
+function fitsMeal(raw: Record<string, unknown>, target: AuditItem): boolean {
+  if (target.itemType !== 'MEAL') return true;
+  const code = typeof raw.lclsSystm2 === 'string' ? raw.lclsSystm2 : '';
+  if (!NOT_A_MEAL.has(code)) return true;
+  return target.lclsSystm2 === code;
+}
+
+/**
+ * 반영하면 R04 의 반복이 줄어드는 후보인가.
+ *
+ * 분류를 모르는 후보는 넣지 않는다 — R04 가 세지는 않지만 「다른 종류」 라고 말할 수 없다.
+ */
+function breaksRepeat(
+  raw: Record<string, unknown>,
+  avoid: NonNullable<ReplacementOptions['avoid']>,
+): boolean {
+  if (avoid.axis === 'contentTypeId') {
+    const typeId = Number(raw.contenttypeid);
+    return String(typeId) !== avoid.key && SIGHT_TYPES.has(typeId);
+  }
+  const code = typeof raw.lclsSystm3 === 'string' ? raw.lclsSystm3 : '';
+  return code !== '' && code !== avoid.key;
 }
 
 /** FR-PA-003 정렬. 순위가 흔들리면 같은 검수가 실행마다 다른 수정안을 낸다 (NF-MT-001) */
@@ -106,9 +160,12 @@ export function rankCandidates(
     });
   }
 
+  const wantedLcls2 = target.lclsSystm2;
   return rows.sort((a, b) =>
     // ① 같은 유형 먼저
     sameType(b, wanted) - sameType(a, wanted) ||
+    // ①-2 같은 중분류 먼저. 대상의 중분류를 모르면 가리지 않는다
+    sameLcls2(b, wantedLcls2) - sameLcls2(a, wantedLcls2) ||
     // ② 가까운 순
     a.distanceMeters - b.distanceMeters ||
     // ③ 해석이 확정된 것 먼저
@@ -120,6 +177,10 @@ export function rankCandidates(
 
 function sameType(c: ReplaceContentPayload, wanted: ContentTypeId | undefined): number {
   return wanted !== undefined && c.contentTypeId === wanted ? 1 : 0;
+}
+
+function sameLcls2(c: ReplaceContentPayload, wanted: string | null): number {
+  return wanted !== null && c.lclsSystm2 === wanted ? 1 : 0;
 }
 
 /** 신뢰도를 모르는 후보(null)는 중립으로 둔다. 대부분의 후보가 여기 해당한다 */

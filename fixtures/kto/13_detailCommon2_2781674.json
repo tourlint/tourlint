@@ -1,0 +1,47 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "0000",
+      "resultMsg": "OK"
+    },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "contentid": "2781674",
+            "contenttypeid": "39",
+            "title": "벌집",
+            "createdtime": "20211126205128",
+            "modifiedtime": "20250903171404",
+            "tel": "",
+            "telname": "",
+            "homepage": "",
+            "firstimage": "http://tong.visitkorea.or.kr/cms/resource/87/2785887_image2_1.jpg",
+            "firstimage2": "http://tong.visitkorea.or.kr/cms/resource/87/2785887_image2_1.jpg",
+            "cpyrhtDivCd": "Type3",
+            "areacode": "32",
+            "sigungucode": "1",
+            "lDongRegnCd": "51",
+            "lDongSignguCd": "150",
+            "lclsSystm1": "FD",
+            "lclsSystm2": "FD01",
+            "lclsSystm3": "FD010100",
+            "cat1": "A05",
+            "cat2": "A0502",
+            "cat3": "A05020100",
+            "addr1": "강원특별자치도 강릉시 경강로2069번길 15",
+            "addr2": "(임당동)",
+            "zipcode": "25533",
+            "mapx": "128.8928669852",
+            "mapy": "37.7545182819",
+            "mlevel": "6",
+            "overview": "강릉 벌집 칼국수는 강릉시 임당동에 위치한 유명 칼국수집이다. <삼대천왕>과 <수요미식회>에도 소개된 바 있으며 원래부터 현지 주민들과 관객들로부터 사랑받는 맛집이었지만 방송을 탄 이후로 인기가 급상승하여 평일에도 많은 사람들이 찾아온다. 재료가 떨어지면 문을 닫으니 미리 전화로 물어보고 가는 것이 좋다. 오래된 한옥을 개조한 식당으로 외관은 조금 오래되고 허름하지만 진짜 한자리에서 오래 운영한 맛집이란 믿음을 주는 것도 사실이다. 내부는 간판에서 주는 느낌보다 깔끔하다. 넓지 않은 내부이기에 줄 서서 들어가야 한다. 평범한 가격대이지만 그 손맛만은 가격을 메길 수 없을 정도로 일품이다. 수요미식회 방송 이전에는 비빔국수와 만두 등 다른 음식들도 맛볼 수 있었으나, 방송 이후 손칼국수(장칼국수) 하나만 내놓는다. 40년 내공이 담긴 칼국수는 직접 담근 고추장으로 만든 장칼국수이다. 또한 직접 담근 배추김치와 깍두기는 그냥 먹어도 맛있다. 이 장칼국수의 묘미는 바로 고기고명이다. 걸쭉하고 붉은 국물 위에 잘게 간 고기고명과 김가루, 깨가 듬뿍 올려져 있다."
+          }
+        ]
+      },
+      "numOfRows": 1,
+      "pageNo": 1,
+      "totalCount": 1
+    }
+  }
+}
