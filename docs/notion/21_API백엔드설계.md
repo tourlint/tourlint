@@ -1011,12 +1011,12 @@ GET /api/v1/plan/events?regnCd&signguCd&startDate&nights   → { "window": { "fr
 GET /api/v1/plan/walks?regnCd&signguCd                     → { "items": PlanWalk[], "notice": "넣으면 직접 정한 곳으로 들어가요" }
     두루누비 courseList 1콜(지역 조건 없음 · 전국 코스 · 10분 캐시)을 코스의 시군구 글자(sigun)로 거른다. 코스에 좌표가 없어 앵커가 되지 않는다
 GET /api/v1/plan/place-detail?contentId=125790&contentTypeId=12
-  → { "contentId", "hours", "restDays", "fee", "parking", "eventPeriod" }   값은 공사 원문 · 응답으로만 · 저장 없음
+  → { "contentId", "hours", "restDays", "fee", "parking", "eventPeriod" }   값은 공사 원문 · 응답으로만 · 저장 없음. 원문의 `<br>` 만 개행으로 바꿔 보낸다(#762)
     detailIntro2 1콜을 캐시 없이 실호출한다(펼칠 때마다). place-facts 와 같은 유형별 필드 매핑(INTRO_FIELDS · 요금 · 주차)을 contentId 로 쓴다. 소개정보를 못 받으면 모든 값 null
     거르는 기준은 법정동 목록에서 찾은 시군구 이름이고, 세종처럼 시군구 단계가 없는 곳만 시도 약칭으로 본다
 GET /api/v1/contents/{contentId}?contentTypeId=12&with=accessible,pet   기존 응답 + "accessible": {...} | null, "pet": {...} | null
     요청한 축만 detailWithTour2 · detailPetTour2 로 1콜씩 부르고(10분 캐시) 값에서 contentid 는 뺀다. with 가 없으면 콜 수도 응답도 그대로다
-POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "items": PlaceFacts[] }. 규칙엔진 · audit_run 없음 · 저장 없음. 고른 직후 그 항목만
+POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "items": PlaceFacts[] }. 규칙엔진 · audit_run 없음 · 저장 없음. 고른 직후 그 항목만. 글자 값은 place-detail 과 같이 `<br>` 을 개행으로 바꿔 보낸다(#762)
 모든 기획 조회: 예산 100% 면 검수와 같은 429 BUDGET_EXHAUSTED. 오류 본문은 공통 모양(3-2) 그대로이고 재개 시각(내일 0시)과 "일정 입력 · 저장은 지금도 된다"를 message 에 담는다 — 오류에 필드를 더하지 않는다. 새 서비스 하나가 막히거나 실패하면 그 필드만 null 이고 notice 로 알린다
 타입 PlanBriefing · PlanPlace · PlanEvent · PlanWalk · PlaceFacts 는 packages/shared plan.ts. PlanPlace 에서 worldHeritage 를 뺐다(2026.09.16) — 목록 응답에 그 표시가 없고 화면 요구사항에도 없다
 ```
@@ -3028,6 +3028,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
 	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.45 (2026.09.22) — #762: 4-2 place-facts · place-detail 의 글자 값(이용시간 · 쉬는 날 · 요금 · 주차)에서 원문의 `<br>` 을 개행으로 바꿔 보낸다. 기획 화면 장소 정보 한 줄과 장소 담기 「자세히」 가 태그를 글자 그대로 찍었다(세인트존스 호텔 · 초당할머니순두부 실측). 지문 · 판정 · 저장은 그대로다 — 엔진은 이미 해석 입력에서 같은 처리를 한다.
 	v2.44 (2026.09.22) — #745: 6-2 콘텐츠 단위 격리에 표출 중단의 예외를 더했다. 상세 조회에는 `showflag` 가 없어 숨은 곳이 0건으로 오고, 검수가 그것을 조회 실패로 격리해 확인 불가로만 내고 있었다. 검수가 알림의 표출 중단 기록을 읽는다(`NotificationRepository.hiddenContentIds`).
 	v2.43 (2026.09.22) — #743: 화면 문구의 「견줄」 을 「비교할」 로 맞췄다(알림 카드 · 전후 비교 안내 · 변경 판정 라벨). 같은 뜻을 「전후 비교」 와 다른 낱말로 적고 있었다.
 	v2.42 (2026.09.22) — #739: `POST /patch-preview` 의 `before` · `after` 가 이름이 빈 **걷기 길** 항목(`walk_id`)도 채운다. 상품 응답 · 리포트와 같은 이름 조회(10분 캐시)를 쓰고, 못 찾으면 「걷기 길」 이다. #713 은 관광지(`kto_content_id`)만 채웠다. 저장값과 `previewToken` 은 그대로다(DR-MD-005).

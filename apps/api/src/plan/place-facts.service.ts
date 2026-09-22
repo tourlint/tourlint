@@ -11,6 +11,7 @@ import {
 } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
+import { normalizeLineBreaks } from '../engine/normalize/preprocess';
 import { departureStamp } from '../audit/audit-runner';
 import type { PlaceNameResolver } from '../audit/place-name';
 import type { KakaoMobilityClient } from '../external/kakao';
@@ -219,8 +220,9 @@ function joinText(values: readonly (string | null)[]): string | null {
   return kept.length === 0 ? null : kept.join(' · ');
 }
 
+/** 화면에 적을 글자. 원문의 `<br>` 은 개행으로 — 엔진이 해석 입력에 하는 것과 같은 처리다 (#762) */
 function text(value: unknown): string | null {
-  const s = String(value ?? '').trim();
+  const s = normalizeLineBreaks(String(value ?? '')).trim();
   return s === '' ? null : s;
 }
 

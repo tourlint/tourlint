@@ -52,7 +52,7 @@ export function PlaceDetailView({ place: p }: { place: PlanPlace }) {
         <>
           {shown.map(([label, value]) => (
             <div key={label}>
-              <span className="text-slate-400">{label}</span> {value}
+              <span className="text-slate-400">{label}</span> <span className="whitespace-pre-line">{value}</span>
             </div>
           ))}
           {shown.length === 0 && <div className="text-slate-400">관광정보에 올라 있는 이용 정보가 없어요.</div>}
