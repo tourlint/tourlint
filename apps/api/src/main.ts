@@ -8,6 +8,7 @@ import { getPool } from './persistence/db';
 import { bootstrapDemoAccount, demoEmail } from './seed/demo-seed';
 import { CatalogService } from './catalog/catalog.service';
 import { KtoReachability } from './health/kto-reachability';
+import { describeEgress, formatEgressReport } from './health/egress-diagnostics';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -43,6 +44,8 @@ function warmCatalogOnBoot(catalog: CatalogService, reach: KtoReachability): voi
   };
   // 예열이 닿았는지를 /health 에 잇는다. 못 닿은 컨테이너는 배포 검사를 통과하지 못한다 (#700)
   void reach.track(() => catalog.warm(log), log);
+  // 이 컨테이너가 바깥으로 어떻게 나가는지 한 줄. 예열과 나란히 돌고 실패해도 아무것도 막지 않는다 (#758)
+  void describeEgress().then((report) => { log(formatEgressReport(report)); }, () => undefined);
 }
 
 /**
