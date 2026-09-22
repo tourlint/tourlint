@@ -28,8 +28,15 @@ export function PlaceSuggestionCard({
   const [searchItemId, setSearchItemId] = useState<number | null>(null);
   const itemOf = (itemId: number): ProductItem | undefined => items.find((it) => it.itemId === itemId);
 
-  const { found, notFound, noName } = suggestions.summary;
-  const foundItems = suggestions.items.filter((s) => s.kind === "FOUND" && s.place !== null);
+  // 고른 줄(고른 곳 · 직접 정한 곳)은 카드에서 뺀다. 응답 시점의 목록을 그대로 두면 위 안내가 「1곳」 인데
+  // 카드는 「2곳은 못 찾았어요」 로 남는다 (#763). 항목 목록이 없으면(목록 밖) 응답 그대로 그린다.
+  const rows = items.length === 0
+    ? suggestions.items
+    : suggestions.items.filter((s) => itemOf(s.itemId)?.matchStatus === "PENDING");
+  const found = rows.filter((s) => s.kind === "FOUND").length;
+  const notFound = rows.filter((s) => s.kind === "NOT_FOUND").length;
+  const noName = rows.filter((s) => s.kind === "NO_NAME").length;
+  const foundItems = rows.filter((s) => s.kind === "FOUND" && s.place !== null);
 
   const summaryParts: string[] = [];
   if (found > 0) summaryParts.push(`${found}곳을 찾았어요`);
@@ -62,6 +69,9 @@ export function PlaceSuggestionCard({
     }
   }
 
+  // 다 골랐으면 카드도 끝이다
+  if (rows.length === 0) return null;
+
   return (
     <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -83,7 +93,7 @@ export function PlaceSuggestionCard({
       )}
 
       <ul className="mt-2 space-y-2">
-        {suggestions.items.map((s) => (
+        {rows.map((s) => (
           <li key={s.itemId} className="rounded-lg border border-slate-200 bg-white p-2.5 text-sm dark:border-slate-800 dark:bg-slate-900">
             {s.kind === "FOUND" && s.place !== null ? (
               <div className="flex items-center justify-between gap-2">
