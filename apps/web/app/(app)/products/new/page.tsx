@@ -19,6 +19,7 @@ import { LeaveConfirm } from "./leave-confirm";
 import { afterSaveHref, hasInput, type AfterSave } from "./save-intent";
 import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
+import { startDateFromMonth } from "./signal-start";
 import {
   INPUT_METHODS,
   NIGHTS_OPTIONS,
@@ -31,6 +32,7 @@ import {
   type Transport,
 } from "./types";
 import type { PlanPlace } from "../../../lib/api";
+import { koreaToday } from "../../../lib/workspace";
 import {
   CONCEPT_KEY,
   CONCEPT_LABEL,
@@ -84,6 +86,9 @@ export default function ProductNewPage() {
       const signguCd = q.get("signguCd") ?? "";
       const month = q.get("month") ?? "";
       if (regnCd !== "") setRegion((r) => (r.regnCode === "" ? { ...r, regnCode: regnCd, signguCode: signguCd } : r));
+      // 출발일도 채운다 — 그 달 1일, 이 달이면 오늘. 이미 적혀 있으면 두고, 지난 달이면 비워 둔다 (FR-MO-061 · #764)
+      const start = startDateFromMonth(month, koreaToday());
+      if (start !== null) setStartDate((d) => (d === "" ? start : d));
       setPlanOrigin({
         startedBy: "SIGNAL",
         ...(regnCd !== "" && month !== ""

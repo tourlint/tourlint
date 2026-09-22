@@ -47,6 +47,17 @@ describe('소개정보 → 장소 정보 한 줄 (FR-PL-005)', () => {
     expect(factFields(null, { usetime: '09:00' }).hours).toBeNull();
   });
 
+  it('🔴 원문의 <br> 은 개행으로 넘긴다 — 화면이 태그를 글자로 찍지 않는다 (#762)', () => {
+    // 초당할머니순두부 · 세인트존스 호텔 실측 꼴. 대소문자 · 닫는 슬래시 · 공백 변형을 다 받는다
+    const f = factFields(39, {
+      opentimefood: '- 화요일 08:00~15:00<br>- 평일 08:00~19:00<BR/>- 주말 08:00~18:30<br />',
+      restdatefood: '매주<br>수요일',
+    });
+    expect(f.hours).toBe('- 화요일 08:00~15:00\n- 평일 08:00~19:00\n- 주말 08:00~18:30');
+    expect(f.restDays).toBe('매주\n수요일');
+    expect(factFields(32, { checkintime: '16:00<br>- 비수기 15:00', checkouttime: '11:00' }).hours).toBe('입실 16:00\n- 비수기 15:00 · 퇴실 11:00');
+  });
+
   it('🔴 앞 줄은 같은 날 안에서만 찾는다 — 날이 바뀌면 앞 구간이 아니다', () => {
     const items = [item({ id: 1, dayNo: 1, seq: 1 }), item({ id: 2, dayNo: 1, seq: 2 }), item({ id: 3, dayNo: 2, seq: 1 })];
     expect(previousItem(items, items[1] as PlanItem)?.id).toBe(1);

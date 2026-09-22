@@ -65,10 +65,7 @@ export function PendingBar({
           regnCd={regnCd}
           signguCd={signguCd}
           regionLabel={regionLabel}
-          onResolved={async () => {
-            await onResolved();
-            setSuggestions(null); // 고른 뒤 다시 목록에서 확인한다
-          }}
+          onResolved={onResolved} // 고른 줄은 카드가 항목 목록을 보고 스스로 뺀다 — 찾은 다른 후보는 남는다 (#763)
         />
       )}
     </div>
