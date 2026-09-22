@@ -1,11 +1,18 @@
-# .github/workflows/deploy-watch.yml — main 이 실제로 배포됐는지 지켜본다
+# .github/workflows/deploy-watch.yml — main 이 실제로 배포됐는지 지켜보고, 떨어진 컨테이너는 다시 뽑는다
 #
 # 2026-08-29 에 main 머지 두 건이 두 시간 밀렸다. 그동안 /health 는 계속 ok 였고 아무도
 # 몰랐다 — 옛 코드가 돌고 있어도 살아 있는 것은 사실이라 상태만으로는 구분이 안 된다.
 # 결국 /docs-json 의 라우트 태그가 mock 인 것을 보고 알아냈는데 그건 요행이었다.
 #
-# Railway 는 저장소 밖에서 배포한다. 여기서 할 수 있는 것은 **결과를 확인하는 것**뿐이고,
-# 안 되면 빨간 X 로 남겨 다음 배포 사고를 두 시간 뒤가 아니라 몇 분 안에 알게 한다.
+# 2026-09-21 · 22 에는 새 API 컨테이너가 공사 게이트웨이에 못 닿는 일이 배포 14번 중 3번
+# 있었다. 흐름 로그로 보면 SYN 만 나가고 돌아오는 패킷이 없다 — 컨테이너가 놓인 경로의
+# 문제라 같은 이미지를 다시 뽑는 것이 유일한 회복이다(#700 · #757). /health 검사가 그런
+# 컨테이너를 서비스에 올리지는 않지만(FAILED · 옛 컨테이너 유지) 회복은 사람이 눌러야 했다.
+# 여기서 **이 커밋의 api 배포가 FAILED 면 같은 이미지로 다시 뽑는다**(최대 3번). 빌드는
+# 다시 하지 않는다.
+#
+# Railway 는 저장소 밖에서 배포한다. 여기서 할 수 있는 것은 결과를 확인하고 다시 뽑는 것뿐이고,
+# 그래도 안 되면 빨간 X 로 남겨 다음 배포 사고를 두 시간 뒤가 아니라 몇 분 안에 알게 한다.
 name: deploy-watch
 on:
   push:
@@ -16,7 +23,11 @@ on:
       timeoutSeconds:
         description: '대기 시간(초). 1 로 두면 곧장 실패시켜 진단 단계가 무엇을 찍는지 볼 수 있다'
         required: false
-        default: '900'
+        default: '1800'
+      redeploy:
+        description: 'force 면 지금 api 배포를 같은 이미지로 한 번 다시 뽑는다 — 재배포 경로 시험용'
+        required: false
+        default: 'auto'
 
 # 새 머지가 오면 앞의 감시는 의미가 없다 — 그 커밋은 이미 최신이 아니다
 concurrency:
@@ -34,22 +45,76 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: /health 의 커밋이 이 커밋이 될 때까지 기다린다
+      - name: /health 의 커밋이 이 커밋이 될 때까지 기다린다 — 떨어진 api 배포는 다시 뽑는다
         env:
           HEALTH_URL: https://api-production-1e7c2.up.railway.app/health
-          # 빌드 + 기동에 보통 2분 안쪽이다. 열 배쯤 여유를 둔다
-          TIMEOUT_SECONDS: ${{ inputs.timeoutSeconds || '900' }}
+          # 실패한 배포 하나가 검사 시간 300초를 다 쓴다. 세 번 다시 뽑을 만큼 둔다
+          TIMEOUT_SECONDS: ${{ inputs.timeoutSeconds || '1800' }}
+          REDEPLOY_MODE: ${{ inputs.redeploy || 'auto' }}
+          MAX_REDEPLOYS: '3'
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           want="$(git rev-parse --short=7 HEAD)"
+          sha="$(git rev-parse HEAD)"
           echo "기다리는 커밋: $want"
           deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))
           seen=""
+          redeploys=0
+          # 다시 뽑은 배포 id. 그 배포의 결과만 본다 — 실패한 원래 배포를 또 뽑지 않으려고
+          watching=""
 
+          gql() {
+            curl -sS --max-time 25 https://backboard.railway.com/graphql/v2 \
+              -H 'Content-Type: application/json' \
+              -H "Project-Access-Token: $RAILWAY_TOKEN" -d "$1" || true
+          }
+
+          # api 서비스의 배포 중 이 커밋 것(가장 최근) → "id status". 토큰이 없으면 빈 줄
+          api_deployment() {
+            [ -z "${RAILWAY_TOKEN:-}" ] && return 0
+            local who pid eid sid q res
+            who="$(gql '{"query":"{projectToken{projectId environmentId}}"}')"
+            pid="$(printf '%s' "$who" | jq -r '.data.projectToken.projectId // empty')"
+            eid="$(printf '%s' "$who" | jq -r '.data.projectToken.environmentId // empty')"
+            [ -z "$pid" ] && return 0
+            sid="$(gql "$(jq -nc --arg p "$pid" '{query:"query($p:String!){project(id:$p){services{edges{node{id name}}}}}",variables:{p:$p}}')" \
+              | jq -r '.data.project.services.edges[]?.node | select(.name=="api") | .id' | head -1)"
+            [ -z "$sid" ] && return 0
+            q="$(jq -nc --arg p "$pid" --arg e "$eid" --arg s "$sid" \
+              '{query:"query($p:String!,$e:String!,$s:String!){deployments(first:8,input:{projectId:$p,environmentId:$e,serviceId:$s}){edges{node{id status createdAt meta}}}}",variables:{p:$p,e:$e,s:$s}}')"
+            res="$(gql "$q")"
+            if [ -n "$watching" ]; then
+              printf '%s' "$res" | jq -r --arg id "$watching" '.data.deployments.edges[]?.node | select(.id==$id) | "\(.id) \(.status)"' | head -1
+            else
+              printf '%s' "$res" | jq -r --arg sha "$sha" '.data.deployments.edges[]?.node | select(.meta.commitHash==$sha) | "\(.id) \(.status)"' | head -1
+            fi
+          }
+
+          # 같은 이미지로 다시 뽑는다. 빌드는 다시 하지 않는다 — 코드가 아니라 컨테이너의 경로가 문제다
+          redeploy() {
+            local m res
+            m="$(jq -nc --arg id "$1" '{query:"mutation($id:String!){deploymentRedeploy(id:$id,usePreviousImageTag:true){id status}}",variables:{id:$id}}')"
+            res="$(gql "$m")"
+            printf '%s' "$res" | jq -r '.data.deploymentRedeploy.id // empty'
+            printf '%s' "$res" | jq -r '.errors[]?.message' | sed 's/^/  railway: /' >&2
+          }
+
+          if [ "$REDEPLOY_MODE" = "force" ]; then
+            cur="$(api_deployment)"
+            [ -z "$cur" ] && { echo "::error::재배포 시험 — 이 커밋의 api 배포를 못 찾았다 (토큰 · 커밋 확인)"; exit 1; }
+            echo "재배포 시험 · 지금 배포 ${cur%% *} (${cur##* }) 를 같은 이미지로 다시 뽑는다"
+            watching="$(redeploy "${cur%% *}")"
+            [ -z "$watching" ] && { echo "::error::재배포 요청이 거부됐다"; exit 1; }
+            redeploys=1
+            echo "새 배포 $watching"
+          fi
+
+          tick=0
           while [ "$(date +%s)" -lt "$deadline" ]; do
             body="$(curl -sS --max-time 20 "$HEALTH_URL" || true)"
             got="$(printf '%s' "$body" | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p')"
 
-            if [ "$got" = "$want" ]; then
+            if [ "$got" = "$want" ] && [ -z "$watching" ]; then
               echo "::notice::배포 확인 · $want"
               exit 0
             fi
@@ -57,6 +122,36 @@ jobs:
               echo "$(date -u +%H:%M:%S) 배포본=${got:-없음} · 기다리는 것=$want"
               seen="$got"
             fi
+
+            # Railway 쪽은 1분에 한 번만 묻는다
+            if [ $(( tick % 3 )) -eq 0 ]; then
+              dep="$(api_deployment)"
+              if [ -n "$dep" ]; then
+                id="${dep%% *}"; status="${dep##* }"
+                case "$status" in
+                  SUCCESS)
+                    if [ -n "$watching" ]; then
+                      echo "::notice::다시 뽑은 배포 $watching 이 살아났다 (재배포 $redeploys번)"
+                      exit 0
+                    fi ;;
+                  FAILED|CRASHED)
+                    if [ "$redeploys" -ge "$MAX_REDEPLOYS" ]; then
+                      echo "::error::api 배포 $id 가 $status 다. $MAX_REDEPLOYS번 다시 뽑아도 안 됐다 — 공사 게이트웨이 쪽이 막혔을 수 있다. 흐름 로그(railway logs --network)를 본다."
+                      echo "DEPLOYED=${seen:-}" >> "$GITHUB_ENV"
+                      exit 1
+                    fi
+                    echo "::warning::api 배포 $id 가 $status 다 — 같은 이미지로 다시 뽑는다 ($(( redeploys + 1 ))/$MAX_REDEPLOYS)"
+                    new="$(redeploy "$id")"
+                    if [ -n "$new" ]; then
+                      watching="$new"; redeploys=$(( redeploys + 1 ))
+                      echo "새 배포 $new"
+                    else
+                      echo "::warning::재배포 요청이 거부됐다. 다음 확인 때 다시 시도한다"
+                    fi ;;
+                esac
+              fi
+            fi
+            tick=$(( tick + 1 ))
             sleep 20
           done
 
