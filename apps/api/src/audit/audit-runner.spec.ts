@@ -561,14 +561,17 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     (targetKey, conceptKey): TargetProfileSeed =>
       ({ targetKey, conceptKey, expectedLcls2, expectsNight } as TargetProfileSeed);
 
-  it('🔴 타깃 · 콘셉트를 안 적은 상품은 R10 이 물러난다', async () => {
-    // 선택 입력이다. 조회 자체를 하지 않는다
+  it('🔴 타깃 · 콘셉트를 안 적은 상품은 R10 이 확인 불가를 낸다 — 조용히 물러나지 않는다 (#776)', async () => {
+    // 조회할 키가 없으니 조회는 하지 않는다. 그래도 「구성이 맞다」가 아니라 「모른다」다
     let called = 0;
     const spy: TargetProfileLookup = () => { called++; return null; };
     const result = await runner({ profileOf: spy }).run(product, [sight(1, 'VE07')]);
 
     expect(called).toBe(0);
-    expect(result.findings.filter((f) => f.ruleCode === 'R10')).toEqual([]);
+    const r10 = result.findings.filter((f) => f.ruleCode === 'R10');
+    expect(r10).toHaveLength(1);
+    expect(r10[0]).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'NOT_FOUND', targetItemId: null });
+    expect(r10[0]!.message).toContain('타깃 · 콘셉트가 정해지지 않아');
   });
 
   it('🔴 조회기를 주지 않으면 표준 63행으로 판정한다 — 계정 표를 읽지 않는다', async () => {

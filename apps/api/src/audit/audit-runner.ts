@@ -813,16 +813,16 @@ export class AuditRunner {
   /**
    * [4단계] 기대 콘텐츠 프로파일을 찾는다 (FR-RU-100). 표준 63행이라 I/O 가 없다.
    *
-   * 타깃 · 콘셉트는 **선택 입력**이라 안 적은 상품이 있다. 그때는 `undefined` 를 주고
-   * R10 이 조용히 물러난다 — 안 적은 것을 결함이라 말할 근거가 없다.
+   * 타깃 · 콘셉트는 **선택 입력**이라 안 적은 상품이 있다. 그때는 `null` 을 주고 R10 이 확인
+   * 불가를 낸다 — 기준이 없으니 구성이 맞는지 모르는 것이지, 맞는 것이 아니다 (FR-RU-100 · #776).
    *
    * 적었는데 표준 목록에 없는 값(옛 자유 입력)이면 확인 불가로 남긴다. 비슷한 조합으로 대신
    * 판정하지 않는다 (FR-RU-051 · DR-IN-015).
    */
-  private targetProfileOf(product: ProductRow): TargetProfileContext | undefined {
+  private targetProfileOf(product: ProductRow): TargetProfileContext | null {
     const targetKey = product.targetKey ?? null;
     const conceptKey = product.conceptKey ?? null;
-    if (targetKey === null || conceptKey === null || targetKey === '' || conceptKey === '') return undefined;
+    if (targetKey === null || conceptKey === null || targetKey === '' || conceptKey === '') return null;
 
     try {
       const row = this.profileOf(targetKey, conceptKey);
@@ -876,7 +876,7 @@ export class AuditRunner {
     verdicts: ReadonlyMap<string, ChangeVerdict>,
     travelTimes: ReadonlyMap<string, TravelSegment>,
     rainOutlooks: ReadonlyMap<string, DailyRainOutlook>,
-    targetProfile: TargetProfileContext | undefined,
+    targetProfile: TargetProfileContext | null,
   ): ItineraryContext {
     const start = parseIsoDate(product.startDate);
 
