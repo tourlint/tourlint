@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional, type OnApplicationBootstrap } from '@nestjs/common';
 import type { Pool } from 'pg';
 import {
   findingMessage, kstIso, LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, withPlaceName, type Severity,
@@ -25,7 +25,7 @@ import {
   PatchApplicationRepository,
   type StoredPatchApplication,
 } from '../persistence/patch-application.repository';
-import { AuditJobRepository, type AuditJob, type TriggerType } from './audit-job.repository';
+import { AuditJobRepository, isStale, type AuditJob, type TriggerType } from './audit-job.repository';
 import { AuditRunner, type ItineraryItemRow, type ProductRow } from './audit-runner';
 import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
 import { PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds } from './place-name';
@@ -94,7 +94,7 @@ const NOT_FOUND_MESSAGE: Readonly<Record<OwnedKind, string>> = {
 export const WALK_FALLBACK_LABEL = '걷기 길';
 
 @Injectable()
-export class AuditService {
+export class AuditService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AuditService.name);
   private readonly jobs: AuditJobRepository;
   private readonly products: ProductRepository;
@@ -115,6 +115,8 @@ export class AuditService {
   private pendingDrain = false;
   /** 돌고 있는 검수들. 테스트가 완료를 기다릴 수 있게 붙잡아 둔다 */
   private readonly inFlight = new Set<Promise<void>>();
+  /** 이 프로세스가 지금 돌리는 작업 번호. 종료 신호에 닫는다 (#772) */
+  private readonly runningJobs = new Set<number>();
 
   constructor(
     @Inject(DB_POOL) private readonly pool: Pool,
@@ -182,6 +184,8 @@ export class AuditService {
 
     await this.assertBudget(triggerType === 'BATCH' ? 'BATCH' : 'USER_AUDIT');
 
+    // EX-AU-002 — 기한을 넘겨 멈춘 작업을 먼저 닫는다. 안 닫으면 아래가 그것을 돌려준다 (#772)
+    await this.closeStaleJobs();
     // EX-AU-004 — 진행 중인 작업이 있으면 새로 만들지 않고 그것을 돌려준다
     const enqueued = await this.jobs.enqueue(productId, triggerType);
     if (enqueued.created) this.track(this.drain());
@@ -192,6 +196,11 @@ export class AuditService {
     const job = await this.jobs.findById(jobId);
     if (job === null) {
       throw new DomainException(HttpStatus.NOT_FOUND, 'NOT_FOUND', '검수 작업을 찾을 수 없습니다. 다시 요청해 주세요.', 'REQUEST');
+    }
+    // 폴링하던 작업이 기한을 넘겼으면 닫은 상태를 준다 — 화면이 끝없이 기다리지 않는다 (#772)
+    if (isStale(job, new Date())) {
+      await this.closeStaleJobs();
+      return (await this.jobs.findById(jobId)) ?? job;
     }
     return job;
   }
@@ -486,6 +495,8 @@ export class AuditService {
      * 재검수는 영영 돌지 않는다. 사유코드 39종에 "진행 중" 이 없어, 확정의 전제가 흔들린
      * 경우로 묶어 `PATCH_STALE` 로 답한다.
      */
+    // 기한을 넘겨 멈춘 작업은 진행 중이 아니다. 닫지 않으면 확정이 영영 409 다 (#772)
+    await this.closeStaleJobs();
     const active = await this.jobs.findActive(productId);
     if (active !== null) {
       throw new DomainException(
@@ -750,6 +761,41 @@ export class AuditService {
     this.inFlight.add(wrapped);
   }
 
+  /** 지난 컨테이너가 남긴 작업을 부팅 때 닫는다 (#772). 기다리지 않는다 — 부팅을 늦출 일이 아니다 */
+  onApplicationBootstrap(): void {
+    void this.closeStaleJobs();
+  }
+
+  /**
+   * 기한을 넘긴 작업을 닫는다 (EX-AU-002 · #772).
+   *
+   * **던지지 않는다.** 정리를 못 했다고 검수 요청까지 막을 일이 아니다 — DB 가 문제면 이어지는
+   * 조회가 따로 드러낸다.
+   */
+  private async closeStaleJobs(): Promise<void> {
+    try {
+      const closed = await this.jobs.closeStale(new Date());
+      if (closed.length > 0) {
+        this.logger.warn(`기한을 넘긴 검수 작업 ${closed.length}건을 AUDIT_TIMEOUT 으로 닫았다: ${closed.join(', ')}`);
+      }
+    } catch (e) {
+      this.logger.warn(`멈춘 검수 작업을 정리하지 못했다: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * 종료 신호를 받으면 이 프로세스가 돌리던 작업을 닫는다 (NF-AV-008 · #772).
+   *
+   * 재배포는 곧 이 프로세스를 끝낸다. 닫지 않고 죽으면 그 행이 `RUNNING` 으로 남아 30분
+   * 정리 전까지 그 상품이 막힌다. 끊긴 것이지 기한을 넘긴 것이 아니라 `INTERNAL_ERROR` 다.
+   */
+  async failRunningJobs(): Promise<number> {
+    const ids = [...this.runningJobs];
+    const now = new Date();
+    await Promise.all(ids.map((id) => this.jobs.markFailed(id, 'INTERNAL_ERROR', now).catch(() => undefined)));
+    return ids.length;
+  }
+
   /**
    * 길찾기 클라이언트를 만든다. **실패해도 던지지 않는다.**
    *
@@ -839,6 +885,7 @@ export class AuditService {
 
   /** 파이프라인 1~9단계를 돌리고 결과를 저장한다 */
   private async execute(jobId: number, productId: number): Promise<void> {
+    this.runningJobs.add(jobId);
     try {
       const product = await this.products.findProduct(productId);
       const items = await this.products.findItems(productId);
@@ -868,6 +915,10 @@ export class AuditService {
         settings: await this.loadSettings(product.accountId),
       });
       const result = await runner.run(product, items);
+      if (result.failedRules.length > 0) {
+        // 결과에는 확인 불가로 남는다(#774). 왜 깨졌는지는 여기서만 본다
+        this.logger.error(`규칙 평가 실패 (job ${jobId}): ${result.failedRules.join(', ')}`);
+      }
 
       const auditRunId = await this.results.save({
         productId,
@@ -914,6 +965,8 @@ export class AuditService {
        */
       this.logger.error(`검수 실행 실패 (job ${jobId})`, e);
       await this.jobs.markFailed(jobId, 'INTERNAL_ERROR', new Date()).catch(() => undefined);
+    } finally {
+      this.runningJobs.delete(jobId);
     }
   }
 }

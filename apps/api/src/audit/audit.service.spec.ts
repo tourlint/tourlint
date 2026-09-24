@@ -182,6 +182,41 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       }
       await service.waitForIdle();
     });
+
+    /** 만든 시각을 과거로 돌린 진행 중 작업. 재배포로 끊긴 작업을 흉내 낸다 (#772) */
+    const insertJob = async (minutesAgo: number): Promise<number> => {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO audit_job (product_id, status, trigger_type, created_at)
+         VALUES ($1, 'RUNNING', 'MANUAL', now() - make_interval(mins => $2)) RETURNING id`,
+        [productId, minutesAgo],
+      );
+      return Number(rows[0]?.id);
+    };
+
+    it('🔴 기한(30분)을 넘겨 멈춘 작업은 AUDIT_TIMEOUT 으로 닫고 새 작업을 만든다 (EX-AU-002 · #772)', async () => {
+      const staleId = await insertJob(31);
+
+      const next = await service.requestAudit(productId, 'MANUAL');
+      expect(next.created).toBe(true);
+      expect(next.job.id).not.toBe(staleId);
+      expect(await service.getJob(staleId)).toMatchObject({ status: 'FAILED', errorCode: 'AUDIT_TIMEOUT' });
+      await service.waitForIdle();
+    });
+
+    it('기한 안의 작업은 닫지 않는다 — 재배포 중 옛 컨테이너가 돌리는 검수를 끊지 않는다', async () => {
+      const liveId = await insertJob(5);
+
+      const again = await service.requestAudit(productId, 'MANUAL');
+      expect(again.created).toBe(false);
+      expect(again.job.id).toBe(liveId);
+      await pool.query('DELETE FROM audit_job WHERE id = $1', [liveId]);
+    });
+
+    it('🔴 폴링하던 작업이 기한을 넘기면 닫힌 상태를 준다 — 화면이 끝없이 기다리지 않는다 (#772)', async () => {
+      const staleId = await insertJob(31);
+
+      expect(await service.getJob(staleId)).toMatchObject({ status: 'FAILED', errorCode: 'AUDIT_TIMEOUT' });
+    });
   });
 
   describe('등록 → 검수 → 결과 (W1 게이트)', () => {
@@ -798,6 +833,18 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
         reasonCode: 'PATCH_STALE',
       });
       await pool.query(`DELETE FROM audit_job WHERE product_id = $1 AND status = 'RUNNING'`, [productId]);
+    });
+
+    it('🔴 기한을 넘겨 멈춘 작업은 확정을 막지 않는다 — 409 가 영영 이어지면 안 된다 (#772)', async () => {
+      const picks = await runAndPick();
+      await pool.query(
+        `INSERT INTO audit_job (product_id, status, trigger_type, created_at)
+         VALUES ($1, 'RUNNING', 'MANUAL', now() - interval '31 minutes')`,
+        [productId],
+      );
+
+      const applied = await confirmAndSettle([pick(picks)]);
+      expect(applied.patchApplicationId).toBeGreaterThan(0);
     });
 
     it('🔴 대상이 사라진 수정안이 섞이면 통째로 거절한다 — 부분 반영을 남기지 않는다 (EX-PA-003)', async () => {
