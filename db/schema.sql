@@ -409,6 +409,8 @@ CREATE TABLE system_setting (
     batch_time     TIME        NOT NULL DEFAULT '05:00',
     batch_enabled  BOOLEAN     NOT NULL DEFAULT FALSE,
     daily_quota    INT         NOT NULL DEFAULT 8000,
+    -- 국문 증설 마지막 날(KST · 포함). 다음 날부터 daily_quota 가 800 을 넘어도 800 (#777 · #789)
+    kor_quota_raised_until DATE NOT NULL DEFAULT DATE '2026-10-11',
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- DR-IN-008 : 개발계정 1000 / 운영계정 100000 상한 (계정 유형별 상한은 앱 검증)

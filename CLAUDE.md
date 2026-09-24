@@ -69,7 +69,8 @@ DB 테스트는 `TEST_DATABASE_URL=postgres://postgres:test@localhost:55432/tour
 트래픽 증설로 10,000 건이 되어 일일 예산은 8,000 건이다(2026-09-17). 새 서비스는 무장애 ·
 반려동물 · 연관 관광지 3종이 함께 늘어 각 8,000 건이고, 두루누비 · 방문자수는 각 800 건이라
 그쪽만 아낀다. **증설은 국문이 2026-10-11, 새 서비스 3종이 10-16 까지다** — 끝난 다음 날부터
-800 으로 돌아가고 코드가 날짜를 안다(`korDailyQuota` · `extraServiceDailyCap`).
+800 으로 돌아가고 앱이 날짜를 안다(`korDailyQuota` · `extraServiceDailyCap`). 국문 마지막 날은
+DB(`system_setting.kor_quota_raised_until`)에 있어 연장되면 `batch_switch.mjs --kor-until` 로 바꾼다.
 
 **새로 넣은 가드는 고치기 전으로 되돌려 실제로 실패하는지 본다.** 통과하는데 아무것도
 안 지키는 검사가 실제로 여러 번 나왔다.

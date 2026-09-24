@@ -287,17 +287,23 @@ describe.skipIf(URL === undefined)('RadarService — 관통', () => {
     });
 
     describe('지금 산출 (region-signals/refresh)', () => {
-      const setGlobal = async (patch: { batchEnabled?: boolean; dailyQuota?: number }): Promise<() => Promise<void>> => {
-        const before = await new BatchStateRepository(pool).setting();
+      /*
+       * 되돌릴 값은 DB 원값으로 잡는다. `setting()` 의 `dailyQuota` 는 그 날 쓸 예산이라 국문 증설
+       * 마지막 날이 지나면 800 으로 깎여 있다 — 그걸 되써 넣으면 공유 행이 바뀐다 (#789).
+       */
+      const setGlobal = async (patch: { batchEnabled?: boolean }): Promise<() => Promise<void>> => {
+        const { rows } = await pool.query<{ batch_enabled: boolean }>(
+          `SELECT batch_enabled FROM system_setting WHERE key = 'global'`,
+        );
+        const before = rows[0]?.batch_enabled;
         await pool.query(
-          `UPDATE system_setting SET batch_enabled = COALESCE($1, batch_enabled), daily_quota = COALESCE($2, daily_quota) WHERE key = 'global'`,
-          [patch.batchEnabled ?? null, patch.dailyQuota ?? null],
+          `UPDATE system_setting SET batch_enabled = COALESCE($1, batch_enabled) WHERE key = 'global'`,
+          [patch.batchEnabled ?? null],
         );
         return async () => {
-          await pool.query(
-            `UPDATE system_setting SET batch_enabled = $1, daily_quota = $2 WHERE key = 'global'`,
-            [before.batchEnabled, before.dailyQuota],
-          );
+          if (before !== undefined) {
+            await pool.query(`UPDATE system_setting SET batch_enabled = $1 WHERE key = 'global'`, [before]);
+          }
         };
       };
 
@@ -346,24 +352,33 @@ describe.skipIf(URL === undefined)('RadarService — 관통', () => {
       });
 
       it('🔴 국문 관광정보 예산이 다 찼으면 부르기 전에 429 BUDGET_EXHAUSTED 다 (PLAN 100%)', async () => {
-        const restore = await setGlobal({ batchEnabled: false, dailyQuota: 1 });
+        /*
+         * 예산 1 · 호출 1건은 **이 연결의 트랜잭션 안에서만** 만들고 되돌린다. 공유 행에 커밋하면
+         * 병렬로 도는 다른 스펙이 예산 1 을 읽는다 — 검수 예산 문이 설정을 읽게 된 뒤(#787)
+         * 검수 스펙이 429 로 떨어졌다. 서비스에 이 연결을 넘겨 같은 트랜잭션을 보게 한다.
+         */
+        const client = await pool.connect();
         const marker = `zz-radar-refresh-${String(process.pid)}`;
         try {
-          // 다른 스펙의 호출 로그 정리(called_at 기준)에 쓸리지 않게 호출 시각은 어제로 두고 날짜만 오늘로 센다
-          await pool.query(
+          await client.query('BEGIN');
+          await client.query(
+            `INSERT INTO system_setting (key, batch_enabled, daily_quota) VALUES ('global', FALSE, 1)
+             ON CONFLICT (key) DO UPDATE SET batch_enabled = FALSE, daily_quota = 1`,
+          );
+          await client.query(
             `INSERT INTO api_call_log (provider, operation, called_at, quota_date, status, latency_ms)
-             VALUES ('KTO', $1, now() - interval '1 day', (now() AT TIME ZONE 'Asia/Seoul')::date, 'OK', 1)`,
+             VALUES ('KTO', $1, now(), (now() AT TIME ZONE 'Asia/Seoul')::date, 'OK', 1)`,
             [marker],
           );
           const transport = new FixtureKtoTransport(join(__dirname, '../../../../fixtures/kto'));
           await watchOf(mine, [{ regnCd: '51', signguCd: '150', month: '2026-10' }]);
-          await expect(new RadarService(pool, fixtureJob(transport)).refreshRegionSignals(mine)).rejects.toSatisfy(
+          await expect(new RadarService(client as unknown as Pool, fixtureJob(transport)).refreshRegionSignals(mine)).rejects.toSatisfy(
             (e: unknown) => e instanceof DomainException && e.getStatus() === 429 && e.reasonCode === 'BUDGET_EXHAUSTED',
           );
           expect(transport.replayCounts.size).toBe(0);
         } finally {
-          await pool.query(`DELETE FROM api_call_log WHERE operation = $1`, [marker]);
-          await restore();
+          await client.query('ROLLBACK');
+          client.release();
         }
       });
     });
