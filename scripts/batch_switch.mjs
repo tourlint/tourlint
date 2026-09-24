@@ -7,6 +7,7 @@
  *   DATABASE_URL=... node scripts/batch_switch.mjs --off
  *   DATABASE_URL=... node scripts/batch_switch.mjs --time 07:30
  *   DATABASE_URL=... node scripts/batch_switch.mjs --quota 8000
+ *   DATABASE_URL=... node scripts/batch_switch.mjs --kor-until 2026-11-05
  *
  * `system_setting.batch_enabled` 는 기본이 `FALSE` 라 배포만으로는 배치가 안 돈다.
  * 스케줄러는 깨어나서 "배치가 꺼져 있다" 만 남긴다.
@@ -15,9 +16,11 @@
  *
  * `daily_quota` 는 **국문 관광정보 몫**이고 운영자만 바꾼다 — 설정 API 는 계정 설정만
  * 다루고 이 행을 쓰는 경로가 저장소에 여기뿐이다. 값은 공사 한도의 80% 로 둔다
- * (트래픽 증설로 10,000 이 되어 8,000 · 2026-09-17). 증설은 2026-10-11 까지라 10-12 부터는
- * 이 값이 800 을 넘어도 코드가 800 으로 누른다(`korDailyQuota` · #777) — 그날 여기서 낮추지 않아도
- * 된다. 새 서비스 5종은 `extraServiceDailyCap()` 으로 따로 센다 — 여기서 바꾸는 값과 무관하다.
+ * (트래픽 증설로 10,000 이 되어 8,000 · 2026-09-17). 증설 마지막 날(`kor_quota_raised_until` ·
+ * 기본 2026-10-11)이 지나면 이 값이 800 을 넘어도 앱이 800 으로 누른다(`korDailyQuota` · #777) —
+ * 그날 여기서 낮추지 않아도 된다. **증설이 연장되면 `--kor-until` 로 마지막 날만 바꾼다** — DB
+ * 값이라 배포 금지 기간(10.01 – 11.05)에도 된다 (#789). 새 서비스 5종은 `extraServiceDailyCap()`
+ * 으로 따로 센다 — 여기서 바꾸는 값과 무관하다.
  */
 import { createRequire } from 'node:module';
 
@@ -28,6 +31,8 @@ const on = args.includes('--on');
 const off = args.includes('--off');
 const quotaIdx = args.indexOf('--quota');
 const quota = quotaIdx === -1 ? null : Number(args[quotaIdx + 1]);
+const korUntilIdx = args.indexOf('--kor-until');
+const korUntil = korUntilIdx === -1 ? null : (args[korUntilIdx + 1] ?? '');
 
 if (on && off) {
   console.error('--on 과 --off 를 같이 줄 수 없다');
@@ -41,6 +46,15 @@ if (timeIdx !== -1 && !/^\d{2}:\d{2}$/.test(time ?? '')) {
 if (quotaIdx !== -1 && (!Number.isInteger(quota) || quota < 1 || quota > 100000)) {
   console.error('--quota 는 1 – 100000 의 정수다 (예: 8000)');
   process.exit(1);
+}
+
+// 날짜 모양만이 아니라 실제 날짜인지 본다 — 2026-02-30 을 받으면 DB 오류로만 알게 된다
+if (korUntil !== null) {
+  const d = new Date(`${korUntil}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(korUntil) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== korUntil) {
+    console.error('--kor-until 은 YYYY-MM-DD 다 (예: 2026-11-05) — 국문 증설 마지막 날(포함)');
+    process.exit(1);
+  }
 }
 
 const url = process.env.DATABASE_URL;
@@ -59,8 +73,10 @@ const { Pool } = fromApi('pg');
  * `packages/shared/dist` 가 있어야 하므로 없으면 조용히 기본값을 지어내지 않고 멈춘다.
  */
 let DEFAULTS;
+let KOR_UNTIL_DEFAULT;
+let korDailyQuota;
 try {
-  ({ SYSTEM_SETTING_DEFAULTS: DEFAULTS } = fromApi('@tourlint/shared'));
+  ({ SYSTEM_SETTING_DEFAULTS: DEFAULTS, KOR_QUOTA_RAISED_UNTIL: KOR_UNTIL_DEFAULT, korDailyQuota } = fromApi('@tourlint/shared'));
 } catch {
   console.error('@tourlint/shared 를 못 읽었다 — pnpm build 를 먼저 돌린다');
   process.exit(1);
@@ -71,8 +87,10 @@ const pool = new Pool({
 });
 
 async function show(label) {
+  // `to_jsonb` 로 읽는다 — 마이그레이션 전 DB 에는 kor_quota_raised_until 칸이 없다 (#789)
   const setting = await pool.query(
-    `SELECT batch_time, batch_enabled, daily_quota FROM system_setting WHERE key = 'global'`,
+    `SELECT to_jsonb(s) AS row, to_char(now() AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS today
+       FROM system_setting s WHERE key = 'global'`,
   );
   /*
    * 날짜 형식을 SQL 에서 만든다. `DATE` · `TIMESTAMPTZ` 를 드라이버가 주는 `Date` 로 받아
@@ -112,8 +130,12 @@ async function show(label) {
     const d = `${DEFAULTS.batchTime} · ${DEFAULTS.batchEnabled ? '켜짐' : '꺼짐'} · ${DEFAULTS.dailyQuota}건/일`;
     console.log(`  system_setting: 행 없음 (앱이 기본값 ${d} 로 본다)`);
   } else {
-    const s = setting.rows[0];
+    const { row: s, today } = setting.rows[0];
     console.log(`  배치: ${s.batch_enabled ? '켜짐' : '꺼짐'} · 시각 ${String(s.batch_time).slice(0, 5)} KST · 예산 ${s.daily_quota}건/일`);
+    // 앱이 오늘 실제로 쓰는 국문 예산. 증설 마지막 날이 지나면 800 을 넘지 않는다
+    const until = s.kor_quota_raised_until ?? KOR_UNTIL_DEFAULT;
+    const note = s.kor_quota_raised_until === undefined ? ' (칸 없음 — 마이그레이션 전이라 앱 기본값)' : '';
+    console.log(`  국문 증설 마지막 날: ${until}${note} · 오늘(${today}) 앱이 쓰는 예산 ${korDailyQuota(s.daily_quota, today, until)}건`);
   }
   for (const r of state.rows) {
     console.log(
@@ -136,8 +158,8 @@ async function show(label) {
 try {
   await show('지금');
 
-  if (!on && !off && time === null && quota === null) {
-    console.log('\n바꾸려면 --on / --off / --time HH:MM / --quota N 을 준다.');
+  if (!on && !off && time === null && quota === null && korUntil === null) {
+    console.log('\n바꾸려면 --on / --off / --time HH:MM / --quota N / --kor-until YYYY-MM-DD 를 준다.');
     process.exit(0);
   }
 
@@ -154,6 +176,21 @@ try {
        daily_quota   = COALESCE($3::int, system_setting.daily_quota)`,
     [time, on ? true : off ? false : null, quota, DEFAULTS.batchTime, DEFAULTS.batchEnabled, DEFAULTS.dailyQuota],
   );
+
+  if (korUntil !== null) {
+    // 칸이 없으면 UPDATE 가 알 수 없는 오류로 죽는다. 무엇을 먼저 해야 하는지 말하고 멈춘다
+    const col = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'system_setting' AND column_name = 'kor_quota_raised_until'`,
+    );
+    if (col.rows.length === 0) {
+      console.error('\nkor_quota_raised_until 칸이 없다. 마이그레이션을 먼저 적용한다:');
+      console.error('  DATABASE_URL=... node scripts/apply_migration.mjs db/migrations/2026-09-25_kor_quota_raised_until.sql');
+      process.exitCode = 1;
+    } else {
+      await pool.query(`UPDATE system_setting SET kor_quota_raised_until = $1::date WHERE key = 'global'`, [korUntil]);
+    }
+  }
 
   await show('바꾼 뒤');
 } finally {

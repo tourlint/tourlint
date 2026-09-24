@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { SYSTEM_SETTING_DEFAULTS, korDailyQuota } from '@tourlint/shared';
+import { KOR_QUOTA_RAISED_UNTIL, SYSTEM_SETTING_DEFAULTS, korDailyQuota } from '@tourlint/shared';
 import { localDateKey } from '../external/api-call-log';
 
 /**
@@ -33,6 +33,14 @@ export interface SystemSetting {
   readonly batchTime: string;
   readonly batchEnabled: boolean;
   readonly dailyQuota: number;
+}
+
+/** `to_jsonb` 로 읽은 전역 행. 마이그레이션 전 DB 에는 `kor_quota_raised_until` 이 없다 */
+interface SettingRowJson {
+  readonly batch_time: string;
+  readonly batch_enabled: boolean;
+  readonly daily_quota: number;
+  readonly kor_quota_raised_until?: string;
 }
 
 export class BatchStateRepository {
@@ -90,15 +98,21 @@ export class BatchStateRepository {
   /**
    * 전역 운영 설정. 행이 없으면 기본값이다.
    *
-   * `dailyQuota` 는 **그 날 쓸 수 있는 국문 예산**이다 — 국문 증설이 끝난 뒤(2026-10-12 ~)에는
-   * DB 값이 800 을 넘어도 800 이다 (#777). 예산 게이트 · 배치 · 호출량 화면 · 검수가 모두 여기를
-   * 읽어 막는 값과 보여 주는 값이 갈리지 않는다 (#445).
+   * `dailyQuota` 는 **그 날 쓸 수 있는 국문 예산**이다 — 국문 증설 마지막 날
+   * (`kor_quota_raised_until` · 기본 2026-10-11)이 지나면 DB 값이 800 을 넘어도 800 이다
+   * (#777 · #789). 예산 게이트 · 배치 · 호출량 화면 · 검수가 모두 여기를 읽어 막는 값과 보여 주는
+   * 값이 갈리지 않는다 (#445).
    */
   async setting(now: Date = new Date()): Promise<SystemSetting> {
-    const { rows } = await this.pool.query<{
-      batch_time: string; batch_enabled: boolean; daily_quota: number;
-    }>(`SELECT batch_time, batch_enabled, daily_quota FROM system_setting WHERE key = 'global'`);
-    const row = rows[0];
+    /*
+     * 행을 `to_jsonb` 로 통째로 읽는다. 증설 마지막 날 칸이 아직 없는 DB(마이그레이션 전)에서
+     * 칸 이름을 적어 읽으면 이 조회가 깨지고, 그러면 예산 게이트 전체가 멈춘다. 칸이 없으면
+     * 코드 기본값이다. `DATE` 는 JSON 에서 `YYYY-MM-DD` 라 시간대가 끼지 않는다.
+     */
+    const { rows } = await this.pool.query<{ row: SettingRowJson }>(
+      `SELECT to_jsonb(s) AS row FROM system_setting s WHERE key = 'global'`,
+    );
+    const row = rows[0]?.row;
     if (row === undefined) {
       return {
         batchTime: SYSTEM_SETTING_DEFAULTS.batchTime,
@@ -110,7 +124,7 @@ export class BatchStateRepository {
     return {
       batchTime: String(row.batch_time).slice(0, 5),
       batchEnabled: row.batch_enabled,
-      dailyQuota: korDailyQuota(row.daily_quota, localDateKey(now)),
+      dailyQuota: korDailyQuota(row.daily_quota, localDateKey(now), row.kor_quota_raised_until ?? KOR_QUOTA_RAISED_UNTIL),
     };
   }
 }

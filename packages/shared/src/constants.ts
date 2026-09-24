@@ -607,6 +607,9 @@ export function extraServiceDailyCap(service: Exclude<KtoService, 'KOR'>, todayK
 /**
  * 국문 관광정보(`KorService2`) 트래픽 증설이 끝나는 날 (포함). 공공데이터포털 활용신청 화면 기준
  * (사용자 확인 · 2026-09-25). 새 서비스 3종(`EXTRA_SERVICE_QUOTA_RAISED`)보다 닷새 빠르다.
+ *
+ * **운영 값은 DB 에 있다** — `system_setting.kor_quota_raised_until` (#789). 연장되면 배포 없이
+ * 그 값을 바꾼다. 이 상수는 그 칸이 아직 없는 DB(마이그레이션 전)와 스키마 기본값이 쓰는 날짜다.
  */
 export const KOR_QUOTA_RAISED_UNTIL = '2026-10-11';
 
@@ -619,10 +622,14 @@ export const KOR_BASE_DAILY_QUOTA = 800;
  * `system_setting.daily_quota`(8,000)는 증설 한도의 80% 라, 증설이 끝나면 공사는 1,000건부터
  * 거절하는데 예산 가드는 8,000건까지 통과시킨다. 끝난 다음 날부터는 800 을 넘지 않는다 —
  * 운영자가 더 낮게 둔 값은 그대로 따른다 (#777). 증설 전 날짜는 보지 않는다 — 그때는 DB 값이
- * 800 이었다.
+ * 800 이었다. `raisedUntil` 은 DB 의 마지막 날(`YYYY-MM-DD`)이다 (#789).
  */
-export function korDailyQuota(settingQuota: number, todayKey: string): number {
-  return todayKey > KOR_QUOTA_RAISED_UNTIL ? Math.min(settingQuota, KOR_BASE_DAILY_QUOTA) : settingQuota;
+export function korDailyQuota(
+  settingQuota: number,
+  todayKey: string,
+  raisedUntil: string = KOR_QUOTA_RAISED_UNTIL,
+): number {
+  return todayKey > raisedUntil ? Math.min(settingQuota, KOR_BASE_DAILY_QUOTA) : settingQuota;
 }
 
 /** 위치기반 조회 반경 상한 (SC-DT-013 · EI-KT-008) */

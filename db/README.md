@@ -45,7 +45,14 @@ DATABASE_URL=... node scripts/batch_switch.mjs          # 현재 상태
 DATABASE_URL=... node scripts/batch_switch.mjs --on
 DATABASE_URL=... node scripts/batch_switch.mjs --off
 DATABASE_URL=... node scripts/batch_switch.mjs --time 07:30
+DATABASE_URL=... node scripts/batch_switch.mjs --quota 8000
+DATABASE_URL=... node scripts/batch_switch.mjs --kor-until 2026-11-05
 ```
+
+`--kor-until` 은 국문 관광정보 트래픽 증설 마지막 날이다(`system_setting.kor_quota_raised_until` ·
+기본 2026-10-11). 그 다음 날부터 앱이 `daily_quota` 가 800 을 넘어도 800 으로 쓴다. **증설이
+연장되면 이 날짜만 바꾼다** — DB 값이라 배포 금지 기간(10.01 – 11.05)에도 된다. 칸이 없으면
+마이그레이션 `2026-09-25_kor_quota_raised_until.sql` 을 먼저 적용하라고 알려 주고 멈춘다.
 
 ### 마이그레이션
 

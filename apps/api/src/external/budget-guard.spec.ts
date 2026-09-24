@@ -250,6 +250,12 @@ describe('국문 증설 종료 — korDailyQuota (#777)', () => {
   it('증설 전 날짜는 건드리지 않는다 — 그때는 DB 값이 800 이었다', () => {
     expect(korDailyQuota(1200, '2026-08-22')).toBe(1200);
   });
+
+  it('🔴 DB 의 마지막 날을 받으면 그 날을 따른다 — 연장을 배포 없이 반영한다 (#789)', () => {
+    expect(korDailyQuota(8000, '2026-10-12', '2026-11-05')).toBe(8000);
+    expect(korDailyQuota(8000, '2026-11-05', '2026-11-05')).toBe(8000);
+    expect(korDailyQuota(8000, '2026-11-06', '2026-11-05')).toBe(KOR_BASE_DAILY_QUOTA);
+  });
 });
 
 describe('하루 경계는 한국 시간 기준이다', () => {
