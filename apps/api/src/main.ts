@@ -3,7 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AuditService } from './audit/audit.service';
-import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { configureHttp } from './http-setup';
 import { setupOpenApi } from './openapi/setup';
 import { getPool } from './persistence/db';
 import { bootstrapDemoAccount, demoEmail } from './seed/demo-seed';
@@ -13,11 +13,8 @@ import { describeEgress, formatEgressReport } from './health/egress-diagnostics'
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  // 확정안 ⑤: 에러 생성은 공통 예외 필터 한 곳에서만 + traceId 포함
-  app.useGlobalFilters(new AllExceptionsFilter());
-  // Railway 등 리버스 프록시 뒤에서 HTTPS 를 인식해야 Secure 세션 쿠키가 나간다 (NF-SC-002)
-  app.set('trust proxy', 1);
-  app.enableCors({ origin: true, credentials: true });
+  // 예외 필터 · 프록시 신뢰. CORS 는 켜지 않는다 (#778)
+  configureHttp(app);
 
   // 심사위원이 직접 여는 API 문서. 설명은 `openapi/catalog` 에 모여 있다 (#601)
   setupOpenApi(app);

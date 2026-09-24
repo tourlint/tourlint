@@ -28,6 +28,11 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      // 화면은 같은 출처 `/api/*` 로만 부른다. 켜면 다른 사이트가 자격 증명을 싣고 부를 길이 열린다 (#778)
+      'no-restricted-properties': [
+        'error',
+        { property: 'enableCors', message: 'CORS 를 켜지 않는다. 화면은 같은 출처 /api/* 로 부른다 (http-setup.ts · #778).' },
+      ],
     },
   },
 
