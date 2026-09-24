@@ -368,8 +368,9 @@ export const DISMISS_REASON_PRESET = ['고객 요청 사항', '계약 업체 · 
  * 전역 운영 설정 기본값 (system_setting).
  *
  * `dailyQuota` 는 **국문 관광정보(`KorService2`) 몫**이고 공사 한도의 80% 다. 트래픽 증설로
- * 그 한도가 1,000 → 10,000 이 되어(2026-09-17) 800 에서 8,000 으로 올렸다. 새 서비스 5종은
- * 활용신청 · 한도가 서비스마다 따로여서 `EXTRA_SERVICE_RAISED_CAP` 이 따로 있다.
+ * 그 한도가 1,000 → 10,000 이 되어(2026-09-17) 800 에서 8,000 으로 올렸다. 증설은 2026-10-11
+ * 까지라 그 뒤에는 `korDailyQuota` 가 800 으로 누른다. 새 서비스 5종은 활용신청 · 한도가
+ * 서비스마다 따로여서 `EXTRA_SERVICE_RAISED_CAP` 이 따로 있다.
  */
 export const SYSTEM_SETTING_DEFAULTS = {
   batchTime: '05:00',
@@ -601,6 +602,27 @@ export const EXTRA_SERVICE_RAISED_CAP: Readonly<Record<Exclude<KtoService, 'KOR'
 export function extraServiceDailyCap(service: Exclude<KtoService, 'KOR'>, todayKey: string): number {
   const raised = todayKey >= EXTRA_SERVICE_QUOTA_RAISED.from && todayKey <= EXTRA_SERVICE_QUOTA_RAISED.until;
   return raised ? EXTRA_SERVICE_RAISED_CAP[service] : EXTRA_SERVICE_BASE_CAP;
+}
+
+/**
+ * 국문 관광정보(`KorService2`) 트래픽 증설이 끝나는 날 (포함). 공공데이터포털 활용신청 화면 기준
+ * (사용자 확인 · 2026-09-25). 새 서비스 3종(`EXTRA_SERVICE_QUOTA_RAISED`)보다 닷새 빠르다.
+ */
+export const KOR_QUOTA_RAISED_UNTIL = '2026-10-11';
+
+/** 증설이 끝난 뒤 국문 하루 예산 — 개발계정 1,000건의 80% */
+export const KOR_BASE_DAILY_QUOTA = 800;
+
+/**
+ * 그 날 국문 관광정보에 쓸 예산. `todayKey` 는 `YYYY-MM-DD`(KST) 다.
+ *
+ * `system_setting.daily_quota`(8,000)는 증설 한도의 80% 라, 증설이 끝나면 공사는 1,000건부터
+ * 거절하는데 예산 가드는 8,000건까지 통과시킨다. 끝난 다음 날부터는 800 을 넘지 않는다 —
+ * 운영자가 더 낮게 둔 값은 그대로 따른다 (#777). 증설 전 날짜는 보지 않는다 — 그때는 DB 값이
+ * 800 이었다.
+ */
+export function korDailyQuota(settingQuota: number, todayKey: string): number {
+  return todayKey > KOR_QUOTA_RAISED_UNTIL ? Math.min(settingQuota, KOR_BASE_DAILY_QUOTA) : settingQuota;
 }
 
 /** 위치기반 조회 반경 상한 (SC-DT-013 · EI-KT-008) */
