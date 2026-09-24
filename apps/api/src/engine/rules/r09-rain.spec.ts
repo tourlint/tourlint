@@ -2,7 +2,7 @@ import { RULE_CONSTANTS, type MatchStatus } from '@tourlint/shared';
 import { describe, expect, it } from 'vitest';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
 import {
-  R09RainRiskRule, coveringMax, outdoorItems, outdoorRatio,
+  R09RainRiskRule, coveringMax, coversAll, outdoorItems, outdoorRatio,
   type DailyRainOutlook,
 } from './r09-rain';
 import { DEFAULT_AUDIT_SETTINGS, confirmedItems } from './types';
@@ -205,5 +205,34 @@ describe('R09 판정 (FR-RU-092 · 093)', () => {
     expect(runs[2]).toEqual(runs[0]);
     // 날짜 순서도 고정이다
     expect(runs[0]?.map((f) => f.evidence.date)).toEqual(['2026-08-30', '2026-08-31']);
+  });
+});
+
+describe('예보가 야외 시간대를 다 덮지 못할 때 (FR-RU-091 · #775)', () => {
+  it('🔴 덮인 칸이 기준 밑이어도 안 덮인 야외 시간대가 있으면 확인 불가다', () => {
+    const items = [item({ start: '10:00', end: '11:00' }), item({ start: '15:00', end: '17:00' })];
+    const findings = evaluate(items, { '2026-08-30': short({ '0600': 0.2, '0900': 0.2 }) });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'FORECAST_UNAVAILABLE' });
+    expect(findings[0]?.message).toContain('야외 일정 일부 시간대를 덮는 예보가 없습니다');
+  });
+
+  it('다 덮이고 기준 밑이면 finding 이 없다', () => {
+    const items = [item({ start: '10:00', end: '11:00' }), item({ start: '15:00', end: '17:00' })];
+    expect(evaluate(items, { '2026-08-30': short({ '0600': 0.2, '0900': 0.2, '1200': 0.2, '1500': 0.2 }) })).toHaveLength(0);
+  });
+
+  it('덮인 칸이 이미 기준을 넘으면 그대로 주의다', () => {
+    const items = [item({ start: '10:00', end: '11:00' }), item({ start: '15:00', end: '17:00' })];
+    const [f] = evaluate(items, { '2026-08-30': short({ '0600': 0.2, '0900': 0.8 }) });
+    expect(f).toMatchObject({ severity: 'WARNING', reasonCode: 'RAIN_RISK' });
+  });
+
+  it('coversAll — 끝나는 시각에 칸이 끝나도 덮인 것이다', () => {
+    const slots = new Map(Object.entries({ '0600': 0.2, '0900': 0.2 }));
+    expect(coversAll(slots, [item({ start: '10:00', end: '12:00' })])).toBe(true);
+    expect(coversAll(slots, [item({ start: '11:00', end: '13:00' })])).toBe(false);
+    expect(coversAll(slots, [item({ start: '11:30', end: null })])).toBe(true);
+    expect(coversAll(slots, [item({ start: '12:00', end: null })])).toBe(false);
   });
 });

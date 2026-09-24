@@ -178,3 +178,18 @@ describe('R10 판정 (FR-RU-102 · 104)', () => {
     expect(runs[2]).toEqual(runs[0]);
   });
 });
+
+describe('타깃 · 콘셉트를 비운 상품 (FR-RU-100 · #776)', () => {
+  it('🔴 키가 비어 있으면 확인 불가다 — 조용히 물러나지 않는다', () => {
+    const findings = rule.evaluate({
+      productId: 1, items: [item()], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS, targetProfile: null,
+    });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'NOT_FOUND', targetItemId: null });
+    expect(findings[0]?.message).toContain('타깃 · 콘셉트가 정해지지 않아');
+  });
+
+  it('맥락을 넘기지 않으면(규칙만 돌릴 때) 판정하지 않는다', () => {
+    expect(evaluate([item()])).toHaveLength(0);
+  });
+});

@@ -21,14 +21,17 @@ import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
  * 기대 프로파일은 러너가 계정 설정에서 읽어 넘긴다. 규칙은 DB 를 보지 않는다 (NF-PF-014).
  */
 
-export const R10_VERSION = '1.0.0';
+/**
+ * `1.0.1` — 타깃 · 콘셉트를 비운 상품도 확인 불가로 남긴다. 조용히 물러나지 않는다 (FR-RU-100 · #776)
+ */
+export const R10_VERSION = '1.0.1';
 
 /**
  * 이 상품에 적용할 기대 프로파일. 러너가 채운다.
  *
  * `ok: false` 는 **타깃 · 콘셉트를 적었는데 그 조합의 프로파일이 없는** 경우다. 설정이
  * 빠진 것이지 상품 결함이 아니라 확인 불가로 남긴다. 타깃 · 콘셉트를 아예 안 적은
- * 상품은 이 값이 `undefined` 고 R10 이 조용히 물러난다 — 선택 입력이기 때문이다.
+ * 상품은 러너가 `null` 을 넘기고 역시 확인 불가가 된다 (#776).
  */
 export type TargetProfileContext =
   | {
@@ -91,10 +94,10 @@ export class R10TargetFitRule implements AuditRule {
 
   evaluate(ctx: ItineraryContext): readonly Finding[] {
     const profile = ctx.targetProfile;
-    // 타깃·콘셉트를 안 적은 상품이다. 선택 입력이라 결함이 아니다
-    if (profile === undefined || profile === null) return [];
+    // 맥락을 넘기지 않았다(러너 밖에서 규칙만 돌릴 때). 판정하지 않는다
+    if (profile === undefined) return [];
 
-    if (!profile.ok) {
+    if (profile !== null && !profile.ok) {
       return [{
         ruleCode: 'R10',
         ruleVersion: R10_VERSION,
@@ -117,6 +120,26 @@ export class R10TargetFitRule implements AuditRule {
     const items = confirmedItems(ctx.items);
     // 셀 것이 없으면 결손을 말할 수 없다. 그 항목들은 R05 가 이미 지적한다
     if (items.length === 0) return [];
+
+    /*
+     * 타깃 · 콘셉트를 안 적은 상품이다. 기준이 없으니 구성이 맞는지 **모르는 것이다** —
+     * 키가 비어 있으면 확인 불가다 (FR-RU-100 · #776). 전에는 조용히 물러나 「문제 없음」과
+     * 같아 보였다.
+     */
+    if (profile === null) {
+      return [{
+        ruleCode: 'R10',
+        ruleVersion: R10_VERSION,
+        severity: 'UNVERIFIED',
+        reasonCode: 'NOT_FOUND',
+        targetItemId: null,
+        message: '상품의 타깃 · 콘셉트가 정해지지 않아 상품 구성을 확인할 수 없습니다. 일정 편집에서 고르면 확인할 수 있습니다.',
+        evidence: { unverified: true, exceptionReasonCode: 'NOT_FOUND', unit: 'RULE' },
+        requiresExternal: false,
+        externalSource: null,
+        needsConfirmation: false,
+      }];
+    }
 
     const summary = summarize(items);
     const missing = missingTypes(summary, profile.expectedLcls2);

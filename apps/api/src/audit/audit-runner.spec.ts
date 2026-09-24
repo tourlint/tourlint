@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { STANDARD_VERSION, type TargetProfileSeed } from '@tourlint/shared';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
@@ -13,6 +13,7 @@ import {
 import { FixtureKmaTransport, KmaClient } from '../external/kma';
 import { FixtureKakaoTransport, KakaoMobilityClient } from '../external/kakao';
 import { RULESET_VERSION } from './rule-registry';
+import { R03TimeOverlapRule } from '../engine/rules/r03-overlap';
 
 /**
  * 파이프라인 관통 — **픽스처 리플레이로 공사 호출 0건**이다.
@@ -208,6 +209,27 @@ describe('AuditRunner — 관통', () => {
   });
 
   describe('부분 성공 격리 (EX-CM 원칙 ①)', () => {
+    it('🔴 예외로 끝난 규칙은 확인 불가로 남는다 — 0건과 같아 보이면 안 된다 (EX-AU-006 · #774)', async () => {
+      const boom = vi.spyOn(R03TimeOverlapRule.prototype, 'evaluate').mockImplementation(() => {
+        throw new Error('규칙 내부 오류');
+      });
+      try {
+        const result = await runner().run(product, TP03_LIKE);
+
+        expect(result.failedRules).toEqual(['R03']);
+        expect(result.findings.some((f) => f.reasonCode === 'TIME_OVERLAP')).toBe(false);
+        expect(result.findings).toContainEqual(expect.objectContaining({
+          ruleCode: 'R03', severity: 'UNVERIFIED', reasonCode: 'INTERNAL_ERROR', targetItemId: null,
+        }));
+        // 확인 불가로 센다 — 점수가 그만큼 내려간다
+        expect(result.score.counts.UNVERIFIED).toBeGreaterThanOrEqual(1);
+        // 나머지 규칙은 그대로 판정된다
+        expect(result.findings.some((f) => f.reasonCode === 'EVENT_ENDED')).toBe(true);
+      } finally {
+        boom.mockRestore();
+      }
+    });
+
     it('조회 실패한 곳은 확인 불가로 남고 나머지는 정상 판정된다', async () => {
       const withMissing = [
         ...TP03_LIKE,
@@ -539,14 +561,17 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     (targetKey, conceptKey): TargetProfileSeed =>
       ({ targetKey, conceptKey, expectedLcls2, expectsNight } as TargetProfileSeed);
 
-  it('🔴 타깃 · 콘셉트를 안 적은 상품은 R10 이 물러난다', async () => {
-    // 선택 입력이다. 조회 자체를 하지 않는다
+  it('🔴 타깃 · 콘셉트를 안 적은 상품은 R10 이 확인 불가를 낸다 — 조용히 물러나지 않는다 (#776)', async () => {
+    // 조회할 키가 없으니 조회는 하지 않는다. 그래도 「구성이 맞다」가 아니라 「모른다」다
     let called = 0;
     const spy: TargetProfileLookup = () => { called++; return null; };
     const result = await runner({ profileOf: spy }).run(product, [sight(1, 'VE07')]);
 
     expect(called).toBe(0);
-    expect(result.findings.filter((f) => f.ruleCode === 'R10')).toEqual([]);
+    const r10 = result.findings.filter((f) => f.ruleCode === 'R10');
+    expect(r10).toHaveLength(1);
+    expect(r10[0]).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'NOT_FOUND', targetItemId: null });
+    expect(r10[0]!.message).toContain('타깃 · 콘셉트가 정해지지 않아');
   });
 
   it('🔴 조회기를 주지 않으면 표준 63행으로 판정한다 — 계정 표를 읽지 않는다', async () => {

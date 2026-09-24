@@ -2,7 +2,8 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
-import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { AuditService } from './audit/audit.service';
+import { configureHttp } from './http-setup';
 import { setupOpenApi } from './openapi/setup';
 import { getPool } from './persistence/db';
 import { bootstrapDemoAccount, demoEmail } from './seed/demo-seed';
@@ -12,11 +13,8 @@ import { describeEgress, formatEgressReport } from './health/egress-diagnostics'
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  // 확정안 ⑤: 에러 생성은 공통 예외 필터 한 곳에서만 + traceId 포함
-  app.useGlobalFilters(new AllExceptionsFilter());
-  // Railway 등 리버스 프록시 뒤에서 HTTPS 를 인식해야 Secure 세션 쿠키가 나간다 (NF-SC-002)
-  app.set('trust proxy', 1);
-  app.enableCors({ origin: true, credentials: true });
+  // 예외 필터 · 프록시 신뢰. CORS 는 켜지 않는다 (#778)
+  configureHttp(app);
 
   // 심사위원이 직접 여는 API 문서. 설명은 `openapi/catalog` 에 모여 있다 (#601)
   setupOpenApi(app);
@@ -28,6 +26,22 @@ async function bootstrap(): Promise<void> {
 
   await ensureDemoAccountOnBoot();
   warmCatalogOnBoot(app.get(CatalogService), app.get(KtoReachability));
+  closeAuditsOnShutdown(app.get(AuditService));
+}
+
+/**
+ * 재배포 · 재시작의 종료 신호 (NF-AV-008 · #772).
+ *
+ * 이 프로세스가 돌리던 검수를 `FAILED` 로 닫고 끝낸다. 그냥 죽으면 그 행이 `RUNNING` 으로
+ * 남아 그 상품의 재검수 · 수정안 확정이 30분 정리 전까지 막힌다. DB 가 늦어도 3초 안에
+ * 끝낸다 — 종료를 붙잡지 않는다.
+ */
+function closeAuditsOnShutdown(audit: AuditService): void {
+  process.once('SIGTERM', () => {
+    const exit = (): void => process.exit(0);
+    setTimeout(exit, 3000).unref();
+    void audit.failRunningJobs().catch(() => 0).finally(exit);
+  });
 }
 
 /**

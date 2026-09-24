@@ -36,6 +36,13 @@ import { isSyncDelay, isWeekend, kstToday, pendingDates, toKtoDate } from './syn
 /** 행사 유형. 이 유형만 개최 기간이 있다 (조건 3) */
 export const FESTIVAL_TYPE_ID = 15 as const;
 
+/**
+ * 동기화 목록을 한 날짜에 몇 페이지까지 읽는가 (FR-MO-016 · #773). 한 페이지가 1,000건이라
+ * 20페이지면 2만 건이다 — 실측 최대는 2026-07-28 의 3,206건이었다. 넘으면
+ * `HIDDEN_OVERFLOW` 로 남긴다.
+ */
+export const SYNC_PAGE_LIMIT = 20;
+
 /** 그날 바뀐 콘텐츠 하나 */
 export interface SyncedContent {
   readonly contentId: string;
@@ -207,6 +214,7 @@ export class SyncBatchJob {
     let covered: string | null = null;
     let calls = 0;
     let emptyDay: string | null = null;
+    let overflow = false;
 
     for (const date of dates) {
       if (!(await this.hasBudget())) {
@@ -243,11 +251,53 @@ export class SyncBatchJob {
         continue;
       }
 
-      contents.push(...page.items.map(toSyncedContent));
+      /*
+       * 그날 변경이 한 페이지(1,000건)를 넘으면 이어서 읽는다 (FR-MO-016 · #773). 전에는
+       * 1페이지만 읽어 뒤쪽의 표출 중단 · 변경을 놓쳤고, 놓쳤다는 기록도 없었다.
+       *
+       * 도중에 예산이 떨어지면 **그 날짜를 통째로 다음 배치로 넘긴다.** 읽은 데까지만 처리하고
+       * `last_covered` 를 올리면 나머지를 영영 못 본다.
+       */
+      const dayItems = [...page.items];
+      const total = page.totalCount ?? dayItems.length;
+      let pageNo = 1;
+      let budgetOut = false;
+      while (dayItems.length < total && pageNo < SYNC_PAGE_LIMIT) {
+        if (!(await this.hasBudget())) {
+          budgetOut = true;
+          break;
+        }
+        pageNo++;
+        let next;
+        try {
+          next = await this.kto().areaBasedSyncList({ modifiedDate: toKtoDate(date), pageNo });
+          calls++;
+        } catch (e) {
+          this.logger.error(`동기화 목록 조회 실패 (${date} · ${pageNo}쪽): ${isKtoError(e) ? e.reasonCode : '알 수 없음'}`);
+          await this.record('FAILED', contents.length, now, covered);
+          return { status: 'FAILED', dates, contents, covered, calls, skippedReason: null, impacts: [], notified: 0 };
+        }
+        if (next.items.length === 0) break;
+        dayItems.push(...next.items);
+      }
+      if (budgetOut) {
+        this.logger.warn(`예산이 남지 않아 ${date} 를 끝까지 읽지 못했다. 그 날부터 다음 배치로 넘긴다`);
+        break;
+      }
+      if (dayItems.length < total && pageNo >= SYNC_PAGE_LIMIT) {
+        overflow = true;
+        this.logger.error(
+          `${date} 변경 ${total}건이 페이지 상한(${SYNC_PAGE_LIMIT})을 넘어 ${dayItems.length}건만 읽었다 (BATCH_HIDDEN_OVERFLOW)`,
+        );
+      }
+
+      contents.push(...dayItems.map(toSyncedContent));
       covered = date;
     }
 
-    const status: BatchStatus = emptyDay !== null && covered === null ? 'EMPTY' : 'OK';
+    const status: BatchStatus = emptyDay !== null && covered === null
+      ? 'EMPTY'
+      : overflow ? 'HIDDEN_OVERFLOW' : 'OK';
     if (emptyDay !== null) {
       this.logger.warn(`${emptyDay}(어제 · 평일) 조회가 0건이다. 다음 배치가 다시 보도록 last_covered 를 올리지 않는다 (FR-MO-015)`);
     }

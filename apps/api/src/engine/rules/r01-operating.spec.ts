@@ -410,3 +410,30 @@ describe('결정론성 (NF-MT-001)', () => {
     expect(rule.requiresExternal).toBe(false);
   });
 });
+
+describe('[5단계] 「연다」 로 끝난 판정의 신뢰도 게이트 (FR-AU-009 · EX-PS-002 · #771)', () => {
+  it('🔴 운영시간에 「※ 점포별 상이함」 이 붙으면 그 시간 안 방문도 확인 불가다', () => {
+    const findings = spot('연중무휴', '06:00~23:00<br>※ 점포별 상이함', '2026-10-14', '11:00', '12:00');
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_TARGET_VARIES', needsConfirmation: true });
+    expect(findings[0]?.message).toContain('운영시간이 대상마다 다르게 안내되어');
+  });
+
+  it('🔴 휴무에 단서가 붙으면 쉬는 날이 아닌 날도 확인 불가다', () => {
+    // 화요일 — 읽힌 규칙(매주 월요일)에는 안 걸리지만 점포마다 다르다
+    const [f] = spot('매주 월요일※ 점포별 상이함', '09:00~18:00', '2026-10-13', '10:00', '11:00');
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_TARGET_VARIES' });
+    expect(f?.message).toContain('휴무일이 대상마다 다르게 안내되어');
+  });
+
+  it('원문이 깨끗하면 그대로 finding 이 없다', () => {
+    expect(spot('연중무휴', '09:00~18:00', '2026-10-14', '11:00', '12:00')).toHaveLength(0);
+    expect(spot('매주 월요일', '09:00~18:00', '2026-10-13', '10:00', '11:00')).toHaveLength(0);
+  });
+
+  it('위반이 나는 날은 종전처럼 한 건이다 — 게이트가 두 번 붙지 않는다', () => {
+    const findings = spot('매주 월요일※ 점포별 상이함', '09:00~18:00', '2026-10-12', '10:00', '11:00');
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'REST_DAY_CONFLICT' });
+  });
+});

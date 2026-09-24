@@ -1,4 +1,4 @@
-import type { ExceptionReasonCode, ParseConfidence, ReasonCode, Severity } from '@tourlint/shared';
+import type { ExceptionReasonCode, ParseConfidence, ReasonCode, Severity, UnparsedReason } from '@tourlint/shared';
 import { INTRO_FIELDS, type ContentTypeId } from '@tourlint/shared';
 import {
   addDays, dayOfWeek, isWithinMonthDayRange, nthWeekdayOfMonth, parseIsoDate, toMonthDay,
@@ -28,11 +28,12 @@ import {
  */
 
 /**
+ * `1.0.4` — 「연다」 로 끝난 판정에도 신뢰도 게이트를 건다. UNPARSED 경로의 값으로 정상 판정하지 않는다 (#771)
  * `1.0.3` — 휴무일 필드가 없는 유형(축제 15 · 숙박 32)을 R01 **전체**에서 뺀다 (이슈 #436)
  * `1.0.2` — 축제의 휴무 확인 불가만 막았다. 운영시간 단계로 흘러가 문제를 옮기기만 했다
  * `1.0.1` — 조건부 휴무 문구에서 원문을 뺐다 (FR-AU-071 계열 · DR-NM-014 · 이슈 #361)
  */
-export const R01_VERSION = '1.0.3';
+export const R01_VERSION = '1.0.4';
 
 /**
  * 1단계 결과.
@@ -243,6 +244,59 @@ export function hasNoRestDayField(contentTypeId: number): boolean {
   return fields !== undefined && fields.rest === null;
 }
 
+/** 휴무 축의 경로. 1단계가 「닫지 않는다」 로 끝나려면 이 경로들을 모두 믿을 수 있어야 한다 */
+const CLOSED_AXIS_PATHS = ['fixedClosed', 'holidayRule', 'nthWeekday', 'weeklyClosed', 'conditionalRule', 'alwaysOpen'] as const;
+
+/** 해석하지 못한 이유 → 예외 사유코드 (예외처리 4장 대응표) */
+const UNPARSED_REASON_CODE: Readonly<Record<UnparsedReason, ExceptionReasonCode>> = {
+  MISSING: 'PARSE_MISSING',
+  TARGET_VARIES: 'PARSE_TARGET_VARIES',
+  REFERENCE: 'PARSE_REFERENCE',
+  CONDITIONAL: 'PARSE_CONDITIONAL',
+  SCHEMA_INVALID: 'PARSE_SCHEMA_INVALID',
+  LLM_UNAVAILABLE: 'LLM_UNAVAILABLE',
+};
+
+/** 무엇 때문에 못 읽었는지를 사람 말로. 뒤에 「확인할 수 없습니다」 가 붙는다 */
+const UNPARSED_REASON_TEXT: Readonly<Record<UnparsedReason, (axis: string) => string>> = {
+  MISSING: (axis) => `${axis} 정보가 없어 데이터로`,
+  TARGET_VARIES: (axis) => `${axis}이 대상마다 다르게 안내되어 데이터로`,
+  REFERENCE: (axis) => `${axis}을 홈페이지 · 문의로 안내하고 있어 데이터로`,
+  CONDITIONAL: (axis) => `${axis}에 조건이 붙어 있어 방문일에 해당하는지 데이터로`,
+  SCHEMA_INVALID: (axis) => `${axis} 정보를 해석하지 못해 데이터로`,
+  LLM_UNAVAILABLE: (axis) => `${axis} 정보를 해석하지 못해 데이터로`,
+};
+
+/**
+ * [5단계] 「연다」 로 끝난 판정의 신뢰도 게이트 (FR-AU-009 · EX-PS-002 · DR-NM-020 · #771).
+ *
+ * 게이트가 위반을 만들 때만 걸려 있었다. 「연중무휴」 + 「06:00~23:00 ※ 점포별 상이함」 처럼
+ * 값은 읽히지만 경로가 `UNPARSED` 인 곳을 운영시간 안에 방문하면, 그 값을 그대로 믿고 finding
+ * 없이 통과했다. 같은 곳을 새벽에 방문하면 확인 불가가 나는데 낮에는 정상이 된다.
+ *
+ * `byPath` 에 **`UNPARSED` 로 적힌 경로만** 본다. 적히지 않은 경로는 그 원문에 없는 축이라 모르는
+ * 것이 아니다 — `confidenceOfPaths` 는 없는 것도 `UNPARSED` 로 답하므로 여기서는 쓰지 않는다.
+ * 명절 · 공휴일 규칙은 방문일이 그런 날일 때만 판정을 가른다. 평일 방문이면 보지 않는다.
+ * 항목당 하나만 낸다.
+ */
+function openGate(
+  item: AuditItem,
+  n: NormalizedOperatingInfo,
+  hoursPath: string,
+  date: CalendarDate,
+  holidays: HolidayCalendar,
+): Finding | null {
+  const holidayMatters = !holidays.isSupportedYear(date.year) || holidays.nameOf(date) !== null;
+  const paths = [...CLOSED_AXIS_PATHS, hoursPath].filter((p) => p !== 'holidayRule' || holidayMatters);
+  const shaky = paths.filter((p) => n.confidence.byPath[p] === 'UNPARSED');
+  if (shaky.length === 0) return null;
+
+  const reason = n.unparsed.find((u) => u.affects.some((a) => shaky.includes(a)))?.reason ?? 'SCHEMA_INVALID';
+  const axis = shaky.includes(hoursPath) ? '운영시간' : '휴무일';
+  const text = `${UNPARSED_REASON_TEXT[reason](axis)} 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요`;
+  return unverified(item, placeLine(item, text), { step: '5', date: item.date }, UNPARSED_REASON_CODE[reason]);
+}
+
 /** [4단계] 등급 매핑 */
 const SEVERITY_BY_VERDICT: Readonly<Record<string, { severity: Severity; reason: ReasonCode }>> = {
   CLOSED: { severity: 'BLOCKER', reason: 'REST_DAY_CONFLICT' },
@@ -334,7 +388,12 @@ export class R01OperatingRule implements AuditRule {
     }
 
     const verdict = evaluateHours(selected.entry, item.startTime, item.endTime);
-    if (verdict === 'OPEN' || verdict === 'UNKNOWN') return findings;
+    if (verdict === 'OPEN' || verdict === 'UNKNOWN') {
+      // [5단계] 「연다」 도 4단계 결과다. 해석하지 못한 경로의 값으로 연다고 하지 않는다 (#771)
+      const shaky = openGate(item, n, selected.source, date, holidays);
+      if (shaky !== null) findings.push(shaky);
+      return findings;
+    }
 
     const map = SEVERITY_BY_VERDICT[verdict];
     if (map === undefined) return findings;

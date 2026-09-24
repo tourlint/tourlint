@@ -31,7 +31,7 @@ import { lastRepeated, planInsertion, planNightInsertion, proposeLocalPatches } 
 import { proposeInsertions, proposeReplacements } from './patch-remote';
 import { MAX_PATCHES_PER_FINDING, type Patch } from './patch-types';
 import { opensDuring } from './patch-verify';
-import { RULESET_VERSION, evaluateAll } from './rule-registry';
+import { RULES, RULESET_VERSION, evaluateAll } from './rule-registry';
 
 /**
  * 검수 파이프라인 (API 설계 6-1).
@@ -350,7 +350,9 @@ export class AuditRunner {
     ).length;
 
     // ── 8) 수정안 생성 (판정 이후 별도 단계) ──
-    const all = await this.attachPatches([...findings, ...isolated], ctx, fetched);
+    const patched = await this.attachPatches([...findings, ...isolated], ctx, fetched);
+    // 예외로 끝난 규칙은 확인 불가로 남긴다 — 0건과 같아 보이면 안 된다 (EX-AU-006 · #774)
+    const all = [...patched, ...failedRuleFindings(failedRules)];
 
     // ── 7) 등급 · 출시 준비도 ──
     const score = calculateReadiness({
@@ -811,16 +813,16 @@ export class AuditRunner {
   /**
    * [4단계] 기대 콘텐츠 프로파일을 찾는다 (FR-RU-100). 표준 63행이라 I/O 가 없다.
    *
-   * 타깃 · 콘셉트는 **선택 입력**이라 안 적은 상품이 있다. 그때는 `undefined` 를 주고
-   * R10 이 조용히 물러난다 — 안 적은 것을 결함이라 말할 근거가 없다.
+   * 타깃 · 콘셉트는 **선택 입력**이라 안 적은 상품이 있다. 그때는 `null` 을 주고 R10 이 확인
+   * 불가를 낸다 — 기준이 없으니 구성이 맞는지 모르는 것이지, 맞는 것이 아니다 (FR-RU-100 · #776).
    *
    * 적었는데 표준 목록에 없는 값(옛 자유 입력)이면 확인 불가로 남긴다. 비슷한 조합으로 대신
    * 판정하지 않는다 (FR-RU-051 · DR-IN-015).
    */
-  private targetProfileOf(product: ProductRow): TargetProfileContext | undefined {
+  private targetProfileOf(product: ProductRow): TargetProfileContext | null {
     const targetKey = product.targetKey ?? null;
     const conceptKey = product.conceptKey ?? null;
-    if (targetKey === null || conceptKey === null || targetKey === '' || conceptKey === '') return undefined;
+    if (targetKey === null || conceptKey === null || targetKey === '' || conceptKey === '') return null;
 
     try {
       const row = this.profileOf(targetKey, conceptKey);
@@ -874,7 +876,7 @@ export class AuditRunner {
     verdicts: ReadonlyMap<string, ChangeVerdict>,
     travelTimes: ReadonlyMap<string, TravelSegment>,
     rainOutlooks: ReadonlyMap<string, DailyRainOutlook>,
-    targetProfile: TargetProfileContext | undefined,
+    targetProfile: TargetProfileContext | null,
   ): ItineraryContext {
     const start = parseIsoDate(product.startDate);
 
@@ -982,6 +984,31 @@ function toIsoDate(value: unknown): string | null {
  * 실패한 항목을 결과에서 지우면 사용자는 그 관광지가 검수된 줄 안다. 삭제하지 않고
  * 확인 불가로 결과에 남기는 것이 원칙이다 (EX-CM-003).
  */
+/**
+ * 예외로 끝난 규칙을 확인 불가로 남긴다 (EX-AU-006 · #774).
+ *
+ * 격리는 `evaluateAll` 이 한다 — 규칙 하나가 던져도 나머지는 돈다. 그런데 무엇이 깨졌는지를
+ * 결과에 싣지 않으면 그 규칙은 **「문제 없음」 과 똑같이 보이고** 점수도 그만큼 높게 나온다.
+ * FR-RU-051 이 막는 모양이다.
+ *
+ * 규칙 단위라 대상 항목이 없다. 규칙 실패 전용 사유코드가 없어 최후 수단인
+ * `INTERNAL_ERROR` 를 쓴다 (EX-CM-021). 수정안 단계 뒤에 붙여 수정안 생성과 섞지 않는다.
+ */
+export function failedRuleFindings(codes: readonly string[]): readonly Finding[] {
+  return codes.map((code) => ({
+    ruleCode: code,
+    ruleVersion: RULES.find((rule) => rule.code === code)?.version ?? RULESET_VERSION,
+    severity: 'UNVERIFIED',
+    reasonCode: 'INTERNAL_ERROR',
+    targetItemId: null,
+    message: '이번 검수에서 이 기준을 확인하지 못했습니다. 다시 검수해 주세요.',
+    evidence: { unverified: true, exceptionReasonCode: 'INTERNAL_ERROR', unit: 'RULE' },
+    requiresExternal: false,
+    externalSource: null,
+    needsConfirmation: false,
+  }));
+}
+
 function isolationFindings(
   items: readonly ItineraryItemRow[],
   failures: ReadonlyMap<string, FetchFailure>,
