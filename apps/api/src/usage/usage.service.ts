@@ -67,7 +67,7 @@ export class UsageService {
      * 열 배로 보였다 (이슈 #445). 이 표는 공모전 API 활용 증빙이기도 해서(DR-LC-004)
      * 실제 운영값과 달라서는 안 된다. 행이 없으면 `setting()` 이 기본값을 준다.
      */
-    const { dailyQuota } = await this.state.setting();
+    const { dailyQuota } = await this.state.setting(now);
     const used = await this.logs.countToday(provider, now);
     const decision = evaluateBudget({ dailyBudget: dailyQuota, usedToday: used }, 'USER_AUDIT');
 

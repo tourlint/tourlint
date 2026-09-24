@@ -6,9 +6,10 @@ import {
 import { DomainException } from '../common/domain.exception';
 import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
 import { LlmParseCacheRepository } from '../persistence/llm-parse-cache.repository';
+import { BatchStateRepository } from '../persistence/batch-state.repository';
 import { applyNormalizeFallback } from './normalize-fallback';
 import { buildRunFingerprint, shortFingerprint } from '../engine/fingerprint';
-import { BudgetGuard } from '../external/budget-guard';
+import { ktoBudgetGuard } from '../external/budget-guard';
 import type { CallIntent } from '../external/budget-guard';
 import { KakaoMobilityClient, createKakaoTransport } from '../external/kakao';
 import { KmaClient, createKmaTransport } from '../external/kma';
@@ -103,6 +104,8 @@ export class AuditService implements OnApplicationBootstrap {
   private readonly callLogger: PgApiCallLogger;
   private readonly owns: AuditOwnershipRepository;
   private readonly parseCache: LlmParseCacheRepository;
+  /** 그 날의 국문 예산을 읽는다 — 예산 게이트 · 배치 · 호출량 화면과 같은 출처 (#777) */
+  private readonly state: BatchStateRepository;
   /**
    * 대체 관광지 이름 조회 (DR-PR-001).
    *
@@ -130,6 +133,7 @@ export class AuditService implements OnApplicationBootstrap {
     this.callLogger = new PgApiCallLogger(pool);
     this.owns = new AuditOwnershipRepository(pool);
     this.parseCache = new LlmParseCacheRepository(pool);
+    this.state = new BatchStateRepository(pool);
   }
 
   /**
@@ -745,7 +749,9 @@ export class AuditService implements OnApplicationBootstrap {
    * 패치 확정도 사용자가 누른 것이라 같은 문을 쓴다.
    */
   private async assertBudget(intent: CallIntent): Promise<void> {
-    const guard = new BudgetGuard({ counter: this.callLogger });
+    // 예산 화면 · 배치와 같은 값이다. 코드 기본값을 쓰던 때는 DB 값도 증설 종료도 안 먹었다 (#777)
+    const { dailyQuota } = await this.state.setting();
+    const guard = ktoBudgetGuard('KOR', { counter: this.callLogger, dailyQuota });
     const decision = await guard.check(intent);
     if (!decision.allowed) {
       throw new DomainException(

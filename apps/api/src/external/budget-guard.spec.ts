@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUDGET_THRESHOLD_RATIO, EXTRA_SERVICE_BASE_CAP, EXTRA_SERVICE_QUOTA_RAISED,
-  SYSTEM_SETTING_DEFAULTS, type CallProvider,
+  KOR_BASE_DAILY_QUOTA, KOR_QUOTA_RAISED_UNTIL, SYSTEM_SETTING_DEFAULTS, korDailyQuota, type CallProvider,
 } from '@tourlint/shared';
 import { InMemoryApiCallLogger, localDateKey, type ApiCallLogEntry } from './api-call-log';
 import { BudgetBlockedError, BudgetGuard, evaluateBudget, ktoBudgetGuard } from './budget-guard';
@@ -105,9 +105,10 @@ describe('BudgetGuard', () => {
     status: 'OK', httpStatus: 200, resultCode: '0000', latencyMs: 30, auditRunId: null, ...over,
   });
 
-  it('기본 예산은 800건이다 — 개발계정 한도의 80% (FR-OP-002)', async () => {
-    const guard = new BudgetGuard({ counter: new InMemoryApiCallLogger(), clock: clockAt('2026-08-22T04:00:00Z') });
-    expect((await guard.snapshot()).dailyBudget).toBe(SYSTEM_SETTING_DEFAULTS.dailyQuota);
+  it('예산은 받은 값이다 — 코드 기본값으로 떨어지지 않는다 (#777)', async () => {
+    // 기본값이 있던 때 검수 예산 문이 DB 를 안 읽고 8,000 을 썼다. 이제 안 넘기면 타입 검사가 막는다
+    const guard = new BudgetGuard({ counter: new InMemoryApiCallLogger(), dailyBudget: 1234, clock: clockAt('2026-08-22T04:00:00Z') });
+    expect((await guard.snapshot()).dailyBudget).toBe(1234);
     expect(SYSTEM_SETTING_DEFAULTS.dailyQuota).toBe(8000);
   });
 
@@ -116,7 +117,7 @@ describe('BudgetGuard', () => {
     // 서로 다른 검수 실행의 호출이 하나의 소진량으로 합산된다
     logger.record(entry('2026-08-22T04:00:00Z', { auditRunId: 1 }));
     logger.record(entry('2026-08-22T04:00:01Z', { auditRunId: 2 }));
-    const guard = new BudgetGuard({ counter: logger, clock: clockAt('2026-08-22T05:00:00Z') });
+    const guard = new BudgetGuard({ counter: logger, dailyBudget: SYSTEM_SETTING_DEFAULTS.dailyQuota, clock: clockAt('2026-08-22T05:00:00Z') });
     expect((await guard.snapshot()).usedToday).toBe(2);
   });
 
@@ -124,14 +125,14 @@ describe('BudgetGuard', () => {
     const logger = new InMemoryApiCallLogger();
     logger.record(entry('2026-08-22T04:00:00Z'));
     logger.record(entry('2026-08-22T04:00:01Z', { provider: 'KAKAO_MOBILITY', operation: 'future/directions' }));
-    const guard = new BudgetGuard({ counter: logger, clock: clockAt('2026-08-22T05:00:00Z') });
+    const guard = new BudgetGuard({ counter: logger, dailyBudget: SYSTEM_SETTING_DEFAULTS.dailyQuota, clock: clockAt('2026-08-22T05:00:00Z') });
     expect((await guard.snapshot()).usedToday).toBe(1);
   });
 
   it('실패 호출도 소진량에 든다 — 실제로 나간 호출이다', async () => {
     const logger = new InMemoryApiCallLogger();
     logger.record(entry('2026-08-22T04:00:00Z', { status: 'FAIL', resultCode: null }));
-    const guard = new BudgetGuard({ counter: logger, clock: clockAt('2026-08-22T05:00:00Z') });
+    const guard = new BudgetGuard({ counter: logger, dailyBudget: SYSTEM_SETTING_DEFAULTS.dailyQuota, clock: clockAt('2026-08-22T05:00:00Z') });
     expect((await guard.snapshot()).usedToday).toBe(1);
   });
 
@@ -140,7 +141,7 @@ describe('BudgetGuard', () => {
     // 기본 예산의 경고선(80%)을 **계산해서** 쌓는다. 건수를 박으면 기본값이 바뀔 때 조용히 빗나간다
     const warnAt = SYSTEM_SETTING_DEFAULTS.dailyQuota * BUDGET_THRESHOLD_RATIO.WARN;
     for (let i = 0; i < warnAt; i++) logger.record(entry('2026-08-22T04:00:00Z'));
-    const guard = new BudgetGuard({ counter: logger, clock: clockAt('2026-08-22T05:00:00Z') });
+    const guard = new BudgetGuard({ counter: logger, dailyBudget: SYSTEM_SETTING_DEFAULTS.dailyQuota, clock: clockAt('2026-08-22T05:00:00Z') });
 
     await expect(guard.assertAllowed('USER_AUDIT')).resolves.toMatchObject({ allowed: true, warn: true });
     const e = await guard.assertAllowed('BATCH').catch((x: unknown) => x);
@@ -224,6 +225,30 @@ describe('ktoBudgetGuard — 공사 서비스마다 따로 센다 (외부 연동
     const guard = ktoBudgetGuard('VISITOR', { counter: logger, dailyQuota: 800, clock });
     await expect(guard.check('BATCH')).resolves.toMatchObject({ allowed: false, reasonCode: 'BUDGET_THRESHOLD' });
     await expect(guard.check('PLAN')).resolves.toMatchObject({ allowed: true });
+  });
+});
+
+/*
+ * 국문 증설은 2026-10-11 까지다 (공공데이터포털 활용신청 화면 · 2026-09-25 확인). 새 서비스 3종
+ * (10-16)보다 빠르고 배포 금지 기간(10.01 – 11.05) 안이라 코드가 날짜를 안다 (#777).
+ */
+describe('국문 증설 종료 — korDailyQuota (#777)', () => {
+  it('🔴 끝난 다음 날부터 국문 예산은 800 을 넘지 않는다', () => {
+    expect(korDailyQuota(8000, '2026-10-12')).toBe(KOR_BASE_DAILY_QUOTA);
+    expect(KOR_BASE_DAILY_QUOTA).toBe(800);
+  });
+
+  it('마지막 날까지는 DB 값 그대로다 — 경계는 포함이다', () => {
+    expect(korDailyQuota(8000, '2026-10-11')).toBe(8000);
+    expect(KOR_QUOTA_RAISED_UNTIL).toBe('2026-10-11');
+  });
+
+  it('운영자가 더 낮게 둔 값은 그대로 따른다', () => {
+    expect(korDailyQuota(500, '2026-10-12')).toBe(500);
+  });
+
+  it('증설 전 날짜는 건드리지 않는다 — 그때는 DB 값이 800 이었다', () => {
+    expect(korDailyQuota(1200, '2026-08-22')).toBe(1200);
   });
 });
 

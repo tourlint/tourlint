@@ -2,7 +2,6 @@ import {
   BUDGET_THRESHOLD_RATIO,
   extraServiceDailyCap,
   KTO_PROVIDER_OF,
-  SYSTEM_SETTING_DEFAULTS,
   type KtoService,
 } from '@tourlint/shared';
 import { localDateKey, type CallProvider, type DailyCallCounter } from './api-call-log';
@@ -67,8 +66,12 @@ export function evaluateBudget(snapshot: BudgetSnapshot, intent: CallIntent): Bu
 
 export interface BudgetGuardOptions {
   readonly counter: DailyCallCounter;
-  /** 전역 1행 `system_setting.daily_quota`. 기본 8,000건 = 국문 관광정보 한도(10,000)의 80% */
-  readonly dailyBudget?: number;
+  /**
+   * 그 날의 예산. **기본값을 두지 않는다** — 코드 상수(8,000)로 떨어지면 DB 값도 증설 종료도 안
+   * 먹는다. 검수 예산 문이 그렇게 DB 를 안 읽고 있었다 (#777). 국문은 `BatchStateRepository.setting()`
+   * 의 `dailyQuota`, 새 서비스는 `extraServiceDailyCap()` 이다.
+   */
+  readonly dailyBudget: number;
   readonly provider?: CallProvider;
   /** 테스트 주입용 */
   readonly clock?: () => Date;
@@ -82,7 +85,7 @@ export class BudgetGuard {
 
   constructor(options: BudgetGuardOptions) {
     this.counter = options.counter;
-    this.dailyBudget = options.dailyBudget ?? SYSTEM_SETTING_DEFAULTS.dailyQuota;
+    this.dailyBudget = options.dailyBudget;
     this.provider = options.provider ?? 'KTO';
     this.clock = options.clock ?? (() => new Date());
   }
