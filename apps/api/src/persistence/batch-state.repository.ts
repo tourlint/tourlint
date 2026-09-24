@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
-import { SYSTEM_SETTING_DEFAULTS } from '@tourlint/shared';
+import { SYSTEM_SETTING_DEFAULTS, korDailyQuota } from '@tourlint/shared';
+import { localDateKey } from '../external/api-call-log';
 
 /**
  * 배치 상태와 전역 운영 설정 (`batch_state` · `system_setting` · F12 · DR-CF-005 · 007).
@@ -86,8 +87,14 @@ export class BatchStateRepository {
     );
   }
 
-  /** 전역 운영 설정. 행이 없으면 기본값이다 */
-  async setting(): Promise<SystemSetting> {
+  /**
+   * 전역 운영 설정. 행이 없으면 기본값이다.
+   *
+   * `dailyQuota` 는 **그 날 쓸 수 있는 국문 예산**이다 — 국문 증설이 끝난 뒤(2026-10-12 ~)에는
+   * DB 값이 800 을 넘어도 800 이다 (#777). 예산 게이트 · 배치 · 호출량 화면 · 검수가 모두 여기를
+   * 읽어 막는 값과 보여 주는 값이 갈리지 않는다 (#445).
+   */
+  async setting(now: Date = new Date()): Promise<SystemSetting> {
     const { rows } = await this.pool.query<{
       batch_time: string; batch_enabled: boolean; daily_quota: number;
     }>(`SELECT batch_time, batch_enabled, daily_quota FROM system_setting WHERE key = 'global'`);
@@ -96,14 +103,14 @@ export class BatchStateRepository {
       return {
         batchTime: SYSTEM_SETTING_DEFAULTS.batchTime,
         batchEnabled: SYSTEM_SETTING_DEFAULTS.batchEnabled,
-        dailyQuota: SYSTEM_SETTING_DEFAULTS.dailyQuota,
+        dailyQuota: korDailyQuota(SYSTEM_SETTING_DEFAULTS.dailyQuota, localDateKey(now)),
       };
     }
     // `TIME` 은 `HH:MM:SS` 로 온다. 설정 화면은 분까지만 쓴다
     return {
       batchTime: String(row.batch_time).slice(0, 5),
       batchEnabled: row.batch_enabled,
-      dailyQuota: row.daily_quota,
+      dailyQuota: korDailyQuota(row.daily_quota, localDateKey(now)),
     };
   }
 }

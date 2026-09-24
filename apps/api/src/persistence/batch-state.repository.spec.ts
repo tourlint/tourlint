@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SYSTEM_SETTING_DEFAULTS } from '@tourlint/shared';
+import { KOR_BASE_DAILY_QUOTA, SYSTEM_SETTING_DEFAULTS } from '@tourlint/shared';
 import { BATCH_KEY, BatchStateRepository } from './batch-state.repository';
 
 const URL = process.env.TEST_DATABASE_URL;
@@ -88,5 +88,30 @@ describe.skipIf(URL === undefined)('BatchStateRepository — 실 DB', () => {
     expect(setting.dailyQuota).toBeGreaterThan(0);
     // 배치는 기본이 꺼짐이다 — 켜는 것은 운영 판단이다
     if (setting.batchEnabled === false) expect(SYSTEM_SETTING_DEFAULTS.batchEnabled).toBe(false);
+  });
+});
+
+/*
+ * 그 날의 국문 예산 (#777). 로컬 테스트 DB 의 전역 행은 세션끼리 같이 쓰고 값이 800 이라
+ * 거기서 보면 고치기 전에도 통과한다. 저장값 8,000 을 주는 가짜 연결로 본다.
+ */
+describe('BatchStateRepository.setting — 국문 증설 종료 (#777)', () => {
+  const repoWith = (rows: readonly Record<string, unknown>[]): BatchStateRepository =>
+    new BatchStateRepository({ query: async () => ({ rows }) } as unknown as Pool);
+  const stored = [{ batch_time: '05:00:00', batch_enabled: true, daily_quota: 8000 }];
+
+  it('🔴 증설이 끝난 다음 날(KST 자정)부터 8,000 을 800 으로 누른다', async () => {
+    // 2026-10-12 00:00 KST
+    expect((await repoWith(stored).setting(new Date('2026-10-11T15:00:00Z'))).dailyQuota).toBe(KOR_BASE_DAILY_QUOTA);
+  });
+
+  it('마지막 날 밤까지는 저장값 그대로다', async () => {
+    // 2026-10-11 23:59 KST
+    expect((await repoWith(stored).setting(new Date('2026-10-11T14:59:00Z'))).dailyQuota).toBe(8000);
+  });
+
+  it('🔴 행이 없어 기본값(8,000)을 쓸 때도 같다', async () => {
+    expect(SYSTEM_SETTING_DEFAULTS.dailyQuota).toBeGreaterThan(KOR_BASE_DAILY_QUOTA);
+    expect((await repoWith([]).setting(new Date('2026-10-11T15:00:00Z'))).dailyQuota).toBe(KOR_BASE_DAILY_QUOTA);
   });
 });
