@@ -12,7 +12,10 @@ import { placeLine, type AuditItem, type AuditRule, type Finding, type Itinerary
  * **행사 일자가 결측이면 차단하지 않는다** (FR-RU-023). 모르는 것을 틀렸다고 말하지 않는다.
  */
 
-export const R02_VERSION = '1.0.0';
+/**
+ * `1.0.1` — 기간이 반만 있으면 있는 쪽으로 결론이 날 때만 판정하고, 아니면 확인 불가 (#775)
+ */
+export const R02_VERSION = '1.0.1';
 
 export type EventVerdict = 'IN_PERIOD' | 'ENDED' | 'NOT_STARTED' | 'UNKNOWN';
 
@@ -70,7 +73,16 @@ export class R02EventPeriodRule implements AuditRule {
     if (period === null || (period.start === null && period.end === null)) return null;
 
     const verdict = evaluateEventPeriod(visit, period);
-    if (verdict === 'IN_PERIOD') return null;
+    if (verdict === 'IN_PERIOD') {
+      /*
+       * 반쪽 기간의 「기간 안」 은 모르는 쪽을 통과로 본 것이다 (FR-RU-051 · #775). 종료일이 없으면
+       * 방문일에 이미 끝났을 수 있고, 시작일이 없으면 아직 안 열었을 수 있다. 있는 쪽만으로
+       * 결론이 나는 경우(종료일이 지남 · 시작 전)는 위에서 이미 차단이 됐다.
+       */
+      if (period.end === null) return unverified(item, placeLine(item, '행사 종료일 정보가 없어 방문일에 열리는지 확인할 수 없습니다'));
+      if (period.start === null) return unverified(item, placeLine(item, '행사 시작일 정보가 없어 방문일에 열리는지 확인할 수 없습니다'));
+      return null;
+    }
     if (verdict === 'UNKNOWN') {
       return unverified(item, placeLine(item, '행사 기간 정보가 없어 개최 여부를 확인할 수 없습니다'));
     }

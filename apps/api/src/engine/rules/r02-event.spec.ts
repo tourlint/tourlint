@@ -132,3 +132,22 @@ describe('R02 — 행사 기간 불일치', () => {
     for (const r of runs) expect(r).toEqual(runs[0]);
   });
 });
+
+describe('기간이 반만 있을 때 (FR-RU-051 · FR-RU-023 · #775)', () => {
+  it('🔴 종료일이 없으면 시작일 뒤 방문을 「기간 안」 으로 넘기지 않는다', () => {
+    const [f] = festival('2026-11-17', { start: '2026-04-04', end: null });
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_MISSING' });
+    expect(f?.message).toContain('종료일 정보가 없어');
+  });
+
+  it('🔴 시작일이 없으면 종료일 전 방문을 「기간 안」 으로 넘기지 않는다', () => {
+    const [f] = festival('2026-11-17', { start: null, end: '2026-12-31' });
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_MISSING' });
+    expect(f?.message).toContain('시작일 정보가 없어');
+  });
+
+  it('있는 쪽만으로 결론이 나면 그대로 차단이다', () => {
+    expect(festival('2026-03-01', { start: '2026-04-04', end: null })[0]).toMatchObject({ reasonCode: 'EVENT_NOT_STARTED' });
+    expect(festival('2027-01-05', { start: null, end: '2026-12-31' })[0]).toMatchObject({ reasonCode: 'EVENT_ENDED' });
+  });
+});

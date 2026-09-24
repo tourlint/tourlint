@@ -21,7 +21,10 @@ import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
  * 강수 근거는 러너가 미리 조회해 넘긴다. 규칙은 외부를 부르지 않는다 (NF-PF-014).
  */
 
-export const R09_VERSION = '1.0.0';
+/**
+ * `1.0.1` — 예보가 야외 시간대를 다 덮지 못하면 덮인 값이 기준 밑이어도 정상이 아니라 확인 불가 (#775)
+ */
+export const R09_VERSION = '1.0.1';
 
 export const KMA_SOURCE = '기상청';
 
@@ -137,6 +140,36 @@ export function coveringMax(
   return best;
 }
 
+/**
+ * 야외 항목의 시간대를 예보 칸이 **끝까지** 덮는가 (FR-RU-091 · #775).
+ *
+ * `coveringMax` 는 겹치는 칸의 최댓값만 본다. D+3 처럼 예보가 하루의 일부만 덮으면 오전 칸
+ * 값으로 오후 야외 일정까지 「비 걱정 없음」 이 됐다. 칸 하나는 `[시각, 시각 + 간격)` 이고,
+ * 종료 시각이 없는 항목은 시작 시각 한 점만 본다.
+ */
+export function coversAll(slots: ReadonlyMap<string, number>, items: readonly AuditItem[]): boolean {
+  const spacing = slotSpacing(slots);
+  const spans = [...slots.keys()]
+    .map(toSlotMinutes)
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => a - b)
+    .map((from) => [from, from + spacing] as const);
+
+  return items.every((item) => {
+    const from = toMinutes(item.startTime);
+    const to = item.endTime === null ? from : toMinutes(item.endTime);
+    if (from >= to) return spans.some(([s, e]) => s <= from && e > from);
+    // 앞에서부터 이어 붙여 [from, to) 끝까지 닿는지 본다. 끝나는 시각 자체는 그 칸이 필요 없다
+    let reach = from;
+    for (const [s, e] of spans) {
+      if (s > reach) break;
+      if (e > reach) reach = e;
+      if (reach >= to) return true;
+    }
+    return false;
+  });
+}
+
 export class R09RainRiskRule implements AuditRule {
   readonly code = 'R09';
   readonly name = '우천 리스크';
@@ -181,7 +214,13 @@ export class R09RainRiskRule implements AuditRule {
         : RULE_CONSTANTS.R09_FORECAST_RAIN_THRESHOLD;
 
       if (ratio.ratio < RULE_CONSTANTS.R09_OUTDOOR_RATIO_THRESHOLD) continue;
-      if (probability < threshold) continue;
+      if (probability < threshold) {
+        // 덮인 칸이 기준 밑이어도 안 덮인 야외 시간대가 있으면 모른다 (FR-RU-091 · #775)
+        if (outlook.source === 'SHORT' && !coversAll(outlook.slots, outdoorItems(items, mapping))) {
+          out.push(unverified(date, 'FORECAST_UNAVAILABLE', '야외 일정 일부 시간대를 덮는 예보가 없습니다'));
+        }
+        continue;
+      }
 
       out.push({
         ruleCode: 'R09',
