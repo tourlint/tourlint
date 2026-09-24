@@ -8,7 +8,7 @@ import { buildContentFingerprint, type FingerprintSnapshot } from '../engine/fin
 import type { ImpactCandidate } from './impact-finder';
 import { OPPORTUNITY_CAP_PER_PRODUCT, type OpportunityCandidate } from './opportunity';
 import {
-  DEFAULT_BATCH_WATCH_LIMIT, SyncBatchJob, changeKeyOf, readWatchLimit, toEventPeriod, toSyncedContent,
+  DEFAULT_BATCH_WATCH_LIMIT, SYNC_PAGE_LIMIT, SyncBatchJob, changeKeyOf, readWatchLimit, toEventPeriod, toSyncedContent,
 } from './sync-batch.job';
 
 /** 한국 시간 문자열을 Date 로 */
@@ -283,6 +283,58 @@ describe('예산 (FR-OP-002)', () => {
     expect(result.covered).toBe('2026-08-25');
     // 남은 날짜는 다음 배치가 이어 받는다
     expect(recorded[0]?.lastCovered).toBe('2026-08-25');
+  });
+});
+
+/** 한 날짜가 여러 페이지로 나오는 공사 스텁. `total` 이 응답의 totalCount 다 */
+function stubPagedKto(date: string, total: number, perPage = 1000) {
+  const calls: { date: string; pageNo: number }[] = [];
+  const kto = {
+    areaBasedSyncList: async ({ modifiedDate, pageNo = 1 }: { modifiedDate: string; pageNo?: number }) => {
+      calls.push({ date: modifiedDate, pageNo });
+      if (modifiedDate !== date) return { items: [], pageNo, numOfRows: perPage, totalCount: 0 };
+      const start = (pageNo - 1) * perPage;
+      const count = Math.max(0, Math.min(perPage, total - start));
+      const items = Array.from({ length: count }, (_, i) => item({ contentid: String(start + i + 1) }));
+      return { items, pageNo, numOfRows: perPage, totalCount: total };
+    },
+  } as unknown as KtoClient;
+  return { kto, calls };
+}
+
+describe('한 날짜가 여러 페이지 (FR-MO-016 · #773)', () => {
+  it('🔴 1,000건을 넘는 날은 다음 페이지까지 읽는다 — 뒤쪽의 표출 중단을 놓치지 않는다', async () => {
+    const { repo, recorded } = stubState({ lastCovered: '2026-08-25' });
+    const { kto, calls } = stubPagedKto('20260826', 2500);
+    const result = await job(kto, repo).run();
+
+    expect(calls.map((c) => c.pageNo)).toEqual([1, 2, 3]);
+    expect(result.contents).toHaveLength(2500);
+    expect(result.calls).toBe(3);
+    expect(recorded[0]).toMatchObject({ status: 'OK', lastCovered: '2026-08-26' });
+  });
+
+  it('🔴 도중에 예산이 떨어지면 그 날짜를 통째로 다음 배치로 넘긴다 — 읽은 데까지만 올리면 나머지를 영영 못 본다', async () => {
+    const { repo, recorded } = stubState({ lastCovered: '2026-08-25' });
+    const { kto, calls } = stubPagedKto('20260826', 2500);
+    let left = 2; // 날짜 시작 · 2쪽 앞까지만 남았다
+    const result = await job(kto, repo, { hasBudget: () => left-- > 0 }).run();
+
+    expect(calls.map((c) => c.pageNo)).toEqual([1, 2]);
+    expect(result.covered).toBeNull();
+    expect(result.contents).toHaveLength(0);
+    expect(recorded[0]?.lastCovered).toBeUndefined();
+  });
+
+  it('페이지 상한을 넘으면 읽은 데까지 처리하고 HIDDEN_OVERFLOW 로 남긴다', async () => {
+    const { repo, recorded } = stubState({ lastCovered: '2026-08-25' });
+    const { kto, calls } = stubPagedKto('20260826', 1000 * SYNC_PAGE_LIMIT + 1);
+    const result = await job(kto, repo).run();
+
+    expect(calls).toHaveLength(SYNC_PAGE_LIMIT);
+    expect(result.status).toBe('HIDDEN_OVERFLOW');
+    expect(result.contents).toHaveLength(1000 * SYNC_PAGE_LIMIT);
+    expect(recorded[0]).toMatchObject({ status: 'HIDDEN_OVERFLOW', lastCovered: '2026-08-26' });
   });
 });
 
