@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ContentTypeId } from '@tourlint/shared';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
+import { mergeFallback } from '../normalize/fallback';
 import { parseOperatingInfo } from '../normalize/parse';
+import type { NormalizedOperatingInfo } from '../normalize/types';
 import { R01OperatingRule } from './r01-operating';
 import { DEFAULT_AUDIT_SETTINGS } from './types';
 import type { AuditItem, Finding, ItineraryContext } from './types';
@@ -26,6 +28,8 @@ interface CaseInput {
   readonly end?: string | null;
   readonly itemType?: AuditItem['itemType'];
   readonly placeLabel?: string;
+  /** 파싱 뒤 AI 폴백까지 거친 값을 직접 줄 때 */
+  readonly normalized?: NormalizedOperatingInfo;
 }
 
 function evaluate(input: CaseInput): readonly Finding[] {
@@ -46,7 +50,7 @@ function evaluate(input: CaseInput): readonly Finding[] {
     content: {
       ktoContentId: '1',
       contentTypeId: input.contentTypeId,
-      normalized: parseOperatingInfo({ contentTypeId: input.contentTypeId, raw: input.raw }),
+      normalized: input.normalized ?? parseOperatingInfo({ contentTypeId: input.contentTypeId, raw: input.raw }),
       showFlag: 1,
       eventPeriod: null,
       changeVerdict: null,
@@ -429,6 +433,33 @@ describe('[5단계] 「연다」 로 끝난 판정의 신뢰도 게이트 (FR-AU
   it('원문이 깨끗하면 그대로 finding 이 없다', () => {
     expect(spot('연중무휴', '09:00~18:00', '2026-10-14', '11:00', '12:00')).toHaveLength(0);
     expect(spot('매주 월요일', '09:00~18:00', '2026-10-13', '10:00', '11:00')).toHaveLength(0);
+  });
+
+  it('🔴 AI 가 읽어 채운 조각은 해석된 것이다 — 안 채운 축이 UNPARSED 로 남아도 확인 불가가 아니다 (#784)', () => {
+    // 규칙 파서가 휴무 원문을 못 읽어 휴무 축이 전부 UNPARSED 다. AI 는 이 조건부 조각을 월요일 휴무로 읽는다
+    const raw = { restdate: '동절기 월요일 휴관', usetime: '09:00~18:00' };
+    const parsed = parseOperatingInfo({ contentTypeId: 12, raw });
+    expect(parsed.unparsed).toHaveLength(1);
+    const normalized = mergeFallback(parsed, parsed.unparsed[0]!, {
+      weeklyClosed: ['MON'], holidayRule: [], fixedClosed: [], openHours: null, conditional: true,
+    });
+    // 안 채운 축은 UNPARSED 로 남지만 그 원문을 가리키던 조각은 빠졌다
+    expect(normalized.confidence.byPath.nthWeekday).toBe('UNPARSED');
+    expect(normalized.unparsed).toHaveLength(0);
+
+    // 화요일 — 읽힌 규칙(월요일)에 안 걸린다
+    expect(evaluate({ contentTypeId: 12, raw, normalized, date: '2026-10-13' })).toHaveLength(0);
+    // 월요일 — 조건부로 읽혔으니 추정이다. 차단 대신 주의 + 확인 필요 (FR-AU-008)
+    expect(evaluate({ contentTypeId: 12, raw, normalized, date: '2026-10-12' })[0])
+      .toMatchObject({ severity: 'WARNING', reasonCode: 'REST_DAY_CONFLICT', needsConfirmation: true });
+  });
+
+  it('AI 가 못 읽어 조각이 남으면 그대로 모른다', () => {
+    const raw = { restdate: '동절기 월요일 휴관', usetime: '09:00~18:00' };
+    // 폴백이 아무것도 못 채우면 파서 결과 그대로다
+    const findings = evaluate({ contentTypeId: 12, raw, date: '2026-10-13' });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.severity).toBe('UNVERIFIED');
   });
 
   it('위반이 나는 날은 종전처럼 한 건이다 — 게이트가 두 번 붙지 않는다', () => {
