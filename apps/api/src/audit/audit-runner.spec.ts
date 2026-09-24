@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { STANDARD_VERSION, type TargetProfileSeed } from '@tourlint/shared';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
@@ -13,6 +13,7 @@ import {
 import { FixtureKmaTransport, KmaClient } from '../external/kma';
 import { FixtureKakaoTransport, KakaoMobilityClient } from '../external/kakao';
 import { RULESET_VERSION } from './rule-registry';
+import { R03TimeOverlapRule } from '../engine/rules/r03-overlap';
 
 /**
  * 파이프라인 관통 — **픽스처 리플레이로 공사 호출 0건**이다.
@@ -208,6 +209,27 @@ describe('AuditRunner — 관통', () => {
   });
 
   describe('부분 성공 격리 (EX-CM 원칙 ①)', () => {
+    it('🔴 예외로 끝난 규칙은 확인 불가로 남는다 — 0건과 같아 보이면 안 된다 (EX-AU-006 · #774)', async () => {
+      const boom = vi.spyOn(R03TimeOverlapRule.prototype, 'evaluate').mockImplementation(() => {
+        throw new Error('규칙 내부 오류');
+      });
+      try {
+        const result = await runner().run(product, TP03_LIKE);
+
+        expect(result.failedRules).toEqual(['R03']);
+        expect(result.findings.some((f) => f.reasonCode === 'TIME_OVERLAP')).toBe(false);
+        expect(result.findings).toContainEqual(expect.objectContaining({
+          ruleCode: 'R03', severity: 'UNVERIFIED', reasonCode: 'INTERNAL_ERROR', targetItemId: null,
+        }));
+        // 확인 불가로 센다 — 점수가 그만큼 내려간다
+        expect(result.score.counts.UNVERIFIED).toBeGreaterThanOrEqual(1);
+        // 나머지 규칙은 그대로 판정된다
+        expect(result.findings.some((f) => f.reasonCode === 'EVENT_ENDED')).toBe(true);
+      } finally {
+        boom.mockRestore();
+      }
+    });
+
     it('조회 실패한 곳은 확인 불가로 남고 나머지는 정상 판정된다', async () => {
       const withMissing = [
         ...TP03_LIKE,
