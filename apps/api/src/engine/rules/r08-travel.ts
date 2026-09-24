@@ -16,7 +16,10 @@ import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
  * 대체해 제시하지 않는다.
  */
 
-export const R08_VERSION = '1.1.0';
+/**
+ * `1.1.1` — 종료 시각이 없는 숙박에서 출발하는 구간도 판정한다. 입실 시각을 가장 이른 출발로 본다 (#775)
+ */
+export const R08_VERSION = '1.1.1';
 
 /** 구간 하나의 이동 산출값. 러너가 채운다 */
 export type TravelSegment =
@@ -55,10 +58,18 @@ export function segmentsOf(items: readonly AuditItem[]): readonly { from: AuditI
   return out;
 }
 
-/** 앞 일정 종료부터 뒤 일정 시작까지. 종료시간이 없으면 이동에 쓸 시간이 없는 것이다 */
+/**
+ * 앞 일정 종료부터 뒤 일정 시작까지.
+ *
+ * 종료 시각이 끝까지 비는 것은 숙박뿐이다(체류시간을 채우지 않는다). 숙박에서 떠나는 구간은
+ * **입실 시각을 가장 이른 출발로** 본다 (#775) — 도착하자마자 떠나도 모자라면 확실히 모자라고,
+ * 그 안이면 떠나는 시각을 맞추면 되는 일정이다. 전에는 이동시간을 조회해 놓고 판정을 건너뛰어
+ * 「입실 15:00 → 15:10 다른 도시」 같은 일정이 조용히 통과했다.
+ */
 export function allowedMinutes(from: AuditItem, to: AuditItem): number | null {
-  if (from.endTime === null) return null;
-  return toMinutes(to.startTime) - toMinutes(from.endTime);
+  if (from.endTime !== null) return toMinutes(to.startTime) - toMinutes(from.endTime);
+  if (from.itemType === 'LODGING') return toMinutes(to.startTime) - toMinutes(from.startTime);
+  return null;
 }
 
 export class R08TravelTimeRule implements AuditRule {
@@ -102,9 +113,7 @@ export class R08TravelTimeRule implements AuditRule {
         targetItemId2: to.id,
         message:
           `${from.placeLabel} → ${to.placeLabel} 이동에 약 ${needed}분이 걸리는데 ` +
-          (allowed < 0
-            ? `일정이 ${-allowed}분 겹쳐 이동할 시간이 없습니다. 겹침 해소와 이동을 위해 ${shortfall}분이 더 필요합니다.`
-            : `배정된 시간은 ${allowed}분입니다. ${shortfall}분이 모자랍니다.`) +
+          shortageText(from, allowed, shortfall) +
           (segment.futureBased ? '' : ' (현재 시각 기준으로 산출한 값입니다)'),
         evidence: {
           allowedMinutes: allowed,
@@ -122,6 +131,17 @@ export class R08TravelTimeRule implements AuditRule {
 
     return out;
   }
+}
+
+/** 모자라는 사정을 사람 말로. 숙박 출발은 입실 시각에서 잰 것이라고 밝힌다 (#775) */
+function shortageText(from: AuditItem, allowed: number, shortfall: number): string {
+  if (from.endTime === null) {
+    return `${from.startTime} 입실 뒤 바로 떠나도 ${Math.max(allowed, 0)}분뿐입니다. ${shortfall}분이 모자랍니다.`;
+  }
+  if (allowed < 0) {
+    return `일정이 ${-allowed}분 겹쳐 이동할 시간이 없습니다. 겹침 해소와 이동을 위해 ${shortfall}분이 더 필요합니다.`;
+  }
+  return `배정된 시간은 ${allowed}분입니다. ${shortfall}분이 모자랍니다.`;
 }
 
 function unverified(from: AuditItem, to: AuditItem, reasonCode: ExceptionReasonCode): Finding {

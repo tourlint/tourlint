@@ -82,12 +82,12 @@ export const STANDARDS: readonly Endpoint[] = [
       200: {
         description: '성공',
         example: {
-          rulesetVersion: '1.2.4',
+          rulesetVersion: '1.2.5',
           rules: [
             {
               code: 'R01',
               name: '휴무일 · 운영시간 충돌',
-              version: '1.0.3',
+              version: '1.0.4',
               defaultSeverity: 'BLOCKER',
               requiresExternal: false,
               basis: 'KTO_ONLY',

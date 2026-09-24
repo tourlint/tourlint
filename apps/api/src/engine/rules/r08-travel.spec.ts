@@ -166,3 +166,22 @@ describe('겹침과 이동시간을 함께 확인한다 (#554)', () => {
     expect(evaluate([a,b], { [segmentKey(a.id,b.id)]: {ok:false,reasonCode:'ROUTE_PROVIDER_FAILED'} })[0]?.severity).toBe('UNVERIFIED');
   });
 });
+
+describe('숙박에서 떠나는 구간 (FR-RU-081 · #775)', () => {
+  const lodging = (start: string): AuditItem => ({ ...item({ start, end: null, label: '호텔' }), itemType: 'LODGING' });
+
+  it('🔴 입실 직후 떠나도 모자라면 오류다 — 종료 시각이 없다고 건너뛰지 않는다', () => {
+    const a = lodging('15:00');
+    const b = item({ start: '15:10', end: '16:00', label: '식당' });
+    const [f] = evaluate([a, b], { [segmentKey(a.id, b.id)]: ok(60) });
+    expect(f).toMatchObject({ severity: 'ERROR', reasonCode: 'TRAVEL_TIME_SHORT' });
+    expect(f?.evidence).toMatchObject({ allowedMinutes: 10, neededMinutes: 60, shortfallMinutes: 50 });
+    expect(f?.message).toContain('15:00 입실 뒤 바로 떠나도 10분뿐입니다');
+  });
+
+  it('입실 뒤 충분한 시간이 있으면 finding 이 없다 — 숙박 → 저녁 식사가 늘 걸리지 않는다', () => {
+    const a = lodging('15:00');
+    const b = item({ start: '18:00', end: '19:00', label: '식당' });
+    expect(evaluate([a, b], { [segmentKey(a.id, b.id)]: ok(30) })).toHaveLength(0);
+  });
+});

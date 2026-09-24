@@ -146,10 +146,11 @@ export interface ItineraryContext {
   /**
    * 이 상품에 적용할 기대 콘텐츠 프로파일. 러너가 계정 설정에서 읽어 넣는다 (FR-RU-100).
    *
-   * 상품이 타깃 · 콘셉트를 적지 않았으면 `undefined` 다 — 선택 입력이라 R10 이 조용히
-   * 물러난다. 적었는데 그 조합의 프로파일이 없으면 `ok: false` 로 확인 불가가 된다.
+   * 상품이 타깃 · 콘셉트를 적지 않았으면 `null` 이고 R10 은 확인 불가를 낸다 — 키가 비어 있으면
+   * 확인 불가다 (FR-RU-100 · #776). 적었는데 그 조합의 프로파일이 없으면 `ok: false` 로 역시
+   * 확인 불가다. `undefined` 는 맥락을 넘기지 않은 것이라 R10 이 판정하지 않는다.
    */
-  readonly targetProfile?: TargetProfileContext;
+  readonly targetProfile?: TargetProfileContext | null;
 }
 
 /**
