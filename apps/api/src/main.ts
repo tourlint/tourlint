@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { AuditService } from './audit/audit.service';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { setupOpenApi } from './openapi/setup';
 import { getPool } from './persistence/db';
@@ -28,6 +29,22 @@ async function bootstrap(): Promise<void> {
 
   await ensureDemoAccountOnBoot();
   warmCatalogOnBoot(app.get(CatalogService), app.get(KtoReachability));
+  closeAuditsOnShutdown(app.get(AuditService));
+}
+
+/**
+ * 재배포 · 재시작의 종료 신호 (NF-AV-008 · #772).
+ *
+ * 이 프로세스가 돌리던 검수를 `FAILED` 로 닫고 끝낸다. 그냥 죽으면 그 행이 `RUNNING` 으로
+ * 남아 그 상품의 재검수 · 수정안 확정이 30분 정리 전까지 막힌다. DB 가 늦어도 3초 안에
+ * 끝낸다 — 종료를 붙잡지 않는다.
+ */
+function closeAuditsOnShutdown(audit: AuditService): void {
+  process.once('SIGTERM', () => {
+    const exit = (): void => process.exit(0);
+    setTimeout(exit, 3000).unref();
+    void audit.failRunningJobs().catch(() => 0).finally(exit);
+  });
 }
 
 /**

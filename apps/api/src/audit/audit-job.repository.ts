@@ -43,6 +43,18 @@ interface JobRow {
 const COLUMNS = `id, product_id, status, trigger_type, progress_done, progress_total,
                  audit_run_id, error_code, created_at, finished_at`;
 
+/**
+ * 검수 작업의 기한 (EX-AU-002 · NF-AV-008). 만든 지 이만큼 지나도 `QUEUED` · `RUNNING` 이면
+ * 멈춘 것이다. 한 건은 20초 안쪽으로 끝난다(NF-PF-001) — 30분은 넉넉한 기한이다.
+ */
+export const AUDIT_JOB_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** 기한을 넘긴 진행 중 작업인가 */
+export function isStale(job: AuditJob, now: Date): boolean {
+  const active = job.status === 'QUEUED' || job.status === 'RUNNING';
+  return active && now.getTime() - job.createdAt.getTime() > AUDIT_JOB_TIMEOUT_MS;
+}
+
 export class AuditJobRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -140,6 +152,25 @@ export class AuditJobRepository {
       `UPDATE audit_job SET status = 'DONE', audit_run_id = $2, finished_at = $3 WHERE id = $1`,
       [jobId, auditRunId, finishedAt],
     );
+  }
+
+  /**
+   * 기한을 넘긴 작업을 `FAILED`(`AUDIT_TIMEOUT`)로 닫는다 (EX-AU-002 · #772).
+   *
+   * 작업을 돌리던 프로세스가 재배포 · 재시작으로 끝나면 그 행이 `RUNNING` 으로 남는다.
+   * 되살리는 코드가 없어서 그 상품은 재검수가 남은 작업만 기다리고 확정은 늘 409 였다.
+   *
+   * **만든 지 기한이 지난 것만** 닫는다. 재배포 중에는 옛 컨테이너가 아직 검수를 돌리고
+   * 있어서, 새 컨테이너가 시각 조건 없이 닫으면 살아 있는 작업을 끊는다.
+   */
+  async closeStale(now: Date): Promise<readonly number[]> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `UPDATE audit_job SET status = 'FAILED', error_code = 'AUDIT_TIMEOUT', finished_at = $1
+        WHERE status IN ('QUEUED','RUNNING') AND created_at < $2
+        RETURNING id`,
+      [now, new Date(now.getTime() - AUDIT_JOB_TIMEOUT_MS)],
+    );
+    return rows.map((row) => Number(row.id));
   }
 
   /** 실패해도 진행률은 남긴다 — 어디까지 갔는지가 사용자에게 정보다 */
