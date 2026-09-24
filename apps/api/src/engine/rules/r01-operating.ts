@@ -28,12 +28,13 @@ import {
  */
 
 /**
+ * `1.0.5` — 게이트는 아직 남은 미해석 조각이 가리키는 경로만 본다. AI 가 읽어 뺀 조각은 해석된 것이다 (#784)
  * `1.0.4` — 「연다」 로 끝난 판정에도 신뢰도 게이트를 건다. UNPARSED 경로의 값으로 정상 판정하지 않는다 (#771)
  * `1.0.3` — 휴무일 필드가 없는 유형(축제 15 · 숙박 32)을 R01 **전체**에서 뺀다 (이슈 #436)
  * `1.0.2` — 축제의 휴무 확인 불가만 막았다. 운영시간 단계로 흘러가 문제를 옮기기만 했다
  * `1.0.1` — 조건부 휴무 문구에서 원문을 뺐다 (FR-AU-071 계열 · DR-NM-014 · 이슈 #361)
  */
-export const R01_VERSION = '1.0.4';
+export const R01_VERSION = '1.0.5';
 
 /**
  * 1단계 결과.
@@ -274,8 +275,10 @@ const UNPARSED_REASON_TEXT: Readonly<Record<UnparsedReason, (axis: string) => st
  * 값은 읽히지만 경로가 `UNPARSED` 인 곳을 운영시간 안에 방문하면, 그 값을 그대로 믿고 finding
  * 없이 통과했다. 같은 곳을 새벽에 방문하면 확인 불가가 나는데 낮에는 정상이 된다.
  *
- * `byPath` 에 **`UNPARSED` 로 적힌 경로만** 본다. 적히지 않은 경로는 그 원문에 없는 축이라 모르는
- * 것이 아니다 — `confidenceOfPaths` 는 없는 것도 `UNPARSED` 로 답하므로 여기서는 쓰지 않는다.
+ * `byPath` 에 **`UNPARSED` 로 적혔고 아직 남은 미해석 조각이 가리키는** 경로만 본다. 적히지 않은
+ * 경로는 그 원문에 없는 축이라 모르는 것이 아니다 — `confidenceOfPaths` 는 없는 것도 `UNPARSED` 로
+ * 답하므로 여기서는 쓰지 않는다. AI 폴백은 채운 축의 신뢰도만 올리고 조각을 `unparsed` 에서 빼서
+ * 안 채운 축이 `UNPARSED` 로 남는다. 조각이 빠졌으면 그 원문은 읽힌 것이라 보지 않는다 (#784).
  * 명절 · 공휴일 규칙은 방문일이 그런 날일 때만 판정을 가른다. 평일 방문이면 보지 않는다.
  * 항목당 하나만 낸다.
  */
@@ -288,10 +291,12 @@ function openGate(
 ): Finding | null {
   const holidayMatters = !holidays.isSupportedYear(date.year) || holidays.nameOf(date) !== null;
   const paths = [...CLOSED_AXIS_PATHS, hoursPath].filter((p) => p !== 'holidayRule' || holidayMatters);
-  const shaky = paths.filter((p) => n.confidence.byPath[p] === 'UNPARSED');
-  if (shaky.length === 0) return null;
+  const unresolved = new Set(n.unparsed.flatMap((u) => u.affects));
+  const shaky = paths.filter((p) => n.confidence.byPath[p] === 'UNPARSED' && unresolved.has(p));
+  const fragment = n.unparsed.find((u) => u.affects.some((a) => shaky.includes(a)));
+  if (fragment === undefined) return null;
 
-  const reason = n.unparsed.find((u) => u.affects.some((a) => shaky.includes(a)))?.reason ?? 'SCHEMA_INVALID';
+  const reason = fragment.reason;
   const axis = shaky.includes(hoursPath) ? '운영시간' : '휴무일';
   const text = `${UNPARSED_REASON_TEXT[reason](axis)} 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요`;
   return unverified(item, placeLine(item, text), { step: '5', date: item.date }, UNPARSED_REASON_CODE[reason]);
