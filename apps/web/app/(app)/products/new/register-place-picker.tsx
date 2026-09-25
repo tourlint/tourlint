@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { isApiError, planApi, type PlanBriefing, type PlanPlace } from "../../../lib/api";
+import { BriefingStatus } from "../briefing-status";
 import { PlaceResults } from "../place-results";
 import { PlaceDetailView } from "../place-detail-view";
 import { dayCount, type Nights, type Schedule, type ScheduleItem } from "./types";
@@ -60,7 +61,9 @@ export function RegisterPlacePicker({
   const [insertingId, setInsertingId] = useState<string | null>(null);
 
   const [briefing, setBriefing] = useState<PlanBriefing | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  // 종류 목록을 못 받은 이유. 다시 받으면 지운다 — 남겨 두면 성공한 뒤에도 목록 위에 뜬다 (#822)
+  const [briefingErr, setBriefingErr] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
 
   // 지역과 출발일이 모두 있어야 장소를 부른다 (브리핑이 출발일 · 박수로 행사 창을 잡는다)
   const ready = regnCd !== "" && startDate !== "";
@@ -75,15 +78,18 @@ export function RegisterPlacePicker({
     void (async () => {
       try {
         const b = await planApi.briefing({ regnCd, signguCd, startDate, nights });
-        if (alive) setBriefing(b);
+        if (alive) { setBriefing(b); setBriefingErr(null); }
       } catch (e) {
-        if (alive) setErr(isApiError(e) ? e.message : "종류를 불러오지 못했어요.");
+        if (!alive) return;
+        // 지난 지역의 종류를 그대로 두지 않는다
+        setBriefing(null);
+        setBriefingErr(isApiError(e) ? e.message : "종류를 불러오지 못했어요.");
       }
     })();
     return () => {
       alive = false;
     };
-  }, [ready, regnCd, signguCd, startDate, nights]);
+  }, [ready, regnCd, signguCd, startDate, nights, reload]);
 
   const placeQuery = !ready || (lcls2 === null && activeNear === null) ? null : {
     regnCd, signguCd,
@@ -148,7 +154,7 @@ export function RegisterPlacePicker({
 
       {/* 첫째 줄 — 시군구 전체 종류 */}
       {ready && (briefing === null ? (
-        <p className="mt-3 text-sm text-slate-400">불러오는 중…</p>
+        <BriefingStatus error={briefingErr} onRetry={() => { setBriefingErr(null); setReload((n) => n + 1); }} />
       ) : (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {lclsChips.map((t) => (
@@ -202,7 +208,6 @@ export function RegisterPlacePicker({
               </div>
             )}
           </div>
-          {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
           <PlaceResults query={placeQuery}>
             {(p) => (
                 <PlaceCard
