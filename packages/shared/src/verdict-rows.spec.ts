@@ -80,6 +80,14 @@ describe('판정 입력값을 사람 말로 (#478)', () => {
       .toContainEqual({ label: '받지 못한 예보', value: '중기예보' });
   });
 
+  it('🔴 출발 전 최종 확인의 근거도 한글이다 (#808)', () => {
+    expect(verdictRows({ auditDate: '2026-09-25', startDate: '2026-09-26', daysToDeparture: 1 })).toEqual([
+      { label: '검수한 날', value: '2026-09-25' },
+      { label: '출발일', value: '2026-09-26' },
+      { label: '출발', value: '내일' },
+    ]);
+  });
+
   it('객체는 한 줄로 편다', () => {
     expect(valuesOf(REAL.R03)).toContain('12:00~13:00');
     expect(valuesOf(REAL.R07)).toContain('09:00~16:00 · 420분');
