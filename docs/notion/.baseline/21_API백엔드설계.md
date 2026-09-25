@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.53</td>
+<td>API · 백엔드 설계 v2.54</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -1142,7 +1142,7 @@ POST /api/v1/radar/today
   "page": 0, "size": 20, "totalElements": 1, "totalPages": 1
 }
 ```
-`latestAudit.readinessScore` 는 5-5 와 같은 **조회 시점 재계산 값**입니다(FR-AU-046). 무시한 판정을 뺀 점수라 `audit_run` 저장값과 다를 수 있습니다. `counts` 는 무시한 것까지 센 값으로 5-5 의 `counts` 와 같습니다.
+`latestAudit.readinessScore` 는 5-5 와 같은 **조회 시점 재계산 값**입니다(FR-AU-046). 무시한 판정을 뺀 점수라 `audit_run` 저장값과 다를 수 있습니다. `counts` 도 5-5 의 `counts` 와 같은 재계산 값으로, 무시한 판정을 뺀 건수입니다.
 ## 5-3. 장소 검색 · 확정
 검색과 확정은 **장소를 입력하는 순간** 화면 2 편집기 행에서 일어납니다(목록에서 고르기). 저장한 뒤 검수 화면에서 확정하는 단계는 없습니다. 기획 에이전트 카드의 "이곳으로 선택"도 같은 `match` 를 `matchedBy: "AGENT"` 로 부릅니다 (FR-PL-004 · FR-AG-012).
 ```json
@@ -1255,7 +1255,8 @@ POST /api/v1/radar/today
   "scoreBreakdown": {
     "formula": "100 - (2 x 25) - (1 x 10) - (2 x 4) - (1 x 3) = 29",
     "deduction": 71,
-    "weights": { "BLOCKER": 25, "ERROR": 10, "WARNING": 4, "UNVERIFIED": 3 }
+    "weights": { "BLOCKER": 25, "ERROR": 10, "WARNING": 4, "UNVERIFIED": 3 },
+    "scoredCounts": { "blocker": 2, "error": 1, "warning": 2, "unverified": 1 }
   },
   "settingSnapshot": { "standardVersion": "2026.09", "r07SpanHours": 6, "r07MealMinutes": 90 },
   "counts": { "blocker": 2, "error": 1, "warning": 2, "unverified": 1, "dismissed": 0 },
@@ -1280,6 +1281,7 @@ POST /api/v1/radar/today
 	**확인 필요 N건은 점수와 분리 표기**합니다 — N은 확인 불가 등급 건수가 아니라 **확인 필요 목록의 항목 수**입니다(추정 동시 등록 · 출발 임박 항목 포함). 예: "출시 준비도 93점 · 확인 필요 3건" (FR-AU-044).
 	`isPartial = true`이면 `readinessScore`는 `null`이며 화면에 숫자를 표시하지 않고 `부분 검수` 배지를 노출합니다 (EX-AU-007).
 	`readinessScore` · `counts`는 **조회 시점에 미무시 finding + 해당 실행의 ****`weight_snapshot`****으로 재계산한 값**입니다. `audit_run` 저장값은 실행 시점 기록으로 불변이며, 무시 건수는 `counts.dismissed`로 병기합니다 (FR-AU-046).
+	`scoreBreakdown.scoredCounts` 는 **감점에 쓴 등급별 건수**입니다. `counts` 에서 감점하지 않는 출발 전 최종 확인 항목(FR-AU-045)을 뺀 값이라 `formula` 의 건수와 같고, 화면의 계산 문장(UI-S3-010)이 이 값으로 적습니다.
 	`evidence.dataFingerprint`는 콘텐츠별 지문을 `kto_content_id` 오름차순으로 U+001F 연결 후 재해시한 **실행 대표 지문**의 앞 8자리입니다. 전체 값 확인 수단을 함께 제공합니다 (DR-FP-008 · UI-CM-032).
 	`settingSnapshot` 은 **실행 시점의 표준 버전과 회사 기준 두 값**입니다. `weight_snapshot` 처럼 실행에 딸린 기록이라 회사 기준을 나중에 바꿔도 소급해 바뀌지 않고, 리포트 머리글이 이 값을 씁니다. 컬럼이 생기기 전의 실행은 `null` 입니다 (FR-OP-023 · DR-CF-009).
 	R07 finding 의 `message` 는 **적용한 기준을 함께 적습니다** — 예: "12:00 점심 60분은 회사 기준 90분보다 짧습니다. TourLint 표준 60분은 충족합니다." 회사 기준이 표준과 같으면 지금 문장 그대로입니다 (FR-RU-074 · NF-MT-001).
@@ -3041,6 +3043,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
 	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.54 (2026.09.25) — #819: 5-5 `counts` 와 목록 `latestAudit.counts` 가 무시한 판정까지 세고 있어 89점 옆에 「주의 3건 −12점」 이 나왔다. 두 곳 모두 무시한 판정을 뺀 건수로 맞추고(FR-AU-046), 목록 절의 「무시한 것까지 센 값」 문장을 고쳤다. 5-5 `scoreBreakdown.scoredCounts`(감점에 쓴 건수)를 더했다.
 	v2.53 (2026.09.25) — #813: `GET /usage/budget` 행과 8-2 주석 · 요구사항 대응표의 「계정 메뉴의 오늘 사용량」 · 「호출량 화면」 · 「예산 위젯」 을 운영자 조회로 고쳤다(09-18 #532).
 	v2.52 (2026.09.25) — #808: 5-7 출발 전 확인 항목의 `note` 를 「출발이 가까워 자동으로 올린 항목이며 감점하지 않습니다」 로 바꿨다 — 화면에 그대로 나간다. 이 항목은 R05 가 출발 1일 이내 상품에 만든다(규칙셋 1.2.8).
 	v2.51 (2026.09.25) — #806: 5-9 전후 비교 응답에 `schedule`(반영 기록의 전후 일정)을 더했다. 이름은 응답에만 채우고 좌표 · 분류는 뺀다.
