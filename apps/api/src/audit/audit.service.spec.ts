@@ -1110,6 +1110,24 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(after.findings.find((f) => f.id === target!.id)?.dismissReason).toBe('현장 확인함');
     });
 
+    it('🔴 무시한 판정은 요약의 등급별 건수에서도 빠진다 — 계산 문장 재료가 산식과 같다 (#819)', async () => {
+      const { runId, findings } = await runOnce();
+      const target = findings.find((f) => f.severity !== 'BLOCKER')!;
+      const key = target.severity.toLowerCase();
+      const before = toRunResponse(await service.getRun(runId)).counts as Record<string, number>;
+
+      await service.dismissFinding(target.id, '현장 확인함');
+      const body = toRunResponse(await service.getRun(runId));
+      const counts = body.counts as Record<string, number>;
+      expect(counts[key]).toBe((before[key] ?? 0) - 1);
+      expect(counts.dismissed).toBe(1);
+
+      // 화면은 scoredCounts 로 「100점에서 …」 를 적는다. 점수를 낸 산식의 건수와 같아야 한다
+      const b = body.scoreBreakdown as { formula: string; scoredCounts: Record<string, number> };
+      const terms = [...b.formula.matchAll(/\((\d+)×\d+\)/g)].map((m) => Number(m[1]));
+      expect(terms).toEqual([b.scoredCounts.blocker, b.scoredCounts.error, b.scoredCounts.warning, b.scoredCounts.unverified]);
+    });
+
     it('무시를 해제하면 사유도 지워진다', async () => {
       const { runId, findings } = await runOnce();
       const target = findings.find((f) => f.severity !== 'BLOCKER')!;

@@ -75,13 +75,14 @@ describe('하한과 상한', () => {
 });
 
 describe('무시 처리 (FR-AU-046 · 047)', () => {
-  it('무시한 finding 은 감점에서 빠지되 건수로 남는다', () => {
+  it('🔴 무시한 finding 은 감점과 등급별 건수에서 빠지고 무시 건수로 따로 센다 (#819)', () => {
     const r = calculateReadiness({
       findings: [f('ERROR'), f('ERROR', { dismissed: true })],
       targetCount: 8,
     });
     expect(r.score).toBe(90);
-    expect(r.counts.ERROR).toBe(2);
+    // 화면이 「오류 2」 옆에 90점을 적으면 계산이 안 맞는다
+    expect(r.counts.ERROR).toBe(1);
     expect(r.scoredCounts.ERROR).toBe(1);
     expect(r.dismissedCount).toBe(1);
   });

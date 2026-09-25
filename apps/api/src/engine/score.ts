@@ -41,8 +41,12 @@ export interface ScoreResult {
   /** 부분 검수면 **null**. 점수를 내지 않는다 (FR-AU-029 · DR-IN-005) */
   readonly score: number | null;
   readonly isPartial: boolean;
+  /**
+   * 등급별 건수. **무시한 것은 세지 않는다** — 화면 · 리포트의 건수는 미무시 finding 으로 센다
+   * (FR-AU-046). 무시한 건수는 `dismissedCount` 로 따로 센다. 차단은 무시할 수 없어 늘 센다.
+   */
   readonly counts: Readonly<Record<Severity, number>>;
-  /** 감점에 실제로 쓰인 건수. `counts` 와 다를 수 있다 (무시 · 비감점 사유 제외) */
+  /** 감점에 실제로 쓰인 건수. `counts` 에서 감점하지 않는 사유(출발 전 최종 확인)를 뺀 값이다 */
   readonly scoredCounts: Readonly<Record<Severity, number>>;
   /** 화면에 그대로 노출할 계산식 (FR-AU-043) */
   readonly breakdown: string;
@@ -72,7 +76,6 @@ export function calculateReadiness(input: ScoreInput): ScoreResult {
   let invalidDismissals = 0;
 
   for (const f of input.findings) {
-    counts[f.severity]++;
     if (f.needsConfirmation) needsConfirmationCount++;
 
     // 차단은 무시할 수 없다 (FR-AU-047). 무시 표시가 붙어 있어도 감점에서 빼지 않는다
@@ -82,6 +85,7 @@ export function calculateReadiness(input: ScoreInput): ScoreResult {
       dismissedCount++;
       continue;
     }
+    counts[f.severity]++;
     if (NON_SCORING_REASONS.has(f.reasonCode)) continue;
 
     scoredCounts[f.severity]++;

@@ -1028,6 +1028,7 @@ export function toJobResponse(job: AuditJob, includePollHint = false): Record<st
  *
  * `readinessScore` 와 `counts` 는 **조회 시점 재계산 값**이다. `audit_run` 저장값은 실행 시점
  * 기록으로 불변이며, 무시 건수는 `counts.dismissed` 로 병기한다 (FR-AU-046).
+ * `scoreBreakdown.scoredCounts` 는 감점에 쓴 건수다 — 화면의 계산 문장이 점수와 맞아야 한다 (#819).
  */
 /** 근거 영역 재료. 지문은 전체 값이고 축약은 응답에서 한다 (UI-CM-032) */
 export interface RunBasis {
@@ -1051,6 +1052,10 @@ export function toRunResponse(run: StoredAuditRun, basis: RunBasis = EMPTY_BASIS
       formula: c.breakdown,
       deduction: c.score === null ? null : 100 - c.score,
       weights: run.weights,
+      scoredCounts: {
+        blocker: c.scoredCounts.BLOCKER, error: c.scoredCounts.ERROR,
+        warning: c.scoredCounts.WARNING, unverified: c.scoredCounts.UNVERIFIED,
+      },
     },
     // 컬럼이 생기기 전 실행은 null 이다 (API 5-5)
     settingSnapshot: run.settingSnapshot ?? null,
