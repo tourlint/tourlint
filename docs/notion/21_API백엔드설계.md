@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.54</td>
+<td>API · 백엔드 설계 v2.55</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -999,7 +999,8 @@ GET /api/v1/plan/briefing?regnCd=51&signguCd=150&startDate=2026-10-23&nights=1(&
     중분류 칩마다 areaBasedList2(lDongRegnCd, lDongSignguCd, lclsSystm2, numOfRows=1) 의 totalCount 1콜.
     축제 · 공연은 searchFestival2 1콜, 걷기 길은 두루누비 1콜 → 6콜. 지역이 바뀔 때만 다시 센다. 기대 · 없음 표시는 없다. 지역 · 중분류별 10분 메모리 캐시
 GET /api/v1/plan/places?regnCd&signguCd&lcls2=VE01&sort=near|together&anchor=128.89,37.79&anchorContentId=125769&wheelchair=1&pet=1&indoor=1&page=1
-  → { "scope": { "kind": "SIGNGU" | "NEAR", "label": "강릉시 전체" | "고른 줄 반경 20km" }, "totalCount": 6, "items": PlanPlace[], "disabled": null, "notice": "..." }
+  → { "scope": { "kind": "SIGNGU" | "NEAR", "label": "강릉시 전체" | "고른 줄 반경 20km" | "강릉시 전체 · 2026년 8월 기준 함께 많이 가는 순" }, "totalCount": 6, "items": PlanPlace[], "disabled": null, "notice": "..." }
+    together 로 순위를 매기면 label 에 연관 관광지 자료의 기준 연월을 붙인다(EI-KT-024 · #832). 매기지 못했으면 붙이지 않는다
     totalCount 는 거른 뒤 곳 수이고 items 는 한 쪽 20곳(page)이다. 목록은 칩과 같은 조건이라 필터를 걸지 않으면 칩 숫자와 맞는다
     칩과 같은 조건(lclsSystm2 · 시군구)의 areaBasedList2를 100행씩 totalCount까지 페이지 조회한다. 전체 목록을 10분 메모리 캐시하고 중복 contentid를 제거한 뒤 정렬·필터를 적용한다. 추가 원본 페이지마다 예산을 확인한다. 중간 조회가 실패하면 일부를 전체로 반환하거나 캐시하지 않는다. 응답 totalCount는 필터 후 전체 수이며 page(1부터)에 따라 20곳씩 items로 반환한다.
     near 는 locationBasedList2(radius 20000) 1콜. together 는 searchKeyword1(앵커 이름 · 시군구 · 기준 연월) 1콜 · 연관 관광지 응답에 contentid 가 없어 이름 · 시군구 대조가 하나로 정해질 때만 순위 · 관광지 순위만 · 기준 연월 표기 · 기준은 넣을 위치 앞의 고른 항목(앵커). 앵커가 없으면 이 정렬은 비활성
@@ -3043,6 +3044,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
 	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.55 (2026.09.25) — #832: 4-10 `plan/places` 의 `scope.label` — `together` 로 순위를 매기면 기준 연월(「2026년 8월 기준 함께 많이 가는 순」)을 붙인다. EI-KT-024 가 요구한 표기가 화면에 없었다.
 	v2.54 (2026.09.25) — #819: 5-5 `counts` 와 목록 `latestAudit.counts` 가 무시한 판정까지 세고 있어 89점 옆에 「주의 3건 −12점」 이 나왔다. 두 곳 모두 무시한 판정을 뺀 건수로 맞추고(FR-AU-046), 목록 절의 「무시한 것까지 센 값」 문장을 고쳤다. 5-5 `scoreBreakdown.scoredCounts`(감점에 쓴 건수)를 더했다.
 	v2.53 (2026.09.25) — #813: `GET /usage/budget` 행과 8-2 주석 · 요구사항 대응표의 「계정 메뉴의 오늘 사용량」 · 「호출량 화면」 · 「예산 위젯」 을 운영자 조회로 고쳤다(09-18 #532).
 	v2.52 (2026.09.25) — #808: 5-7 출발 전 확인 항목의 `note` 를 「출발이 가까워 자동으로 올린 항목이며 감점하지 않습니다」 로 바꿨다 — 화면에 그대로 나간다. 이 항목은 R05 가 출발 1일 이내 상품에 만든다(규칙셋 1.2.8).

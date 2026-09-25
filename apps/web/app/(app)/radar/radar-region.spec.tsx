@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { QuietRegionRow, RegionNewsCard, hasRegion, quietRegionText, recentDays, refreshNote } from "./page";
@@ -29,9 +30,10 @@ describe("관심 지역 카드 — 숫자마다 기준 기간을 사용자 말�
     expect(html).not.toContain("이달 행사");
   });
 
-  it("🔴 만드는 쪽 말이 없다 — 기준 기간 · 새 콘텐츠 · 출처 서비스 이름 · 근거 보기", () => {
+  it("🔴 만드는 쪽 말이 없다 — 기준 기간 · 새 콘텐츠 · 세부 서비스 이름 · 내부 코드", () => {
+    // 접힌 근거 보기 안까지 본다 (UI-CM-040)
     const html = renderToStaticMarkup(<RegionNewsCard signal={signal()} regionName="여수시" />);
-    for (const word of ["기준 기간", "새 콘텐츠", "빅데이터", "근거 보기", "방문자 기준"]) expect(html, word).not.toContain(word);
+    for (const word of ["기준 기간", "새 콘텐츠", "빅데이터", "방문자 기준", "T1", "T2", "T3"]) expect(html, word).not.toContain(word);
   });
 
   it("0 인 줄은 적지 않는다", () => {
@@ -76,6 +78,31 @@ describe("소식이 없는 지역 — 0 을 늘어놓지 않고 한 줄로 (#705
     const fresh = signal({ t1: null, t2: null, t3: null });
     expect(quietRegionText(fresh)).toBe("방금 추가한 지역이에요. 다음 확인 때 채워져요.");
     expect(renderToStaticMarkup(<QuietRegionRow signal={fresh} regionName="경주시" />)).not.toContain("아직 없어요");
+  });
+});
+
+describe("근거 보기 — 제출한 기능설명서 8쪽 ③ (#830)", () => {
+  const evidence = (html: string) => new DOMParser().parseFromString(html, "text/html").querySelector("details[data-evidence]");
+
+  it("🔴 관심 지역 카드에서 집계 기간과 출처를 접어 둔다", () => {
+    const box = evidence(renderToStaticMarkup(<RegionNewsCard signal={signal()} regionName="여수시" />));
+    expect(box?.querySelector("summary")?.textContent).toBe("근거 보기");
+    const text = box?.textContent ?? "";
+    expect(text).toContain("2026-08-23 ~ 2026-09-21");
+    expect(text).toContain("2026-10-01 ~ 2026-10-31");
+    expect(text).toContain("2025년 10월 한 달");
+    expect(text).toContain("출처: ⓒ한국관광공사 · 2026-09-21 05:00에 셌어요");
+  });
+
+  it("🔴 소식 없는 지역 한 줄에도 둔다 — 가이드대로 넣은 지역이 여기로 온다", () => {
+    const box = evidence(renderToStaticMarkup(<QuietRegionRow signal={quiet} regionName="속초시" />));
+    expect(box?.textContent).toContain("2026-11-01 ~ 2026-11-30");
+    expect(box?.textContent).toContain("출처: ⓒ한국관광공사");
+  });
+
+  it("아직 세어 보지 않은 지역에는 둘 것이 없다", () => {
+    const html = renderToStaticMarkup(<QuietRegionRow signal={signal({ t1: null, t2: null, t3: null })} regionName="경주시" />);
+    expect(html).not.toContain("근거 보기");
   });
 });
 

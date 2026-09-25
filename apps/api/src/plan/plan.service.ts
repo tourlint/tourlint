@@ -269,15 +269,17 @@ export class PlanService {
     if (query.sort === 'near' && query.anchor !== null) {
       places = await this.sortByDistance(places, query.anchor);
     }
+    let basis: string | null = null;
     if (query.sort === 'together') {
       const ranked = await this.rankTogether(places, query);
       places = ranked.places;
       notice = ranked.notice ?? notice;
+      basis = ranked.basis;
     }
 
     const filtered = facilitiesLast(places.filter((p) => matchesFilters(p, query)));
     return {
-      scope: { kind: query.sort === 'near' && query.anchor !== null ? 'NEAR' : 'SIGNGU', label: scopeLabel(query, region) },
+      scope: { kind: query.sort === 'near' && query.anchor !== null ? 'NEAR' : 'SIGNGU', label: scopeLabel(query, region, basis) },
       totalCount: filtered.length,
       items: pageOf(filtered, query.page),
       disabled: null,
@@ -307,27 +309,28 @@ export class PlanService {
   private async rankTogether(
     places: readonly PlanPlace[],
     query: PlacesQuery,
-  ): Promise<{ places: readonly PlanPlace[]; notice: string | null }> {
+  ): Promise<{ places: readonly PlanPlace[]; notice: string | null; basis: string | null }> {
     const anchorName = await this.anchorName(query, places);
     const signguCd = query.signguCd === null ? query.regnCd : `${query.regnCd}${query.signguCd}`;
     if (anchorName === null || !/^\d{5}$/.test(signguCd)) {
-      return { places, notice: '기준이 될 장소를 먼저 고르면 함께 많이 가는 순으로 볼 수 있습니다.' };
+      return { places, notice: '기준이 될 장소를 먼저 고르면 함께 많이 가는 순으로 볼 수 있습니다.', basis: null };
     }
 
+    const baseYm = relatedBaseYm();
     let rows: readonly Record<string, unknown>[];
     try {
       const decision = await this.budget('RELATED');
-      if (!decision.allowed) return { places, notice: PARTIAL_NOTICE };
+      if (!decision.allowed) return { places, notice: PARTIAL_NOTICE, basis: null };
       const page = await this.kto().relatedSearchKeyword({
         keyword: anchorName,
-        baseYm: relatedBaseYm(),
+        baseYm,
         areaCd: query.regnCd.slice(0, 2),
         signguCd,
       });
       rows = page.items;
     } catch (e) {
       if (!isKtoError(e)) throw e;
-      return { places, notice: PARTIAL_NOTICE };
+      return { places, notice: PARTIAL_NOTICE, basis: null };
     }
 
     const ranks = new Map<string, number>();
@@ -346,7 +349,8 @@ export class PlanService {
     const ranked = places
       .map((p) => ({ ...p, togetherRank: ranks.get(p.contentId) ?? null }))
       .sort((a, b) => (a.togetherRank ?? Number.MAX_SAFE_INTEGER) - (b.togetherRank ?? Number.MAX_SAFE_INTEGER));
-    return { places: ranked, notice: null };
+    // 순위가 어느 달 자료인지 머리글에 적는다 — 기능설명서의 「집계 기간 표시」 (#832)
+    return { places: ranked, notice: null, basis: baseYm };
   }
 
   /** 앵커 이름 — 목록에 있으면 그것을 쓰고, 없으면 공통정보 1콜로 확인한다 */
@@ -704,9 +708,11 @@ function pageOf(places: readonly PlanPlace[], page: number): readonly PlanPlace[
   return places.slice(from, from + PLAN_PAGE_SIZE);
 }
 
-function scopeLabel(query: PlacesQuery, region: { name: string }): string {
+function scopeLabel(query: PlacesQuery, region: { name: string }, basis: string | null = null): string {
   if (query.sort === 'near' && query.anchor !== null) return '시군구 전체 · 고른 줄에서 가까운 순';
-  return region.name === '' ? '전체' : `${region.name} 전체`;
+  const area = region.name === '' ? '전체' : `${region.name} 전체`;
+  // 연관 관광지 자료의 달 (YYYYMM). 순위를 매긴 때만 온다
+  return basis === null ? area : `${area} · ${basis.slice(0, 4)}년 ${String(Number(basis.slice(4, 6)))}월 기준 함께 많이 가는 순`;
 }
 
 /** 연관 관광지 기준 연월 — 자료가 한 달 늦게 올라와 지난달로 부른다 (2026.09.15 실호출) */
