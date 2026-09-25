@@ -7,6 +7,7 @@ import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
 import { WalkNameResolver } from '../plan/walk-names';
 import { ReportService } from './report.service';
+import type { ReportModel } from './report-model';
 
 /**
  * 리포트 관통 — **실 DB + 픽스처 리플레이**.
@@ -141,6 +142,33 @@ describe.skipIf(URL === undefined)('ReportService — 관통', () => {
         && e.getStatus() === 409 && e.reasonCode === 'REPORT_FAILED',
     );
     await expect(service.create(before, accountId)).resolves.toHaveProperty('reportId');
+  });
+
+  it('🔴 되돌리지 않은 가장 최근 반영의 전후 비교를 싣는다 — 되돌리면 싣지 않는다 (FR-PA-043 · #806)', async () => {
+    const before = runId;
+    const snapshot = JSON.stringify({ snapshotVersion: '1', snapshotAt: '2026-09-25T01:00:00Z', productId, items: [] });
+    const applied = await pool.query<{ id: string }>(
+      `INSERT INTO patch_application
+         (product_id, applied_at, applied_by, selected_patches, before_snapshot, after_snapshot, before_audit_run_id)
+       VALUES ($1, clock_timestamp(), $2, '[{"findingId":1,"patchId":"p-1"}]'::jsonb, $4::jsonb, $4::jsonb, $3)
+       RETURNING id`,
+      [productId, accountId, before, snapshot],
+    );
+    const applicationId = applied.rows[0]?.id;
+    const after = await insertRun(pool, productId);
+    const build = (id: number): Promise<ReportModel> =>
+      (service as unknown as { buildModel(run: number, product: number): Promise<ReportModel> }).buildModel(id, productId);
+
+    // 재검수가 붙기 전에는 싣지 않는다 — 빈 비교를 만들지 않는다
+    expect((await build(after)).comparison).toBeNull();
+
+    await pool.query('UPDATE patch_application SET after_audit_run_id = $2 WHERE id = $1', [applicationId, after]);
+    const rows = (await build(after)).comparison?.rows ?? [];
+    expect(rows.map((r) => r[0])).toEqual(['차단', '오류', '주의', '확인 불가', '총 감점', '출시 준비도', '수요 적합성']);
+    expect(rows.find((r) => r[0] === '오류')).toEqual(['오류', '1', '1', '변화 없음']);
+
+    await pool.query('UPDATE patch_application SET reverted_at = clock_timestamp() WHERE id = $1', [applicationId]);
+    expect((await build(before)).comparison).toBeNull();
   });
 
   it('검수 제외 항목 건수가 리포트에 반영된다 (FR-PA-064)', async () => {

@@ -3,7 +3,7 @@ import { SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
 import { calculateReadiness } from '../engine/score';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 import {
-  UNNAMED_PLACE, assembleReport, describeItineraryChanges, labelOnly,
+  UNNAMED_PLACE, assembleReport, comparisonRows, describeItineraryChanges, labelOnly,
   type AssembleInput, type ContentEvidence, type DiffableItem,
 } from './report-model';
 
@@ -61,6 +61,7 @@ function input(over: Partial<AssembleInput> = {}): AssembleInput {
     },
     items: [item()],
     patches: [],
+    comparison: null,
     evidence: new Map([['126508', evidence()]]),
     walkNames: new Map(),
     dataFingerprint: 'ab12cd34',
@@ -175,7 +176,10 @@ describe('일정 변경 서술', () => {
   it('추가 · 삭제 · 시각 변경 · 순서 변경을 구분한다 (FR-PA-042)', () => {
     expect(describeItineraryChanges([base], [{ ...base, startTime: '13:00' }])[0])
       .toContain('시각 변경');
-    expect(describeItineraryChanges([base], [{ ...base, seq: 2 }])[0]).toContain('순서 변경');
+    const next: DiffableItem = { ...base, id: 2, seq: 2, placeLabel: '경포대', ktoContentId: '125790' };
+    // 두 줄의 차례를 맞바꾼다
+    expect(describeItineraryChanges([base, next], [{ ...base, seq: 2 }, { ...next, seq: 1 }]).join('\n'))
+      .toContain('순서 변경');
     expect(describeItineraryChanges([], [base])[0]).toContain('추가');
     expect(describeItineraryChanges([base], [])[0]).toContain('삭제');
   });
@@ -188,20 +192,64 @@ describe('일정 변경 서술', () => {
     const picked: DiffableItem = { ...base, id: 2, placeLabel: null, ktoContentId: '2925502' };
     const inserted: DiffableItem = { ...base, id: 3, placeLabel: '', ktoContentId: '3537133' };
 
-    const plain = describeItineraryChanges([picked], [{ ...picked, seq: 3 }, inserted]);
+    const plain = describeItineraryChanges([picked], [{ ...picked, dayNo: 2, seq: 3 }, inserted]);
     expect(plain.join('\n')).not.toContain('null');
-    expect(plain[0]).toBe(`순서 변경 — ${UNNAMED_PLACE} 1일차 1번 → 1일차 3번`);
+    expect(plain[0]).toBe(`순서 변경 — ${UNNAMED_PLACE} 1일차 1번 → 2일차 3번`);
     expect(plain[1]).toBe(`추가 — 1일차 10:00 ${UNNAMED_PLACE}`);
 
     // 표시 이름을 찾을 수 있으면 3절 일정표와 같은 이름을 쓴다
-    const named = describeItineraryChanges([picked], [{ ...picked, seq: 3 }],
+    const named = describeItineraryChanges([picked], [{ ...picked, dayNo: 2, seq: 3 }],
       (item) => (item.ktoContentId === '2925502' ? '리고엠' : labelOnly(item)));
-    expect(named[0]).toBe('순서 변경 — 리고엠 1일차 1번 → 1일차 3번');
+    expect(named[0]).toBe('순서 변경 — 리고엠 1일차 1번 → 2일차 3번');
+  });
+
+  it('🔴 앞 줄이 빠지거나 옮겨져 순번만 밀린 줄은 순서 변경이 아니다 (#806)', () => {
+    const a: DiffableItem = { ...base, id: 1, seq: 1, placeLabel: '녹색도시체험센터' };
+    const b: DiffableItem = { ...base, id: 2, seq: 2, startTime: '12:00', endTime: '13:00', placeLabel: '가람집옹심이' };
+    const c: DiffableItem = { ...base, id: 3, seq: 3, startTime: '16:45', endTime: '17:45', placeLabel: '오죽헌' };
+
+    // 가운데 줄을 2일차로 옮기면 오죽헌은 3번 → 2번이 되지만 손댄 곳이 아니다
+    const moved = describeItineraryChanges([a, b, c], [a, { ...b, dayNo: 2, seq: 1 }, { ...c, seq: 2 }]);
+    expect(moved).toEqual(['순서 변경 — 가람집옹심이 1일차 2번 → 2일차 1번']);
+
+    // 가운데 줄을 지워도 같다
+    expect(describeItineraryChanges([a, b, c], [a, { ...c, seq: 2 }])).toEqual(['삭제 — 1일차 12:00 가람집옹심이']);
   });
 
   it('🔴 관광지 대체를 놓치지 않는다 — place_label 이 그대로라 이름만 보면 같아 보인다', () => {
     const changes = describeItineraryChanges([base], [{ ...base, ktoContentId: '999999' }]);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toContain('관광지 대체');
+  });
+});
+
+describe('수정 전후 비교 (FR-PA-043 · #806)', () => {
+  it('🔴 화면 5 와 같은 단위로 적고, 총 감점에는 계산식을 붙인다', () => {
+    expect(comparisonRows([
+      { key: 'blocker', label: '차단', before: 2, after: 0 },
+      { key: 'deduction', label: '총 감점', before: 71, after: 30, formulaBefore: '100 − 71', formulaAfter: '100 − 30' },
+      { key: 'readinessScore', label: '출시 준비도', before: 29, after: 70 },
+      { key: 'travelMinutes', label: '총 이동시간', before: 189, after: 213 },
+      { key: 'travelMeters', label: '총 이동거리', before: 122_307, after: 122_307 },
+      { key: 'targetFit', label: '수요 적합성', beforeText: '음식점 없음', afterText: '결손 유형 없음' },
+    ])).toEqual([
+      ['차단', '2', '0', '−2'],
+      ['총 감점', '71 (100 − 71)', '30 (100 − 30)', '−41'],
+      ['출시 준비도', '29', '70', '+41'],
+      ['총 이동시간', '3시간 9분', '3시간 33분', '+24분'],
+      ['총 이동거리', '122.3km', '122.3km', '변화 없음'],
+      ['수요 적합성', '음식점 없음', '결손 유형 없음', '—'],
+    ]);
+  });
+
+  it('값이 없으면 지어내지 않는다 — 부분 검수는 점수 · 감점이 없다', () => {
+    expect(comparisonRows([{ key: 'readinessScore', label: '출시 준비도', before: 80, after: null }]))
+      .toEqual([['출시 준비도', '80', '—', '—']]);
+  });
+
+  it('조립한 모델에 그대로 실린다', () => {
+    const comparison = { appliedAt: '2026-09-25T20:00:00+09:00', rows: [['차단', '1', '0', '−1']] as const };
+    expect(assembleReport(input({ comparison })).comparison).toEqual(comparison);
+    expect(assembleReport(input()).comparison).toBeNull();
   });
 });

@@ -234,7 +234,12 @@ export class AuditController {
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('product', productId, account.accountId);
     const { application, before, after } = await this.service.getComparison(productId);
-    return toComparisonResponse(application, before, after, await this.service.runBasis(after.id));
+    const [basis, schedule] = await Promise.all([
+      this.service.runBasis(after.id),
+      // 반영이 바꾼 일정 — 추가 · 제거 · 변경을 화면이 가른다 (UI-S5-003 · #806)
+      this.service.comparisonSchedule(application),
+    ]);
+    return { ...toComparisonResponse(application, before, after, basis), schedule };
   }
 
   /** 규칙 목록 (API 설계 5-10). 레지스트리가 정본이다 */

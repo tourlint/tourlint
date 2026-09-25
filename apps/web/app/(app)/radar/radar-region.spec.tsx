@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { QuietRegionRow, RegionNewsCard, hasRegion, hasRegionNews, quietRegionText, recentDays, refreshNote } from "./page";
+import { QuietRegionRow, RegionNewsCard, hasRegion, quietRegionText, recentDays, refreshNote } from "./page";
+import { hasRegionNews } from "../../lib/region-news";
 import type { RegionSignal } from "../../lib/api";
 
 const window30 = { from: "2026-08-23", to: "2026-09-21" };

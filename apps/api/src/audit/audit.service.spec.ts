@@ -1031,6 +1031,23 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       }
     });
 
+    it('🔴 반영이 바꾼 일정을 전후로 준다 — 화면이 추가 · 제거 · 변경을 가른다 (UI-S5-003 · #806)', async () => {
+      await applyOnce();
+      const { application } = await service.getComparison(productId);
+      const schedule = await service.comparisonSchedule(application);
+      const line = (r: { id: number; dayNo: number; seq: number; startTime: string; endTime: string | null }): string =>
+        `${r.id}|${r.dayNo}|${r.seq}|${r.startTime}|${r.endTime ?? ''}`;
+
+      expect(schedule.before.map((r) => r.id)).toEqual(application.before.items.map((i) => i.id));
+      expect(schedule.after.map((r) => r.id)).toEqual(application.after.items.map((i) => i.id));
+      // 반영 기록의 스냅샷이다 — 전후가 같으면 강조할 것이 없다
+      expect(schedule.after.map(line)).not.toEqual(schedule.before.map(line));
+      // 이름은 표시할 때 채운다. 빈 줄이 없다 (DR-PR-001)
+      for (const r of [...schedule.before, ...schedule.after]) expect(r.placeLabel.trim()).not.toBe('');
+      // 좌표 · 분류는 내보내지 않는다
+      expect(Object.keys(schedule.after[0]!)).toEqual(['id', 'dayNo', 'seq', 'startTime', 'endTime', 'placeLabel', 'itemType']);
+    });
+
     it('🔴 재검수가 아직 안 끝났으면 404 다 (EX-PA-004)', async () => {
       await applyOnce();
       const { application } = await service.getComparison(productId);

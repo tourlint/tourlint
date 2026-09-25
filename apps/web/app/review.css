@@ -114,6 +114,9 @@
 .current-schedule-day ol { display: grid; gap: 8px; }
 .current-schedule-day li { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface-soft); }
 .current-schedule-day li[data-related="true"] { border-color: var(--accent); background: var(--accent-soft); }
+/* 표출이 중단된 곳 — 줄은 두고 흐리게 (FR-RU-066 · #810) */
+.current-schedule-day li[data-hidden="true"] { opacity: 0.6; border-style: dashed; }
+.current-schedule-hidden-badge { margin-bottom: 4px; }
 .current-schedule-time { font-size: 12px; color: var(--accent); font-weight: 650; }
 .current-schedule-day strong { display: block; font-size: 13px; line-height: 1.6; margin: 3px 0; overflow-wrap: anywhere; }
 .current-schedule-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--muted); }

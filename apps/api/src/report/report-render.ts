@@ -393,6 +393,17 @@ function drawEvidence(doc: Doc, e: ContentEvidence | null): void {
 
 function drawPatchHistory(doc: Doc, m: ReportModel): void {
   heading(doc, 5, '수정 이력');
+  // 화면 5 의 전후 비교를 먼저 싣는다 (FR-PA-043 · #806). 되돌리지 않은 가장 최근 반영이다
+  if (m.comparison !== null) {
+    paragraph(doc, `수정 전후 비교 — ${stamp(m.comparison.appliedAt)} 반영`, { color: GRAY, size: SMALL });
+    const w = contentWidth(doc);
+    table(doc, [
+      { header: '지표', width: w * 0.22 },
+      { header: '반영 전', width: w * 0.3 },
+      { header: '반영 후', width: w * 0.3 },
+      { header: '변화', width: w * 0.18 },
+    ], m.comparison.rows);
+  }
   if (m.patchHistory.length === 0) {
     paragraph(doc, '반영한 수정안이 없습니다.', { color: GRAY });
     return;

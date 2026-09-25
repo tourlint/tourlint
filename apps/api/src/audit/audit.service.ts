@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, Logger, Optional, type OnApplicationBootstrap } from '@nestjs/common';
 import type { Pool } from 'pg';
 import {
-  findingMessage, kstIso, LCLS_SYSTM2, READINESS_SCORE_BASE, SEVERITY, withPlaceName, type Severity,
+  findingMessage, kstIso, SEVERITY, withPlaceName, type Severity,
 } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
@@ -28,7 +28,6 @@ import {
 } from '../persistence/patch-application.repository';
 import { AuditJobRepository, isStale, type AuditJob, type TriggerType } from './audit-job.repository';
 import { AuditRunner, type ItineraryItemRow, type ProductRow } from './audit-runner';
-import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
 import { PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds } from './place-name';
 import { WalkNameResolver } from '../plan/walk-names';
 import { RULES, RULESET_VERSION, RULE_EXPLANATIONS } from './rule-registry';
@@ -36,7 +35,8 @@ import type { AuditSettings } from '../engine/rules/types';
 import type { NormalizedOperatingInfo } from '../engine/normalize/types';
 import { applyPatches } from './patch-apply';
 import { checkConflicts, type Conflict, type PatchRef } from './patch-conflict';
-import { snapshotToken, toSnapshot } from './patch-snapshot';
+import { fromSnapshot, snapshotToken, toSnapshot } from './patch-snapshot';
+import { comparisonMetrics } from './comparison-metrics';
 import { selectionKey, type SelectedPatch } from './patch-types';
 import { ProductRepository } from './product.repository';
 import { currentRunOf } from '../persistence/current-run';
@@ -607,6 +607,25 @@ export class AuditService implements OnApplicationBootstrap {
       );
     }
     return { application, before, after };
+  }
+
+  /**
+   * 전후 비교의 일정표 (UI-S5-003 · FR-PA-042 · #806).
+   *
+   * 반영 기록에 남은 스냅샷 둘이다 — 지금 일정이 아니다. 반영 뒤 사람이 일정을 고쳤어도 이
+   * 비교는 그 반영이 무엇을 바꿨는지를 보인다. 이름은 미리보기처럼 **응답에만** 채운다 —
+   * 대체 · 추가한 곳의 이름은 공사 명칭이라 저장하지 않는다 (DR-PR-001).
+   */
+  async comparisonSchedule(
+    application: StoredPatchApplication,
+  ): Promise<{ readonly before: readonly ScheduleRow[]; readonly after: readonly ScheduleRow[] }> {
+    const before = fromSnapshot(application.before);
+    const after = fromSnapshot(application.after);
+    const [named, namedAfter] = await Promise.all([
+      this.withMissingNames(before),
+      this.withReplacedNames(before, after).then((rows) => this.withMissingNames(rows)),
+    ]);
+    return { before: named.map(toScheduleRow), after: namedAfter.map(toScheduleRow) };
   }
 
   /** 그 상품의 검수 이력 (F13) */
@@ -1298,9 +1317,11 @@ export function toUnverifiedResponse(
   return { totalCount: items.length, items };
 }
 
-/** 출발 전 확인 항목에만 붙는 안내 (API 설계 5-7 · FR-AU-085 · 086) */
-export const PRE_DEPARTURE_NOTE =
-  '공사 데이터의 D+1 구조적 시차로 자동 생성된 항목이며 감점 대상이 아닙니다';
+/**
+ * 출발 전 확인 항목에만 붙는 안내 (API 설계 5-7 · FR-AU-085 · 086). 화면에 그대로 나간다 —
+ * 「D+1 구조적 시차」 같은 만드는 쪽 말을 쓰지 않는다. 왜 올렸는지는 판정 문장이 말한다 (#808)
+ */
+export const PRE_DEPARTURE_NOTE = '출발이 가까워 자동으로 올린 항목이며 감점하지 않습니다';
 
 /** 검수 이력 (F13 · API 설계 5-9) */
 export function toRunListResponse(
@@ -1360,25 +1381,7 @@ export function toComparisonResponse(
   after: StoredAuditRun,
   afterBasis: RunBasis = EMPTY_BASIS,
 ): Record<string, unknown> {
-  const metrics: Record<string, unknown>[] = [
-    countMetric('blocker', '차단', before, after, 'BLOCKER'),
-    countMetric('error', '오류', before, after, 'ERROR'),
-    countMetric('warning', '주의', before, after, 'WARNING'),
-    countMetric('unverified', '확인 불가', before, after, 'UNVERIFIED'),
-    {
-      key: 'deduction', label: '총 감점',
-      before: deductionOf(before), after: deductionOf(after),
-      // 점수를 화면에서 검산할 수 있어야 한다 (FR-PA-041 · FR-AU-043)
-      formulaBefore: before.current.breakdown,
-      formulaAfter: after.current.breakdown,
-    },
-    {
-      key: 'readinessScore', label: '출시 준비도',
-      before: before.current.score, after: after.current.score,
-    },
-    ...travelMetrics(before, after),
-    targetFitMetric(before, after),
-  ];
+  const metrics = comparisonMetrics(before, after);
 
   return {
     patchApplicationId: application.id,
@@ -1393,60 +1396,22 @@ export function toComparisonResponse(
   };
 }
 
-function countMetric(
-  key: string, label: string,
-  before: StoredAuditRun, after: StoredAuditRun, severity: Severity,
-): Record<string, unknown> {
-  return { key, label, before: before.current.counts[severity], after: after.current.counts[severity] };
+/** 비교 일정표의 한 줄. 화면이 그리는 데 쓰는 것만 내보낸다 — 좌표 · 분류는 뺀다 */
+export interface ScheduleRow {
+  readonly id: number;
+  readonly dayNo: number;
+  readonly seq: number;
+  readonly startTime: string;
+  readonly endTime: string | null;
+  readonly placeLabel: string;
+  readonly itemType: string;
 }
 
-/** 총 감점 = 100 − 준비도. 부분 검수는 점수가 없어 감점도 없다 (FR-AU-029) */
-function deductionOf(run: StoredAuditRun): number | null {
-  return run.current.score === null ? null : READINESS_SCORE_BASE - run.current.score;
-}
-
-/**
- * 총 이동시간 · 거리 (FR-RU-084).
- *
- * **산출하지 않은 실행은 지표 자체를 내지 않는다.** 0 으로 채우면 「이동이 없었다」로
- * 읽히고, 전후 한쪽만 0 이면 개선된 것처럼 보인다. 이 컬럼이 생기기 전 실행이 그렇다.
- */
-function travelMetrics(before: StoredAuditRun, after: StoredAuditRun): Record<string, unknown>[] {
-  if (before.travelTotals === null || after.travelTotals === null) return [];
-  const badge = { sourceBadge: 'EXTERNAL_REF', externalSource: KAKAO_SOURCE };
-  return [
-    {
-      key: 'travelMinutes', label: '총 이동시간',
-      before: Math.round(before.travelTotals.durationSeconds / 60),
-      after: Math.round(after.travelTotals.durationSeconds / 60),
-      ...badge,
-    },
-    {
-      key: 'travelMeters', label: '총 이동거리',
-      before: before.travelTotals.distanceMeters, after: after.travelTotals.distanceMeters,
-      ...badge,
-    },
-  ];
-}
-
-/**
- * 수요 적합성 — R10 결손 유형 (FR-PA-040).
- *
- * ⚠️ 판매량 · 시장 반응 · 흥행을 말하지 않는다 (FR-RU-104). R10 이 낸 문장을 그대로 옮긴다.
- */
-function targetFitMetric(before: StoredAuditRun, after: StoredAuditRun): Record<string, unknown> {
+function toScheduleRow(i: ItineraryItemRow): ScheduleRow {
   return {
-    key: 'targetFit', label: '수요 적합성',
-    beforeText: targetFitText(before), afterText: targetFitText(after),
+    id: i.id, dayNo: i.dayNo, seq: i.seq, startTime: i.startTime, endTime: i.endTime,
+    placeLabel: i.placeLabel, itemType: i.itemType,
   };
-}
-
-function targetFitText(run: StoredAuditRun): string {
-  const r10 = run.findings.find((f) => f.ruleCode === 'R10' && !f.dismissed);
-  if (r10 === undefined) return '결손 유형 없음';
-  const missing = r10.evidence.missingLcls2;
-  if (!Array.isArray(missing) || missing.length === 0) return r10.message;
-  return missing.map((code) => LCLS_SYSTM2[String(code)]?.name ?? String(code)).join(' · ') + ' 없음';
 }
 
 /**

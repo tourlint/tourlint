@@ -228,6 +228,8 @@ export interface Finding {
   dismissReason: string | null;
   confirmedAt: string | null;
   patches: Patch[];
+  /** 표출이 중단된 곳이면 contentid 와 감지 시각만 온다 — 명칭 · 주소는 다시 내보내지 않는다 (FR-AU-071 · API 설계 5-6) */
+  hiddenContent?: { contentid: string; detectedAt: string } | null;
 }
 
 /** 항목이 사라졌거나 상품 전체 판정이면 `itemId` 만 온다 (API 설계 5-6) */
@@ -904,6 +906,8 @@ export interface ComparisonResult {
   /** 화면 5 도 근거 영역을 고정 표시한다 (UI-CM-030). 반영 후 실행이 기준이다 */
   evidence: AuditEvidence;
   revertible: boolean;
+  /** 반영이 바꾼 일정 — 반영 기록의 전후 스냅샷 (UI-S5-003 · #806) */
+  schedule?: { before: PatchItem[]; after: PatchItem[] };
 }
 
 export const comparisonApi = {

@@ -3,20 +3,24 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { isApiError } from "../lib/api";
+import { isApiError, radarApi, type RegionSignal } from "../lib/api";
+import { hasRegionNews, regionPlanHref } from "../lib/region-news";
 import { loadWorkspaceProducts } from "../lib/workspace-products";
 import { DeleteProductDialog } from "./delete-product-dialog";
 import { GradeCounts, StatusBadge } from "./badges";
 import { WorkspaceIcon, type IconName } from "./workspace-icon";
 import { STAGE_LABEL, STAGE_ORDER, type Stage } from "../lib/stage-of";
 import {
+  alertChip,
   belongsTo,
   isPastTrip,
   koreaToday,
   productHref,
+  productActionLabel,
   productHint,
   productStage,
   regionText,
+  releasedWithChanges,
   sortProducts,
   type SortKey,
   type Workspace,
@@ -70,6 +74,7 @@ export function ProductWorkspace({
   const [deleting, setDeleting] = useState<WorkspaceProduct | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showPast, setShowPast] = useState(false);
+  const [regionSignals, setRegionSignals] = useState<RegionSignal[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -97,6 +102,21 @@ export function ProductWorkspace({
     })();
     return () => controller.abort();
   }, [router, retry]);
+
+  // 보드 아래 바로 가기의 관심 지역 새 소식 (UI-S1-012 · #804). 저장된 값만 읽는다. 못 읽으면 그 줄을 두지 않는다
+  useEffect(() => {
+    if (workspace !== "home") return;
+    let alive = true;
+    radarApi
+      .regionSignals()
+      .then((s) => {
+        if (alive) setRegionSignals(s);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [workspace]);
 
   const today = koreaToday();
   const upcoming = products.filter((p) => !isPastTrip(p, today));
@@ -488,6 +508,9 @@ export function ProductWorkspace({
           ) : (
             <ProductTable products={visible} onDelete={setDeleting} />
           )}
+          {workspace === "home" && available && (
+            <BoardShortcuts products={upcoming} regionSignals={regionSignals} />
+          )}
           {available && past.length > 0 && (
             <button
               className="past-toggle"
@@ -572,12 +595,14 @@ function MethodCard({
 
 export function ProductCard({ product: p, onDelete }: { product: WorkspaceProduct; onDelete: (p: WorkspaceProduct) => void }) {
   const stage = productStage(p);
+  const chip = alertChip(p);
   return (
-    <article className={`product-card stage-${stage.toLowerCase()}`}>
+    <article className={`product-card stage-${stage.toLowerCase()}${chip ? " has-alert" : ""}`}>
       <Link href={productHref(p)} className="product-card-content">
       <span className="product-duration">
         {NIGHTS[p.nights] ?? `${p.nights}박`}
       </span>
+      {chip && <AlertChip chip={chip} />}
       <h4>{p.name}</h4>
       <p className="product-region">
         <WorkspaceIcon name="pin" width="13" height="13" />
@@ -597,10 +622,13 @@ export function ProductCard({ product: p, onDelete }: { product: WorkspaceProduc
 }
 
 function NextActions({ products }: { products: WorkspaceProduct[] }) {
+  // 출시한 뒤에 바뀐 정보가 먼저다 — 이미 팔고 있는 상품이다 (#804)
+  const changed = releasedWithChanges(products);
   const review = products.filter((p) => productStage(p) === "REVIEW");
   const planning = products.filter((p) => productStage(p) === "PLANNING");
   const ready = products.filter((p) => productStage(p) === "RELEASABLE");
   const next = [
+    ...sortProducts(changed, "startDate"),
     ...sortProducts(review, "startDate"),
     ...sortProducts(planning, "startDate"),
     ...sortProducts(ready, "startDate"),
@@ -658,12 +686,14 @@ export function ProductTable({ products, onDelete }: { products: WorkspaceProduc
         <tbody>
           {products.map((p) => {
             const a = p.latestAudit;
+            const chip = alertChip(p);
             return (
-              <tr key={p.productId}>
+              <tr key={p.productId} className={chip ? "has-alert" : undefined}>
                 <td>
                   <Link href={productHref(p)} className="table-product-name">
                     {p.name}
                   </Link>
+                  {chip && <AlertChip chip={chip} />}
                   <span className="table-subtext">{regionText(p)}</span>
                   <ProductActions product={p} onDelete={onDelete} />
                 </td>
@@ -713,7 +743,7 @@ export function ProductTable({ products, onDelete }: { products: WorkspaceProduc
 }
 
 function ProductActions({ product, onDelete }: { product: WorkspaceProduct; onDelete: (p: WorkspaceProduct) => void }) {
-  const label = productStage(product) === "PLANNING" ? "기획 이어하기" : "검수 결과 보기";
+  const label = productActionLabel(product);
   return <div className="product-actions">
     <Link href={productHref(product)} className="product-open" aria-label={`${product.name} ${label}`}>
       {label}<WorkspaceIcon name="arrow" width="15" height="15" />
@@ -722,6 +752,53 @@ function ProductActions({ product, onDelete }: { product: WorkspaceProduct; onDe
       삭제
     </button>
   </div>;
+}
+
+/** 알림이 있는 상품 표시 (UI-S1-003 · #804). 레이더 「바뀐 정보」 배지와 같은 색이다 — 검수 등급 색을 쓰지 않는다 */
+function AlertChip({ chip }: { chip: { text: string; unread: boolean } }) {
+  return (
+    <span className={`alert-chip${chip.unread ? " is-unread" : ""}`}>
+      <WorkspaceIcon name="bell" width="11" height="11" />
+      {chip.text}
+    </span>
+  );
+}
+
+/**
+ * 보드 아래 바로 가기 (UI-S1-012 · #804). 0건인 줄은 두지 않는다 — 「0건 — 다시 검수하기」는 할 일이
+ * 있는 것처럼 읽힌다. 가리키는 곳이 하나면 거기로 바로 보낸다.
+ */
+export function BoardShortcuts({ products, regionSignals }: { products: WorkspaceProduct[]; regionSignals: RegionSignal[] }) {
+  const news = regionSignals.filter(hasRegionNews);
+  const changed = releasedWithChanges(products);
+  const changes = changed.reduce((n, p) => n + (p.risksSinceAudit ?? 0), 0);
+  if (news.length === 0 && changes === 0) return null;
+  const [oneRegion] = news;
+  const [oneProduct] = changed;
+  return (
+    <ul className="board-shortcuts" aria-label="바로 가기">
+      {news.length > 0 && (
+        <li>
+          <span>
+            관심 지역 새 소식 <strong>{news.length}건</strong>
+          </span>
+          <Link href={news.length === 1 && oneRegion ? regionPlanHref(oneRegion) : "/radar#region-news"} className="text-link">
+            새 상품 기획하기 <WorkspaceIcon name="arrow" />
+          </Link>
+        </li>
+      )}
+      {changes > 0 && (
+        <li>
+          <span>
+            출시한 상품의 바뀐 정보 <strong>{changes}건</strong>
+          </span>
+          <Link href={changed.length === 1 && oneProduct ? `/products/${oneProduct.productId}` : "/review?status=RELEASED"} className="text-link">
+            다시 검수하기 <WorkspaceIcon name="arrow" />
+          </Link>
+        </li>
+      )}
+    </ul>
+  );
 }
 
 /**

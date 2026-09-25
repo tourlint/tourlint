@@ -9,8 +9,10 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   authApi,
   isApiError,
+  radarApi,
   type AccountView,
 } from "../lib/api";
+import { NOTIFICATIONS_CHANGED, badgeText } from "../lib/notification-badge";
 
 import { MAIN_NAV, activeSection } from "../lib/workspace";
 import { WorkspaceIcon } from "./workspace-icon";
@@ -19,6 +21,7 @@ export function AppHeader() {
   const router = useRouter();
   const pathname = usePathname();
   const [account, setAccount] = useState<AccountView | null>(null);
+  const [unread, setUnread] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -35,6 +38,32 @@ export function AppHeader() {
       alive = false;
     };
   }, [router]);
+
+  /*
+   * 미확인 알림 건수 (UI-CM-008 · #804). 화면을 옮길 때마다, 그리고 레이더가 알림을 확인 처리하면 다시 센다.
+   * 요약은 저장된 값만 읽는다 — 공사 호출이 없다. 못 읽으면 숫자를 떼고 둔다.
+   */
+  useEffect(() => {
+    let alive = true;
+    const count = (): void => {
+      radarApi
+        .summary()
+        .then((s) => {
+          if (alive) setUnread(s.unread);
+        })
+        .catch(() => {
+          if (alive) setUnread(null);
+        });
+    };
+    count();
+    window.addEventListener(NOTIFICATIONS_CHANGED, count);
+    return () => {
+      alive = false;
+      window.removeEventListener(NOTIFICATIONS_CHANGED, count);
+    };
+  }, [pathname]);
+
+  const badge = badgeText(unread);
 
   return (
     <header className="app-header">
@@ -75,10 +104,15 @@ export function AppHeader() {
           <Link
             href="/radar#notifications"
             className="notification-link"
-            aria-label="알림"
+            aria-label={badge === null ? "알림" : `알림 · 확인하지 않은 알림 ${badge}건`}
             title="레이더 알림 보기"
           >
             <WorkspaceIcon name="bell" />
+            {badge !== null && (
+              <span className="notification-count" aria-hidden="true">
+                {badge}
+              </span>
+            )}
           </Link>
           <AccountMenu account={account} onLogout={() => void logout(router)} />
         </div>

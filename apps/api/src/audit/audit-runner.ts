@@ -347,7 +347,7 @@ export class AuditRunner {
     const targetProfile = this.targetProfileOf(product);
 
     // ── 5) ItineraryContext 조립 (I/O 끝) ──
-    const ctx = this.buildContext(product, judged, fetched, verdicts, travelTimes, rainOutlooks, targetProfile);
+    const ctx = this.buildContext(product, judged, fetched, verdicts, travelTimes, rainOutlooks, targetProfile, executedAt);
 
     // ── 6) 규칙 평가 (메모리 전용) ──
     const { findings, failedRules } = evaluateAll(ctx);
@@ -923,6 +923,7 @@ export class AuditRunner {
     travelTimes: ReadonlyMap<string, TravelSegment>,
     rainOutlooks: ReadonlyMap<string, DailyRainOutlook>,
     targetProfile: TargetProfileContext | null,
+    executedAt: Date,
   ): ItineraryContext {
     const start = parseIsoDate(product.startDate);
 
@@ -954,6 +955,8 @@ export class AuditRunner {
     return {
       productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS,
       settings: this.settings, travelTimes, rainOutlooks, targetProfile,
+      // 출발 임박 확인이 쓴다. 규칙이 시계를 보지 않게 여기서 한국 날짜로 넣는다 (FR-AU-085 · NF-MT-001)
+      auditDate: kstToday(executedAt), startDate: product.startDate,
     };
   }
 }

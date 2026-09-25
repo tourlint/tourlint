@@ -11,9 +11,10 @@ import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
 import { collectEvidence } from './report-evidence';
 import {
-  assembleReport, describeItineraryChanges, labelOnly, type PlaceNamer,
-  type ReportModel, type ReportPatch,
+  assembleReport, comparisonRows, describeItineraryChanges, labelOnly, type PlaceNamer,
+  type ReportComparison, type ReportModel, type ReportPatch,
 } from './report-model';
+import { comparisonMetrics } from '../audit/comparison-metrics';
 import { fontsAvailable, renderReport } from './report-render';
 import { ReportRepository, type ProductRow } from './report.repository';
 import { ReportStore, type ReportEntry } from './report-store';
@@ -102,11 +103,12 @@ export class ReportService {
     ]);
     if (run === null || productRow === null) throw notFound();
 
-    const [evidence, region, walkNames] = await Promise.all([
+    const [evidence, region, walkNames, comparison] = await Promise.all([
       collectEvidence({ kto: createKtoClient(this.callLogger), fingerprints }),
       this.regionName(productRow),
       // 걷기 길 이름은 표시할 때 두루누비에서 찾는다 (D9). 못 찾으면 assembleReport 가 "걷기 길" 로 채운다
       this.walkNames.resolve(items.map((i) => i.walkId).filter((id): id is string => id !== null)),
+      this.comparisonOf(patchRows),
     ]);
 
     return assembleReport({
@@ -129,6 +131,7 @@ export class ReportService {
         const official = item.ktoContentId === null ? undefined : evidence.get(item.ktoContentId)?.officialName;
         return official ?? labelOnly(item);
       }),
+      comparison,
       evidence,
       walkNames,
       dataFingerprint: runFingerprintOf(fingerprints),
@@ -177,6 +180,23 @@ export class ReportService {
         changes: describeItineraryChanges(r.before.items, r.after.items, nameOf),
       };
     }));
+  }
+
+  /**
+   * 수정 전후 비교 (⑤ · FR-PA-043 · #806). 화면 5 와 같은 대상이다 — 되돌리지 않은 가장 최근
+   * 반영이고, 반영 뒤 재검수가 끝나지 않았으면 싣지 않는다. 빈 비교를 그럴듯하게 만들지 않는다.
+   */
+  private async comparisonOf(
+    rows: Awaited<ReturnType<ReportRepository['patches']>>,
+  ): Promise<ReportComparison | null> {
+    const latest = rows.at(-1);
+    if (latest === undefined || latest.revertedAt !== null) return null;
+    const [before, after] = await Promise.all([
+      this.findRun(latest.beforeAuditRunId),
+      this.findRun(latest.afterAuditRunId),
+    ]);
+    if (before === null || after === null) return null;
+    return { appliedAt: kstIso(latest.appliedAt), rows: comparisonRows(comparisonMetrics(before, after)) };
   }
 
   private async findRun(id: number | null): Promise<StoredAuditRun | null> {

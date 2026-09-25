@@ -28,7 +28,14 @@ export interface ProductListRow {
   readonly ldongRegnCd: string;
   readonly ldongSignguCd: string | null;
   readonly pendingMatches: number;
+  /*
+   * 알림 수 셋은 여행이 끝나지 않은 상품만 센다 — 끝난 상품은 0 이다 (FR-MO-018 · #804).
+   * 무시한 알림은 세지 않는다.
+   */
   readonly unreadNotifications: number;
+  readonly activeNotifications: number;
+  /** 알림 뒤에 다시 검수하지 않은 바뀐 정보. 레이더 카드가 「다시 검수」 로 보이는 것과 같다 (#703) */
+  readonly risksSinceAudit: number;
   readonly latestAudit: {
     readonly auditRunId: number;
     readonly executedAt: string;
@@ -156,8 +163,7 @@ export class ProductRepository {
               p.planned_at, p.released_at,
               (SELECT count(*) FROM itinerary_item it
                  WHERE it.product_id = p.id AND it.match_status = 'PENDING')::int AS pending,
-              (SELECT count(*) FROM notification n
-                 WHERE n.product_id = p.id AND n.read_at IS NULL AND n.dismissed_at IS NULL)::int AS unread,
+              nt.unread, nt.active, nt.risks,
               ar.id AS run_id, ar.executed_at, ar.readiness_score, ar.is_partial,
               ar.blocker_cnt, ar.error_cnt, ar.warn_cnt, ar.unverified_cnt,
               ar.weight_snapshot, ar.target_count, ar.failed_count,
@@ -167,6 +173,17 @@ export class ProductRepository {
          -- 보여 줄 실행은 지금 일정의 실행이다. 반영 뒤 재검수 전(STALE)이면 가장 최근 실행을 보이되 출시는 막는다
          LEFT JOIN audit_run ar ON ar.id = COALESCE(cur.run_id, cur.latest_id)
          LEFT JOIN audit_run lr ON lr.id = cur.latest_id
+         -- 알림은 여행이 끝나지 않은 상품만 센다 (FR-MO-018). 「알림 뒤에 다시 검수」 는 보여 줄 실행과 견준다 —
+         -- 레이더 카드도 이 목록의 latestAudit 으로 「다시 검수」 · 「검수 결과 보기」 를 가른다 (#703 · #804)
+         LEFT JOIN LATERAL (
+           SELECT count(*) FILTER (WHERE n.read_at IS NULL)::int AS unread,
+                  count(*)::int AS active,
+                  count(*) FILTER (WHERE n.kind = 'RISK'
+                                     AND (ar.executed_at IS NULL OR n.created_at > ar.executed_at))::int AS risks
+             FROM notification n
+            WHERE n.product_id = p.id AND n.dismissed_at IS NULL
+              AND p.start_date + p.nights >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+         ) nt ON true
         WHERE p.account_id = $1
         ORDER BY p.start_date DESC, p.id DESC
         LIMIT $2 OFFSET $3`,
@@ -723,6 +740,8 @@ interface ListRaw {
   ldong_signgu_cd: string | null;
   pending: number;
   unread: number;
+  active: number;
+  risks: number;
   run_id: string | null;
   executed_at: Date | string | null;
   readiness_score: number | null;
@@ -781,6 +800,8 @@ function toListRow(r: ListRaw, scores: ReadonlyMap<string, number | null>): Prod
     ldongSignguCd: r.ldong_signgu_cd,
     pendingMatches: r.pending,
     unreadNotifications: r.unread,
+    activeNotifications: r.active,
+    risksSinceAudit: r.risks,
     latestAudit,
     plannedAt: isoStamp(r.planned_at),
     releasedAt: isoStamp(r.released_at),
