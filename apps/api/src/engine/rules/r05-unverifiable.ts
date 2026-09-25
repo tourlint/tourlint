@@ -1,5 +1,5 @@
 import type { ExceptionReasonCode, Severity } from '@tourlint/shared';
-import { parseIsoDate } from '../calendar/dates';
+import { addDays, formatIsoDate, parseIsoDate } from '../calendar/dates';
 import { placeLine, type AuditItem, type AuditRule, type Finding, type ItineraryContext } from './types';
 
 /**
@@ -122,8 +122,8 @@ export class R05UnverifiableRule implements AuditRule {
  */
 export function preDepartureCheck(ctx: ItineraryContext): Finding | null {
   if (ctx.auditDate === undefined || ctx.startDate === undefined) return null;
-  const days = daysBetween(ctx.auditDate, ctx.startDate);
-  if (days === null || days < 0 || days > 1) return null;
+  const days = daysToDeparture(ctx.auditDate, ctx.startDate);
+  if (days === null) return null;
   return {
     ruleCode: 'R05',
     ruleVersion: R05_VERSION,
@@ -138,10 +138,14 @@ export function preDepartureCheck(ctx: ItineraryContext): Finding | null {
   };
 }
 
-/** 두 날짜 사이 날 수(뒤 − 앞). 날짜가 아니면 null */
-function daysBetween(from: string, to: string): number | null {
-  const a = parseIsoDate(from);
-  const b = parseIsoDate(to);
-  if (a === null || b === null) return null;
-  return Math.round((Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day)) / 86_400_000);
+/**
+ * 출발까지 남은 날 — 오늘 출발이면 0, 내일이면 1. 그 밖(이미 출발 · 이틀 넘게 남음 · 날짜가 아님)은 null.
+ * 규칙은 `Date` 를 쓰지 않는다(NF-MT-001 · eslint). 달력 도우미로 하루씩 더해 본다.
+ */
+function daysToDeparture(auditDate: string, startDate: string): 0 | 1 | null {
+  const today = parseIsoDate(auditDate);
+  if (today === null) return null;
+  if (formatIsoDate(today) === startDate) return 0;
+  if (formatIsoDate(addDays(today, 1)) === startDate) return 1;
+  return null;
 }
