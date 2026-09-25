@@ -745,6 +745,24 @@ export class AuditRunner {
         : this.fillMidTerm(buckets.mid, product, now, out),
       this.fillClimate(buckets.climate, product, out),
     ]);
+
+    /*
+     * 예보를 못 받은 날은 평년표로 내려 판정한다 (EI-WX-006 · EX-EI-024 · #797). 기상청 장애 ·
+     * 발표분 없음 · 클라이언트 없음 · 격자 없음 모두 같다 — 평년표는 시도와 달만 있으면 된다.
+     * 평년값도 없으면 예보 쪽 사유 그대로 확인 불가다. R09 전체를 확인 불가로 만들지 않는다.
+     */
+    const lost = [
+      ...buckets.short.map((date) => [date, 'SHORT'] as const),
+      ...buckets.mid.map((date) => [date, 'MID'] as const),
+    ].filter(([date]) => out.get(date)?.ok === false);
+    if (lost.length > 0) {
+      const fallback = new Map<string, DailyRainOutlook>();
+      await this.fillClimate(lost.map(([date]) => date), product, fallback);
+      for (const [date, from] of lost) {
+        const climate = fallback.get(date);
+        if (climate?.ok === true && climate.source === 'CLIMATE') out.set(date, { ...climate, downgradedFrom: from });
+      }
+    }
     return out;
   }
 
