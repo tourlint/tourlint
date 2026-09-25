@@ -19,6 +19,7 @@ import {
 } from "../../../../lib/api";
 import { isInserted, pickerReducer, pickerStateWith, type NearKind } from "./picker-state";
 import { LCLS_SYSTM2 } from "@tourlint/shared";
+import { BriefingStatus } from "../../briefing-status";
 import { PlaceResults } from "../../place-results";
 import { PlaceDetailView } from "../../place-detail-view";
 
@@ -47,6 +48,9 @@ export function PlacePicker({ product, onInserted, openType = null, initialDay =
   const [briefing, setBriefing] = useState<PlanBriefing | null>(null);
   const [day, setDay] = useState(initialDay);
   const [err, setErr] = useState<string | null>(null);
+  // 종류 목록 오류는 넣기 오류와 따로 둔다. 다시 받으면 지운다 (#822)
+  const [briefingErr, setBriefingErr] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
   const [inserting, setInserting] = useState(false);
   const insertLock = useRef(false);
   const confirmedItems = product.days.filter(d => d.day === day).flatMap(d => d.items).filter(it => it.matchStatus === "CONFIRMED" && it.mapx !== null && it.mapy !== null);
@@ -57,15 +61,15 @@ export function PlacePicker({ product, onInserted, openType = null, initialDay =
     void (async () => {
       try {
         const b = await planApi.briefing({ regnCd: product.ldongRegnCd, signguCd: product.ldongSignguCd, startDate: product.startDate, nights: product.nights });
-        if (alive) setBriefing(b);
+        if (alive) { setBriefing(b); setBriefingErr(null); }
       } catch (e) {
-        if (alive) setErr(isApiError(e) ? e.message : "종류를 불러오지 못했어요.");
+        if (alive) setBriefingErr(isApiError(e) ? e.message : "종류를 불러오지 못했어요.");
       }
     })();
     return () => {
       alive = false;
     };
-  }, [product.ldongRegnCd, product.ldongSignguCd, product.startDate, product.nights]);
+  }, [product.ldongRegnCd, product.ldongSignguCd, product.startDate, product.nights, reload]);
 
   const placeQuery = (state.lcls2 === null && state.nearKind === null) || (state.nearKind !== null && anchor === null) ? null : {
     regnCd: product.ldongRegnCd, signguCd: product.ldongSignguCd,
@@ -132,7 +136,7 @@ export function PlacePicker({ product, onInserted, openType = null, initialDay =
 
       {/* 첫째 줄 — 시군구 전체 종류 */}
       {briefing === null ? (
-        <p className="mt-3 text-sm text-slate-400">불러오는 중…</p>
+        <BriefingStatus error={briefingErr} onRetry={() => { setBriefingErr(null); setReload((n) => n + 1); }} />
       ) : (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {lclsChips.map((t) => (
