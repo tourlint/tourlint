@@ -916,6 +916,52 @@ select {
   padding: 19px 18px;
   border-top: 1px solid var(--line);
 }
+/*
+ * 좁은 폭의 상품 표 (UI-CM-005 · 006 · #839). 표 안에 가로 스크롤을 만들지 않는다 —
+ * 태블릿 폭은 「최근 검수」 열을 숨기고 여백을 줄이며, 휴대폰 폭은 줄마다 세로로 쌓는다.
+ */
+@media (max-width: 1199px) {
+  .product-table .col-recent {
+    display: none;
+  }
+  .product-table th,
+  .product-table td {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .product-table td:first-child {
+    white-space: normal;
+  }
+}
+@media (max-width: 767px) {
+  .product-table thead {
+    display: none;
+  }
+  .product-table,
+  .product-table tbody,
+  .product-table tr,
+  .product-table td {
+    display: block;
+    width: 100%;
+  }
+  .product-table {
+    white-space: normal;
+  }
+  .product-table tr {
+    border-top: 1px solid var(--line);
+    padding: 12px 16px;
+  }
+  .product-table td {
+    border-top: 0;
+    padding: 4px 0;
+  }
+  .product-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 10px;
+    color: var(--muted);
+  }
+}
 .table-product-name {
   color: var(--ink);
   font-weight: 600;

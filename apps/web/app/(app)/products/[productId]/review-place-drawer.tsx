@@ -4,10 +4,13 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import type { ProductDetail } from '../../../lib/api';
 import { PlacePicker, type PickerContext } from './plan/place-picker';
+import { AuditBudgetNotice } from '../../../lib/audit-availability';
 
-export function ReviewPlaceDrawer({ product, context, changed, onInserted, onClose, onReaudit }: {
+export function ReviewPlaceDrawer({ product, context, changed, onInserted, onClose, onReaudit, reauditBlocked = false, resumesAt = null }: {
   product: ProductDetail; context: PickerContext; changed: boolean;
   onInserted: () => Promise<void>; onClose: () => void; onReaudit: () => void;
+  /** 예산이 다 되면 재검수를 막는다 — 담는 것은 그대로 된다 (#838) */
+  reauditBlocked?: boolean; resumesAt?: string | null;
 }) {
   const [saving, setSaving] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -31,7 +34,8 @@ export function ReviewPlaceDrawer({ product, context, changed, onInserted, onClo
       </div>
       <footer className="border-t border-slate-200 p-4">
         <p role="status" className="mb-3 text-sm text-slate-600">{changed ? '일정에 반영했어요. 재검수하면 추가한 장소까지 확인합니다.' : '‘일정에 넣기’를 누르면 바로 저장됩니다. 추가 후 재검수해 주세요.'}</p>
-        <button type="button" className="button-primary w-full disabled:opacity-50" disabled={!changed || saving} onClick={onReaudit}>담은 일정 재검수</button>
+        {reauditBlocked && <AuditBudgetNotice resumesAt={resumesAt} className="mb-3" />}
+        <button type="button" className="button-primary w-full disabled:opacity-50" disabled={!changed || saving || reauditBlocked} onClick={onReaudit}>담은 일정 재검수</button>
       </footer>
     </div>
   </dialog>;

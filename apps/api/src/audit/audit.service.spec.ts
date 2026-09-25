@@ -1095,6 +1095,11 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       expect(rows[0].dismissed_at).toBeNull();
     });
 
+    it('검수 가능 여부 — 예산이 남으면 열려 있고 재개 시점이 없다 (#838)', async () => {
+      // 리플레이 검수는 호출 로그를 남기지 않아 공유 DB 의 오늘 예산이 남아 있다
+      expect(await service.availability()).toEqual({ available: true, reasonCode: null, resumesAt: null });
+    });
+
     it('차단이 아니면 무시되고 점수가 다시 계산된다 (FR-AU-046)', async () => {
       const { runId, findings } = await runOnce();
       const target = findings.find((f) => f.severity !== 'BLOCKER');

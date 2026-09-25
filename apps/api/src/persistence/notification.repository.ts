@@ -314,6 +314,25 @@ export class NotificationRepository {
   }
 
   /**
+   * 공용 테스트 계정의 확인 처리를 되돌린다 (UI-CM-008 · #840).
+   *
+   * 심사위원이 한 계정을 같이 쓴다 — 처음 레이더를 연 사람이 읽음으로 바꾸면 다음 사람에게는
+   * 「새로」 도 헤더 숫자도 없다. 로그인할 때마다 되돌려 모두가 같은 알림을 새로 보게 한다.
+   * 무시한 알림은 그대로 둔다. 되돌린 건수를 돌려준다.
+   */
+  async resetReadForAccount(accountId: number): Promise<number> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE notification n
+          SET read_at = NULL
+         FROM product p
+        WHERE p.id = n.product_id AND p.account_id = $1
+          AND n.read_at IS NOT NULL AND n.dismissed_at IS NULL`,
+      [accountId],
+    );
+    return rowCount ?? 0;
+  }
+
+  /**
    * 무시 처리 (FR-MO-037).
    *
    * ⚠️ **비표출 전환 알림은 여기 오면 안 된다.** 무시 금지 판정은 서비스가 하고

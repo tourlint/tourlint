@@ -10,7 +10,8 @@ import { BatchStateRepository } from '../persistence/batch-state.repository';
 import { applyNormalizeFallback } from './normalize-fallback';
 import { buildRunFingerprint, shortFingerprint } from '../engine/fingerprint';
 import { ktoBudgetGuard } from '../external/budget-guard';
-import type { CallIntent } from '../external/budget-guard';
+import type { BudgetDecision, CallIntent } from '../external/budget-guard';
+import { kstToday } from '../batch/sync-window';
 import { KakaoMobilityClient, createKakaoTransport } from '../external/kakao';
 import { KmaClient, createKmaTransport } from '../external/kma';
 import { createKtoClient } from '../external/kto';
@@ -768,17 +769,27 @@ export class AuditService implements OnApplicationBootstrap {
    * 패치 확정도 사용자가 누른 것이라 같은 문을 쓴다.
    */
   private async assertBudget(intent: CallIntent): Promise<void> {
+    const decision = await this.budgetDecision(intent);
+    if (!decision.allowed) {
+      throw new DomainException(
+        HttpStatus.TOO_MANY_REQUESTS, decision.reasonCode ?? 'BUDGET_EXHAUSTED', AUDIT_BUDGET_MESSAGE, 'REQUEST',
+      );
+    }
+  }
+
+  private async budgetDecision(intent: CallIntent): Promise<BudgetDecision> {
     // 예산 화면 · 배치와 같은 값이다. 코드 기본값을 쓰던 때는 DB 값도 증설 종료도 안 먹었다 (#777)
     const { dailyQuota } = await this.state.setting();
     const guard = ktoBudgetGuard('KOR', { counter: this.callLogger, dailyQuota });
-    const decision = await guard.check(intent);
-    if (!decision.allowed) {
-      throw new DomainException(
-        HttpStatus.TOO_MANY_REQUESTS, decision.reasonCode ?? 'BUDGET_EXHAUSTED',
-        '오늘 사용할 수 있는 공사 데이터 조회량을 모두 썼습니다. 내일 다시 시도하거나 관리자에게 예산 상향을 요청해 주세요.',
-        'REQUEST',
-      );
-    }
+    return guard.check(intent);
+  }
+
+  /**
+   * 지금 검수를 시작할 수 있는가 (UI-ST-007 · EX-QT-002 · #838). 화면이 누르기 전에 버튼을 막는다.
+   * 검수 요청과 같은 문(`USER_AUDIT`)을 본다. 호출 수 같은 숫자는 주지 않는다 (#532 · FR-OP-005).
+   */
+  async availability(now: Date = new Date()): Promise<AuditAvailability> {
+    return toAvailability(await this.budgetDecision('USER_AUDIT'), now);
   }
 
   private track(promise: Promise<void>): void {
@@ -1438,4 +1449,27 @@ function warningBannerOf(before: StoredAuditRun, after: StoredAuditRun): string 
     return '수정 후 출시 준비도가 낮아졌습니다. 되돌리거나 일정을 다시 확인해 주세요.';
   }
   return null;
+}
+
+/** 검수 예산이 다 됐을 때의 안내 — 다른 조회와 같은 말로, 재개 시점과 지금 할 수 있는 일을 적는다 (EX-QT-002 · #838) */
+export const AUDIT_BUDGET_MESSAGE =
+  '오늘 쓸 수 있는 관광정보 조회를 모두 썼습니다. 내일 0시부터 다시 검수할 수 있고, 일정 편집과 지난 결과 보기는 지금도 할 수 있습니다.';
+
+export interface AuditAvailability {
+  readonly available: boolean;
+  readonly reasonCode: 'BUDGET_EXHAUSTED' | null;
+  /** 다시 열리는 때 — 한국 시간 다음 날 0시 (EX-QT-002) */
+  readonly resumesAt: string | null;
+}
+
+/** 예산 문 판정을 화면용 답으로. 순수 함수다 */
+export function toAvailability(decision: BudgetDecision, now: Date): AuditAvailability {
+  if (decision.allowed) return { available: true, reasonCode: null, resumesAt: null };
+  return { available: false, reasonCode: 'BUDGET_EXHAUSTED', resumesAt: nextKstMidnight(now) };
+}
+
+/** 한국 시간 다음 날 0시. 예산은 한국 시간 하루로 센다 */
+export function nextKstMidnight(now: Date): string {
+  const [y, m, d] = kstToday(now).split('-').map(Number) as [number, number, number];
+  return `${new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10)}T00:00:00+09:00`;
 }
