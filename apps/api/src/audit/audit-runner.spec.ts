@@ -13,7 +13,7 @@ import {
   type TargetProfileLookup,
 } from './audit-runner';
 import { FixtureKmaTransport, KmaClient } from '../external/kma';
-import { FixtureKakaoTransport, KakaoMobilityClient } from '../external/kakao';
+import { FixtureKakaoTransport, KakaoMobilityClient, RouteProviderError } from '../external/kakao';
 import { RULESET_VERSION } from './rule-registry';
 import { R03TimeOverlapRule } from '../engine/rules/r03-overlap';
 
@@ -208,6 +208,38 @@ describe('AuditRunner — 관통', () => {
       item({ id: 2, dayNo: 2, seq: 1, ktoContentId: '2868839', contentTypeId: 39 }),
     ]);
     expect(transport.replayCounts.get('detailIntro2')).toBe(1);
+  });
+
+  /*
+   * 길찾기 제공자 전면 장애 (EX-EI-022 · #795). 한 구간이 재시도까지 다 실패하면 남은 구간은
+   * 부르지 않고 같은 사유로 둔다. 그 구간만의 실패(4xx)는 다른 구간을 막지 않는다.
+   */
+  describe('길찾기 제공자가 내려가면 남은 구간은 부르지 않는다 (EX-EI-022 · #795)', () => {
+    // 네 곳 · 세 구간. 길찾기는 좌표만 있으면 부른다
+    const places = [1, 2, 3, 4].map((n) => item({
+      id: n, dayNo: 1, seq: n, startTime: `${String(9 + n * 2).padStart(2, '0')}:00`, endTime: `${String(10 + n * 2).padStart(2, '0')}:00`,
+      placeLabel: `곳${n}`, mapX: 128.85 + n / 100, mapY: 37.77,
+    }));
+
+    it('🔴 재시도까지 다 실패한 일시 장애 뒤로는 부르지 않는다 — 남은 구간도 같은 사유다', async () => {
+      let calls = 0;
+      const kakao = { route: async () => { calls++; throw new RouteProviderError('HTTP 503', 503); } };
+      const r = new AuditRunner({ kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV), clock, kakao: kakao as never, concurrency: 1 });
+      const result = await r.run(product, places);
+
+      expect(calls).toBe(1);
+      const r08 = result.findings.filter((f) => f.ruleCode === 'R08');
+      expect(r08).toHaveLength(3);
+      expect(r08.every((f) => f.reasonCode === 'ROUTE_PROVIDER_FAILED')).toBe(true);
+    });
+
+    it('그 구간만의 실패(4xx)는 다른 구간을 막지 않는다', async () => {
+      let calls = 0;
+      const kakao = { route: async () => { calls++; throw new RouteProviderError('HTTP 400', 400); } };
+      const r = new AuditRunner({ kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV), clock, kakao: kakao as never, concurrency: 1 });
+      await r.run(product, places);
+      expect(calls).toBe(3);
+    });
   });
 
   describe('부분 성공 격리 (EX-CM 원칙 ①)', () => {
