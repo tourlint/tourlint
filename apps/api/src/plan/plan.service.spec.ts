@@ -6,7 +6,7 @@ import type { BudgetDecision } from '../external/budget-guard';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { FixtureKtoTransport, KtoClient, KtoFetchError, type KtoParams, type KtoTransport, type KtoTransportResult } from '../external/kto';
 import { PlanCache } from './plan-cache';
-import { PlanService, facilitiesLast, type BriefingQuery, type PlacesQuery } from './plan.service';
+import { PlanService, facilitiesLast, relatedBaseYm, type BriefingQuery, type PlacesQuery } from './plan.service';
 
 const FIXTURES = join(__dirname, '../../../../fixtures/kto');
 const GANGNEUNG = { regnCd: '51', signguCd: '150' };
@@ -338,6 +338,23 @@ describe('PlanService — 조회 조건과 경계', () => {
       const result = await service(transport).places(placesQuery({ sort: 'together' }));
       expect(transport.paramsOf('searchKeyword1')).toEqual([]);
       expect(result.notice).toContain('기준이 될 장소');
+      // 매기지 않은 순위의 기준 달은 적지 않는다
+      expect(result.scope.label).not.toContain('기준 함께 많이 가는 순');
+    });
+
+    it('🔴 순위를 매기면 어느 달 자료인지 머리글에 적는다 — 기능설명서의 집계 기간 표시 (#832)', async () => {
+      const transport = new RecordingTransport({
+        areaBasedList2: listBody([place({ contentid: '1', title: '오죽헌' })]),
+        detailCommon2: listBody([{ contentid: '9', title: '경포대' }]),
+        searchKeyword1: related([row()]),
+      });
+      const result = await service(transport).places(placesQuery({
+        sort: 'together', anchorContentId: '9', anchor: { mapx: 128.9, mapy: 37.79 },
+      }));
+      const ym = relatedBaseYm();
+      // 부른 달과 적은 달이 같다
+      expect(transport.paramsOf('searchKeyword1')[0]).toMatchObject({ baseYm: ym });
+      expect(result.scope.label).toContain(`${ym.slice(0, 4)}년 ${String(Number(ym.slice(4, 6)))}월 기준 함께 많이 가는 순`);
     });
   });
 
