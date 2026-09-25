@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Finding, Patch, ProductDetail } from "../../../lib/api";
 import { ruleName } from "../../../lib/rule-names";
+import { StatusBadge } from "../../../components/badges";
 
 const TYPES: Record<string, string> = { SIGHT: "관광", MEAL: "식사", REST: "휴식", LODGING: "숙박", MOVE: "이동", FREE: "자유" };
 
@@ -10,12 +11,24 @@ export function relatedItemIds(finding: Finding | null, patch?: Patch): number[]
   ].filter((id): id is number => id != null))];
 }
 
-export function CurrentSchedule({ product, finding, patch, expanded, onToggle }: {
+/**
+ * 표출이 중단된 곳을 가리키는 줄 (FR-RU-066 · UI-S3-025 · #810). 지금 실행의 R06 표출 중단 판정이 짚은 줄이다.
+ * 줄은 지우지 않고 흐리게 한 뒤 「표출 중단」 배지를 붙인다.
+ */
+export function hiddenItemIdsOf(findings: readonly Finding[]): ReadonlySet<number> {
+  return new Set(findings
+    .filter((f) => f.reasonCode === "CONTENT_HIDDEN" || (f.hiddenContent ?? null) !== null)
+    .map((f) => f.target.itemId)
+    .filter((id): id is number => id !== null));
+}
+
+export function CurrentSchedule({ product, finding, patch, expanded, onToggle, hiddenItemIds = new Set() }: {
   product: Pick<ProductDetail, "days"> | null;
   finding: Finding | null;
   patch?: Patch;
   expanded: boolean;
   onToggle: () => void;
+  hiddenItemIds?: ReadonlySet<number>;
 }) {
   const scrollArea = useRef<HTMLDivElement>(null);
   const ids = relatedItemIds(finding, patch);
@@ -41,9 +54,11 @@ export function CurrentSchedule({ product, finding, patch, expanded, onToggle }:
       <div ref={scrollArea} className="current-schedule-scroll" tabIndex={0} role="region" aria-label="일차별 현재 일정">
         {!product ? <p className="p-4 text-sm">현재 일정을 불러오지 못했어요.</p> : count === 0 ? <p className="p-4 text-sm">저장된 일정이 없어요.</p> : days.map(day => <section key={day.day} aria-label={`${day.day}일차`} className="current-schedule-day">
           <h4>{day.day}일차 <span>{day.items.length}개 일정</span></h4>
-          <ol>{[...day.items].sort((a, b) => a.seq - b.seq).map(it => <li key={it.itemId} data-related={ids.includes(it.itemId)}>
+          <ol>{[...day.items].sort((a, b) => a.seq - b.seq).map(it => <li key={it.itemId} data-related={ids.includes(it.itemId)} data-hidden={hiddenItemIds.has(it.itemId)}>
             <div className="current-schedule-time">{it.start || "시작 미입력"} – {it.end || "종료 미입력"}</div>
             <strong>{it.place.trim() || `${TYPES[it.itemType] ?? "장소"} (이름 미입력)`}</strong>
+            {/* 표출이 중단된 곳 — 지우지 않고 흐리게 둔다 (FR-RU-066) */}
+            {hiddenItemIds.has(it.itemId) && <StatusBadge status="DISPLAY_STOPPED" className="current-schedule-hidden-badge" />}
             <div className="current-schedule-meta"><span>{it.seq}번째 · {TYPES[it.itemType] ?? it.itemType}</span>{ids.includes(it.itemId) && <b>관련 일정</b>}</div>
           </li>)}</ol>
         </section>)}
