@@ -680,7 +680,8 @@ export function ProductTable({ products, onDelete }: { products: WorkspaceProduc
             <th>출발일 / 일정</th>
             <th>출시 준비도</th>
             <th>차단 / 오류 / 주의 / 확인 불가</th>
-            <th>최근 검수</th>
+            {/* 태블릿 폭에서는 숨긴다 — 가로 스크롤을 강제하지 않는다 (UI-CM-005 · #839) */}
+            <th className="col-recent">최근 검수</th>
           </tr>
         </thead>
         <tbody>
@@ -697,20 +698,21 @@ export function ProductTable({ products, onDelete }: { products: WorkspaceProduc
                   <span className="table-subtext">{regionText(p)}</span>
                   <ProductActions product={p} onDelete={onDelete} />
                 </td>
-                <td>
+                {/* data-label 은 휴대폰 폭에서 줄을 세로로 쌓을 때 칸 이름으로 쓴다 */}
+                <td data-label="단계">
                   <span
                     className={`stage-label stage-${productStage(p).toLowerCase()}`}
                   >
                     {STAGE_LABEL[productStage(p)]}
                   </span>
                 </td>
-                <td>
+                <td data-label="출발일 / 일정">
                   {p.startDate}
                   <span className="table-subtext">
                     {NIGHTS[p.nights] ?? `${p.nights}박`}
                   </span>
                 </td>
-                <td>
+                <td data-label="출시 준비도">
                   {a?.isPartial ? (
                     <StatusBadge status="PARTIAL" />
                   ) : a?.readinessScore != null ? (
@@ -725,10 +727,10 @@ export function ProductTable({ products, onDelete }: { products: WorkspaceProduc
                     <span className="table-subtext">검수 전</span>
                   )}
                 </td>
-                <td>
+                <td data-label="차단 / 오류 / 주의 / 확인 불가">
                   {a ? <GradeCounts counts={a.counts} variant="chip" /> : "—"}
                 </td>
-                <td>
+                <td className="col-recent" data-label="최근 검수">
                   {a?.executedAt
                     ? a.executedAt.replace("T", " ").slice(5, 16)
                     : "—"}
