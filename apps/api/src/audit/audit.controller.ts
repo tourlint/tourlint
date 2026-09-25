@@ -242,6 +242,15 @@ export class AuditController {
     return { ...toComparisonResponse(application, before, after, basis), schedule };
   }
 
+  /**
+   * 지금 검수를 시작할 수 있는가 (UI-ST-007 · #838). 예산이 다 되면 화면이 검수 버튼을 미리 막고
+   * 재개 시점을 적는다. 숫자(호출 수 · 소진율)는 주지 않는다.
+   */
+  @Get('audit-availability')
+  availability(): Promise<Record<string, unknown>> {
+    return this.service.availability() as unknown as Promise<Record<string, unknown>>;
+  }
+
   /** 규칙 목록 (API 설계 5-10). 레지스트리가 정본이다 */
   @Get('rules')
   rules(): Record<string, unknown> {

@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { isApiError, productApi } from "../../../../lib/api";
+import { AuditBudgetNotice, budgetBlockedText, useAuditAvailability } from "../../../../lib/audit-availability";
 
 export function StartAuditSheet({ productId, pendingCount }: { productId: number; pendingCount: number }) {
   const router = useRouter();
@@ -14,6 +15,8 @@ export function StartAuditSheet({ productId, pendingCount }: { productId: number
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // 예산이 다 되면 누르기 전에 막고 다시 열리는 때를 적는다 (UI-ST-007 · #838)
+  const budget = useAuditAvailability();
 
   async function start(excludePending: boolean) {
     setBusy(true);
@@ -25,8 +28,9 @@ export function StartAuditSheet({ productId, pendingCount }: { productId: number
       router.push(`/products/${productId}`);
     } catch (e) {
       if (isApiError(e) && e.status === 429) {
-        // 예산 100% — 상품은 기획 중에 남는다
-        setBlocked("오늘 공사 데이터 조회량을 다 써서 지금은 검수를 시작할 수 없어요. 내일 다시 시도하거나 관리자에게 예산 상향을 요청해 주세요. 상품은 기획 중에 그대로 있어요.");
+        // 예산 100% — 상품은 기획 중에 남는다. 버튼도 막는다
+        setBlocked(`${budgetBlockedText(budget.resumesAt)} 상품은 기획 중에 그대로 있어요.`);
+        budget.refresh();
         setBusy(false);
         return;
       }
@@ -37,13 +41,17 @@ export function StartAuditSheet({ productId, pendingCount }: { productId: number
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
-      >
-        검수 시작 →
-      </button>
+      <div className="flex flex-col items-end gap-1">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          disabled={budget.blocked}
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          검수 시작 →
+        </button>
+        {budget.blocked && <AuditBudgetNotice resumesAt={budget.resumesAt} className="max-w-xs text-xs" />}
+      </div>
 
       {open && (
         <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/30 p-4 sm:items-center" onClick={() => !busy && setOpen(false)}>
