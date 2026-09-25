@@ -904,6 +904,8 @@ export interface ComparisonResult {
   /** 화면 5 도 근거 영역을 고정 표시한다 (UI-CM-030). 반영 후 실행이 기준이다 */
   evidence: AuditEvidence;
   revertible: boolean;
+  /** 반영이 바꾼 일정 — 반영 기록의 전후 스냅샷 (UI-S5-003 · #806) */
+  schedule?: { before: PatchItem[]; after: PatchItem[] };
 }
 
 export const comparisonApi = {

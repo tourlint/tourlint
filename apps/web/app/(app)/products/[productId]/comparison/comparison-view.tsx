@@ -17,6 +17,7 @@ import {
 } from "../../../../lib/api";
 import { SourceBadge } from "../../../../components/badges";
 import { AuditBasis, basisRows } from "../../../../components/audit-basis";
+import { ScheduleComparison } from "../schedule-compare";
 
 // 대부분의 지표는 낮을수록 좋다. 출시 준비도만 반대다.
 const HIGHER_BETTER = new Set(["readinessScore"]);
@@ -183,6 +184,20 @@ export function ComparisonView({ productId }: { productId: number }) {
           )}
 
           <MetricTable metrics={data.metrics} />
+
+          {/* 반영이 바꾼 일정 — 추가 · 제거 · 변경을 가른다 (UI-S5-003 · FR-PA-042 · #806) */}
+          {data.schedule && (
+            <section aria-label="바뀐 일정">
+              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-50">바뀐 일정</h2>
+              <ScheduleComparison
+                before={data.schedule.before}
+                after={data.schedule.after}
+                beforeTitle="반영 전"
+                afterTitle="반영 후"
+                emptyText="바뀐 일정이 없습니다."
+              />
+            </section>
+          )}
 
           <AuditBasis
             rows={basisRows(data.evidence)}

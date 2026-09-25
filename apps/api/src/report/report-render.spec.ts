@@ -50,6 +50,15 @@ function model(over: Partial<AssembleInput> = {}): ReturnType<typeof assembleRep
       appliedAt: '2026-08-28T05:00:00.000Z', reverted: false,
       beforeScore: 29, afterScore: 70, changes: ['시각 변경 — 오죽헌 10:00~11:00 → 10:00~11:30'],
     }],
+    comparison: {
+      appliedAt: '2026-08-28T05:00:00.000Z',
+      rows: [
+        ['차단', '2', '0', '−2'],
+        ['총 감점', '71 (100 − 29)', '30 (100 − 70)', '−41'],
+        ['총 이동시간', '3시간 9분', '3시간 33분', '+24분'],
+        ['수요 적합성', '음식점 없음', '결손 유형 없음', '—'],
+      ],
+    },
     evidence: new Map([['126508', {
       ktoContentId: '126508', officialName: '오죽헌', imageUrl: 'https://x/a.jpg',
       homepageUrl: 'https://oj.kr', contact: { tel: '033-640-4457' },

@@ -1,6 +1,7 @@
 import { findingMessage, SETTING_DEFAULTS, STANDARD_VERSION, type Severity, kstIso } from '@tourlint/shared';
 import type { ContentView } from '../external/kto';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
+import type { ComparisonMetric } from '../audit/comparison-metrics';
 
 /**
  * 검수 리포트 7섹션 데이터 모델 (FR-PA-061 · UI-S6-001).
@@ -108,12 +109,23 @@ export interface ReportProvenance {
   readonly source: string;
 }
 
+/**
+ * 수정 전후 비교 (⑤ · FR-PA-043 · #806). 화면 5 와 같은 반영 · 같은 지표다 — 되돌리지 않은
+ * 가장 최근 반영이고, 반영 뒤 재검수가 끝났을 때만 싣는다.
+ */
+export interface ReportComparison {
+  readonly appliedAt: string;
+  /** [지표, 반영 전, 반영 후, 변화] */
+  readonly rows: readonly (readonly [string, string, string, string])[];
+}
+
 export interface ReportModel {
   readonly auditRunId: number;
   readonly product: ReportProduct;
   readonly summary: ReportSummary;
   readonly itinerary: readonly ReportDay[];
   readonly findings: readonly ReportFinding[];
+  readonly comparison: ReportComparison | null;
   readonly patchHistory: readonly ReportPatch[];
   readonly unverified: readonly ReportFinding[];
   readonly provenance: ReportProvenance;
@@ -163,6 +175,13 @@ export function describeItineraryChanges(
   const was = new Map(before.map((i) => [i.id, i]));
   const now = new Map(after.map((i) => [i.id, i]));
   const out: string[] = [];
+  /*
+   * 순번은 앞 줄이 들어가거나 빠지면 밀린다. 그것까지 「순서 변경」 으로 적으면 손대지 않은 곳이
+   * 줄줄이 바뀐 것처럼 읽힌다(#806). 같은 날에 남은 줄끼리의 차례가 바뀌었거나 일차를 옮긴 것만 적는다.
+   */
+  const stayed = new Set(after.filter((i) => was.get(i.id)?.dayNo === i.dayNo).map((i) => i.id));
+  const rankBefore = rankWithinDay(before, stayed);
+  const rankAfter = rankWithinDay(after, stayed);
 
   for (const item of after) {
     const prev = was.get(item.id);
@@ -173,7 +192,7 @@ export function describeItineraryChanges(
     if (prev.startTime !== item.startTime || prev.endTime !== item.endTime) {
       out.push(`시각 변경 — ${nameOf(item)} ${span(prev)} → ${span(item)}`);
     }
-    if (prev.dayNo !== item.dayNo || prev.seq !== item.seq) {
+    if (prev.dayNo !== item.dayNo || rankBefore.get(item.id) !== rankAfter.get(item.id)) {
       out.push(`순서 변경 — ${nameOf(item)} ${prev.dayNo}일차 ${prev.seq}번 → ${item.dayNo}일차 ${item.seq}번`);
     }
     if (prev.ktoContentId !== item.ktoContentId) {
@@ -184,6 +203,22 @@ export function describeItineraryChanges(
     if (!now.has(item.id)) out.push(`삭제 — ${item.dayNo}일차 ${item.startTime} ${nameOf(item)}`);
   }
   return out;
+}
+
+/** 그 날 안에서 몇 번째인가 — `keep` 에 든 줄끼리만 센다 */
+function rankWithinDay(items: readonly DiffableItem[], keep: ReadonlySet<number>): ReadonlyMap<number, number> {
+  const byDay = new Map<number, DiffableItem[]>();
+  for (const i of items) {
+    if (!keep.has(i.id)) continue;
+    const list = byDay.get(i.dayNo) ?? [];
+    list.push(i);
+    byDay.set(i.dayNo, list);
+  }
+  const rank = new Map<number, number>();
+  for (const list of byDay.values()) {
+    [...list].sort((a, b) => a.seq - b.seq).forEach((i, n) => rank.set(i.id, n));
+  }
+  return rank;
 }
 
 function span(i: DiffableItem): string {
@@ -246,6 +281,7 @@ export interface AssembleInput {
     readonly walkId: string | null;
   }[];
   readonly patches: readonly ReportPatch[];
+  readonly comparison: ReportComparison | null;
   readonly evidence: ReadonlyMap<string, ContentEvidence>;
   /** 걷기 길 코스 이름 (walk_id → 이름 · D9). 못 찾은 코스는 여기 없어 "걷기 길" 로 떨어진다 */
   readonly walkNames: ReadonlyMap<string, string>;
@@ -333,6 +369,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
       .map(([dayNo, items]) => ({ dayNo, items })),
     // ④ 는 감점이 걸린 판정, ⑥ 은 사용자가 직접 확인할 것 — 화면이 나누는 방식 그대로다
     findings: run.findings.filter((f) => !needsAttention(f)).map(toFinding),
+    comparison: input.comparison,
     patchHistory: input.patches,
     unverified: run.findings.filter(needsAttention).map(toFinding),
     provenance: {
@@ -347,4 +384,39 @@ export function assembleReport(input: AssembleInput): ReportModel {
       source: '출처: ⓒ한국관광공사',
     },
   };
+}
+
+/**
+ * 비교 지표를 표 한 줄씩으로 (FR-PA-043 · #806). 값은 화면 5 와 같게 적는다 — 이동시간은
+ * 「3시간 9분」, 거리는 「122.3km」, 총 감점은 계산식을 붙여 검산할 수 있게 한다(FR-PA-041).
+ * 값이 없으면 지어내지 않고 「—」다.
+ */
+export function comparisonRows(metrics: readonly ComparisonMetric[]): ReportComparison['rows'] {
+  return metrics.map((m) => {
+    if (m.beforeText !== undefined || m.afterText !== undefined) {
+      return [m.label, m.beforeText ?? '—', m.afterText ?? '—', '—'] as const;
+    }
+    const cell = (v: number | null | undefined, formula: string | undefined): string =>
+      v == null ? '—' : formula === undefined ? metricValue(m.key, v) : `${metricValue(m.key, v)} (${formula})`;
+    return [m.label, cell(m.before, m.formulaBefore), cell(m.after, m.formulaAfter), metricChange(m)] as const;
+  });
+}
+
+function metricChange(m: ComparisonMetric): string {
+  if (m.before == null || m.after == null) return '—';
+  const diff = m.after - m.before;
+  if (diff === 0) return '변화 없음';
+  return `${diff > 0 ? '+' : '−'}${metricValue(m.key, Math.abs(diff))}`;
+}
+
+/** 화면 5 의 `formatMetric` 과 같은 단위 (#726). 건수 · 점수는 표의 이름이 단위를 말한다 */
+function metricValue(key: string, v: number): string {
+  if (key === 'travelMinutes') {
+    const hours = Math.floor(v / 60);
+    const minutes = v % 60;
+    if (hours === 0) return `${minutes}분`;
+    return minutes === 0 ? `${hours}시간` : `${hours}시간 ${minutes}분`;
+  }
+  if (key === 'travelMeters') return v < 1000 ? `${v}m` : `${(Math.round(v / 100) / 10).toFixed(1)}km`;
+  return String(v);
 }
