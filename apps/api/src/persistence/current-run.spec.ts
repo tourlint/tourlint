@@ -56,10 +56,19 @@ describe.skipIf(URL === undefined)('지금 일정의 검수 실행 (#551)', () =
   const run = async (at: string, blockers: number): Promise<number> => {
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO audit_run (product_id, executed_at, ruleset_version, readiness_score, target_count, blocker_cnt, weight_snapshot)
-       VALUES ($1, $2, '1.2.4', $3, 3, $4, '{}'::jsonb) RETURNING id`,
-      [productId, at, blockers > 0 ? 75 : 100, blockers],
+       VALUES ($1, $2, '1.2.4', $3, 3, $4, '{"BLOCKER":25,"ERROR":10,"WARNING":4,"UNVERIFIED":3}'::jsonb) RETURNING id`,
+      [productId, at, 100 - blockers * 25, blockers],
     );
-    return Number(rows[0]?.id);
+    const runId = Number(rows[0]?.id);
+    // 저장할 때처럼 건수와 finding 을 함께 쓴다 — 목록은 finding 으로 건수를 다시 센다 (#819)
+    for (let i = 0; i < blockers; i++) {
+      await pool.query(
+        `INSERT INTO finding (audit_run_id, rule_code, rule_version, severity, reason_code, message, evidence)
+         VALUES ($1, 'R01', '1.0.0', 'BLOCKER', 'CLOSED_ON_VISIT', '휴무일에 방문합니다', '{}'::jsonb)`,
+        [runId],
+      );
+    }
+    return runId;
   };
   const apply = async (at: string, beforeRunId: number | null): Promise<number> => {
     const { rows } = await pool.query<{ id: string }>(

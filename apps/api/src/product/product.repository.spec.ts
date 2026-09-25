@@ -198,9 +198,9 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
       await pool.query(`UPDATE finding SET dismissed_at = now(), dismiss_reason = '기획 의도' WHERE id = $1`, [findingId]);
       expect(await listedScore(productId)).toBe(96);
 
-      // 건수는 무시한 것까지 센 저장값 그대로다. 결과 화면의 counts 와 같다
+      // 건수도 무시한 것을 뺀다 — 96점 옆에 주의 2건이면 계산이 안 맞는다 (#819)
       const { rows } = await repo.list(accountA, 0, 100);
-      expect(rows.find((r) => r.id === productId)?.latestAudit?.counts.warning).toBe(2);
+      expect(rows.find((r) => r.id === productId)?.latestAudit?.counts.warning).toBe(1);
     });
 
     it('무시를 풀면 92점으로 돌아온다', async () => {

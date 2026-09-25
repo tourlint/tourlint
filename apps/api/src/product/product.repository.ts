@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Severity, type Transport, kstIso } from '@tourlint/shared';
-import { calculateReadiness, type ScorableFinding } from '../engine/score';
+import { calculateReadiness, type ScorableFinding, type ScoreResult } from '../engine/score';
 import { CURRENT_RUN_LATERAL, currentRunOf, toCurrentRun, type CurrentRun } from '../persistence/current-run';
 import { withTransaction } from '../persistence/db';
 import type { ItemOrder, ItemPatch, PickedItemInput, ValidItem, ValidItemInput, ValidProduct, WalkItemInput } from './product.dto';
@@ -195,16 +195,17 @@ export class ProductRepository {
   }
 
   /**
-   * 목록에 보일 점수를 **조회 시점에 다시 계산한다** (FR-AU-046).
+   * 목록에 보일 점수와 등급별 건수를 **조회 시점에 다시 계산한다** (FR-AU-046).
    *
-   * `audit_run.readiness_score` 는 실행 시점 기록이라 무시 · 무시 해제가 반영되지 않는다.
-   * 그 값을 그대로 보이면 결과 화면(`AuditResultRepository.findById`)과 점수가 갈린다 —
-   * 주의 1건을 무시한 상품이 결과 화면에서는 83점, 목록에서는 79점이었다 (#684).
+   * `audit_run` 의 점수 · 건수는 실행 시점 기록이라 무시 · 무시 해제가 반영되지 않는다.
+   * 그 값을 그대로 보이면 결과 화면(`AuditResultRepository.findById`)과 갈린다 —
+   * 주의 1건을 무시한 상품이 결과 화면에서는 83점, 목록에서는 79점이었고(#684),
+   * 점수만 고친 뒤에는 89점 옆에 주의 3건이 남았다(#819).
    *
    * 실행마다 묻지 않고 한 번에 읽는다. 목록은 홈 · 검수 · 레이더가 열릴 때마다 불린다.
    */
-  private async currentScores(rows: readonly ListRaw[]): Promise<ReadonlyMap<string, number | null>> {
-    const out = new Map<string, number | null>();
+  private async currentScores(rows: readonly ListRaw[]): Promise<ReadonlyMap<string, ScoreResult>> {
+    const out = new Map<string, ScoreResult>();
     const runs = rows.filter((r): r is ListRaw & { run_id: string } => r.run_id !== null);
     if (runs.length === 0) return out;
 
@@ -232,7 +233,7 @@ export class ProductRepository {
         weights: r.weight_snapshot ?? undefined,
         targetCount: r.target_count ?? 0,
         failedCount: r.failed_count ?? 0,
-      }).score);
+      }));
     }
     return out;
   }
@@ -772,22 +773,30 @@ export function isReleasable(
   return (currentBlockers ?? 0) === 0 && (latestBlockers ?? 0) === 0;
 }
 
-function toListRow(r: ListRaw, scores: ReadonlyMap<string, number | null>): ProductListRow {
+function toListRow(r: ListRaw, scores: ReadonlyMap<string, ScoreResult>): ProductListRow {
+  // 저장값이 아니라 다시 계산한 값이다. 못 찾으면(있을 수 없다) 저장값으로 둔다
+  const current = r.run_id === null ? undefined : scores.get(r.run_id);
   const latestAudit =
     r.run_id === null
       ? null
       : {
           auditRunId: Number(r.run_id),
           executedAt: isoStamp(r.executed_at) ?? '',
-          // 저장값이 아니라 다시 계산한 값이다. 못 찾으면(있을 수 없다) 저장값으로 둔다
-          readinessScore: scores.has(r.run_id) ? (scores.get(r.run_id) ?? null) : r.readiness_score,
+          readinessScore: current === undefined ? r.readiness_score : current.score,
           isPartial: r.is_partial ?? false,
-          counts: {
-            blocker: r.blocker_cnt ?? 0,
-            error: r.error_cnt ?? 0,
-            warning: r.warn_cnt ?? 0,
-            unverified: r.unverified_cnt ?? 0,
-          },
+          counts: current === undefined
+            ? {
+                blocker: r.blocker_cnt ?? 0,
+                error: r.error_cnt ?? 0,
+                warning: r.warn_cnt ?? 0,
+                unverified: r.unverified_cnt ?? 0,
+              }
+            : {
+                blocker: current.counts.BLOCKER,
+                error: current.counts.ERROR,
+                warning: current.counts.WARNING,
+                unverified: current.counts.UNVERIFIED,
+              },
           // 출시 승인과 같은 판정이다 (`ProductService.release` · #551)
           releasable: isReleasable(r.current_kind, r.blocker_cnt, r.latest_blocker_cnt),
         };
