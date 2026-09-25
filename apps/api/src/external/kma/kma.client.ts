@@ -113,7 +113,8 @@ export class FixtureKmaTransport implements KmaTransport {
     params: Readonly<Record<string, string | number>>,
   ): Promise<KmaTransportResult> {
     const file = join(this.fixtureDir, fixtureFile(operation, params));
-    if (!existsSync(file)) throw new ForecastProviderError(`픽스처가 없다: ${file}`);
+    // 없는 스냅샷은 다시 불러도 없다. 404 로 두어 재시도하지 않게 한다
+    if (!existsSync(file)) throw new ForecastProviderError(`픽스처가 없다: ${file}`, 404);
     return { body: readFileSync(file, 'utf8'), httpStatus: null };
   }
 }
@@ -159,6 +160,12 @@ export interface KmaClientOptions {
   readonly logger: ApiCallLogger;
   readonly clock?: () => Date;
   readonly auditRunId?: number | null;
+  /** 일시 장애 재시도 횟수 (EI-CM-005 · EX-EI-024). 기본 2 */
+  readonly maxRetries?: number;
+  /** 첫 재시도 전 대기(ms). 다음은 두 배다. 기본 300 */
+  readonly baseDelayMs?: number;
+  /** 테스트 주입용 */
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 export class KmaClient {
@@ -166,12 +173,18 @@ export class KmaClient {
   private readonly logger: ApiCallLogger;
   private readonly clock: () => Date;
   private readonly auditRunId: number | null;
+  private readonly maxRetries: number;
+  private readonly baseDelayMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: KmaClientOptions) {
     this.transport = options.transport;
     this.logger = options.logger;
     this.clock = options.clock ?? ((): Date => new Date());
     this.auditRunId = options.auditRunId ?? null;
+    this.maxRetries = options.maxRetries ?? 2;
+    this.baseDelayMs = options.baseDelayMs ?? 300;
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   /**
@@ -221,6 +234,21 @@ export class KmaClient {
    * (FR-OP-001).
    */
   private async call(
+    operation: KmaOperation,
+    params: Readonly<Record<string, string | number>>,
+  ): Promise<readonly Record<string, unknown>[]> {
+    // 일시 장애는 지수 백오프로 더 부른다. 시도마다 호출 기록 1행이다 (EI-CM-005 · EX-EI-024 · #797)
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.callOnce(operation, params);
+      } catch (e) {
+        if (!(e instanceof ForecastProviderError) || !e.retryable || attempt >= this.maxRetries) throw e;
+        await this.sleep(this.baseDelayMs * 2 ** attempt);
+      }
+    }
+  }
+
+  private async callOnce(
     operation: KmaOperation,
     params: Readonly<Record<string, string | number>>,
   ): Promise<readonly Record<string, unknown>[]> {

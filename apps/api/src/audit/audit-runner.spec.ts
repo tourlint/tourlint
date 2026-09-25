@@ -12,7 +12,7 @@ import {
   type ClimateNormalLookup, type ItineraryItemRow, type ProductRow,
   type TargetProfileLookup,
 } from './audit-runner';
-import { FixtureKmaTransport, KmaClient } from '../external/kma';
+import { FixtureKmaTransport, ForecastProviderError, KmaClient } from '../external/kma';
 import { FixtureKakaoTransport, KakaoMobilityClient, RouteProviderError } from '../external/kakao';
 import { RULESET_VERSION } from './rule-registry';
 import { R03TimeOverlapRule } from '../engine/rules/r03-overlap';
@@ -582,6 +582,42 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
     const f = result.findings.find((x) => x.ruleCode === 'R09');
     expect(f?.severity).toBe('WARNING');
     expect(f?.reasonCode).not.toBe('COORD_MISSING');
+  });
+
+  /*
+   * 예보를 못 받은 날은 평년표로 내려 판정한다 (EI-WX-006 · EX-EI-024 · #797). 전에는 가까운 날
+   * (단기 · 중기)이 기상청 없음 · 장애 · 격자 없음이면 확인 불가(−3)로 끝났다.
+   */
+  it('🔴 기상청이 없으면 가까운 날도 평년으로 판정하고, 예보를 받지 못했다고 적는다 (#797)', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    const nearWithRegion: ProductRow = { ...soon, ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ climate }).run(nearWithRegion, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.message).toContain('예보를 받지 못해 평년 기준 — 10월 강릉 강수일수 9.2일 (31%)');
+    expect(f?.evidence).toMatchObject({ rainSource: 'CLIMATE', forecastDowngradedFrom: 'SHORT' });
+  });
+
+  it('🔴 기상청이 재시도까지 실패한 중기 날짜도 평년으로 판정한다 (#797)', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    let calls = 0;
+    const down = new KmaClient({
+      transport: { kind: 'http', request: async () => { calls++; throw new ForecastProviderError('HTTP 503', 503); } },
+      logger: new InMemoryApiCallLogger(), sleep: async () => undefined,
+    });
+    // 검수 시각 2026-10-01 · 출발 10-06 → D+5 · 6 이 중기 경로다
+    const midWithRegion: ProductRow = { ...product, startDate: '2026-10-06', ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ kma: down, climate }).run(midWithRegion, [outdoor(1, 1)]);
+
+    expect(calls).toBe(3);
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.evidence).toMatchObject({ forecastDowngradedFrom: 'MID' });
   });
 
   it('평년 테이블이 있으면 그것으로 판정한다', async () => {

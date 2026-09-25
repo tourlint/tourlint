@@ -159,6 +159,8 @@ function toRow(key: string, raw: unknown): VerdictRow | null {
     // 평년 경로에서만 담긴다. 조건부 스프레드로 들어가 #480 에서 빠졌다 (#502)
     case 'rainDays': return { label: '평년 강수일수', value: `${text(raw)}일` };
     case 'normalMonth': return { label: '평년 기준 달', value: `${text(raw)}월` };
+    // 예보를 못 받아 평년표로 내려온 날만 담긴다 (EI-WX-006 · #797)
+    case 'forecastDowngradedFrom': return { label: '받지 못한 예보', value: RAIN_SOURCE[text(raw)] ?? text(raw) };
     case 'on': {
       // R01 조건부 휴관이 해당하는 날 — `MM-DD` 또는 명절 규칙이다 (DR-NM-022)
       if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -251,5 +253,5 @@ const HANDLED_CASES = new Set([
   'dayOfWeek', 'verdict', 'confidence', 'restItemType', 'targetKey', 'conceptKey',
   'distanceMeters', 'hasNight', 'expectsNight', 'dayNo', 'hours', 'visit',
   'first', 'second', 'span', 'thresholds', 'missingLcls2', 'expectedLcls2',
-  'rainSource', 'rainDays', 'normalMonth', 'showFlagTurnedOff', 'fieldNamesChanged', 'on',
+  'rainSource', 'rainDays', 'normalMonth', 'forecastDowngradedFrom', 'showFlagTurnedOff', 'fieldNamesChanged', 'on',
 ]);

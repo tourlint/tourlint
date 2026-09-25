@@ -19,12 +19,27 @@ export abstract class KmaError extends Error {
   }
 }
 
-/** 제공자 장애 · 네트워크 · 타임아웃 · 인증 실패. 재시도 대상이다 */
+/**
+ * 공공데이터포털 결과 코드 중 **서버 쪽 일시 오류** — 01 APPLICATION_ERROR · 02 DB_ERROR ·
+ * 04 HTTP_ERROR · 05 SERVICETIME_OUT. 요청 오류(10 ~ 12) · 인증(20 · 30 ~ 33) · 한도(22)는 다시 불러도 같다
+ */
+const TRANSIENT_RESULT_CODES: ReadonlySet<number> = new Set([1, 2, 4, 5]);
+
+/**
+ * 제공자 장애 · 네트워크 · 타임아웃 · 인증 실패.
+ *
+ * **일시 장애만 다시 부른다** (EI-CM-005 · EX-EI-024 · #797) — 결과 코드가 있으면 서버가 답한 것이라
+ * 서버 쪽 일시 오류일 때만, 없으면 응답이 없거나(네트워크 · 시간 초과 · 해석 불가) 5xx · 429 일 때만.
+ */
 export class ForecastProviderError extends KmaError {
   readonly reasonCode = 'FORECAST_UNAVAILABLE' as const;
-  readonly retryable = true;
   constructor(detail: string, readonly httpStatus: number | null = null, readonly resultCode: string | null = null) {
     super(`기상청 예보 조회 실패: ${detail}`);
+  }
+
+  get retryable(): boolean {
+    if (this.resultCode !== null && this.resultCode !== '') return TRANSIENT_RESULT_CODES.has(Number(this.resultCode));
+    return this.httpStatus === null || this.httpStatus >= 500 || this.httpStatus === 429;
   }
 }
 
