@@ -925,6 +925,13 @@ export class AuditService implements OnApplicationBootstrap {
         // 결과에는 확인 불가로 남는다(#774). 왜 깨졌는지는 여기서만 본다
         this.logger.error(`규칙 평가 실패 (job ${jobId}): ${result.failedRules.join(', ')}`);
       }
+      // 공사가 멈추라고 답했다 (EX-EI-002 · 003 · #793). 사용자 화면에는 확인 불가 문장으로 보인다
+      if (result.ktoHalt === 'KTO_AUTH_ERROR') {
+        // 운영자 알림 — 인증키(인코딩 · 디코딩 혼동)나 활용신청 문제라 사용자는 할 수 있는 일이 없다
+        this.logger.error(`공사 인증 오류로 검수를 멈췄다 (job ${jobId}) — KTO_SERVICE_KEY 와 활용신청 상태를 확인할 것`);
+      } else if (result.ktoHalt === 'KTO_QUOTA_EXCEEDED') {
+        this.logger.warn(`공사가 오늘 한도 초과라고 답해 검수를 멈췄다 (job ${jobId}) — 한국 시간 자정까지 공사 호출은 예산 문이 막는다`);
+      }
 
       const auditRunId = await this.results.save({
         productId,

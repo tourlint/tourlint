@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import type { ApiCallLogEntry, ApiCallLogger, CallProvider, DailyCallCounter } from '../external/api-call-log';
-import { localDateKey } from '../external/api-call-log';
+import { QUOTA_REJECTED_RESULT_CODE, localDateKey } from '../external/api-call-log';
 
 /**
  * 호출 로그를 DB 에 남긴다 (`api_call_log` · FR-OP-001 · EI-CM-006).
@@ -62,6 +62,18 @@ export class PgApiCallLogger implements ApiCallLogger, DailyCallCounter {
       [provider, localDateKey(now)],
     );
     return Number(rows[0]?.n ?? 0);
+  }
+
+  /** 오늘(KST) 그 제공자가 한도 초과(22)로 답한 호출이 있는가 (EX-QT-005 · #793) */
+  async quotaRejectedToday(provider: CallProvider, now: Date): Promise<boolean> {
+    const { rows } = await this.pool.query<{ hit: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM api_call_log
+          WHERE provider = $1 AND quota_date = $2 AND status = 'FAIL' AND result_code = $3
+       ) AS hit`,
+      [provider, localDateKey(now), QUOTA_REJECTED_RESULT_CODE],
+    );
+    return rows[0]?.hit === true;
   }
 
   /**

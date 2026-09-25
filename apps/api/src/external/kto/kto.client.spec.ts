@@ -281,6 +281,18 @@ describe('KtoClient', () => {
       expect(t.calls).toHaveLength(1);
     });
 
+    it.each([
+      ['인증 오류', new KtoAuthError('searchKeyword2', '30', 'SERVICE_KEY_IS_NOT_REGISTERED_ERROR'), '30'],
+      ['한도 초과', new KtoQuotaExceededError('searchKeyword2', '22', 'LIMITED'), '22'],
+      ['한도 초과 · 앞에 0', new KtoQuotaExceededError('searchKeyword2', '0022', 'LIMITED'), '22'],
+      ['한도 초과 · 코드 없이 메시지로만', new KtoQuotaExceededError('searchKeyword2', null, 'LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR'), '22'],
+    ])('🔴 %s 도 호출 기록에 코드를 남긴다 — 예산 문이 이 기록으로 「오늘 한도 초과」 를 안다 (#793)', async (_label, error, code) => {
+      const log = new InMemoryApiCallLogger();
+      const c = new KtoClient({ transport: new StubTransport([error]), logger: log, sleep: noSleep, clock: fakeClock() });
+      await expect(c.searchKeyword({ keyword: '강릉' })).rejects.toBe(error);
+      expect(log.entries[0]).toMatchObject({ status: 'FAIL', resultCode: code });
+    });
+
     it('타임아웃은 재시도한다', async () => {
       const t = new StubTransport([new KtoTimeoutError('detailCommon2', 10)]);
       await expect(client(t).detailCommon('1')).rejects.toBeInstanceOf(KtoTimeoutError);

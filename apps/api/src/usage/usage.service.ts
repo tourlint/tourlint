@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { BUDGET_THRESHOLD_RATIO } from '@tourlint/shared';
 import { localDateKey, type CallProvider } from '../external/api-call-log';
-import { evaluateBudget } from '../external/budget-guard';
+import { evaluateBudget, reconcileUsage } from '../external/budget-guard';
 import { DB_POOL } from '../persistence/db';
 import { BatchStateRepository } from '../persistence/batch-state.repository';
 import { PgApiCallLogger, type CallUsageRow } from '../persistence/api-call-log.repository';
@@ -68,7 +68,12 @@ export class UsageService {
      * 실제 운영값과 달라서는 안 된다. 행이 없으면 `setting()` 이 기본값을 준다.
      */
     const { dailyQuota } = await this.state.setting(now);
-    const used = await this.logs.countToday(provider, now);
+    // 공사가 오늘 한도 초과라고 답했으면 예산 문처럼 다 쓴 것으로 보인다 (EX-QT-005 · #793)
+    const [counted, rejected] = await Promise.all([
+      this.logs.countToday(provider, now),
+      this.logs.quotaRejectedToday(provider, now),
+    ]);
+    const used = reconcileUsage(counted, dailyQuota, rejected);
     const decision = evaluateBudget({ dailyBudget: dailyQuota, usedToday: used }, 'USER_AUDIT');
 
     return {

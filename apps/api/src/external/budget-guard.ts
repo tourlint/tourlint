@@ -77,6 +77,16 @@ export interface BudgetGuardOptions {
   readonly clock?: () => Date;
 }
 
+/**
+ * 공사가 오늘 한도 초과라고 답했으면 우리 집계와 상관없이 다 쓴 것이다 (EX-QT-005 · EX-EI-003 · #793).
+ *
+ * 예산은 한도의 80% 로 잡지만 공사 쪽 집계가 앞설 수 있다(판단 근거 원문 펼침처럼 예산 문이 없는
+ * 호출도 센다). 그때는 공사 응답이 우선이라 그날은 새 요청을 막고, 한국 시간 자정에 풀린다.
+ */
+export function reconcileUsage(usedToday: number, dailyBudget: number, quotaRejected: boolean): number {
+  return quotaRejected ? Math.max(usedToday, dailyBudget) : usedToday;
+}
+
 export class BudgetGuard {
   private readonly counter: DailyCallCounter;
   private readonly dailyBudget: number;
@@ -91,8 +101,12 @@ export class BudgetGuard {
   }
 
   async snapshot(): Promise<BudgetSnapshot> {
-    const usedToday = await this.counter.countToday(this.provider, this.clock());
-    return { dailyBudget: this.dailyBudget, usedToday };
+    const now = this.clock();
+    const [usedToday, rejected] = await Promise.all([
+      this.counter.countToday(this.provider, now),
+      this.counter.quotaRejectedToday(this.provider, now),
+    ]);
+    return { dailyBudget: this.dailyBudget, usedToday: reconcileUsage(usedToday, this.dailyBudget, rejected) };
   }
 
   async check(intent: CallIntent): Promise<BudgetDecision> {

@@ -15,7 +15,7 @@ import type { NormalizedOperatingInfo } from '../engine/normalize/types';
 import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
 import type { AuditItem, AuditSettings, Finding, ItineraryContext, MatchedContent } from '../engine/rules/types';
 import { calculateReadiness, type ScoreResult } from '../engine/score';
-import { isKtoError, type KtoClient } from '../external/kto';
+import { KtoAuthError, KtoQuotaExceededError, isKtoError, type KtoClient } from '../external/kto';
 import type { FingerprintToSave } from '../persistence/audit-result.repository';
 import { hiddenFinding } from '../engine/rules/r06-change';
 import { segmentKey, segmentsOf, type TravelSegment } from '../engine/rules/r08-travel';
@@ -197,6 +197,11 @@ export interface AuditRunResult {
   readonly travelTotals: { readonly durationSeconds: number; readonly distanceMeters: number };
   /** 적용한 기준 — 표준 버전과 회사 기준 두 값 (DR-CF-009). 실행에 딸린 기록이라 소급해 바뀌지 않는다 */
   readonly settingSnapshot: SettingSnapshot;
+  /**
+   * 공사가 인증 오류 · 한도 초과를 답해 조회를 멈췄으면 그 사유 (EX-EI-002 · 003 · #793).
+   * 서비스가 운영자 로그를 남긴다. 멈춘 뒤의 곳은 같은 사유로 확인 불가다
+   */
+  readonly ktoHalt: 'KTO_AUTH_ERROR' | 'KTO_QUOTA_EXCEEDED' | null;
 }
 
 /** 한 콘텐츠의 조회 결과. 실패해도 버리지 않고 사유와 함께 남긴다 */
@@ -285,16 +290,21 @@ export class AuditRunner {
     const fetched = new Map<string, FetchedContent>();
     const failures = new Map<string, FetchFailure>();
     let done = 0;
+    /*
+     * 공사가 인증 오류 · 한도 초과를 답하면 **남은 곳은 부르지 않는다** (EX-EI-002 · 003 ·
+     * EX-QT-003 · #793). 둘 다 다시 불러도 같은 답이라 호출만 헛나간다. 이미 나간 호출은 그대로
+     * 끝나고, 남은 곳은 같은 사유로 확인 불가다 — 절반을 넘으면 부분 검수가 된다.
+     */
+    let halted: KtoAuthError | KtoQuotaExceededError | null = null;
 
     await withConcurrency(targets, this.concurrency, async (target) => {
       try {
+        if (halted !== null) throw halted;
         fetched.set(target.contentId, await this.fetchOne(target.contentId, target.contentTypeId));
       } catch (e) {
+        if (e instanceof KtoAuthError || e instanceof KtoQuotaExceededError) halted ??= e;
         // 콘텐츠 단위 격리 — 한 곳이 실패해도 나머지는 계속 판정한다 (EX-CM 원칙 ①)
-        failures.set(target.contentId, {
-          reasonCode: isKtoError(e) ? e.reasonCode : 'KTO_FETCH_FAILED',
-          message: isKtoError(e) ? '공사 데이터를 가져오지 못했습니다' : '알 수 없는 오류',
-        });
+        failures.set(target.contentId, fetchFailureOf(e));
       } finally {
         done++;
         await this.onProgress(done, targets.length);
@@ -350,7 +360,8 @@ export class AuditRunner {
     ).length;
 
     // ── 8) 수정안 생성 (판정 이후 별도 단계) ──
-    const patched = await this.attachPatches([...findings, ...isolated], ctx, fetched);
+    // 공사가 멈추라고 했으면 수정안용 조회(대체 관광지 · 넣을 곳)도 하지 않는다 (#793)
+    const patched = await this.attachPatches([...findings, ...isolated], ctx, fetched, halted !== null);
     // 예외로 끝난 규칙은 확인 불가로 남긴다 — 0건과 같아 보이면 안 된다 (EX-AU-006 · #774)
     const all = [...patched, ...failedRuleFindings(failedRules)];
 
@@ -384,6 +395,7 @@ export class AuditRunner {
         ? null
         : buildRunFingerprint(fingerprints.map((f) => ({ ktoContentId: f.ktoContentId, fieldHash: f.fieldHash }))),
       failedRules,
+      ktoHalt: halted === null ? null : (halted as KtoAuthError | KtoQuotaExceededError).reasonCode,
     };
   }
 
@@ -490,6 +502,8 @@ export class AuditRunner {
     findings: readonly Finding[],
     ctx: ItineraryContext,
     fetched: ReadonlyMap<string, FetchedContent>,
+    /** 공사가 인증 오류 · 한도 초과를 답했다. 공사를 부르는 수정안은 건너뛴다 (#793) */
+    ktoHalted = false,
   ): Promise<readonly Finding[]> {
     const knownConfidence = new Map(
       [...fetched].map(([id, c]) => [id, c.normalized.confidence.overall] as const),
@@ -533,7 +547,7 @@ export class AuditRunner {
     });
 
     for (const index of order) {
-      if (calls >= this.maxReplacementCalls) break;
+      if (ktoHalted || calls >= this.maxReplacementCalls) break;
       const draft = drafts[index];
       if (draft === undefined || draft.patches.length >= MAX_PATCHES_PER_FINDING) continue;
       const external = await this.externalPatches(
@@ -1007,6 +1021,25 @@ export function failedRuleFindings(codes: readonly string[]): readonly Finding[]
     externalSource: null,
     needsConfirmation: false,
   }));
+}
+
+/**
+ * 조회 실패를 화면 문장과 사유로 (EX-EI-002 · 003).
+ *
+ * 한도 초과는 **다시 할 수 있는 때**를 말한다 — 공사 한도는 한국 시간 자정에 풀린다(EX-QT-002).
+ * 인증 오류는 사용자가 할 수 있는 일이 없어 기다려 달라고만 한다. 운영자 로그는 서비스가 남긴다.
+ */
+function fetchFailureOf(e: unknown): FetchFailure {
+  if (e instanceof KtoQuotaExceededError) {
+    return { reasonCode: e.reasonCode, message: '오늘 쓸 수 있는 관광정보 조회를 모두 써서 확인하지 못했습니다. 내일 0시 이후 다시 검수해 주세요' };
+  }
+  if (e instanceof KtoAuthError) {
+    return { reasonCode: e.reasonCode, message: '관광정보를 가져오지 못했습니다. 잠시 뒤 다시 검수해 주세요' };
+  }
+  return {
+    reasonCode: isKtoError(e) ? e.reasonCode : 'KTO_FETCH_FAILED',
+    message: isKtoError(e) ? '공사 데이터를 가져오지 못했습니다' : '알 수 없는 오류',
+  };
 }
 
 function isolationFindings(

@@ -77,6 +77,18 @@ describe.skipIf(URL === undefined)('UsageService', () => {
       }
     });
 
+    it('🔴 공사가 한도 초과(22)를 답한 날은 다 쓴 것으로 보인다 — 예산 문과 같은 값이다 (EX-QT-005 · #793)', async () => {
+      await seed([['2026-03-15', 'KTO', `${MARKER}-ok`, 'OK', 100]]);
+      await pool.query(
+        `INSERT INTO api_call_log (provider, operation, called_at, quota_date, status, result_code, latency_ms)
+         VALUES ('KTO', $1, date '2026-03-15' + time '12:01', date '2026-03-15', 'FAIL', '22', 100)`,
+        [`${MARKER}-quota`],
+      );
+      const view = await service.budget(NOW);
+      expect(view.state).toBe('EXHAUSTED');
+      expect(view.used).toBe(view.dailyQuota);
+    });
+
     it('당일 공사 호출만 센다 — 카카오·LLM 은 별개 한도다', async () => {
       await seed([
         ['2026-03-15', 'KTO', `${MARKER}-a`, 'OK', 100],

@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { STANDARD_VERSION, type TargetProfileSeed } from '@tourlint/shared';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
-import { ContentNotFoundError, createKtoClient, FixtureKtoTransport, KtoClient } from '../external/kto';
+import {
+  ContentNotFoundError, createKtoClient, FixtureKtoTransport, KtoAuthError, KtoClient, KtoQuotaExceededError,
+} from '../external/kto';
 import {
   AuditRunner, DEFAULT_AUDIT_CONCURRENCY, concurrencyFromEnv, departureStamp,
   uniqueContentIds, withConcurrency,
@@ -250,6 +252,78 @@ describe('AuditRunner — 관통', () => {
       expect(isolated?.message).toContain('없는 관광지');
       // 나머지는 그대로 판정된다
       expect(result.findings.some((f) => f.reasonCode === 'EVENT_ENDED')).toBe(true);
+    });
+
+    /*
+     * 공사가 인증 오류 · 한도 초과를 답하면 멈춘다 (EX-EI-002 · 003 · EX-QT-003 · #793).
+     * 첫째 곳은 정상(가람집옹심이 · 10/13 화요일 휴무 → 차단 · 대체 관광지를 찾으러 목록을 부른다),
+     * 둘째 곳에서 공사가 거절하고, 셋째 곳은 부르지 않아야 한다. 동시 조회 1 로 순서를 고정한다.
+     */
+    describe('공사가 인증 오류 · 한도 초과를 답하면 멈춘다 (EX-EI-002 · 003 · #793)', () => {
+      const ktoRefusing = (refusedId: string, error: Error, calls: string[]): ReturnType<typeof createKtoClient> => {
+        const real = createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV);
+        return {
+          ...real,
+          detailCommon: async (contentId: string) => { calls.push(`common:${contentId}`); return real.detailCommon(contentId); },
+          detailIntro: async (contentId: string, contentTypeId: number) => {
+            calls.push(`intro:${contentId}`);
+            if (contentId === refusedId) throw error;
+            return real.detailIntro(contentId, contentTypeId as never);
+          },
+          locationBasedList: async (...args: Parameters<typeof real.locationBasedList>) => {
+            calls.push('list');
+            return real.locationBasedList(...args);
+          },
+        } as unknown as ReturnType<typeof createKtoClient>;
+      };
+      const items = [
+        item({ id: 1, dayNo: 1, seq: 1, placeLabel: '가람집옹심이', ktoContentId: '2868839', contentTypeId: 39, itemType: 'MEAL',
+               startTime: '12:00', endTime: '13:00', lclsSystm2: 'FD01', mapX: 128.8935, mapY: 37.7719 }),
+        // 조회는 관광지 번호 순이다 — 2868839 → 3536916 → 695592
+        item({ id: 2, dayNo: 1, seq: 2, placeLabel: '거절된 곳', ktoContentId: '3536916', contentTypeId: 12, startTime: '14:00', endTime: '15:00' }),
+        item({ id: 3, dayNo: 1, seq: 3, placeLabel: '부르지 않은 곳', ktoContentId: '695592', contentTypeId: 12, startTime: '16:00', endTime: '17:00' }),
+      ];
+
+      it('🔴 한도 초과를 답하면 남은 곳을 부르지 않고 수정안용 조회도 하지 않는다 — 재개 시점을 적는다', async () => {
+        const calls: string[] = [];
+        const quota = new KtoQuotaExceededError('detailIntro2', '22', 'LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR');
+        const r = new AuditRunner({ kto: ktoRefusing('3536916', quota, calls), clock, concurrency: 1 });
+        const result = await r.run(product, items);
+
+        expect(calls.filter((c) => c.startsWith('intro:'))).toEqual(['intro:2868839', 'intro:3536916']);
+        expect(calls).not.toContain('list');
+        expect(result.ktoHalt).toBe('KTO_QUOTA_EXCEEDED');
+
+        // 조회 실패 격리는 R05 로 남는다. 같은 곳의 다른 규칙(이동시간 등)은 따로다
+        const refused = result.findings.filter((f) => f.ruleCode === 'R05');
+        expect(refused.map((f) => [f.targetItemId, f.severity, f.reasonCode])).toEqual([
+          [2, 'UNVERIFIED', 'KTO_QUOTA_EXCEEDED'], [3, 'UNVERIFIED', 'KTO_QUOTA_EXCEEDED'],
+        ]);
+        expect(refused[0]?.message).toContain('내일 0시 이후 다시 검수해 주세요');
+        // 멈추기 전에 받은 곳은 그대로 판정한다 — 가람집 휴무 차단은 남는다
+        expect(result.findings.some((f) => f.targetItemId === 1 && f.severity === 'BLOCKER')).toBe(true);
+      });
+
+      it('🔴 인증 오류도 멈춘다 — 사용자에게는 기다려 달라고만 한다', async () => {
+        const calls: string[] = [];
+        const auth = new KtoAuthError('detailIntro2', '30', 'SERVICE_KEY_IS_NOT_REGISTERED_ERROR');
+        const r = new AuditRunner({ kto: ktoRefusing('3536916', auth, calls), clock, concurrency: 1 });
+        const result = await r.run(product, items);
+
+        expect(calls).not.toContain('intro:695592');
+        expect(result.ktoHalt).toBe('KTO_AUTH_ERROR');
+        const third = result.findings.find((f) => f.ruleCode === 'R05' && f.targetItemId === 3);
+        expect(third).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'KTO_AUTH_ERROR' });
+        expect(third?.message).toContain('잠시 뒤 다시 검수해 주세요');
+      });
+
+      it('다른 실패는 멈추지 않는다 — 한 곳이 없어도 나머지를 부른다', async () => {
+        const calls: string[] = [];
+        const r = new AuditRunner({ kto: ktoRefusing('3536916', new ContentNotFoundError('detailIntro2', '3536916'), calls), clock, concurrency: 1 });
+        const result = await r.run(product, items);
+        expect(calls).toContain('intro:695592');
+        expect(result.ktoHalt).toBeNull();
+      });
     });
 
     describe('표출이 중단된 곳 (FR-RU-065 · 068 · #745)', () => {
