@@ -265,7 +265,7 @@ export const PATCHES: readonly Endpoint[] = [
             targetContentCount: 14,
             dataFingerprint: '3d8bbf5d',
             dataFingerprintFull: '3d8bbf5d926b377d31c41ab7585163cec10b43167810958a012c82994db727db',
-            rulesetVersion: '1.2.7',
+            rulesetVersion: '1.2.8',
             ktoModifiedAt: '20260616153731',
             delayNotice: '공사 데이터는 당일 변경분이 익일 반영되므로 출발 임박 시 운영기관 최종 확인을 권장합니다',
             source: '출처: ⓒ한국관광공사',

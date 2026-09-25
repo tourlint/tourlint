@@ -151,6 +151,12 @@ export interface ItineraryContext {
    * 확인 불가다. `undefined` 는 맥락을 넘기지 않은 것이라 R10 이 판정하지 않는다.
    */
   readonly targetProfile?: TargetProfileContext | null;
+  /**
+   * 검수한 날(한국 날짜 `YYYY-MM-DD`)과 출발일. 러너가 넣는다 — 규칙은 시계를 보지 않는다 (NF-MT-001).
+   * 출발 임박 확인(R05 · FR-AU-085)이 쓴다. 넘기지 않으면 그 판정을 하지 않는다.
+   */
+  readonly auditDate?: string;
+  readonly startDate?: string;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KOREAN_HOLIDAYS } from '../calendar/holidays';
-import { R05UnverifiableRule, findGap } from './r05-unverifiable';
+import { R05UnverifiableRule, findGap, preDepartureCheck } from './r05-unverifiable';
+import { calculateReadiness } from '../score';
 import { DEFAULT_AUDIT_SETTINGS } from './types';
 import type { AuditItem, Finding, MatchedContent } from './types';
 
@@ -86,5 +87,48 @@ describe('경계', () => {
       item({ matchStatus: 'PENDING', content: null }),
     ];
     expect(evaluate(items)).toHaveLength(2);
+  });
+});
+
+describe('출발 전 운영기관 최종 확인 (FR-AU-085 · FR-AU-045 · #808)', () => {
+  const at = (auditDate: string, startDate: string): readonly Finding[] =>
+    rule.evaluate({
+      productId: 1, items: [item()], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS, auditDate, startDate,
+    });
+
+  it('🔴 내일 · 오늘 출발이면 상품 단위로 한 줄을 확인 필요 목록에 올린다', () => {
+    for (const [auditDate, word] of [['2026-10-21', '내일'], ['2026-10-22', '오늘']] as const) {
+      const found = at(auditDate, '2026-10-22');
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        ruleCode: 'R05', severity: 'WARNING', reasonCode: 'PRE_DEPARTURE_CHECK',
+        targetItemId: null, needsConfirmation: true,
+      });
+      expect(found[0]?.message).toContain(`${word} 출발합니다`);
+    }
+  });
+
+  it('🔴 이틀 넘게 남았거나 이미 출발했으면 만들지 않는다', () => {
+    expect(at('2026-10-20', '2026-10-22')).toHaveLength(0);
+    expect(at('2026-10-23', '2026-10-22')).toHaveLength(0);
+  });
+
+  it('월 · 해가 바뀌어도 날 수를 센다', () => {
+    expect(at('2026-12-31', '2027-01-01')).toHaveLength(1);
+    expect(at('2026-09-30', '2026-10-02')).toHaveLength(0);
+  });
+
+  it('날짜를 넘기지 않으면 판정하지 않는다 — 규칙은 시계를 보지 않는다 (NF-MT-001)', () => {
+    expect(preDepartureCheck({ productId: 1, items: [], holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS })).toBeNull();
+  });
+
+  it('🔴 감점하지 않는다 — 100점은 100점이다 (FR-AU-045)', () => {
+    const [f] = at('2026-10-21', '2026-10-22');
+    const r = calculateReadiness({
+      findings: [{ severity: f!.severity, reasonCode: f!.reasonCode, dismissed: false, needsConfirmation: f!.needsConfirmation }],
+      targetCount: 1,
+    });
+    expect(r.score).toBe(100);
+    expect(r.needsConfirmationCount).toBe(1);
   });
 });
