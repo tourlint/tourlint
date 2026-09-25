@@ -82,7 +82,7 @@ export const STANDARDS: readonly Endpoint[] = [
       200: {
         description: '성공',
         example: {
-          rulesetVersion: '1.2.7',
+          rulesetVersion: '1.2.8',
           rules: [
             {
               code: 'R01',

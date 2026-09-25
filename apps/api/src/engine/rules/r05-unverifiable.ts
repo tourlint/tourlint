@@ -1,4 +1,5 @@
 import type { ExceptionReasonCode, Severity } from '@tourlint/shared';
+import { addDays, formatIsoDate, parseIsoDate } from '../calendar/dates';
 import { placeLine, type AuditItem, type AuditRule, type Finding, type ItineraryContext } from './types';
 
 /**
@@ -27,7 +28,7 @@ import { placeLine, type AuditItem, type AuditRule, type Finding, type Itinerary
  * 못 쓰게 된다.
  */
 
-export const R05_VERSION = '1.0.0';
+export const R05_VERSION = '1.1.0';
 
 /** 행사 콘텐츠 유형 */
 const EVENT_CONTENT_TYPE = 15;
@@ -106,6 +107,45 @@ export class R05UnverifiableRule implements AuditRule {
         needsConfirmation: true,
       });
     }
+    const departure = preDepartureCheck(ctx);
+    if (departure !== null) out.push(departure);
     return out;
   }
+}
+
+/**
+ * 출발 전 운영기관 최종 확인 (FR-AU-085 · FR-AU-045 · #808).
+ *
+ * 관광정보는 당일 바뀐 것이 다음 날 반영된다(D+1). 출발이 하루 안으로 다가오면 그 사이 바뀐 것을
+ * 공사 데이터로는 확인할 수 없어 확인 필요 목록에 한 줄을 올린다. **감점하지 않는다** — 점수 계산이
+ * 이 사유를 뺀다(`NON_SCORING_REASONS`). 이미 출발했거나 이틀 이상 남았으면 만들지 않는다.
+ */
+export function preDepartureCheck(ctx: ItineraryContext): Finding | null {
+  if (ctx.auditDate === undefined || ctx.startDate === undefined) return null;
+  const days = daysToDeparture(ctx.auditDate, ctx.startDate);
+  if (days === null) return null;
+  return {
+    ruleCode: 'R05',
+    ruleVersion: R05_VERSION,
+    severity: 'WARNING',
+    reasonCode: 'PRE_DEPARTURE_CHECK',
+    targetItemId: null,
+    message: `출발 전 운영기관 최종 확인 — ${days === 0 ? '오늘' : '내일'} 출발합니다. 관광정보는 바뀐 내용이 다음 날 반영되므로 방문할 곳의 운영 여부를 운영기관에 한 번 더 확인해 주세요.`,
+    evidence: { auditDate: ctx.auditDate, startDate: ctx.startDate, daysToDeparture: days },
+    requiresExternal: false,
+    externalSource: null,
+    needsConfirmation: true,
+  };
+}
+
+/**
+ * 출발까지 남은 날 — 오늘 출발이면 0, 내일이면 1. 그 밖(이미 출발 · 이틀 넘게 남음 · 날짜가 아님)은 null.
+ * 규칙은 `Date` 를 쓰지 않는다(NF-MT-001 · eslint). 달력 도우미로 하루씩 더해 본다.
+ */
+function daysToDeparture(auditDate: string, startDate: string): 0 | 1 | null {
+  const today = parseIsoDate(auditDate);
+  if (today === null) return null;
+  if (formatIsoDate(today) === startDate) return 0;
+  if (formatIsoDate(addDays(today, 1)) === startDate) return 1;
+  return null;
 }

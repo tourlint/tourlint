@@ -71,6 +71,9 @@ const LABEL: Readonly<Record<string, string>> = {
   visitDate: '방문일',
   range: '행사 기간',
   nightSlotFrom: '저녁 기준 시각',
+  // 출발 전 운영기관 최종 확인 (R05 · FR-AU-085 · #808)
+  auditDate: '검수한 날',
+  startDate: '출발일',
 };
 
 /** 분 단위 값 — `30` 을 `30분` 으로 */
@@ -161,6 +164,8 @@ function toRow(key: string, raw: unknown): VerdictRow | null {
     case 'normalMonth': return { label: '평년 기준 달', value: `${text(raw)}월` };
     // 예보를 못 받아 평년표로 내려온 날만 담긴다 (EI-WX-006 · #797)
     case 'forecastDowngradedFrom': return { label: '받지 못한 예보', value: RAIN_SOURCE[text(raw)] ?? text(raw) };
+    // 출발 1일 이내에만 담긴다 (R05 · FR-AU-085 · #808)
+    case 'daysToDeparture': return { label: '출발', value: raw === 0 ? '오늘' : raw === 1 ? '내일' : `${text(raw)}일 뒤` };
     case 'on': {
       // R01 조건부 휴관이 해당하는 날 — `MM-DD` 또는 명절 규칙이다 (DR-NM-022)
       if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -254,4 +259,5 @@ const HANDLED_CASES = new Set([
   'distanceMeters', 'hasNight', 'expectsNight', 'dayNo', 'hours', 'visit',
   'first', 'second', 'span', 'thresholds', 'missingLcls2', 'expectedLcls2',
   'rainSource', 'rainDays', 'normalMonth', 'forecastDowngradedFrom', 'showFlagTurnedOff', 'fieldNamesChanged', 'on',
+  'daysToDeparture',
 ]);

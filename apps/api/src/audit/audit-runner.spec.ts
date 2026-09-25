@@ -129,6 +129,19 @@ describe('AuditRunner — 관통', () => {
     expect(result.rulesetVersion).toBe(RULESET_VERSION);
   });
 
+  it('🔴 출발 1일 이내면 검수 날짜를 한국 날짜로 넘겨 「출발 전 운영기관 최종 확인」 이 뜬다 (FR-AU-085 · #808)', async () => {
+    const departure = (r: Awaited<ReturnType<AuditRunner['run']>>) =>
+      r.findings.filter((f) => f.reasonCode === 'PRE_DEPARTURE_CHECK');
+    // 출발(10/13) 전날 한국 시각 01:00 — UTC 로는 아직 10/11 이라 UTC 날짜를 쓰면 이틀 전으로 센다
+    const eve = await runner({ clock: () => new Date('2026-10-11T16:00:00Z') }).run(product, TP03_LIKE);
+    expect(departure(eve)).toHaveLength(1);
+    expect(departure(eve)[0]).toMatchObject({ ruleCode: 'R05', targetItemId: null, needsConfirmation: true });
+    // 감점하지 않는다 — 같은 일정을 멀리서 검수한 점수와 같다
+    const far = await runner().run(product, TP03_LIKE);
+    expect(departure(far)).toHaveLength(0);
+    expect(eve.score.score).toBe(far.score.score);
+  });
+
   it('🔴 적용한 기준을 실행 결과에 남긴다 — 표준 버전과 회사 기준 두 값 (DR-CF-009)', async () => {
     const standard = await runner().run(product, TP03_LIKE);
     expect(standard.settingSnapshot).toEqual({ standardVersion: STANDARD_VERSION, r07SpanHours: 6, r07MealMinutes: 60 });

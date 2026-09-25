@@ -1317,9 +1317,11 @@ export function toUnverifiedResponse(
   return { totalCount: items.length, items };
 }
 
-/** 출발 전 확인 항목에만 붙는 안내 (API 설계 5-7 · FR-AU-085 · 086) */
-export const PRE_DEPARTURE_NOTE =
-  '공사 데이터의 D+1 구조적 시차로 자동 생성된 항목이며 감점 대상이 아닙니다';
+/**
+ * 출발 전 확인 항목에만 붙는 안내 (API 설계 5-7 · FR-AU-085 · 086). 화면에 그대로 나간다 —
+ * 「D+1 구조적 시차」 같은 만드는 쪽 말을 쓰지 않는다. 왜 올렸는지는 판정 문장이 말한다 (#808)
+ */
+export const PRE_DEPARTURE_NOTE = '출발이 가까워 자동으로 올린 항목이며 감점하지 않습니다';
 
 /** 검수 이력 (F13 · API 설계 5-9) */
 export function toRunListResponse(
