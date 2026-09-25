@@ -457,15 +457,21 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       const picks = await runAndPick();
       expect(picks.length).toBeGreaterThan(0);
 
-      const before = await pool.query('SELECT count(*)::text AS n FROM patch_application');
+      /*
+       * 이 상품의 이력만 센다 (#815). 표 전체를 세면 같은 시각에 다른 테스트 파일이 자기 이력을
+       * 지울 때 `19 ≠ 20` 으로 실패했다. 미리보기가 쓴다면 이 상품에 쓴다.
+       */
+      const count = async (): Promise<unknown> => (await pool.query(
+        'SELECT count(*)::text AS n FROM patch_application WHERE product_id = $1', [productId])).rows[0];
+      const before = await count();
       const preview = await service.previewPatches(productId, [pick(picks)]);
-      const after = await pool.query('SELECT count(*)::text AS n FROM patch_application');
+      const after = await count();
 
       expect(preview.previewToken).toMatch(/^pv_[0-9a-f]{12}$/);
       expect(preview.conflict.hasConflict).toBe(false);
       expect(preview.before.length).toBeGreaterThan(0);
       // 확정 전에는 이력이 안 생긴다
-      expect(after.rows[0]).toEqual(before.rows[0]);
+      expect(after).toEqual(before);
     });
 
     it('🔴 다른 상품의 finding 으로는 미리 볼 수 없다', async () => {
