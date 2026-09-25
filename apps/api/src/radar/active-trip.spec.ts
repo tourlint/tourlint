@@ -68,6 +68,26 @@ describe.skipIf(!url)('종료된 여행의 현재 알림 제외 — 실 DB', () 
     expect((await notifications.list(account, { ...filter, productId: ongoing })).totalElements).toBe(1);
     expect((await notifications.list(other, { ...filter, productId: ongoing })).totalElements).toBe(0);
   });
+  it('상품 목록의 알림 수 — 끝난 여행은 0, 무시한 알림은 빼고, 알림 뒤에 다시 검수하면 바뀐 정보에서 뺀다 (#804)', async () => {
+    const past = await add(-1, 0);
+    const live = await add(1, 1);
+    await pool.query(`INSERT INTO notification(product_id,kind,match_condition,kto_content_id,change_key,body,read_at)
+      VALUES ($1,'OPPORTUNITY',4,'read-content','read','{}',now())`, [live]);
+    await pool.query(`INSERT INTO notification(product_id,kind,match_condition,kto_content_id,change_key,body,dismissed_at)
+      VALUES ($1,'RISK',3,'dismissed-content','dismissed','{}',now())`, [live]);
+    const row = async (id: number) => (await products.list(account, 0, 20)).rows.find((r) => r.id === id);
+
+    expect(await row(past)).toMatchObject({ unreadNotifications: 0, activeNotifications: 0, risksSinceAudit: 0 });
+    expect(await row(live)).toMatchObject({ unreadNotifications: 1, activeNotifications: 2, risksSinceAudit: 1 });
+
+    // 알림 앞의 검수는 다시 검수가 아니다
+    await pool.query(`INSERT INTO audit_run (product_id, executed_at, ruleset_version, target_count, weight_snapshot)
+      VALUES ($1, now() - interval '1 day', '1.2.7', 1, '{}'::jsonb)`, [live]);
+    expect(await row(live)).toMatchObject({ risksSinceAudit: 1 });
+    await pool.query(`INSERT INTO audit_run (product_id, executed_at, ruleset_version, target_count, weight_snapshot)
+      VALUES ($1, clock_timestamp() + interval '1 minute', '1.2.7', 1, '{}'::jsonb)`, [live]);
+    expect(await row(live)).toMatchObject({ unreadNotifications: 1, activeNotifications: 2, risksSinceAudit: 0 });
+  });
   it('상품을 실제 삭제하면 알림도 연쇄 삭제되어 모든 현재 조회에서 사라진다', async () => {
     const id = await add(0, 0);
     await pool.query('DELETE FROM product WHERE id=$1 AND account_id=$2', [id, account]);

@@ -117,7 +117,8 @@ export const PRODUCTS: readonly Endpoint[] = [
     route: 'GET /api/v1/products',
     tag: '상품',
     summary: '상품 목록',
-    description: '내 상품 목록을 돌려줍니다. 상품마다 현재 일정의 검수 결과 요약이 함께 옵니다.',
+    description:
+      '내 상품 목록을 돌려줍니다. 상품마다 현재 일정의 검수 결과 요약과 알림 수가 함께 옵니다 — 확인하지 않은 알림(`unreadNotifications`) · 무시하지 않은 알림(`activeNotifications`) · 알림 뒤에 다시 검수하지 않은 바뀐 정보(`risksSinceAudit`). 여행이 끝난 상품의 알림 수는 0 입니다.',
     params: {
       page: { description: '쪽 번호. 0부터', example: 0, type: 'integer' },
       size: { description: '한 쪽에 담을 상품 수. 기본 20 · 최대 100', example: 20, type: 'integer' },
@@ -142,6 +143,8 @@ export const PRODUCTS: readonly Endpoint[] = [
                 releasable: true,
               },
               unreadNotifications: 0,
+              activeNotifications: 0,
+              risksSinceAudit: 0,
               pendingMatches: 0,
               plannedAt: '2026-09-17T12:59:28.751Z',
               releasedAt: null,
