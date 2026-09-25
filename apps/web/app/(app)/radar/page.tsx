@@ -1084,6 +1084,31 @@ function visitorsText(s: RegionSignal): string | null {
   return s.t3 === null ? null : `지난해 ${monthOf(s.t3.basisMonth)}월 방문자 ${s.t3.count.toLocaleString()}명`;
 }
 
+/**
+ * 근거 보기 — 줄에 적은 숫자를 센 기간 · 시각과 출처 (UI-S7-015 · #830).
+ * 제출한 기능설명서가 관심 지역에서 「근거 보기」로 출처와 집계 기간을 확인한다고 적었다(8쪽 ③).
+ * 줄마다 적는 기간(#705)은 그대로 두고 여기에는 날짜를 적는다. 세부 서비스 이름 · 내부 코드는 두지 않는다(UI-CM-040).
+ */
+export function RegionEvidence({ signal: s, className = "" }: { signal: RegionSignal; className?: string }) {
+  const rows = [
+    s.t1 && `새로 등록된 곳 · ${s.t1.window.from} ~ ${s.t1.window.to} 에 관광정보에 새로 올라온 곳`,
+    s.t2 && `행사 · ${s.t2.window.from} ~ ${s.t2.window.to} 에 열리는 행사`,
+    s.t3 && `방문자 수 · ${s.t3.basisMonth.slice(0, 4)}년 ${monthOf(s.t3.basisMonth)}월 한 달`,
+  ].filter((r): r is string => typeof r === "string" && r !== "");
+  if (rows.length === 0) return null;
+  // 가장 늦게 센 시각. 세지 않은 줄(빈 값)은 건너뛴다
+  const counted = [s.t1?.computedAt, s.t2?.computedAt, s.t3?.computedAt].filter((t): t is string => typeof t === "string" && t.length >= 16).sort().pop();
+  return (
+    <details className={`mt-2 text-xs ${className}`} data-evidence>
+      <summary className="cursor-pointer text-slate-400">근거 보기</summary>
+      <ul className="mt-1 space-y-0.5 text-slate-500 dark:text-slate-400">
+        {rows.map((r) => <li key={r}>{r}</li>)}
+        <li>출처: ⓒ한국관광공사{counted !== undefined && ` · ${counted.slice(0, 10)} ${counted.slice(11, 16)}에 셌어요`}</li>
+      </ul>
+    </details>
+  );
+}
+
 export function QuietRegionRow({ signal: s, regionName }: { signal: RegionSignal; regionName: string }) {
   const visitors = visitorsText(s);
   return (
@@ -1096,6 +1121,7 @@ export function QuietRegionRow({ signal: s, regionName }: { signal: RegionSignal
       <Link href={regionPlanHref(s)} className="shrink-0 text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400">
         이 지역으로 새 상품 기획
       </Link>
+      <RegionEvidence signal={s} className="mt-0 basis-full" />
     </li>
   );
 }
@@ -1124,6 +1150,7 @@ export function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal
       {/*
         * 숫자마다 기준 기간을 사용자 말로 적는다 (UI-S7-015 · #705). 「이달 행사」 는 지금 달로 읽히고,
         * 기간은 「근거 보기」 안에 「새 콘텐츠 기준 기간 …」 같은 만드는 쪽 말로 접혀 있었다.
+        * 날짜 · 센 시각 · 출처는 아래 근거 보기에 사용자 말로 둔다 (#830).
         * 0 인 줄은 적지 않는다 — 둘 다 0 인 지역은 아래 한 줄 목록으로 간다.
         */}
       <ul className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">
@@ -1138,6 +1165,7 @@ export function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal
         )}
         {visitors !== null && <li>{visitors}</li>}
       </ul>
+      <RegionEvidence signal={s} />
     </div>
   );
 }
