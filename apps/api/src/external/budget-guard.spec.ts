@@ -258,6 +258,53 @@ describe('국문 증설 종료 — korDailyQuota (#777)', () => {
   });
 });
 
+/*
+ * 공사가 한도 초과(22)를 답하면 우리 집계와 상관없이 그날은 다 쓴 것이다 (EX-QT-005 · EX-EI-003 · #793).
+ * 예산은 한도의 80% 지만 공사 집계가 앞설 수 있다 — 판단 근거 원문 펼침처럼 예산 문이 없는 호출도 센다.
+ */
+describe('공사가 한도 초과를 답하면 그날은 다 쓴 것이다 (EX-QT-005 · #793)', () => {
+  const rejected = (provider: CallProvider, iso: string, resultCode = '22'): ApiCallLogEntry => ({
+    provider, operation: 'detailIntro2', calledAt: new Date(iso),
+    status: 'FAIL', httpStatus: 200, resultCode, latencyMs: 30, auditRunId: null,
+  });
+  // 2026-10-12 10:00 KST
+  const at = (iso = '2026-10-12T01:00:00Z') => (): Date => new Date(iso);
+
+  it('🔴 우리 집계가 1건이어도 공사가 22 로 답했으면 검수 · 기획 조회 · 배치를 막는다', async () => {
+    const counter = new InMemoryApiCallLogger();
+    counter.record(rejected('KTO', '2026-10-12T00:30:00Z'));
+    const guard = ktoBudgetGuard('KOR', { counter, dailyQuota: 800, clock: at() });
+    await expect(guard.check('USER_AUDIT')).resolves.toMatchObject({ allowed: false, reasonCode: 'BUDGET_EXHAUSTED' });
+    await expect(guard.check('PLAN')).resolves.toMatchObject({ allowed: false, reasonCode: 'BUDGET_EXHAUSTED' });
+    await expect(guard.check('BATCH')).resolves.toMatchObject({ allowed: false });
+  });
+
+  it('한국 시간 자정에 풀린다 — 다음 날은 새 한도다', async () => {
+    const counter = new InMemoryApiCallLogger();
+    counter.record(rejected('KTO', '2026-10-12T00:30:00Z'));
+    // 2026-10-13 00:10 KST
+    const guard = ktoBudgetGuard('KOR', { counter, dailyQuota: 800, clock: at('2026-10-12T15:10:00Z') });
+    await expect(guard.check('USER_AUDIT')).resolves.toMatchObject({ allowed: true });
+  });
+
+  it('다른 서비스의 한도 초과는 섞지 않는다 — 한도가 서비스마다 따로다', async () => {
+    const counter = new InMemoryApiCallLogger();
+    counter.record(rejected('KTO_PET', '2026-10-12T00:30:00Z'));
+    await expect(ktoBudgetGuard('KOR', { counter, dailyQuota: 800, clock: at() }).check('USER_AUDIT'))
+      .resolves.toMatchObject({ allowed: true });
+    await expect(ktoBudgetGuard('PET', { counter, dailyQuota: 800, clock: at() }).check('USER_AUDIT'))
+      .resolves.toMatchObject({ allowed: false });
+  });
+
+  it('한도 초과가 아닌 실패는 다 쓴 것으로 보지 않는다', async () => {
+    const counter = new InMemoryApiCallLogger();
+    counter.record(rejected('KTO', '2026-10-12T00:30:00Z', '30'));
+    counter.record(rejected('KTO', '2026-10-12T00:31:00Z', '0001'));
+    await expect(ktoBudgetGuard('KOR', { counter, dailyQuota: 800, clock: at() }).check('USER_AUDIT'))
+      .resolves.toMatchObject({ allowed: true });
+  });
+});
+
 describe('하루 경계는 한국 시간 기준이다', () => {
   it('KST 자정에 초기화된다 — UTC 로 세면 오후 9시 이후 호출이 다음 날로 넘어간다', () => {
     // 2026-08-22 08:00 KST = 2026-08-21 23:00 UTC

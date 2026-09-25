@@ -22,9 +22,10 @@ import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
  */
 
 /**
+ * `1.0.2` — 예보를 못 받아 평년표로 내려온 날은 문장과 근거에 그 사실을 적는다 (EI-WX-006 · #797)
  * `1.0.1` — 예보가 야외 시간대를 다 덮지 못하면 덮인 값이 기준 밑이어도 정상이 아니라 확인 불가 (#775)
  */
-export const R09_VERSION = '1.0.1';
+export const R09_VERSION = '1.0.2';
 
 export const KMA_SOURCE = '기상청';
 
@@ -53,6 +54,11 @@ export type DailyRainOutlook =
       readonly rainDays: number;
       readonly regionName: string;
       readonly month: number;
+      /**
+       * 예보를 받지 못해 평년표로 내려온 날이면 원래 쓰려던 예보 (EI-WX-006 · EX-EI-024 · #797).
+       * 원래 D+11 이상이라 평년인 날은 없다
+       */
+      readonly downgradedFrom?: 'SHORT' | 'MID';
     }
   | { readonly ok: false; readonly reasonCode: ExceptionReasonCode };
 
@@ -243,6 +249,8 @@ export class R09RainRiskRule implements AuditRule {
           rainThreshold: threshold,
           rainSource: outlook.source,
           ...(outlook.source === 'CLIMATE' ? { rainDays: outlook.rainDays, normalMonth: outlook.month } : {}),
+          ...(outlook.source === 'CLIMATE' && outlook.downgradedFrom !== undefined
+            ? { forecastDowngradedFrom: outlook.downgradedFrom } : {}),
         },
         requiresExternal: true,
         externalSource: KMA_SOURCE,
@@ -270,7 +278,9 @@ function probabilityFor(
 function basisText(outlook: Extract<DailyRainOutlook, { ok: true }>, probability: number): string {
   if (outlook.source === 'SHORT') return `단기예보 기준 — 강수확률 ${percent(probability)}.`;
   if (outlook.source === 'MID') return `중기예보 기준 — 강수확률 ${percent(probability)}.`;
-  return `평년 기준 — ${outlook.month}월 ${outlook.regionName} 강수일수 ${outlook.rainDays.toFixed(1)}일 (${percent(probability)}).`;
+  // 예보를 받지 못해 내려온 날은 그 사실을 먼저 말한다 (EI-WX-006 · #797)
+  const lead = outlook.downgradedFrom === undefined ? '' : '예보를 받지 못해 ';
+  return `${lead}평년 기준 — ${outlook.month}월 ${outlook.regionName} 강수일수 ${outlook.rainDays.toFixed(1)}일 (${percent(probability)}).`;
 }
 
 function unverified(date: IsoDate, reasonCode: ExceptionReasonCode, detail: string): Finding {

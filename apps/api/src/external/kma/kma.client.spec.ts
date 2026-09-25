@@ -195,12 +195,14 @@ describe('기상청 어댑터 (EI-WX-001 ~ 008)', () => {
       expect(logger.entries[0]?.resultCode).toBe('03');
     });
 
-    it('타임아웃은 FAIL 이 아니라 TIMEOUT 으로 남는다', async () => {
+    it('타임아웃은 FAIL 이 아니라 TIMEOUT 으로 남는다 — 재시도도 시도마다 한 행이다', async () => {
       const logger = new InMemoryApiCallLogger();
-      const client = new KmaClient({ transport: new StubTransport(new ForecastProviderError('TIMEOUT'), 'http'), logger });
+      const client = new KmaClient({
+        transport: new StubTransport(new ForecastProviderError('TIMEOUT'), 'http'), logger, sleep: async () => undefined,
+      });
 
       await expect(client.midLandRain('11D20000', MID_0600)).rejects.toThrow(ForecastProviderError);
-      expect(logger.entries[0]?.status).toBe('TIMEOUT');
+      expect(logger.entries.map((e) => e.status)).toEqual(['TIMEOUT', 'TIMEOUT', 'TIMEOUT']);
     });
 
     it('리플레이는 로그에 남기지 않는다 — 안 한 호출이 증빙에 섞이면 안 된다 (FR-OP-007)', async () => {
@@ -249,5 +251,61 @@ describe('기상청 어댑터 (EI-WX-001 ~ 008)', () => {
     it('인증키가 비면 만들 때 바로 던진다', () => {
       expect(() => new HttpKmaTransport('')).toThrow(/KMA_SERVICE_KEY/);
     });
+  });
+});
+
+/*
+ * 일시 장애는 지수 백오프로 2회 더 부른다 (EI-CM-005 · EX-EI-024 · #797). 인증 · 요청 오류와
+ * 발표분 없음은 다시 불러도 같다.
+ */
+describe('기상청 일시 장애는 다시 부른다 (EI-CM-005 · EX-EI-024 · #797)', () => {
+  /** 호출마다 대본대로 답한다. 대본이 끝나면 마지막 줄을 되풀이한다 */
+  class ScriptTransport implements KmaTransport {
+    readonly kind = 'http' as const;
+    calls = 0;
+    constructor(private readonly script: readonly (Error | string)[]) {}
+    async request(): Promise<{ body: string; httpStatus: number | null }> {
+      this.calls++;
+      const next = this.script[Math.min(this.calls, this.script.length) - 1];
+      if (next instanceof Error) throw next;
+      return { body: next ?? '', httpStatus: 200 };
+    }
+  }
+  const client = (t: KmaTransport, waits: number[] = []): KmaClient => new KmaClient({
+    transport: t, logger: new InMemoryApiCallLogger(), baseDelayMs: 100, sleep: async (ms) => { waits.push(ms); },
+  });
+
+  it('🔴 응답 없음 · 서버 쪽 결과 코드(01)는 2회 더 부르고 셋째에 성공하면 그 값을 쓴다', async () => {
+    const t = new ScriptTransport([
+      new ForecastProviderError('TIMEOUT'),
+      new ForecastProviderError('resultCode 01: APPLICATION_ERROR', null, '01'),
+      fixture('mid_land_0600.json'),
+    ]);
+    const waits: number[] = [];
+    const forecast = await client(t, waits).midLandRain('11D20000', MID_0600);
+    expect(forecast.byDate.size).toBeGreaterThan(0);
+    expect(t.calls).toBe(3);
+    expect(waits).toEqual([100, 200]);
+  });
+
+  it('🔴 세 번 다 실패하면 던진다 — 그 이상 부르지 않는다', async () => {
+    const t = new ScriptTransport([new ForecastProviderError('HTTP 503', 503)]);
+    await expect(client(t).midLandRain('11D20000', MID_0600)).rejects.toThrow(ForecastProviderError);
+    expect(t.calls).toBe(3);
+  });
+
+  it('인증 오류(30) · 요청 오류(4xx)는 다시 부르지 않는다', async () => {
+    const auth = new ScriptTransport([new ForecastProviderError('게이트웨이 오류', null, '30')]);
+    await expect(client(auth).midLandRain('11D20000', MID_0600)).rejects.toThrow(ForecastProviderError);
+    expect(auth.calls).toBe(1);
+    const bad = new ScriptTransport([new ForecastProviderError('HTTP 400', 400)]);
+    await expect(client(bad).midLandRain('11D20000', MID_0600)).rejects.toThrow(ForecastProviderError);
+    expect(bad.calls).toBe(1);
+  });
+
+  it('발표분 없음(03)은 다시 부르지 않는다', async () => {
+    const t = new ScriptTransport([fixture('mid_land_no_data.json')]);
+    await expect(client(t).midLandRain('11D20000', MID_0600)).rejects.toThrow(ForecastMissingError);
+    expect(t.calls).toBe(1);
   });
 });

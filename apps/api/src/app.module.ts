@@ -28,7 +28,7 @@ import { CatalogService } from './catalog/catalog.service';
 /** 부팅 예열이 공사 응답을 기다리는 시간. 사용자 요청(기본 10초)보다 길다 (#662) */
 const WARM_TIMEOUT_MS = 25_000;
 import { DemoController } from './demo/demo.controller';
-import { evaluateBudget, ktoBudgetGuard } from './external/budget-guard';
+import { ktoBudgetGuard } from './external/budget-guard';
 import { KakaoMobilityClient, createKakaoTransport } from './external/kakao';
 import { KtoClient, createKtoClient, createKtoTransport } from './external/kto';
 import { LlmClient, createProvider, readLlmConfig } from './external/llm';
@@ -233,11 +233,11 @@ import { SettingsRepository } from './settings/settings.repository';
           kto,
           state,
           notifications: new NotificationRepository(pool),
-          // 배치는 80% 에서 먼저 멈춘다. 사용자 "지금 재검수" 는 100% 까지 간다 (FR-OP-003)
+          // 배치는 80% 에서 먼저 멈춘다. 사용자 "지금 재검수" 는 100% 까지 간다 (FR-OP-003).
+          // 다른 게이트와 같은 문을 쓴다 — 공사가 오늘 한도 초과라고 답했으면 배치도 멈춘다 (#793)
           hasBudget: async () => {
             const { dailyQuota } = await state.setting();
-            const usedToday = await logs.countToday('KTO', new Date());
-            return evaluateBudget({ dailyBudget: dailyQuota, usedToday }, 'BATCH').allowed;
+            return (await ktoBudgetGuard('KOR', { counter: logs, dailyQuota }).check('BATCH')).allowed;
           },
           /*
            * 상세 한 번으로 행사기간(조건 3)과 지문(FR-MO-036)을 둘 다 얻는다. 유형을 함께

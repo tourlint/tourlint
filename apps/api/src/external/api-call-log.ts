@@ -33,6 +33,15 @@ export interface ApiCallLogEntry {
   readonly auditRunId: number | null;
 }
 
+/**
+ * 제공자가 「오늘 한도를 다 썼다」 고 답한 호출의 결과 코드 — 공공데이터포털 공통 22
+ * (`LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR`).
+ *
+ * 이 코드로 실패한 호출이 오늘 하나라도 있으면 예산 문은 그 제공자를 다 쓴 것으로 본다 —
+ * 공사 집계가 우리 집계보다 앞설 수 있고, 그때는 공사 응답이 우선이다 (EX-QT-005 · #793).
+ */
+export const QUOTA_REJECTED_RESULT_CODE = '22';
+
 export interface ApiCallLogger {
   record(entry: ApiCallLogEntry): void | Promise<void>;
 }
@@ -44,6 +53,8 @@ export interface ApiCallLogger {
  */
 export interface DailyCallCounter {
   countToday(provider: CallProvider, now: Date): number | Promise<number>;
+  /** 오늘(KST) 그 제공자가 한도 초과로 답한 호출이 있는가 (EX-QT-005 · #793) */
+  quotaRejectedToday(provider: CallProvider, now: Date): boolean | Promise<boolean>;
 }
 
 /**
@@ -66,6 +77,12 @@ export class InMemoryApiCallLogger implements ApiCallLogger, DailyCallCounter {
   countToday(provider: CallProvider, now: Date): number {
     const today = localDateKey(now);
     return this.rows.filter((r) => r.provider === provider && localDateKey(r.calledAt) === today).length;
+  }
+
+  quotaRejectedToday(provider: CallProvider, now: Date): boolean {
+    const today = localDateKey(now);
+    return this.rows.some((r) => r.provider === provider && localDateKey(r.calledAt) === today
+      && r.status === 'FAIL' && r.resultCode === QUOTA_REJECTED_RESULT_CODE);
   }
 
   /** 위젯의 "오퍼레이션별 상위 5개" (FR-OP-005) */

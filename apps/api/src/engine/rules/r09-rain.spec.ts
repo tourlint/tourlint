@@ -150,6 +150,15 @@ describe('R09 판정 (FR-RU-092 · 093)', () => {
     expect(f?.message).toContain('평년 기준 — 9월 강릉 강수일수 9.2일 (30%)');
   });
 
+  it('🔴 예보를 못 받아 평년으로 내려온 날은 그 사실을 문장과 근거에 적는다 (EI-WX-006 · #797)', () => {
+    const climate: DailyRainOutlook = {
+      ok: true, source: 'CLIMATE', probability: 0.3, rainDays: 9.2, regionName: '강릉', month: 9, downgradedFrom: 'SHORT',
+    };
+    const [f] = evaluate([item({ cls: OUT })], { '2026-08-30': climate });
+    expect(f?.message).toContain('예보를 받지 못해 평년 기준 — 9월 강릉 강수일수 9.2일 (30%)');
+    expect(f?.evidence).toMatchObject({ rainSource: 'CLIMATE', forecastDowngradedFrom: 'SHORT' });
+  });
+
   it('판정 근거 종류를 문장에 밝힌다 (FR-RU-092)', () => {
     expect(evaluate([item({ cls: OUT })], { '2026-08-30': mid(0.7) })[0]?.message)
       .toContain('중기예보 기준 — 강수확률 70%');

@@ -1,4 +1,5 @@
 import type { ExceptionReasonCode, KtoOperation } from '@tourlint/shared';
+import { QUOTA_REJECTED_RESULT_CODE } from '../api-call-log';
 
 /**
  * 공사 OpenAPI 호출 실패.
@@ -29,6 +30,11 @@ export class KtoAuthError extends KtoError {
   constructor(operation: KtoOperation, readonly providerCode: string | null, detail: string) {
     super(operation, `공사 인증 오류 (${providerCode ?? '코드없음'}): ${detail}`);
   }
+
+  /** 호출 기록의 `result_code`. 공사 코드 그대로(앞 0 제거)다 */
+  get logCode(): string | null {
+    return bareCode(this.providerCode);
+  }
 }
 
 /** 일일 호출 한도 초과. 예산 관리자에게 통지한다 (EI-KT-003 · FR-OP-004) */
@@ -38,6 +44,20 @@ export class KtoQuotaExceededError extends KtoError {
   constructor(operation: KtoOperation, readonly providerCode: string | null, detail: string) {
     super(operation, `공사 호출 한도 초과 (${providerCode ?? '코드없음'}): ${detail}`);
   }
+
+  /**
+   * 호출 기록의 `result_code`. 코드 없이 메시지(`LIMITED_NUMBER_OF_SERVICE_REQUESTS`)로만
+   * 알아챘어도 22 로 남긴다 — 같은 뜻이고, 예산 문이 이 코드로 「오늘 한도 초과」 를 안다 (#793)
+   */
+  get logCode(): string {
+    return bareCode(this.providerCode) ?? QUOTA_REJECTED_RESULT_CODE;
+  }
+}
+
+/** `0022` 와 `22` 를 같은 코드로 본다 — JSON `resultCode` 는 앞에 0 이 붙어 온다 */
+function bareCode(code: string | null): string | null {
+  if (code === null || code === '') return null;
+  return code.replace(/^0+/, '') || code;
 }
 
 /**

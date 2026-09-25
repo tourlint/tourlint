@@ -3,15 +3,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { STANDARD_VERSION, type TargetProfileSeed } from '@tourlint/shared';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
-import { ContentNotFoundError, createKtoClient, FixtureKtoTransport, KtoClient } from '../external/kto';
+import {
+  ContentNotFoundError, createKtoClient, FixtureKtoTransport, KtoAuthError, KtoClient, KtoQuotaExceededError,
+} from '../external/kto';
 import {
   AuditRunner, DEFAULT_AUDIT_CONCURRENCY, concurrencyFromEnv, departureStamp,
   uniqueContentIds, withConcurrency,
   type ClimateNormalLookup, type ItineraryItemRow, type ProductRow,
   type TargetProfileLookup,
 } from './audit-runner';
-import { FixtureKmaTransport, KmaClient } from '../external/kma';
-import { FixtureKakaoTransport, KakaoMobilityClient } from '../external/kakao';
+import { FixtureKmaTransport, ForecastProviderError, KmaClient } from '../external/kma';
+import { FixtureKakaoTransport, KakaoMobilityClient, RouteProviderError } from '../external/kakao';
 import { RULESET_VERSION } from './rule-registry';
 import { R03TimeOverlapRule } from '../engine/rules/r03-overlap';
 
@@ -208,6 +210,38 @@ describe('AuditRunner — 관통', () => {
     expect(transport.replayCounts.get('detailIntro2')).toBe(1);
   });
 
+  /*
+   * 길찾기 제공자 전면 장애 (EX-EI-022 · #795). 한 구간이 재시도까지 다 실패하면 남은 구간은
+   * 부르지 않고 같은 사유로 둔다. 그 구간만의 실패(4xx)는 다른 구간을 막지 않는다.
+   */
+  describe('길찾기 제공자가 내려가면 남은 구간은 부르지 않는다 (EX-EI-022 · #795)', () => {
+    // 네 곳 · 세 구간. 길찾기는 좌표만 있으면 부른다
+    const places = [1, 2, 3, 4].map((n) => item({
+      id: n, dayNo: 1, seq: n, startTime: `${String(9 + n * 2).padStart(2, '0')}:00`, endTime: `${String(10 + n * 2).padStart(2, '0')}:00`,
+      placeLabel: `곳${n}`, mapX: 128.85 + n / 100, mapY: 37.77,
+    }));
+
+    it('🔴 재시도까지 다 실패한 일시 장애 뒤로는 부르지 않는다 — 남은 구간도 같은 사유다', async () => {
+      let calls = 0;
+      const kakao = { route: async () => { calls++; throw new RouteProviderError('HTTP 503', 503); } };
+      const r = new AuditRunner({ kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV), clock, kakao: kakao as never, concurrency: 1 });
+      const result = await r.run(product, places);
+
+      expect(calls).toBe(1);
+      const r08 = result.findings.filter((f) => f.ruleCode === 'R08');
+      expect(r08).toHaveLength(3);
+      expect(r08.every((f) => f.reasonCode === 'ROUTE_PROVIDER_FAILED')).toBe(true);
+    });
+
+    it('그 구간만의 실패(4xx)는 다른 구간을 막지 않는다', async () => {
+      let calls = 0;
+      const kakao = { route: async () => { calls++; throw new RouteProviderError('HTTP 400', 400); } };
+      const r = new AuditRunner({ kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV), clock, kakao: kakao as never, concurrency: 1 });
+      await r.run(product, places);
+      expect(calls).toBe(3);
+    });
+  });
+
   describe('부분 성공 격리 (EX-CM 원칙 ①)', () => {
     it('🔴 예외로 끝난 규칙은 확인 불가로 남는다 — 0건과 같아 보이면 안 된다 (EX-AU-006 · #774)', async () => {
       const boom = vi.spyOn(R03TimeOverlapRule.prototype, 'evaluate').mockImplementation(() => {
@@ -250,6 +284,78 @@ describe('AuditRunner — 관통', () => {
       expect(isolated?.message).toContain('없는 관광지');
       // 나머지는 그대로 판정된다
       expect(result.findings.some((f) => f.reasonCode === 'EVENT_ENDED')).toBe(true);
+    });
+
+    /*
+     * 공사가 인증 오류 · 한도 초과를 답하면 멈춘다 (EX-EI-002 · 003 · EX-QT-003 · #793).
+     * 첫째 곳은 정상(가람집옹심이 · 10/13 화요일 휴무 → 차단 · 대체 관광지를 찾으러 목록을 부른다),
+     * 둘째 곳에서 공사가 거절하고, 셋째 곳은 부르지 않아야 한다. 동시 조회 1 로 순서를 고정한다.
+     */
+    describe('공사가 인증 오류 · 한도 초과를 답하면 멈춘다 (EX-EI-002 · 003 · #793)', () => {
+      const ktoRefusing = (refusedId: string, error: Error, calls: string[]): ReturnType<typeof createKtoClient> => {
+        const real = createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV);
+        return {
+          ...real,
+          detailCommon: async (contentId: string) => { calls.push(`common:${contentId}`); return real.detailCommon(contentId); },
+          detailIntro: async (contentId: string, contentTypeId: number) => {
+            calls.push(`intro:${contentId}`);
+            if (contentId === refusedId) throw error;
+            return real.detailIntro(contentId, contentTypeId as never);
+          },
+          locationBasedList: async (...args: Parameters<typeof real.locationBasedList>) => {
+            calls.push('list');
+            return real.locationBasedList(...args);
+          },
+        } as unknown as ReturnType<typeof createKtoClient>;
+      };
+      const items = [
+        item({ id: 1, dayNo: 1, seq: 1, placeLabel: '가람집옹심이', ktoContentId: '2868839', contentTypeId: 39, itemType: 'MEAL',
+               startTime: '12:00', endTime: '13:00', lclsSystm2: 'FD01', mapX: 128.8935, mapY: 37.7719 }),
+        // 조회는 관광지 번호 순이다 — 2868839 → 3536916 → 695592
+        item({ id: 2, dayNo: 1, seq: 2, placeLabel: '거절된 곳', ktoContentId: '3536916', contentTypeId: 12, startTime: '14:00', endTime: '15:00' }),
+        item({ id: 3, dayNo: 1, seq: 3, placeLabel: '부르지 않은 곳', ktoContentId: '695592', contentTypeId: 12, startTime: '16:00', endTime: '17:00' }),
+      ];
+
+      it('🔴 한도 초과를 답하면 남은 곳을 부르지 않고 수정안용 조회도 하지 않는다 — 재개 시점을 적는다', async () => {
+        const calls: string[] = [];
+        const quota = new KtoQuotaExceededError('detailIntro2', '22', 'LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR');
+        const r = new AuditRunner({ kto: ktoRefusing('3536916', quota, calls), clock, concurrency: 1 });
+        const result = await r.run(product, items);
+
+        expect(calls.filter((c) => c.startsWith('intro:'))).toEqual(['intro:2868839', 'intro:3536916']);
+        expect(calls).not.toContain('list');
+        expect(result.ktoHalt).toBe('KTO_QUOTA_EXCEEDED');
+
+        // 조회 실패 격리는 R05 로 남는다. 같은 곳의 다른 규칙(이동시간 등)은 따로다
+        const refused = result.findings.filter((f) => f.ruleCode === 'R05');
+        expect(refused.map((f) => [f.targetItemId, f.severity, f.reasonCode])).toEqual([
+          [2, 'UNVERIFIED', 'KTO_QUOTA_EXCEEDED'], [3, 'UNVERIFIED', 'KTO_QUOTA_EXCEEDED'],
+        ]);
+        expect(refused[0]?.message).toContain('내일 0시 이후 다시 검수해 주세요');
+        // 멈추기 전에 받은 곳은 그대로 판정한다 — 가람집 휴무 차단은 남는다
+        expect(result.findings.some((f) => f.targetItemId === 1 && f.severity === 'BLOCKER')).toBe(true);
+      });
+
+      it('🔴 인증 오류도 멈춘다 — 사용자에게는 기다려 달라고만 한다', async () => {
+        const calls: string[] = [];
+        const auth = new KtoAuthError('detailIntro2', '30', 'SERVICE_KEY_IS_NOT_REGISTERED_ERROR');
+        const r = new AuditRunner({ kto: ktoRefusing('3536916', auth, calls), clock, concurrency: 1 });
+        const result = await r.run(product, items);
+
+        expect(calls).not.toContain('intro:695592');
+        expect(result.ktoHalt).toBe('KTO_AUTH_ERROR');
+        const third = result.findings.find((f) => f.ruleCode === 'R05' && f.targetItemId === 3);
+        expect(third).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'KTO_AUTH_ERROR' });
+        expect(third?.message).toContain('잠시 뒤 다시 검수해 주세요');
+      });
+
+      it('다른 실패는 멈추지 않는다 — 한 곳이 없어도 나머지를 부른다', async () => {
+        const calls: string[] = [];
+        const r = new AuditRunner({ kto: ktoRefusing('3536916', new ContentNotFoundError('detailIntro2', '3536916'), calls), clock, concurrency: 1 });
+        const result = await r.run(product, items);
+        expect(calls).toContain('intro:695592');
+        expect(result.ktoHalt).toBeNull();
+      });
     });
 
     describe('표출이 중단된 곳 (FR-RU-065 · 068 · #745)', () => {
@@ -476,6 +582,42 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
     const f = result.findings.find((x) => x.ruleCode === 'R09');
     expect(f?.severity).toBe('WARNING');
     expect(f?.reasonCode).not.toBe('COORD_MISSING');
+  });
+
+  /*
+   * 예보를 못 받은 날은 평년표로 내려 판정한다 (EI-WX-006 · EX-EI-024 · #797). 전에는 가까운 날
+   * (단기 · 중기)이 기상청 없음 · 장애 · 격자 없음이면 확인 불가(−3)로 끝났다.
+   */
+  it('🔴 기상청이 없으면 가까운 날도 평년으로 판정하고, 예보를 받지 못했다고 적는다 (#797)', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    const nearWithRegion: ProductRow = { ...soon, ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ climate }).run(nearWithRegion, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.message).toContain('예보를 받지 못해 평년 기준 — 10월 강릉 강수일수 9.2일 (31%)');
+    expect(f?.evidence).toMatchObject({ rainSource: 'CLIMATE', forecastDowngradedFrom: 'SHORT' });
+  });
+
+  it('🔴 기상청이 재시도까지 실패한 중기 날짜도 평년으로 판정한다 (#797)', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+    };
+    let calls = 0;
+    const down = new KmaClient({
+      transport: { kind: 'http', request: async () => { calls++; throw new ForecastProviderError('HTTP 503', 503); } },
+      logger: new InMemoryApiCallLogger(), sleep: async () => undefined,
+    });
+    // 검수 시각 2026-10-01 · 출발 10-06 → D+5 · 6 이 중기 경로다
+    const midWithRegion: ProductRow = { ...product, startDate: '2026-10-06', ldongRegnCd: '51', ldongSignguCd: '150' };
+    const result = await runner({ kma: down, climate }).run(midWithRegion, [outdoor(1, 1)]);
+
+    expect(calls).toBe(3);
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    expect(f?.evidence).toMatchObject({ forecastDowngradedFrom: 'MID' });
   });
 
   it('평년 테이블이 있으면 그것으로 판정한다', async () => {

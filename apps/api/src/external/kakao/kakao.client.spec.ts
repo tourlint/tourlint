@@ -86,3 +86,68 @@ describe('인증키가 새지 않는다 (EI-CM-002 · NF-SC-009)', () => {
     expect(() => new HttpKakaoTransport('')).toThrow(/인증키|키가 비어/);
   });
 });
+
+/*
+ * 일시 장애는 지수 백오프로 2회 더 부른다 (EI-CM-005 · EX-EI-022 · #795). 전에는 한 번 실패하면
+ * 그 구간이 바로 확인 불가(−3)였다. 인증 · 요청 오류와 경로 없음은 다시 불러도 같다.
+ */
+describe('일시 장애는 다시 부른다 (EI-CM-005 · EX-EI-022 · #795)', () => {
+  /** 호출마다 대본대로 답한다. 대본이 끝나면 마지막 줄을 되풀이한다 */
+  class ScriptTransport implements KakaoTransport {
+    readonly kind = 'http' as const;
+    readonly calls: string[] = [];
+    constructor(private readonly script: readonly (Error | string)[]) {}
+    async request(operation: string): Promise<KakaoTransportResult> {
+      this.calls.push(operation);
+      const next = this.script[Math.min(this.calls.length, this.script.length) - 1];
+      if (next instanceof Error) throw next;
+      return { body: next ?? '', httpStatus: 200 };
+    }
+  }
+  const A = { x: 128.8961, y: 37.7954 };
+  const B = { x: 128.8785, y: 37.7791 };
+  const client = (t: KakaoTransport, waits: number[] = [], log = new InMemoryApiCallLogger()): KakaoMobilityClient =>
+    new KakaoMobilityClient({ transport: t, logger: log, baseDelayMs: 100, sleep: async (ms) => { waits.push(ms); } });
+
+  it('🔴 5xx · 응답 없음은 2회 더 부르고, 셋째에 성공하면 그 값을 쓴다 — 시도마다 기록 1행', async () => {
+    const t = new ScriptTransport([new RouteProviderError('HTTP 502', 502), new RouteProviderError('TIMEOUT'), body('directions.json')]);
+    const waits: number[] = [];
+    const log = new InMemoryApiCallLogger();
+    const route = await client(t, waits, log).route(A, B, null);
+    expect(route.durationSeconds).toBeGreaterThan(0);
+    expect(t.calls).toEqual(['directions', 'directions', 'directions']);
+    expect(waits).toEqual([100, 200]);
+    expect(log.entries.map((e) => e.status)).toEqual(['FAIL', 'FAIL', 'OK']);
+  });
+
+  it('🔴 세 번 다 실패하면 ROUTE_PROVIDER_FAILED 로 끝낸다 — 그 이상 부르지 않는다', async () => {
+    const t = new ScriptTransport([new RouteProviderError('HTTP 503', 503)]);
+    await expect(client(t).route(A, B, null)).rejects.toBeInstanceOf(RouteProviderError);
+    expect(t.calls).toHaveLength(3);
+  });
+
+  it('429 는 다시 부른다 — 잠깐 몰린 것이다', async () => {
+    const t = new ScriptTransport([new RouteProviderError('HTTP 429', 429), body('directions.json')]);
+    await expect(client(t).route(A, B, null)).resolves.toMatchObject({ futureBased: false });
+    expect(t.calls).toHaveLength(2);
+  });
+
+  it('4xx(인증 · 요청 오류)는 다시 부르지 않는다 — 다시 불러도 같다', async () => {
+    const t = new ScriptTransport([new RouteProviderError('HTTP 401', 401)]);
+    await expect(client(t).route(A, B, null)).rejects.toBeInstanceOf(RouteProviderError);
+    expect(t.calls).toHaveLength(1);
+  });
+
+  it('경로 없음(result_code ≠ 0)은 다시 부르지 않는다', async () => {
+    const t = new ScriptTransport([JSON.stringify({ routes: [{ result_code: 104, result_msg: '출발지와 도착지가 5m 이내' }] })]);
+    await expect(client(t).route(A, B, null)).rejects.toBeInstanceOf(RouteNotFoundError);
+    expect(t.calls).toHaveLength(1);
+  });
+
+  it('미래 운행 정보는 한 번만 부르고 현재 시각 기준으로 넘어간다 (EX-EI-020)', async () => {
+    const t = new ScriptTransport([new RouteProviderError('HTTP 503', 503), body('directions.json')]);
+    const route = await client(t).route(A, B, '202611171000');
+    expect(t.calls).toEqual(['future/directions', 'directions']);
+    expect(route.futureBased).toBe(false);
+  });
+});

@@ -75,6 +75,11 @@ describe('판정 입력값을 사람 말로 (#478)', () => {
     ]);
   });
 
+  it('🔴 예보를 못 받아 평년으로 내려온 날의 근거도 한글이다 (#797)', () => {
+    expect(verdictRows({ ...REAL.R09, forecastDowngradedFrom: 'MID' }))
+      .toContainEqual({ label: '받지 못한 예보', value: '중기예보' });
+  });
+
   it('객체는 한 줄로 편다', () => {
     expect(valuesOf(REAL.R03)).toContain('12:00~13:00');
     expect(valuesOf(REAL.R07)).toContain('09:00~16:00 · 420분');
