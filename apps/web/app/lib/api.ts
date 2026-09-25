@@ -161,6 +161,13 @@ export interface ContentCandidate {
   cpyrhtDivCd: string | null;
 }
 
+/** 예산이 다 되면 검수를 미리 막는다 — 다시 열리는 때는 한국 시간 다음 날 0시 (EX-QT-002) */
+export interface AuditAvailability {
+  available: boolean;
+  reasonCode: "BUDGET_EXHAUSTED" | null;
+  resumesAt: string | null;
+}
+
 export interface ContentSearchResult {
   regionFilterApplied: boolean;
   fetchedAt: string;
@@ -424,6 +431,8 @@ export const auditApi = {
     request<{ content: Finding[]; totalElements: number }>(`/audit-runs/${runId}/findings`),
   getUnverified: (runId: number) =>
     request<{ totalCount: number; items: UnverifiedItem[] }>(`/audit-runs/${runId}/unverified`),
+  /** 지금 검수를 시작할 수 있는가 (UI-ST-007 · #838). 숫자는 오지 않는다 */
+  availability: () => request<AuditAvailability>("/audit-availability"),
   runAudit: (productId: number, triggerType = "MANUAL") =>
     request<AuditJob>(`/products/${productId}/audit-jobs`, {
       method: "POST",

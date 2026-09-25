@@ -43,6 +43,7 @@ import type { PickerContext } from "./plan/place-picker";
 import { CurrentSchedule, hiddenItemIdsOf } from "./current-schedule";
 import { PatchDescription } from "./patch-description";
 import { CheckQuestionsCard } from "./check-questions-card";
+import { AuditBudgetNotice, useAuditAvailability } from "../../../lib/audit-availability";
 
 // 배지·건수·라벨은 공통 컴포넌트(components/badges)가 등급 토큰으로 그린다.
 // 여기서는 finding 카드의 좌측 테두리 색과 정렬 순서만 등급별로 둔다.
@@ -66,6 +67,8 @@ export function AuditResult({ productId }: { productId: number }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  // 예산이 다 되면 검수 버튼을 미리 막고 다시 열리는 때를 적는다 (UI-ST-007 · #838)
+  const budget = useAuditAvailability();
   const [progress, setProgress] = useState<string | null>(null);
   // 수정안 선택: findingId → patchId (finding 당 하나)
   const [selected, setSelected] = useState<Record<number, string>>({});
@@ -194,6 +197,7 @@ export function AuditResult({ productId }: { productId: number }) {
         try { sessionStorage.removeItem(`review-changed:${productId}`); } catch { /* 저장소 사용 불가 */ }
       }
     } catch (err) {
+      if (isApiError(err) && err.status === 429) budget.refresh();
       setError(isApiError(err) ? err.message : err instanceof Error ? err.message : "검수 실행에 실패했습니다.");
     } finally {
       if (alive.current) {
@@ -265,6 +269,7 @@ export function AuditResult({ productId }: { productId: number }) {
         }
       }
     } catch (err) {
+      if (isApiError(err) && err.status === 429) budget.refresh();
       // PATCH_CONFLICT · PATCH_STALE 는 서버 문구를 그대로 보여준다. stale 이면 다시 미리보기해야 한다
       setPatchMsg(isApiError(err) ? err.message : err instanceof Error ? err.message : "확정에 실패했습니다.");
       setPreview(null);
@@ -342,7 +347,7 @@ export function AuditResult({ productId }: { productId: number }) {
             <button
               type="button"
               onClick={runAudit}
-              disabled={running || patchBusy !== null}
+              disabled={running || patchBusy !== null || budget.blocked}
               className="button-primary disabled:opacity-60"
             >
               {running ? "검수 중…" : "지금 재검수"}
@@ -351,11 +356,13 @@ export function AuditResult({ productId }: { productId: number }) {
         </div>
       </div>
 
+      {budget.blocked && <AuditBudgetNotice resumesAt={budget.resumesAt} className="mt-5" />}
+
       {scheduleChanged && <div role="status" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
         검수한 뒤에 일정이 바뀌었어요. 아래 결과는 바뀌기 전 결과입니다. ‘지금 재검수’를 눌러 새 일정의 문제와 수정안을 확인하세요.
       </div>}
       {placeContext && product && <ReviewPlaceDrawer product={product} context={placeContext} changed={scheduleChanged}
-        onInserted={onPlaceInserted} onClose={() => setPlaceContext(null)}
+        onInserted={onPlaceInserted} onClose={() => setPlaceContext(null)} reauditBlocked={budget.blocked} resumesAt={budget.resumesAt}
         onReaudit={() => { setPlaceContext(null); void runAudit(); }} />}
       {loading ? (
         <p className="mt-8 text-sm text-slate-400">불러오는 중…</p>
@@ -366,7 +373,7 @@ export function AuditResult({ productId }: { productId: number }) {
       ) : product && pendingItems.length > 0 ? (
         <PendingNotice productId={productId} count={pendingItems.length} />
       ) : data === null ? (
-        <EmptyState running={running} progress={progress} onRun={runAudit} />
+        <EmptyState running={running} progress={progress} onRun={runAudit} blocked={budget.blocked} />
       ) : (
         <div className="mt-6 space-y-8 pb-28">
           {application && (
@@ -395,6 +402,7 @@ export function AuditResult({ productId }: { productId: number }) {
           {preview && (
             <div ref={previewRegion} tabIndex={-1} className="audit-anchor" aria-label="수정안 미리보기">
               <PatchPreviewPanel preview={preview} applying={patchBusy === "apply"} progress={progress}
+                budgetBlocked={budget.blocked} resumesAt={budget.resumesAt}
                 onApply={doApply} onClose={() => setPreview(null)} />
             </div>
           )}
@@ -446,7 +454,7 @@ export function AuditResult({ productId }: { productId: number }) {
   );
 }
 
-function EmptyState({ running, progress, onRun }: { running: boolean; progress: string | null; onRun: () => void }) {
+function EmptyState({ running, progress, onRun, blocked }: { running: boolean; progress: string | null; onRun: () => void; blocked: boolean }) {
   return (
     <div className="mt-10 rounded-2xl border border-dashed border-slate-300 py-16 text-center dark:border-slate-700">
       {/* 도는 중에 「아직 검수하지 않았습니다」 를 보이면 멈춘 화면으로 읽힌다 (#711) */}
@@ -457,7 +465,8 @@ function EmptyState({ running, progress, onRun }: { running: boolean; progress: 
         <button
           type="button"
           onClick={onRun}
-          className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
+          disabled={blocked}
+          className="mt-4 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
           검수 실행
         </button>
@@ -1002,12 +1011,17 @@ function PatchPreviewPanel({
   preview,
   applying,
   progress,
+  budgetBlocked,
+  resumesAt,
   onApply,
   onClose,
 }: {
   preview: PatchPreview;
   applying: boolean;
   progress: string | null;
+  /** 확정하면 재검수가 돈다 — 예산이 다 되면 막는다 (#838) */
+  budgetBlocked: boolean;
+  resumesAt: string | null;
   onApply: () => void;
   onClose: () => void;
 }) {
@@ -1046,12 +1060,13 @@ function PatchPreviewPanel({
         </p>
       )}
 
+      {budgetBlocked && <AuditBudgetNotice resumesAt={resumesAt} className="mt-5" />}
       <div className="mt-5 flex items-center justify-end gap-3">
         {applying && <span className="text-sm text-slate-500 dark:text-slate-400">{progress ?? "재검수 중…"}</span>}
         <button
           type="button"
           onClick={onApply}
-          disabled={blocked || applying}
+          disabled={blocked || applying || budgetBlocked}
           className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60"
         >
           {applying ? "확정 중…" : "확정하고 재검수"}

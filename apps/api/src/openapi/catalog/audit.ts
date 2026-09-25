@@ -36,7 +36,7 @@ const FINDING_NOT_FOUND: ErrorDoc = {
   message: '발견 항목을 찾을 수 없습니다. 목록을 새로 고쳐 주세요.',
 };
 const AUDIT_BUDGET_MESSAGE =
-  '오늘 사용할 수 있는 공사 데이터 조회량을 모두 썼습니다. 내일 다시 시도하거나 관리자에게 예산 상향을 요청해 주세요.';
+  '오늘 쓸 수 있는 관광정보 조회를 모두 썼습니다. 내일 0시부터 다시 검수할 수 있고, 일정 편집과 지난 결과 보기는 지금도 할 수 있습니다.';
 
 /** 발견 항목 558 — 주문진 등대(3일차 14:30)의 운영시간을 확인할 수 없다. 791m 떨어진 주문리마을로 바꾸는 수정안이 붙었다 */
 const FINDING_558 = {
@@ -166,6 +166,18 @@ export const AUDIT: readonly Endpoint[] = [
       },
       { status: 429, reasonCode: 'BUDGET_EXHAUSTED', when: '오늘 관광정보 조회 한도를 다 씀', message: AUDIT_BUDGET_MESSAGE },
     ],
+  },
+  {
+    route: 'GET /api/v1/audit-availability',
+    tag: '검수',
+    summary: '지금 검수할 수 있는지',
+    description: '오늘 쓸 수 있는 관광정보 조회가 남아 검수를 시작할 수 있는지 돌려줍니다. 다 썼으면 다시 열리는 때(한국 시간 다음 날 0시)를 함께 줍니다. 화면은 이 값으로 검수 버튼을 미리 막습니다.',
+    responses: {
+      200: {
+        description: '성공',
+        example: { available: false, reasonCode: 'BUDGET_EXHAUSTED', resumesAt: '2026-10-13T00:00:00+09:00' },
+      },
+    },
   },
   {
     route: 'GET /api/v1/audit-jobs/{jobId}',
