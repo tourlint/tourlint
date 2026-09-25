@@ -1617,3 +1617,87 @@ select {
     color: #0f4c3b;
   }
 }
+
+/*
+ * 알림 표시 (UI-CM-008 · UI-S1-003 · UI-S1-012 · #804). 레이더 「바뀐 정보」 배지와 같은 자주색이다 —
+ * 검수 등급 색을 쓰지 않는다 (UI-S7-001).
+ */
+:root {
+  --notice: #a21caf;
+  --notice-soft: #fae8ff;
+}
+.notification-link {
+  position: relative;
+}
+.notification-count {
+  position: absolute;
+  top: 0;
+  right: -6px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--notice);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+}
+.alert-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--notice) 35%, transparent);
+  border-radius: 999px;
+  color: var(--notice);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.7;
+  vertical-align: middle;
+}
+.alert-chip.is-unread {
+  background: var(--notice-soft);
+}
+.product-card.has-alert {
+  border-color: color-mix(in srgb, var(--notice) 40%, var(--line));
+}
+.product-table tr.has-alert td:first-child {
+  box-shadow: inset 3px 0 0 var(--notice);
+}
+.board-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 18px 20px;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  font-size: 12px;
+}
+.product-table-scroll + .board-shortcuts {
+  margin-top: 16px;
+}
+.board-shortcuts li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px 16px;
+}
+.board-shortcuts strong {
+  color: var(--notice);
+  font-weight: 650;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --notice: #f0abfc;
+    --notice-soft: rgba(74, 4, 78, 0.5);
+  }
+  .notification-count {
+    color: #4a044e;
+  }
+}

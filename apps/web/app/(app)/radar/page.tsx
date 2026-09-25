@@ -30,6 +30,8 @@ import { WorkspaceIcon } from "../../components/workspace-icon";
 import { StatusBadge } from "../../components/badges";
 import { AuditBasis } from "../../components/audit-basis";
 import { addKeyword, removeKeyword } from "../../lib/radar-keywords";
+import { hasRegionNews, regionPlanHref } from "../../lib/region-news";
+import { announceNotificationsChanged, markShownRead } from "../../lib/notification-badge";
 import { lastCheckedText, nextCheckText, zeroMeaning } from "../../lib/radar-time";
 import { EMPTY_REGION_NAMES, regionLabel, type RegionNameMaps } from "../../lib/region-names";
 import { RegionSelect, type RegionValue } from "../products/new/region-select";
@@ -166,7 +168,13 @@ export default function RadarPage() {
       setListLoading(true);
       try {
         const page = await notificationApi.list(tab);
-        if (alive) setItems(page.content);
+        if (!alive) return;
+        setItems(page.content);
+        /*
+         * 보인 카드는 확인한 것으로 한다 (UI-CM-008 · #804). 확인 처리를 부르는 곳이 없어 헤더 · 상품 목록의
+         * 미확인 건수가 줄지 않았다. 이번에 보는 동안은 처음 본 카드에 「새로」가 남는다 — 목록을 다시 읽지 않는다.
+         */
+        void markShownRead(page.content, notificationApi.read);
       } catch (err) {
         if (!onAuthError(err) && alive) setError(isApiError(err) ? err.message : "알림을 불러오지 못했습니다.");
       } finally {
@@ -190,6 +198,7 @@ export default function RadarPage() {
     setItems((prev) => prev.filter((n) => n.notificationId !== id));
     try {
       await notificationApi.dismiss(id);
+      announceNotificationsChanged();
       await refreshSummary();
     } catch (err) {
       if (!onAuthError(err)) setError(isApiError(err) ? err.message : "무시 처리에 실패했습니다.");
@@ -361,6 +370,12 @@ export function NotificationCard({
     <li className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
       <div className="flex flex-wrap items-center gap-2">
         <KindBadge kind={n.kind} />
+        {/* 처음 보는 알림 (UI-CM-008 · #804) */}
+        {n.readAt === null && (
+          <span className="rounded-md bg-fuchsia-700 px-1.5 py-0.5 text-[11px] font-semibold text-white dark:bg-fuchsia-300 dark:text-fuchsia-950" data-new>
+            새로
+          </span>
+        )}
         {/* 비표출 전환 콘텐츠 (show_flag=0) — 상태 배지 재사용 (UI-CM-013) */}
         {n.hidden && <StatusBadge status="DISPLAY_STOPPED" />}
         <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{n.productName}</span>
@@ -873,6 +888,13 @@ function WatchAndNews({ onError, automatic, checkedText }: { onError: (m: string
     }
   }
 
+  // 홈 보드 아래 바로 가기가 여기로 보낸다 (UI-S1-012 · #804). 카드는 읽은 뒤에 생겨 브라우저가 스스로 찾지 못한다
+  useEffect(() => {
+    if (window.location.hash === "#region-news" && signals.some(hasRegionNews)) {
+      document.getElementById("region-news")?.scrollIntoView();
+    }
+  }, [signals]);
+
   // 관심 지역 · 새 소식에 나온 코드를 이름으로 (UI-S7-014)
   const regionNames = useRegionNames([
     ...regions.map((r) => ({ regnCd: r.regnCd, signguCd: r.signguCd })),
@@ -947,7 +969,7 @@ function WatchAndNews({ onError, automatic, checkedText }: { onError: (m: string
         * 등록한 지역을 숨기지는 않는다. 어디 갔는지 찾게 만들면 안 된다.
         */}
       {signals.some(hasRegionNews) && (
-        <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <div id="region-news" className="mt-6 grid gap-3 md:grid-cols-2">
           {signals.filter(hasRegionNews).map((s) => (
             <RegionNewsCard key={`${s.region.regnCd}-${s.region.signguCd}-${s.month}`} signal={s} regionName={regionLabel(regionNames, s.region.regnCd, s.region.signguCd)} />
           ))}
@@ -1046,12 +1068,6 @@ export function recentDays(signal: RegionSignal): number | null {
   return Number.isFinite(days) && days > 0 ? days : null;
 }
 
-/** 이 지역에 지금 볼 소식이 있는가 — 행사 · 새로 등록된 곳 · 키워드와 맞는 곳 중 하나라도 */
-export function hasRegionNews(s: RegionSignal): boolean {
-  const hits = [...(s.t1?.keywordHits ?? []), ...(s.t2?.keywordHits ?? [])].some((h) => (h.contentIds?.length ?? 0) > 0);
-  return (s.t1?.count ?? 0) > 0 || (s.t2?.count ?? 0) > 0 || hits;
-}
-
 /**
  * 소식이 없는 지역을 한 줄로 말한다 (#705). 0 을 늘어놓지 않고 그 뜻을 적는다 (UI-S7-010 과 같은 취지).
  * 아직 세어 보지 않은 지역(방금 추가)은 「없다」 가 아니라 「아직」 이다.
@@ -1068,10 +1084,6 @@ function visitorsText(s: RegionSignal): string | null {
   return s.t3 === null ? null : `지난해 ${monthOf(s.t3.basisMonth)}월 방문자 ${s.t3.count.toLocaleString()}명`;
 }
 
-function planHref(s: RegionSignal): string {
-  return `/products/new?regnCd=${s.region.regnCd}&signguCd=${s.region.signguCd ?? ""}&month=${s.month}&origin=SIGNAL`;
-}
-
 export function QuietRegionRow({ signal: s, regionName }: { signal: RegionSignal; regionName: string }) {
   const visitors = visitorsText(s);
   return (
@@ -1081,7 +1093,7 @@ export function QuietRegionRow({ signal: s, regionName }: { signal: RegionSignal
         <span className="ml-2 text-slate-400">{quietRegionText(s)}</span>
         {visitors !== null && <span className="ml-2 text-xs text-slate-400">{visitors}</span>}
       </span>
-      <Link href={planHref(s)} className="shrink-0 text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400">
+      <Link href={regionPlanHref(s)} className="shrink-0 text-xs font-medium text-slate-500 underline-offset-2 hover:underline dark:text-slate-400">
         이 지역으로 새 상품 기획
       </Link>
     </li>
@@ -1102,7 +1114,7 @@ export function RegionNewsCard({ signal: s, regionName }: { signal: RegionSignal
           {regionName} · {s.month}
         </h3>
         <Link
-          href={planHref(s)}
+          href={regionPlanHref(s)}
           className="shrink-0 rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
         >
           이 지역으로 새 상품 기획
