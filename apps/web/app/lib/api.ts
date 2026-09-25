@@ -228,6 +228,8 @@ export interface Finding {
   dismissReason: string | null;
   confirmedAt: string | null;
   patches: Patch[];
+  /** 표출이 중단된 곳이면 contentid 와 감지 시각만 온다 — 명칭 · 주소는 다시 내보내지 않는다 (FR-AU-071 · API 설계 5-6) */
+  hiddenContent?: { contentid: string; detectedAt: string } | null;
 }
 
 /** 항목이 사라졌거나 상품 전체 판정이면 `itemId` 만 온다 (API 설계 5-6) */

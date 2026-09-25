@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { auditApi, patchApi, productApi, planApi, itemApi, type RunSummary, type Finding, type ProductDetail, type ProductItem } from "../../../lib/api";
 import { AuditResult, FindingsSection, FIRST_RUN_POLL_MS, FIRST_RUN_POLL_TRIES, isEditedSinceAudit, waitForFirstRun } from "./audit-result";
+import { CurrentSchedule, hiddenItemIdsOf } from "./current-schedule";
 
 const router = { replace: vi.fn() };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -206,4 +207,36 @@ it('첫 결과가 끝내 안 생기면 기다리기를 그만두고 null 을 준
   expect(got).toBeNull();
   expect(calls).toBe(FIRST_RUN_POLL_TRIES);
   expect(isEditedSinceAudit(null)).toBe(false);
+});
+
+// 표출이 중단된 곳 (FR-RU-066 · UI-S3-025 · #810)
+const hiddenFinding = {
+  ...finding, findingId: 9, ruleCode: "R06", severity: "BLOCKER", reasonCode: "CONTENT_HIDDEN",
+  message: "공사에서 이 관광지의 표출이 중단됐습니다", target: { itemId: 2 }, targetSecondary: null, patches: [],
+  hiddenContent: { contentid: "129784", detectedAt: "2026-09-25T20:00:00+09:00" },
+} as Finding;
+
+it('🔴 표출이 중단된 곳은 지우지 않고 흐리게 둔 뒤 「표출 중단」 배지를 붙인다', async () => {
+  const ids = hiddenItemIdsOf([finding, hiddenFinding]);
+  expect([...ids]).toEqual([2]);
+  await act(async () => root.render(<CurrentSchedule product={product} finding={null} expanded onToggle={() => {}} hiddenItemIds={ids} />));
+  const rows = [...host.querySelectorAll('li')];
+  expect(rows).toHaveLength(3);
+  const hidden = rows.filter((li) => li.getAttribute('data-hidden') === 'true');
+  expect(hidden).toHaveLength(1);
+  expect(hidden[0]?.textContent).toContain('오죽헌·시립박물관');
+  expect(hidden[0]?.textContent).toContain('표출 중단');
+  expect(rows.filter((li) => li.textContent?.includes('표출 중단'))).toHaveLength(1);
+});
+
+it('🔴 결과 화면이 표출 중단 판정을 현재 일정표에 넘긴다', async () => {
+  vi.spyOn(productApi, 'detail').mockResolvedValue({ ...product, name: '검증 상품', region: { regnName: '강원', signguName: '강릉' }, composition: { manual: 3, picker: 0, excluded: 0 }, releasedAt: null });
+  vi.spyOn(auditApi, 'listRuns').mockResolvedValue({ totalCount: 1, runs: [run] });
+  vi.spyOn(auditApi, 'getRun').mockResolvedValue(run);
+  vi.spyOn(auditApi, 'getFindings').mockResolvedValue({ content: [finding, hiddenFinding] } as Awaited<ReturnType<typeof auditApi.getFindings>>);
+  vi.spyOn(auditApi, 'getUnverified').mockResolvedValue({ totalCount: 0, items: [] });
+  Element.prototype.scrollIntoView = vi.fn();
+  await act(async () => root.render(<AuditResult productId={42} />));
+  const hidden = [...schedule().querySelectorAll('li[data-hidden="true"]')];
+  expect(hidden.map((li) => li.textContent)).toEqual([expect.stringContaining('오죽헌·시립박물관')]);
 });

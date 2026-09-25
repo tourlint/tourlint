@@ -40,7 +40,7 @@ import { ReviewPlaceDrawer } from "./review-place-drawer";
 import { ScheduleComparison } from "./schedule-compare";
 import { placeAction, reviewPlaceContext } from "./review-place-context";
 import type { PickerContext } from "./plan/place-picker";
-import { CurrentSchedule } from "./current-schedule";
+import { CurrentSchedule, hiddenItemIdsOf } from "./current-schedule";
 import { PatchDescription } from "./patch-description";
 import { CheckQuestionsCard } from "./check-questions-card";
 
@@ -697,7 +697,7 @@ export function FindingsSection({
         <p>판단 근거를 확인한 뒤 수정안을 선택하세요. 미리보기에서 비교하고 확정해야 일정에 반영됩니다.</p>
       </div></div>
       <div className="audit-workbench">
-        <CurrentSchedule product={product} finding={focused} patch={focusedPatch} expanded={scheduleExpanded} onToggle={() => setScheduleExpanded(v => !v)} />
+        <CurrentSchedule product={product} finding={focused} patch={focusedPatch} expanded={scheduleExpanded} onToggle={() => setScheduleExpanded(v => !v)} hiddenItemIds={hiddenItemIdsOf(findings)} />
         <div className="audit-findings-list">
       <div className="finding-filters" role="group" aria-label="발견 항목 필터">
         {FINDING_FILTERS.map(({ value, label }) => <button key={value} type="button" aria-pressed={filter === value}
