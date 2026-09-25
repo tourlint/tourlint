@@ -457,15 +457,21 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       const picks = await runAndPick();
       expect(picks.length).toBeGreaterThan(0);
 
-      const before = await pool.query('SELECT count(*)::text AS n FROM patch_application');
+      /*
+       * 이 상품의 이력만 센다 (#815). 표 전체를 세면 같은 시각에 다른 테스트 파일이 자기 이력을
+       * 지울 때 `19 ≠ 20` 으로 실패했다. 미리보기가 쓴다면 이 상품에 쓴다.
+       */
+      const count = async (): Promise<unknown> => (await pool.query(
+        'SELECT count(*)::text AS n FROM patch_application WHERE product_id = $1', [productId])).rows[0];
+      const before = await count();
       const preview = await service.previewPatches(productId, [pick(picks)]);
-      const after = await pool.query('SELECT count(*)::text AS n FROM patch_application');
+      const after = await count();
 
       expect(preview.previewToken).toMatch(/^pv_[0-9a-f]{12}$/);
       expect(preview.conflict.hasConflict).toBe(false);
       expect(preview.before.length).toBeGreaterThan(0);
       // 확정 전에는 이력이 안 생긴다
-      expect(after.rows[0]).toEqual(before.rows[0]);
+      expect(after).toEqual(before);
     });
 
     it('🔴 다른 상품의 finding 으로는 미리 볼 수 없다', async () => {
@@ -1102,6 +1108,24 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       // 저장 시점 점수는 그대로다 — 실행 기록은 불변이다
       expect(after.storedScore).toBe(before);
       expect(after.findings.find((f) => f.id === target!.id)?.dismissReason).toBe('현장 확인함');
+    });
+
+    it('🔴 무시한 판정은 요약의 등급별 건수에서도 빠진다 — 계산 문장 재료가 산식과 같다 (#819)', async () => {
+      const { runId, findings } = await runOnce();
+      const target = findings.find((f) => f.severity !== 'BLOCKER')!;
+      const key = target.severity.toLowerCase();
+      const before = toRunResponse(await service.getRun(runId)).counts as Record<string, number>;
+
+      await service.dismissFinding(target.id, '현장 확인함');
+      const body = toRunResponse(await service.getRun(runId));
+      const counts = body.counts as Record<string, number>;
+      expect(counts[key]).toBe((before[key] ?? 0) - 1);
+      expect(counts.dismissed).toBe(1);
+
+      // 화면은 scoredCounts 로 「100점에서 …」 를 적는다. 점수를 낸 산식의 건수와 같아야 한다
+      const b = body.scoreBreakdown as { formula: string; scoredCounts: Record<string, number> };
+      const terms = [...b.formula.matchAll(/\((\d+)×\d+\)/g)].map((m) => Number(m[1]));
+      expect(terms).toEqual([b.scoredCounts.blocker, b.scoredCounts.error, b.scoredCounts.warning, b.scoredCounts.unverified]);
     });
 
     it('무시를 해제하면 사유도 지워진다', async () => {

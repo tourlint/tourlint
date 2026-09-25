@@ -232,7 +232,7 @@ export const AUDIT: readonly Endpoint[] = [
     route: 'GET /api/v1/audit-runs/{runId}',
     tag: '검수',
     summary: '검수 결과 요약',
-    description: '출시 준비도 점수와 등급별 문제 수, 출시할 수 있는지를 돌려줍니다.',
+    description: '출시 준비도 점수와 등급별 문제 수, 출시할 수 있는지를 돌려줍니다. 등급별 문제 수는 무시한 문제를 빼고 셉니다.',
     params: RUN,
     responses: {
       200: {
@@ -248,6 +248,7 @@ export const AUDIT: readonly Endpoint[] = [
             formula: '100 − (0×25) − (0×10) − (3×4) − (1×3) = 85점',
             deduction: 15,
             weights: { ERROR: 10, BLOCKER: 25, WARNING: 4, UNVERIFIED: 3 },
+            scoredCounts: { blocker: 0, error: 0, warning: 3, unverified: 1 },
           },
           settingSnapshot: { r07SpanHours: 6, r07MealMinutes: 60, standardVersion: '2026.09' },
           counts: { blocker: 0, error: 0, warning: 3, unverified: 1, dismissed: 0 },

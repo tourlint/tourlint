@@ -653,7 +653,8 @@ export function SummaryCard({ run, confirmationCount }: { run: RunSummary; confi
         </div>
       </div>
       <div className="audit-summary-notes">
-        <p>{!run.isPartial && run.readinessScore !== null && scoreSentence(run.counts, run.scoreBreakdown.weights as never)}</p>
+        {/* 감점에 쓴 건수로 적는다 — 점수와 더해서 맞아야 한다 (#819). 옛 응답에는 없다 */}
+        <p>{!run.isPartial && run.readinessScore !== null && scoreSentence(run.scoreBreakdown.scoredCounts ?? run.counts, run.scoreBreakdown.weights as never)}</p>
         <p><a href="#audit-confirmations">직접 확인 필요 <strong>{confirmationCount}건</strong></a><span> · 확인 표시는 점수를 바꾸지 않아요.</span></p>
         {companyBasisText(run.settingSnapshot) && <p>회사 기준: {companyBasisText(run.settingSnapshot)}</p>}
         {run.counts.dismissed > 0 && <p>무시 {run.counts.dismissed}건은 감점에서 제외됐어요.</p>}

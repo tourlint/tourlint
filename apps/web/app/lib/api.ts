@@ -176,7 +176,12 @@ export interface RunSummary {
   rulesetVersion: string;
   isPartial: boolean;
   readinessScore: number | null;
-  scoreBreakdown: { formula: string | null; deduction: number | null; weights: Record<string, number> };
+  /** `scoredCounts` 는 감점에 쓴 건수다 — 무시한 것과 감점하지 않는 출발 임박 확인을 뺀다 (#819) */
+  scoreBreakdown: {
+    formula: string | null; deduction: number | null; weights: Record<string, number>;
+    scoredCounts?: { blocker: number; error: number; warning: number; unverified: number };
+  };
+  /** 등급별 건수는 무시한 것을 빼고 센다. 무시한 건수는 `dismissed` (FR-AU-046) */
   counts: { blocker: number; error: number; warning: number; unverified: number; dismissed: number };
   needsConfirmationCount: number;
   targetCount: number;
@@ -664,26 +669,6 @@ export interface RevertResult {
   revertedAt: string;
   restoredAuditRunId: number | null;
 }
-
-// ── 호출 예산 위젯 (F15 · FR-OP-005) ──────────────────────────────────────────
-
-export type BudgetState = "NORMAL" | "WARN" | "EXHAUSTED";
-
-export interface BudgetView {
-  quotaDate: string;
-  dailyQuota: number;
-  used: number;
-  usageRatio: number;
-  state: BudgetState;
-  batchAutoStopped: boolean;
-  topOperations: { operation: string; count: number }[];
-  resetAt: string;
-}
-
-export const usageApi = {
-  // 오늘 공사 호출 소진 상태. 헤더 위젯이 2분마다 폴링한다 (FR-OP-005)
-  budget: () => request<BudgetView>("/usage/budget"),
-};
 
 // ── 레이더 · 알림 (S7 · FR-MO-050~058) ────────────────────────────────────────
 
