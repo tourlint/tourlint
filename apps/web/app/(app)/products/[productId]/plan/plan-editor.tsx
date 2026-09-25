@@ -192,6 +192,9 @@ function ItemRow({
 }) {
   // 숙박은 끝 시간이 없다. 그 밖에 끝 시간을 비운 항목은 검수가 보통 머무는 시간으로 채운다.
   const endHint = item.matchStatus !== "EXCLUDED" && item.end === null && item.itemType !== "LODGING";
+  // 고른 뒤에도 그 줄 안에서 다시 찾는다 (FR-IN-029 · #802)
+  const [reselecting, setReselecting] = useState(false);
+  const canReselect = item.matchStatus === "CONFIRMED";
   return (
     <li className="plan-timeline-item">
       {position > 1 && (
@@ -219,6 +222,29 @@ function ItemRow({
       {endHint && <p className="mt-1 text-xs text-slate-400">끝 시간을 비우면 보통 머무는 시간으로 채워요.</p>}
       {item.matchStatus === "PENDING" && (
         <PlaceAutocomplete item={item} regnCd={regnCd} signguCd={signguCd} regionLabel={regionLabel} onResolved={onResolved} />
+      )}
+      {canReselect && !reselecting && (
+        <button
+          type="button"
+          onClick={() => setReselecting(true)}
+          className="mt-2 text-xs text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
+        >
+          다시 고르기
+        </button>
+      )}
+      {canReselect && reselecting && (
+        <PlaceAutocomplete
+          item={item}
+          regnCd={regnCd}
+          signguCd={signguCd}
+          regionLabel={regionLabel}
+          autoPick={false}
+          onCancel={() => setReselecting(false)}
+          onResolved={async () => {
+            await onResolved();
+            setReselecting(false);
+          }}
+        />
       )}
       </article>
     </li>
