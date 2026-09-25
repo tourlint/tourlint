@@ -65,6 +65,8 @@ export class ProductService {
         region: names.region(r.ldongRegnCd, r.ldongSignguCd),
         latestAudit: r.latestAudit,
         unreadNotifications: r.unreadNotifications,
+        activeNotifications: r.activeNotifications,
+        risksSinceAudit: r.risksSinceAudit,
         pendingMatches: r.pendingMatches,
         plannedAt: r.plannedAt,
         releasedAt: r.releasedAt,

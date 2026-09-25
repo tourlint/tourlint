@@ -23,6 +23,11 @@ export interface WorkspaceProduct {
   plannedAt?: string | null;
   releasedAt?: string | null;
   pendingMatches?: number;
+  /** 알림 수. 여행이 끝난 상품은 서버가 0 으로 준다 (FR-MO-018 · #804) */
+  unreadNotifications?: number;
+  activeNotifications?: number;
+  /** 알림 뒤에 다시 검수하지 않은 바뀐 정보 */
+  risksSinceAudit?: number;
 }
 
 export type Workspace = "home" | "planning" | "review";
@@ -120,8 +125,37 @@ export function productHint(p: WorkspaceProduct): string {
           ? `${a.readinessScore}점 · 출시할 수 있어요`
           : "출시할 수 있어요";
     case "RELEASED":
-      return p.releasedAt ? `${p.releasedAt.slice(0, 10)} 출시` : "출시함";
+      // 출시한 뒤에 바뀐 정보가 있으면 할 일은 그것이다 (UI-S1-010 · #804)
+      return (p.risksSinceAudit ?? 0) > 0
+        ? `확인할 것 · 바뀐 정보 ${p.risksSinceAudit}건`
+        : p.releasedAt
+          ? `${p.releasedAt.slice(0, 10)} 출시`
+          : "출시함";
   }
+}
+
+/**
+ * 카드 · 목록의 여는 링크 이름. 알림 뒤에 다시 검수하지 않은 바뀐 정보가 있으면 「다시 검수」다 —
+ * 레이더 카드와 같은 이름이다 (#703 · #804).
+ */
+export function productActionLabel(p: WorkspaceProduct): string {
+  if (productStage(p) === "PLANNING") return "기획 이어하기";
+  return (p.risksSinceAudit ?? 0) > 0 ? "다시 검수" : "검수 결과 보기";
+}
+
+/** 알림이 있는 상품의 표시 (UI-S1-003 · #804). 확인하지 않은 알림이 있으면 그 수를 먼저 말한다 */
+export function alertChip(p: WorkspaceProduct): { text: string; unread: boolean } | null {
+  const active = p.activeNotifications ?? 0;
+  const unread = p.unreadNotifications ?? 0;
+  if (active <= 0) return null;
+  return unread > 0 ? { text: `새 알림 ${unread}`, unread: true } : { text: `알림 ${active}`, unread: false };
+}
+
+/** 출시했고 여행이 끝나지 않은 상품 중 바뀐 정보를 다시 검수하지 않은 것 (UI-S1-012 · #804) */
+export function releasedWithChanges(products: readonly WorkspaceProduct[], today = koreaToday()): WorkspaceProduct[] {
+  return products.filter(
+    (p) => productStage(p) === "RELEASED" && !isPastTrip(p, today) && (p.risksSinceAudit ?? 0) > 0,
+  );
 }
 
 export function regionText(p: WorkspaceProduct): string {
