@@ -11,6 +11,7 @@ import { SESSION_TTL_MS } from './session-cookie';
 import { LoginThrottle } from './login-throttle';
 import { RateLimitException } from '../common/domain.exception';
 import { demoEmail } from '../seed/demo-seed';
+import { NotificationRepository } from '../persistence/notification.repository';
 
 export interface AuthedSession {
   account: { id: number; email: string; isDemo: boolean };
@@ -42,6 +43,7 @@ export class AuthService {
 
   /** 로그인 실패를 계정마다 센다 (NF-SC-010 · #799) */
   private readonly throttle: LoginThrottle;
+  private readonly notifications: NotificationRepository;
 
   constructor(
     @Inject(DB_POOL) pool: Pool,
@@ -52,6 +54,7 @@ export class AuthService {
     this.sessions = new SessionRepository(pool);
     this.verification = new SignupVerificationRepository(pool);
     this.throttle = throttle ?? new LoginThrottle();
+    this.notifications = new NotificationRepository(pool);
   }
 
   async requestSignupCode(email: string): Promise<SignupChallenge> {
@@ -113,6 +116,9 @@ export class AuthService {
       if (counted) this.throttle.recordFailure(normalizedEmail);
       throw new UnauthorizedException('이메일 또는 비밀번호가 올바르지 않습니다.');
     }
+    // 공용 테스트 계정은 들어올 때마다 알림을 새로 받은 상태로 돌린다 — 같이 쓰는 심사위원마다
+    // 같은 알림을 「새로」 로 본다 (UI-CM-008 · #840)
+    if (account.isDemo) await this.notifications.resetReadForAccount(account.id);
     return this.startSession(account);
   }
 
