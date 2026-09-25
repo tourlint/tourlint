@@ -24,6 +24,8 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
   const router = useRouter();
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [facts, setFacts] = useState<Map<number, PlaceFacts>>(new Map());
+  // 예산이 다 돼 장소 정보를 못 불렀을 때의 안내 (UI-S2-043 · #838). 비워 두기만 하면 왜 없는지 모른다
+  const [factsPaused, setFactsPaused] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 이번 세션에서 마지막으로 저장된 시각 (hh:mm). null = 아직 이 화면에서 저장 안 함
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -37,8 +39,10 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
       try {
         const res = await planApi.placeFacts(productId);
         setFacts(new Map(res.items.map((f) => [f.itemId, f])));
-      } catch {
-        // 장소 정보를 못 읽어도 기획은 계속된다 — 한 줄만 비운다
+        setFactsPaused(null);
+      } catch (e) {
+        // 장소 정보를 못 읽어도 기획은 계속된다 — 한 줄만 비운다. 예산이 다 됐으면 그 사실과 다시 볼 때를 적는다
+        if (isApiError(e) && e.status === 429) setFactsPaused(e.message);
       }
     }
   }, [productId]);
@@ -138,6 +142,12 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
               {product.plannedAt === null
                 ? "모든 장소를 골랐어요. 검수 시작을 누르면 돼요."
                 : "장소를 보완했다면 검수 결과로 돌아가 ‘지금 재검수’를 눌러 주세요."}
+            </p>
+          )}
+
+          {factsPaused && (
+            <p role="status" data-budget-blocked className="mt-3 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              {factsPaused}
             </p>
           )}
 

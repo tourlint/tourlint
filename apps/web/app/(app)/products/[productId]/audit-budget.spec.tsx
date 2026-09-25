@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentApi, auditApi, planApi, productApi, type ProductDetail, type RunSummary } from "../../../lib/api";
 import { AuditResult } from "./audit-result";
 import { StartAuditSheet } from "./plan/start-audit-sheet";
+import { PlanEditor } from "./plan/plan-editor";
 import { ReviewPlaceDrawer } from "./review-place-drawer";
 
 const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
@@ -76,6 +77,23 @@ describe("예산이 다 됐을 때", () => {
     const reaudit = [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "담은 일정 재검수");
     expect(reaudit?.disabled).toBe(true);
     expect(document.querySelector("[data-budget-blocked]")?.textContent).toContain("10월 13일 0시부터");
+  });
+});
+
+describe("장소 정보 한 줄 (UI-S2-043)", () => {
+  it("🔴 예산이 다 돼 못 불렀으면 비워 두기만 하지 않고 까닭과 다시 볼 때를 적는다", async () => {
+    vi.spyOn(auditApi, "availability").mockResolvedValue(open);
+    const confirmed = { itemId: 1, seq: 1, start: "10:00", end: "11:30", place: "강릉 경포대", itemType: "SIGHT", ktoContentId: "125769", matchStatus: "CONFIRMED", mapx: 128.9, mapy: 37.79 };
+    vi.spyOn(productApi, "detail").mockResolvedValue({ ...product, plannedAt: null, days: [{ day: 1, items: [confirmed] }] } as unknown as ProductDetail);
+    vi.spyOn(planApi, "placeFacts").mockRejectedValue({
+      status: 429, reasonCode: "BUDGET_EXHAUSTED",
+      message: "오늘 쓸 수 있는 관광정보 조회를 모두 썼습니다. 내일 0시부터 다시 볼 수 있고, 일정 입력과 저장은 지금도 할 수 있습니다.",
+    });
+    vi.spyOn(planApi, "events").mockResolvedValue({ window: { from: "2026-11-17", to: "2026-11-18" }, items: [] } as unknown as Awaited<ReturnType<typeof planApi.events>>);
+    vi.spyOn(planApi, "walks").mockResolvedValue({ items: [], notice: null } as unknown as Awaited<ReturnType<typeof planApi.walks>>);
+    await act(async () => root.render(<PlanEditor productId={69} />));
+    await settle();
+    expect(notice()).toContain("내일 0시부터 다시 볼 수 있고");
   });
 });
 
