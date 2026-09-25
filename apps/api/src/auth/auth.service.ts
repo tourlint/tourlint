@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { SignupEmailSender } from './signup-email.sender';
 import { SignupVerificationRepository, type SignupChallenge } from './signup-verification.repository';
@@ -8,6 +8,9 @@ import { AccountRepository, type AccountRow } from './account.repository';
 import { SessionRepository, type SessionAccount } from './session.repository';
 import { hashPassword, verifyPassword } from './password';
 import { SESSION_TTL_MS } from './session-cookie';
+import { LoginThrottle } from './login-throttle';
+import { RateLimitException } from '../common/domain.exception';
+import { demoEmail } from '../seed/demo-seed';
 
 export interface AuthedSession {
   account: { id: number; email: string; isDemo: boolean };
@@ -37,10 +40,18 @@ export class AuthService {
    */
   private dummyHash: Promise<string> | null = null;
 
-  constructor(@Inject(DB_POOL) pool: Pool, private readonly mail: SignupEmailSender) {
+  /** 로그인 실패를 계정마다 센다 (NF-SC-010 · #799) */
+  private readonly throttle: LoginThrottle;
+
+  constructor(
+    @Inject(DB_POOL) pool: Pool,
+    private readonly mail: SignupEmailSender,
+    @Optional() throttle?: LoginThrottle,
+  ) {
     this.accounts = new AccountRepository(pool);
     this.sessions = new SessionRepository(pool);
     this.verification = new SignupVerificationRepository(pool);
+    this.throttle = throttle ?? new LoginThrottle();
   }
 
   async requestSignupCode(email: string): Promise<SignupChallenge> {
@@ -81,6 +92,16 @@ export class AuthService {
 
   async login(email: string, password: string): Promise<AuthedSession> {
     const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    /*
+     * 비밀번호 대입을 막는다 — 한 계정에 10분 동안 10번 틀리면 창이 끝날 때까지 맞는 비밀번호여도
+     * 막는다 (NF-SC-010 · EX-SY-008 · #799). **공개된 테스트 계정은 세지 않는다.** 비밀번호가 공모전
+     * 규정으로 공개돼 대입할 이유가 없고, 잠그면 같이 쓰는 심사위원 전원이 막힌다.
+     */
+    const counted = normalizedEmail !== '' && normalizedEmail !== demoEmail().trim().toLowerCase();
+    const wait = counted ? this.throttle.blockedFor(normalizedEmail) : null;
+    if (wait !== null) {
+      throw new RateLimitException(`로그인 시도가 너무 많습니다. ${Math.ceil(wait / 60)}분 후 다시 시도해 주세요.`, wait);
+    }
     const account = normalizedEmail === '' ? null : await this.accounts.findByEmail(normalizedEmail);
 
     const ok =
@@ -89,6 +110,7 @@ export class AuthService {
         : await verifyPassword(password ?? '', account.passwordHash);
 
     if (account === null || !ok) {
+      if (counted) this.throttle.recordFailure(normalizedEmail);
       throw new UnauthorizedException('이메일 또는 비밀번호가 올바르지 않습니다.');
     }
     return this.startSession(account);
