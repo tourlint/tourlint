@@ -8,7 +8,9 @@ import {
 } from '@tourlint/shared';
 import type { ApiCallLogEntry, ApiCallLogger, CallStatus } from '../api-call-log';
 import { parseKtoResponse, type KtoEnvelope } from './envelope';
-import { ContentNotFoundError, KtoError, KtoFetchError, KtoInvalidRequestError, KtoTimeoutError } from './kto.errors';
+import {
+  ContentNotFoundError, KtoAuthError, KtoError, KtoFetchError, KtoInvalidRequestError, KtoQuotaExceededError, KtoTimeoutError,
+} from './kto.errors';
 import type { KtoParams, KtoTransport } from './transport';
 
 /**
@@ -423,6 +425,9 @@ export class KtoClient {
           httpStatus = e.httpStatus ?? httpStatus;
           resultCode = e.resultCode;
         }
+        // 인증 오류 · 한도 초과도 코드를 남긴다. 예산 문이 「오늘 공사가 한도 초과라고 답했다」 를
+        // 이 기록으로 안다 (EX-QT-005 · #793). 전에는 KtoFetchError 만 남겨 둘 다 null 이었다
+        if (e instanceof KtoAuthError || e instanceof KtoQuotaExceededError) resultCode = e.logCode;
 
         // 인증 오류·쿼터 초과·미존재 콘텐츠는 재시도해도 같다. 남은 예산만 태운다
         if (e instanceof KtoError && !e.retryable) throw e;

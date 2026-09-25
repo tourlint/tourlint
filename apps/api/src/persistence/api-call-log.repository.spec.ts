@@ -83,6 +83,40 @@ describe.skipIf(URL === undefined)('PgApiCallLogger — 서비스별 제공자 (
 });
 
 
+describe.skipIf(URL === undefined)('PgApiCallLogger — 오늘 한도 초과를 답했는가 (EX-QT-005 · #793 · 실 DB)', () => {
+  let pool: Pool;
+  beforeAll(() => { pool = new Pool({ connectionString: URL }); });
+  afterAll(async () => { await pool.end(); });
+
+  it('🔴 오늘(KST) 22 로 실패한 호출이 있을 때만 참이다 — 다른 날 · 다른 서비스 · 다른 코드는 거짓', async () => {
+    /*
+     * 한 연결의 트랜잭션 안에서 쓰고 되돌린다. 커밋하면 병렬로 도는 다른 스펙의 예산 문이
+     * 「오늘 한도 초과」 를 읽고 막힌다(#790 의 레이더 스펙과 같은 함정). 날짜도 과거 고정일이다.
+     */
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const logs = new PgApiCallLogger(client as unknown as Pool);
+      const NOW = new Date('2026-01-08T03:00:00Z'); // KST 12:00
+      const entry = (provider: 'KTO' | 'KTO_PET', iso: string, status: 'OK' | 'FAIL', resultCode: string | null) => ({
+        provider, operation: 'zz-quota-spec', calledAt: new Date(iso), status, httpStatus: 200, resultCode, latencyMs: 1, auditRunId: null,
+      });
+      await logs.record(entry('KTO', '2026-01-08T01:00:00Z', 'FAIL', '30'));
+      await logs.record(entry('KTO', '2026-01-08T01:01:00Z', 'OK', '0000'));
+      await logs.record(entry('KTO', '2026-01-07T14:00:00Z', 'FAIL', '22')); // 전날 23:00 KST
+      await logs.record(entry('KTO_PET', '2026-01-08T01:02:00Z', 'FAIL', '22'));
+      expect(await logs.quotaRejectedToday('KTO', NOW)).toBe(false);
+      expect(await logs.quotaRejectedToday('KTO_PET', NOW)).toBe(true);
+
+      await logs.record(entry('KTO', '2026-01-08T01:03:00Z', 'FAIL', '22'));
+      expect(await logs.quotaRejectedToday('KTO', NOW)).toBe(true);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+});
+
 describe.skipIf(URL === undefined)('RunScopedCallLogger — 검수 하나가 낸 호출 잇기 (#466 · 실 DB)', () => {
   let pool: Pool;
   let logs: PgApiCallLogger;
