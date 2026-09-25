@@ -22,7 +22,7 @@ import { segmentKey, segmentsOf, type TravelSegment } from '../engine/rules/r08-
 import type { DailyRainOutlook } from '../engine/rules/r09-rain';
 import type { TargetProfileContext } from '../engine/rules/r10-target';
 import type { KakaoMobilityClient } from '../external/kakao';
-import { isKakaoError } from '../external/kakao';
+import { RouteProviderError, isKakaoError } from '../external/kakao';
 import {
   chooseMidPublication, chooseShortPublication, isKmaError, kstToday, midLandRegionOf,
   representativePoint, toGrid, type KmaClient,
@@ -442,11 +442,21 @@ export class AuditRunner {
      * 출발했을 때 둘 다 캐시를 못 보고 각자 호출한다 — 병렬로 도는 이상 그게 정상 경로다.
      */
     const inflight = new Map<string, Promise<TravelSegment>>();
+    /*
+     * 제공자 전면 장애 (EX-EI-022 · #795). 한 구간이 재시도까지 다 실패하면 남은 구간은 부르지
+     * 않고 같은 사유로 둔다 — R08 전체가 확인 불가가 되는 것은 명세가 정한 확대다. 구간마다
+     * 재시도를 되풀이하면 장애 동안 검수가 느려지기만 한다. 4xx 처럼 그 구간만의 실패는 해당 없다.
+     */
+    let providerDown = false;
 
     await withConcurrency(segments, this.concurrency, async ({ from, to }) => {
       const key = segmentKey(from.id, to.id);
       if (from.mapX === null || from.mapY === null || to.mapX === null || to.mapY === null) {
         out.set(key, { ok: false, reasonCode: 'COORD_MISSING' });
+        return;
+      }
+      if (providerDown) {
+        out.set(key, { ok: false, reasonCode: 'ROUTE_PROVIDER_FAILED' });
         return;
       }
 
@@ -461,6 +471,7 @@ export class AuditRunner {
       if (pending === undefined) {
         pending = this.routeSegment(
           { x: from.mapX, y: from.mapY }, { x: to.mapX, y: to.mapY }, departureAt,
+          () => { providerDown = true; },
         );
         inflight.set(cacheKey, pending);
       }
@@ -475,6 +486,8 @@ export class AuditRunner {
     from: { x: number; y: number },
     to: { x: number; y: number },
     departureAt: string | null,
+    /** 재시도까지 다 실패한 일시 장애 — 제공자가 내려간 것으로 본다 (EX-EI-022) */
+    onProviderDown: () => void = () => undefined,
   ): Promise<TravelSegment> {
     try {
       const route = await (this.kakao as KakaoMobilityClient).route(from, to, departureAt);
@@ -485,6 +498,7 @@ export class AuditRunner {
         futureBased: route.futureBased,
       };
     } catch (e) {
+      if (e instanceof RouteProviderError && e.retryable) onProviderDown();
       return { ok: false, reasonCode: isKakaoError(e) ? e.reasonCode : 'ROUTE_PROVIDER_FAILED' };
     }
   }

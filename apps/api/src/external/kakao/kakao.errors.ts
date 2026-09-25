@@ -30,12 +30,20 @@ export class RouteNotFoundError extends KakaoError {
   }
 }
 
-/** 제공자 장애 · 네트워크 · 인증 실패. 재시도 대상이다 */
+/**
+ * 제공자 장애 · 네트워크 · 인증 실패.
+ *
+ * **일시 장애만 다시 부른다** (EI-CM-005 · EX-EI-022) — 응답이 없거나(네트워크 · 시간 초과 ·
+ * 해석 불가) 5xx · 429 일 때다. 그 밖의 4xx(인증 · 요청 오류)는 다시 불러도 같다.
+ */
 export class RouteProviderError extends KakaoError {
   readonly reasonCode = 'ROUTE_PROVIDER_FAILED' as const;
-  readonly retryable = true;
   constructor(detail: string, readonly httpStatus: number | null = null) {
     super(`길찾기 제공자 오류: ${detail}`);
+  }
+
+  get retryable(): boolean {
+    return this.httpStatus === null || this.httpStatus >= 500 || this.httpStatus === 429;
   }
 }
 

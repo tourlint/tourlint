@@ -123,6 +123,12 @@ export interface KakaoClientOptions {
   readonly logger: ApiCallLogger;
   readonly clock?: () => Date;
   readonly auditRunId?: number | null;
+  /** 일시 장애 재시도 횟수 (EI-CM-005 · EX-EI-022). 기본 2 */
+  readonly maxRetries?: number;
+  /** 첫 재시도 전 대기(ms). 다음은 두 배다. 기본 300 */
+  readonly baseDelayMs?: number;
+  /** 테스트 주입용 */
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 export class KakaoMobilityClient {
@@ -130,12 +136,18 @@ export class KakaoMobilityClient {
   private readonly logger: ApiCallLogger;
   private readonly clock: () => Date;
   private readonly auditRunId: number | null;
+  private readonly maxRetries: number;
+  private readonly baseDelayMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: KakaoClientOptions) {
     this.transport = options.transport;
     this.logger = options.logger;
     this.clock = options.clock ?? ((): Date => new Date());
     this.auditRunId = options.auditRunId ?? null;
+    this.maxRetries = options.maxRetries ?? 2;
+    this.baseDelayMs = options.baseDelayMs ?? 300;
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   /**
@@ -154,16 +166,34 @@ export class KakaoMobilityClient {
 
     if (departureAt !== null) {
       try {
-        return { ...(await this.call('future/directions', { ...base, departure_time: departureAt })), futureBased: true };
+        // 한 번만 부른다. 실패하면 현재 시각 기준으로 넘어가는 것이 정해진 길이다 (EX-EI-020)
+        return { ...(await this.call('future/directions', { ...base, departure_time: departureAt }, 0)), futureBased: true };
       } catch (e) {
         // 출발 시각이 과거면 미래 운행 정보를 쓸 수 없다. 폴백은 정상 경로다
         if (e instanceof RouteNotFoundError) throw e;
       }
     }
-    return { ...(await this.call('directions', base)), futureBased: false };
+    // 마지막 길이라 일시 장애는 지수 백오프로 더 부른다 (EI-CM-005 · EX-EI-022 · #795)
+    return { ...(await this.call('directions', base, this.maxRetries)), futureBased: false };
   }
 
+  /** 시도마다 로그 1행이다 — 예산 · 증빙은 실제 나간 호출 수로 센다 */
   private async call(
+    operation: KakaoOperation,
+    params: Readonly<Record<string, string>>,
+    retries: number,
+  ): Promise<Omit<RouteResult, 'futureBased'>> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.callOnce(operation, params);
+      } catch (e) {
+        if (!(e instanceof RouteProviderError) || !e.retryable || attempt >= retries) throw e;
+        await this.sleep(this.baseDelayMs * 2 ** attempt);
+      }
+    }
+  }
+
+  private async callOnce(
     operation: KakaoOperation,
     params: Readonly<Record<string, string>>,
   ): Promise<Omit<RouteResult, 'futureBased'>> {
