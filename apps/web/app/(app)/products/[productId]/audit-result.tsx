@@ -1141,7 +1141,8 @@ function UnverifiedRow({
         {item.note !== null && (
           <p className="mt-1 text-xs text-slate-400">{item.note}</p>
         )}
-        <EvidencePanel contentId={item.contentid} extra />
+        {/* 붙일 관광정보가 없는 줄(상품 전체 · 아직 고르지 않은 곳)은 펼쳐도 「대상 콘텐츠가 없습니다」 뿐이다 (#808) */}
+        {item.contentid !== null && <EvidencePanel contentId={item.contentid} extra />}
       </div>
       <button
         type="button"
