@@ -713,7 +713,11 @@ export interface RadarSummary {
   /** 마지막 확인 시각 · 다음 확인 시각 (UI-S7-010). 배치가 꺼져 있으면 nextBatchAt 이 null */
   lastBatchAt: string | null;
   nextBatchAt: string | null;
-  lastBatch: null | { runAt: string | null; covered: string | null; status: string; itemCount: number };
+  /**
+   * 배치 상태 행은 한 번도 돌기 전에도 있다 — 그때 결과 · 조회 건수는 null 이다 (`batch_state('sync_list')`
+   * 는 `last_item_count` NULL 로 만들어진다)
+   */
+  lastBatch: null | { runAt: string | null; covered: string | null; status: string | null; itemCount: number | null };
 }
 
 /** 신호 하나. 산출 전이면 t1·t2 가 null 이다 — 0(세어 보니 없음)과 구분한다. */

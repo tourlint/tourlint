@@ -697,7 +697,8 @@ export function batchRows(batch: RadarSummary["lastBatch"]): { label: string; va
   return [
     { label: "마지막 확인", value: batch?.runAt ? formatStamp(batch.runAt) : "실행 없음" },
     { label: "처리 기준일", value: batch?.covered ?? "—" },
-    { label: "조회 건수", value: batch === null ? "—" : `${batch.itemCount.toLocaleString()}건` },
+    // 한 번도 안 돈 배치는 조회 건수가 없다(null) — 0 건으로 적지 않는다
+    { label: "조회 건수", value: batch?.itemCount == null ? "—" : `${batch.itemCount.toLocaleString()}건` },
     { label: "결과", value: batchStatusLabel(batch?.status) },
   ];
 }

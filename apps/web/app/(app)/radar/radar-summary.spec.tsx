@@ -73,6 +73,22 @@ describe("바닥 근거 줄 (NF-OB-004 · TM-013)", () => {
   });
 });
 
+describe("배치가 한 번도 안 돈 DB (batch_state 행은 있고 값은 NULL)", () => {
+  it("🔴 근거 줄이 깨지지 않는다 — 조회 건수 · 결과는 「—」, 0 의 뜻은 「아직 확인 전」", async () => {
+    summary = async () => json({
+      risk: 0, opportunity: 0, unread: 0, affectedProducts: 0, changedContents: 0, lastBatchAt: null, nextBatchAt: null,
+      lastBatch: { runAt: null, covered: null, status: null, itemCount: null },
+    });
+    await open();
+    const text = host.textContent ?? "";
+    expect(text).toContain("실행 없음");
+    expect(text).toContain("조회 건수—");
+    expect(text).toContain("결과—");
+    expect(text).toContain("아직 확인 전이에요");
+    expect(text).not.toContain("null");
+  });
+});
+
 describe("오늘 할 일 — 요청이 실패하면 (FR-AG-005)", () => {
   it("🔴 「지금은 AI로 정리할 수 없어요」와 까닭을 보인다", async () => {
     summary = async () => json({ risk: 0, opportunity: 0, unread: 0, affectedProducts: 0, changedContents: 0, lastBatchAt: null, nextBatchAt: null, lastBatch: null });
