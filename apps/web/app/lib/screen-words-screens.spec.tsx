@@ -3,14 +3,16 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { findForbidden } from "./screen-words";
+import { findForbidden, visibleText } from "./screen-words";
 import { planApi, type Finding, type PlanPlace, type PlanPlaces, type ProductDetail, type RadarNotification, type RegionSignal, type RunSummary, type TodayBrief } from "./api";
 import { AuditBasis } from "../components/audit-basis";
 import { FindingsSection, SummaryCard } from "../(app)/products/[productId]/audit-result";
 import { PlacePicker } from "../(app)/products/[productId]/plan/place-picker";
-import { NotificationCard, QuietRegionRow, RegionNewsCard, TodayBriefResult, batchRows } from "../(app)/radar/page";
+import RadarPage, { NotificationCard, QuietRegionRow, RegionNewsCard, TodayBriefResult, batchRows } from "../(app)/radar/page";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
+// 라우터는 실제처럼 늘 같은 객체다 — 렌더마다 새로 주면 레이더의 효과가 끝없이 다시 돈다
+const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
 /**
  * 화면 말 낱말 검사를 검수 결과 · 장소 담기 · 오늘 할 일 · 레이더 근거 줄까지 넓힌다 (NF-US-008 · UI-CM-040).
@@ -106,10 +108,62 @@ describe("오늘 할 일", () => {
   });
 });
 
-describe("레이더 — 근거 줄 · 알림 카드 · 관심 지역", () => {
-  it("🔴 근거 줄은 근거 영역이라 검사에서 빠지고, 결과는 말로 적는다", () => {
-    const html = renderToStaticMarkup(<AuditBasis rows={batchRows({ runAt: "2026-09-26T05:00:04+09:00", covered: "2026-09-25", status: "OK", itemCount: 177 })} />);
+describe("레이더 — 화면 전체 · 근거 줄 · 알림 카드 · 관심 지역", () => {
+  it("🔴 근거 칸 밖 레이더 화면 글자에 걸리는 낱말이 없다 — 근거 줄은 결과를 말로 적는다", async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const risk = {
+      notificationId: 3, kind: "RISK", condition: 1, productId: 7, productName: "강릉 2일", startDate: "2099-10-28",
+      ktoContentId: "126508", placeName: "오죽헌", schedule: { dayNo: 1, startTime: "12:00" },
+      changes: [{ label: "운영시간", before: "09:00~18:00", after: "09:00~17:00" }], current: [], modifiedOn: "2026-09-25",
+      eventPeriod: null, overlapDays: [], what: "운영시간 정보가 바뀌었습니다.", impact: "1일차 12:00 일정입니다.",
+      action: "다시 검수해 판정을 갱신하세요.", hidden: false, fingerprint: { from: "abcdef0123", to: "0123abcdef" },
+      opportunity: null, verdictDiff: { added: [], removed: [], changed: [{ ruleCode: "R01", from: "WARNING", to: "BLOCKER" }] },
+      dismissable: true, readAt: "2026-09-26T06:00:00+09:00", dismissedAt: null, createdAt: "2026-09-26T05:00:00+09:00",
+    };
+    const region = {
+      region: { regnCd: "51", signguCd: "210" }, month: "2099-11",
+      t1: { count: 1, byType: {}, window: { from: "2026-08-28", to: "2026-09-26" }, computedAt: "2026-09-26T05:00:00+09:00", keywordHits: [] },
+      t2: { count: 3, byType: {}, window: { from: "2099-11-01", to: "2099-11-30" }, computedAt: "2026-09-26T05:00:00+09:00", keywordHits: [] },
+      t3: null,
+    };
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("/api/v1/products")) return json({ content: [], totalPages: 1 });
+      if (url.startsWith("/api/v1/notifications")) return json({ content: [risk], page: 0, size: 20, totalElements: 1, unreadCount: 0 });
+      if (url === "/api/v1/settings") return json({ watchKeywords: ["커피"], watchRegions: [{ regnCd: "51", signguCd: "210", month: "2099-11" }] });
+      if (url === "/api/v1/radar/region-signals") return json([region]);
+      if (url === "/api/v1/radar/summary") {
+        return json({
+          risk: 1, opportunity: 0, unread: 0, affectedProducts: 1, changedContents: 1,
+          lastBatchAt: "2026-09-26T05:00:04+09:00", nextBatchAt: "2026-09-29T05:00:00+09:00",
+          lastBatch: { runAt: "2026-09-26T05:00:04+09:00", covered: "2026-09-25", status: "OK", itemCount: 177 },
+        });
+      }
+      return json({ items: [] });
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(<RadarPage />));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    const html = host.innerHTML;
+    // 검사할 화면 글자가 실제로 있다 — 근거 칸만 그려 놓고 「걸리는 낱말 없음」으로 통과하지 않는다
+    for (const shown of ["관심 키워드 · 관심 지역", "수요 신호", "오죽헌", "다시 검수한 판정", "이 지역으로 새 상품 기획"]) {
+      expect(visibleText(html)).toContain(shown);
+    }
     expect(findForbidden(html, false)).toEqual([]);
+    const basis = [...host.querySelectorAll("dl[data-evidence]")].map((n) => n.textContent ?? "").join(" ");
+    expect(basis).toContain("결과정상");
+    expect(basis).toContain("조회 건수177건");
+    expect(basis).not.toMatch(/\bOK\b/);
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("근거 줄 한 줄 — 결과를 말로 적는다", () => {
+    const html = renderToStaticMarkup(<AuditBasis rows={batchRows({ runAt: "2026-09-26T05:00:04+09:00", covered: "2026-09-25", status: "OK", itemCount: 177 })} />);
     expect(html).toContain("정상");
     expect(html).not.toContain(">OK<");
   });
