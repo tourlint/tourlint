@@ -1,4 +1,6 @@
-import { findingMessage, SETTING_DEFAULTS, STANDARD_VERSION, type Severity, kstIso } from '@tourlint/shared';
+import {
+  CLIMATE_NORMAL_PERIOD, CLIMATE_SOURCE_NOTE, findingMessage, SETTING_DEFAULTS, STANDARD_VERSION, type Severity, kstIso,
+} from '@tourlint/shared';
 import type { ContentView } from '../external/kto';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 import type { ComparisonMetric } from '../audit/comparison-metrics';
@@ -109,6 +111,11 @@ export interface ReportProvenance {
   readonly delayNotice: string;
   /** `출처: ⓒ한국관광공사` (FR-PA-062). 문자 그대로 싣는다 */
   readonly source: string;
+  /**
+   * 판정에 쓴 외부 자료의 출처 (NF-CO-023 · EI-WX-004 · #849). 리포트에 실린 판정이 쓴 것만 적는다 —
+   * 보인 값의 출처를 밝히는 자리다. 기상청 평년값은 기준 평년과 함께 적는다
+   */
+  readonly externalSources: readonly string[];
 }
 
 /**
@@ -385,8 +392,39 @@ export function assembleReport(input: AssembleInput): ReportModel {
       delayNotice:
         '공사 데이터는 당일 변경분이 익일 반영되므로 출발 임박 시 운영기관 최종 확인을 권장합니다',
       source: '출처: ⓒ한국관광공사',
+      externalSources: externalSourcesOf(run.findings),
     },
   };
+}
+
+/**
+ * 판정이 쓴 외부 자료 → 데이터 출처 줄 (NF-CO-023 · #849).
+ *
+ * 평년 근거의 기준 평년 · 출처는 판정이 남긴 값을 쓴다. 이 값을 남기기 전(규칙셋 1.2.8 까지)의
+ * 판정은 공유 상수로 채운다 — 표에 넣는 값과 같은 상수다(`seed_climate_normal.mjs`).
+ */
+export function externalSourcesOf(findings: readonly StoredFinding[]): string[] {
+  const lines: string[] = [];
+  const add = (line: string): void => { if (!lines.includes(line)) lines.push(line); };
+  const forecasts = new Set<string>();
+
+  for (const f of findings) {
+    if (f.ruleCode === 'R09') {
+      const source = f.evidence.rainSource;
+      if (source === 'SHORT') forecasts.add('단기예보');
+      if (source === 'MID') forecasts.add('중기예보');
+      if (source === 'CLIMATE') {
+        const period = typeof f.evidence.normalPeriod === 'string' && f.evidence.normalPeriod !== ''
+          ? f.evidence.normalPeriod : CLIMATE_NORMAL_PERIOD.replace('-', '~');
+        const from = typeof f.evidence.normalSource === 'string' && f.evidence.normalSource !== ''
+          ? f.evidence.normalSource : CLIMATE_SOURCE_NOTE.replace(/^출처\s*:\s*/, '');
+        add(`출처: ${from} (평년값 ${period})`);
+      }
+    }
+  }
+  if (forecasts.size > 0) add(`출처: 기상청 (${['단기예보', '중기예보'].filter((x) => forecasts.has(x)).join(' · ')})`);
+  if (findings.some((f) => f.externalSource === '카카오모빌리티')) add('외부 참고: 카카오모빌리티 (이동시간)');
+  return lines;
 }
 
 /**

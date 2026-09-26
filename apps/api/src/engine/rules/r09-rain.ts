@@ -22,10 +22,13 @@ import type { AuditItem, AuditRule, Finding, ItineraryContext } from './types';
  */
 
 /**
+ * `1.0.3` — 평년 기준 문장에 기준 평년(1991~2020)과 「예보가 아직 없는 날」을 적고, 근거에 기준 평년 ·
+ *   평년값 출처를 남긴다 (EI-WX-004 · UI-S3-018 · #849). 제출한 기능설명서가 「기준 평년과 출처를 화면에
+ *   함께 표기」한다고 적었다
  * `1.0.2` — 예보를 못 받아 평년표로 내려온 날은 문장과 근거에 그 사실을 적는다 (EI-WX-006 · #797)
  * `1.0.1` — 예보가 야외 시간대를 다 덮지 못하면 덮인 값이 기준 밑이어도 정상이 아니라 확인 불가 (#775)
  */
-export const R09_VERSION = '1.0.2';
+export const R09_VERSION = '1.0.3';
 
 export const KMA_SOURCE = '기상청';
 
@@ -54,6 +57,9 @@ export type DailyRainOutlook =
       readonly rainDays: number;
       readonly regionName: string;
       readonly month: number;
+      /** 표에 저장된 기준 평년(`1991-2020`)과 출처. 문장 · 근거에 그대로 적는다 (EI-WX-004 · #849) */
+      readonly normalPeriod: string;
+      readonly sourceNote: string;
       /**
        * 예보를 받지 못해 평년표로 내려온 날이면 원래 쓰려던 예보 (EI-WX-006 · EX-EI-024 · #797).
        * 원래 D+11 이상이라 평년인 날은 없다
@@ -248,7 +254,12 @@ export class R09RainRiskRule implements AuditRule {
           rainProbability: round3(probability),
           rainThreshold: threshold,
           rainSource: outlook.source,
-          ...(outlook.source === 'CLIMATE' ? { rainDays: outlook.rainDays, normalMonth: outlook.month } : {}),
+          ...(outlook.source === 'CLIMATE'
+            ? {
+              rainDays: outlook.rainDays, normalMonth: outlook.month,
+              normalPeriod: periodText(outlook.normalPeriod), normalSource: sourceText(outlook.sourceNote),
+            }
+            : {}),
           ...(outlook.source === 'CLIMATE' && outlook.downgradedFrom !== undefined
             ? { forecastDowngradedFrom: outlook.downgradedFrom } : {}),
         },
@@ -278,9 +289,21 @@ function probabilityFor(
 function basisText(outlook: Extract<DailyRainOutlook, { ok: true }>, probability: number): string {
   if (outlook.source === 'SHORT') return `단기예보 기준 — 강수확률 ${percent(probability)}.`;
   if (outlook.source === 'MID') return `중기예보 기준 — 강수확률 ${percent(probability)}.`;
-  // 예보를 받지 못해 내려온 날은 그 사실을 먼저 말한다 (EI-WX-006 · #797)
-  const lead = outlook.downgradedFrom === undefined ? '' : '예보를 받지 못해 ';
-  return `${lead}평년 기준 — ${outlook.month}월 ${outlook.regionName} 강수일수 ${outlook.rainDays.toFixed(1)}일 (${percent(probability)}).`;
+  // 평년은 예보가 없는 날의 근거다. 왜 예보가 아닌지를 먼저 말한다 — 아직 안 나온 날인지(UI-S3-018),
+  // 받지 못한 날인지(EI-WX-006 · #797). 기준 평년도 같이 적는다 (EI-WX-004 · #849)
+  const lead = outlook.downgradedFrom === undefined ? '예보가 아직 없는 날이라 ' : '예보를 받지 못해 ';
+  const period = periodText(outlook.normalPeriod);
+  return `${lead}평년${period === '' ? '' : `(${period})`} 기준 — ${outlook.month}월 ${outlook.regionName} 강수일수 ${outlook.rainDays.toFixed(1)}일 (${percent(probability)}).`;
+}
+
+/** 저장값 `1991-2020` → 화면 `1991~2020`. 기능설명서와 같은 꼴이다 */
+function periodText(stored: string): string {
+  return stored.trim().replace(/\s*[-–]\s*/, '~');
+}
+
+/** 저장값 `출처: 기상청 기상자료개방포털 · 대표지점 강릉` → 근거 칸 값. 이름표가 「평년값 출처」라 머리말을 뗀다 */
+function sourceText(stored: string): string {
+  return stored.trim().replace(/^출처\s*:\s*/, '');
 }
 
 function unverified(date: IsoDate, reasonCode: ExceptionReasonCode, detail: string): Finding {
