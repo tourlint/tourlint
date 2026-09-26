@@ -399,10 +399,15 @@ export const itemApi = {
   reorder: (productId: number, items: readonly { itemId: number; dayNo: number; seq: number }[]) =>
     request<void>(`/products/${productId}/items/order`, { method: "PUT", body: JSON.stringify({ items }) }),
   // 장소 담기로 넣기 (FR-PL-013 · 4-3). 넣을 위치(afterItemId) 다음에 끼운다 — 시각 · 좌표는 서버가 채운다
-  addPicked: (productId: number, input: { dayNo: number; itemType: string; content: PlanContentRef; afterItemId?: number | null }) =>
+  // 시각을 주면 그 시각으로 넣고(편집 화면 · FR-IN-014), 안 주면 앞 항목 끝 + 이동시간으로 채운다
+  addPicked: (productId: number, input: { dayNo: number; itemType: string; content: PlanContentRef; afterItemId?: number | null; startTime?: string; endTime?: string }) =>
     request<ProductItem>(`/products/${productId}/items`, {
       method: "POST",
-      body: JSON.stringify({ dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", afterItemId: input.afterItemId ?? null, content: input.content }),
+      body: JSON.stringify({
+        dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", afterItemId: input.afterItemId ?? null, content: input.content,
+        ...(input.startTime ? { startTime: input.startTime } : {}),
+        ...(input.startTime && input.endTime ? { endTime: input.endTime } : {}),
+      }),
     }),
   // 걷기 길로 넣기 (D9). 코스 식별자만 보낸다 — 이름은 보내지도 저장하지도 않는다. 시각을 주면 그 시각으로
   // 넣고(편집 화면 · UI-S2-048), 안 주면 그 날 끝에 붙는다

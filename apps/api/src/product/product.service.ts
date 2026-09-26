@@ -336,9 +336,18 @@ export class ProductService {
    * 이동시간은 카카오 길찾기로 잰다 — **못 재면(좌표 없음 · 대중교통 · 조회 실패) 이동시간을
    * 짓지 않고** 앞 항목 끝에 바로 붙인다(FR-RU-051 · R08 과 같은 원칙). 끝 시각은 표준
    * 체류시간으로 채운다(숙박은 끝 시각 없음).
+   *
+   * 편집 화면이 시각을 정해 보냈으면 그 시각으로 넣는다(FR-IN-014) — 걷기 길과 같다. 끝을 비웠으면
+   * 직접 입력 줄처럼 검수가 기본 체류시간으로 채운다.
    */
   private async insertPicked(productId: number, picked: PickedItemInput): Promise<ItemDetail> {
     const { transport, anchor } = await this.repo.pickPlacement(productId, picked.dayNo, picked.afterItemId);
+    const afterSeq = anchor?.seq ?? null;
+    if (picked.startTime !== null) {
+      return this.repo.insertPickedItem(productId, picked, {
+        start: picked.startTime, end: picked.endTime, endTimeSource: picked.endTime === null ? 'DWELL_DEFAULT' : 'INPUT', afterSeq,
+      });
+    }
 
     let start = '09:00';
     if (anchor !== null) {
@@ -355,7 +364,7 @@ export class ProductService {
       : (picked.content.lcls2 !== null ? DWELL_MINUTES_SEED[picked.content.lcls2] : undefined) ?? SETTING_DEFAULTS.dwellFallbackMinutes;
     const end = dwell === null ? null : addMinutes(start, dwell);
 
-    return this.repo.insertPickedItem(productId, picked, { start, end, afterSeq: anchor?.seq ?? null });
+    return this.repo.insertPickedItem(productId, picked, { start, end, endTimeSource: end === null ? 'INPUT' : 'DWELL_DEFAULT', afterSeq });
   }
 
   async patchItem(accountId: number, itemId: number, body: unknown): Promise<Record<string, unknown>> {

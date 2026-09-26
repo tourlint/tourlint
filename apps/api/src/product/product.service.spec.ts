@@ -162,6 +162,7 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     const attempts = [
       { dayNo: 1, startTime: '20:00', endTime: '', placeLabel: '한 줄 더', itemType: 'SIGHT' },
       picked(REPLACEMENT),
+      { ...picked(REPLACEMENT), startTime: '20:00', endTime: '21:00' },
       { dayNo: 1, itemType: 'SIGHT', excluded: { walkId: 'T_TEST_WALK', startTime: '20:00', endTime: '21:00' } },
     ];
     for (const body of attempts) {
@@ -172,6 +173,21 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     }
     const { rows } = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM itinerary_item WHERE product_id = $1`, [productId]);
     expect(rows[0]?.n).toBe(45);
+  });
+
+  it('🔴 편집 화면이 정한 시각이 있으면 그 시각으로 넣는다 — 끝을 비우면 기본 체류시간 보완 대상 (FR-IN-014)', async () => {
+    const { productId, itemId } = await makeProduct();
+    const timed = await service.addItem(accountId, productId, { ...picked(REPLACEMENT), afterItemId: itemId, startTime: '14:30', endTime: '15:45' });
+    const open = await service.addItem(accountId, productId, { ...picked(REPLACEMENT), startTime: '18:00', endTime: '' });
+    const { rows } = await pool.query<{ id: string; seq: number; start_time: string; end_time: string | null; end_time_source: string; match_status: string }>(
+      `SELECT id, seq, start_time::text, end_time::text, end_time_source, match_status FROM itinerary_item WHERE product_id = $1 ORDER BY seq`,
+      [productId],
+    );
+    expect(rows.map((r) => [Number(r.id), r.seq, r.start_time, r.end_time, r.end_time_source, r.match_status])).toEqual([
+      [itemId, 1, '10:00:00', '11:30:00', 'INPUT', 'CONFIRMED'],
+      [timed.itemId, 2, '14:30:00', '15:45:00', 'INPUT', 'CONFIRMED'],
+      [open.itemId, 3, '18:00:00', null, 'DWELL_DEFAULT', 'CONFIRMED'],
+    ]);
   });
 
   it('넣을 위치를 안 주면 그 날 끝에 붙는다', async () => {

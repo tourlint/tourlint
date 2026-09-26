@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateAddItem, validateCreate, validateUpdate, validateWalkItem, type CreateProductDto } from './product.dto';
+import { validateAddItem, validateCreate, validatePickedItem, validateUpdate, validateWalkItem, type CreateProductDto } from './product.dto';
 
 /**
  * 상품 등록 검증 — 순수 함수라 DB 없이 돈다. 서버가 저장 전에 다시 보는 가드다 (EX-IN-005).
@@ -290,5 +290,17 @@ describe('등록 화면에서 담은 걷기 길 (UI-S2-048 · DR-MD-005)', () =>
     expect(walk({}).walk).toMatchObject({ startTime: null, endTime: null });
     expect(walk({ startTime: '9시' }).errors).toContain('시작 시각을 HH:MM 형식으로 입력하세요.');
     expect(walk({ endTime: '12:00' }).errors).toContain('종료 시각만 보낼 수는 없습니다.');
+  });
+});
+
+describe('편집 화면의 고른 곳 추가 (FR-IN-014)', () => {
+  it('🔴 정한 시각을 받는다 — 없으면 전처럼 서버가 채운다', () => {
+    const picked = (over: Record<string, unknown>) => validatePickedItem({
+      dayNo: 1, itemType: 'SIGHT', content: { contentId: '129784', contentTypeId: 14 }, ...over,
+    }, 3);
+    expect(picked({ startTime: '14:30', endTime: '' }).picked).toMatchObject({ startTime: '14:30', endTime: null });
+    expect(picked({}).picked).toMatchObject({ startTime: null, endTime: null });
+    expect(picked({ startTime: '14시' }).errors).toContain('시작 시각을 HH:MM 형식으로 입력하세요.');
+    expect(picked({ endTime: '15:00' }).errors).toContain('종료 시각만 보낼 수는 없습니다.');
   });
 });

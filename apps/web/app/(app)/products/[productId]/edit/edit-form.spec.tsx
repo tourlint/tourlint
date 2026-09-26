@@ -252,3 +252,49 @@ describe("편집 화면 — 불러온 줄에서 후보 고르기 (FR-IN-029 · U
     expect(match).toHaveBeenCalledWith(11, "2733968", "USER");
   });
 });
+
+describe("편집 화면 — 고른 곳으로 넣은 새 줄의 시각 (FR-IN-014)", () => {
+  it("🔴 장소 칸 후보로 고른 새 줄은 적은 시각으로 넣는다 — 앞 일정 끝으로 다시 채우지 않는다", async () => {
+    vi.spyOn(productApi, "detail").mockResolvedValue(product([row({ matchStatus: "CONFIRMED", ktoContentId: "125790", place: "경포대", itemType: "SIGHT" })]));
+    vi.spyOn(matchApi, "search").mockResolvedValue({
+      regionFilterApplied: true, fetchedAt: "", totalCount: 1, source: "",
+      candidates: [{ contentid: "126175", title: "주문진 등대", addr1: null, contenttypeid: 12, cpyrhtDivCd: null }],
+    });
+    vi.spyOn(contentApi, "detail").mockResolvedValue({ contentTypeId: 12, mapx: 128.83, mapy: 37.9, lclsSystm1: "VE", lclsSystm2: "VE01", lclsSystm3: null } as ContentDetail);
+    vi.spyOn(itemApi, "reorder").mockResolvedValue(undefined);
+    // 항목 추가 요청 본문을 본다 — 화면이 보낸 시각이 서버까지 가야 한다
+    const sent: Record<string, unknown>[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (url === "/api/v1/products/70/items" && init?.method === "POST") {
+        sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return new Response(JSON.stringify({ itemId: 12 }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ message: "없는 경로" }), { status: 500 });
+    }) as typeof fetch;
+    try {
+      await act(async () => root.render(<EditForm productId={70} />));
+      await settle();
+      await act(async () => button("+ 항목 추가")!.click());
+      const added = rows().at(-1)!;
+      await type(times(added)[0]!, "14:30");
+      await type(times(added)[1]!, "15:45");
+      const place = added.querySelector<HTMLInputElement>('input[aria-label="장소명"]')!;
+      await type(place, "주문진 등대");
+      await act(async () => place.focus());
+      await settle(350);
+      await act(async () => rows().at(-1)!.querySelector<HTMLButtonElement>("li button")!.click());
+      await settle();
+      const kind = rows().at(-1)!.querySelector("select")!;
+      await act(async () => { kind.value = "SIGHT"; kind.dispatchEvent(new Event("change", { bubbles: true })); });
+      await act(async () => button("저장")!.click());
+      await settle();
+      expect(sent).toEqual([expect.objectContaining({
+        dayNo: 1, origin: "PICKER", content: expect.objectContaining({ contentId: "126175" }), startTime: "14:30", endTime: "15:45",
+      })]);
+      expect(router.push).toHaveBeenCalledWith("/products/70/plan");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

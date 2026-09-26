@@ -541,14 +541,15 @@ export class ProductRepository {
 
   /**
    * 장소 담기로 넣는 항목 (FR-PL-013 · 4-3). 고른 공사 콘텐츠라 CONFIRMED 로 넣는다.
-   * 시각(start · end)은 서비스가 이동시간·체류시간으로 계산해 넘긴다. `afterSeq` 가 있으면
+   * 시각(start · end)과 끝 시각 출처는 서비스가 정해 넘긴다(이동시간 · 체류시간 계산이거나 편집 화면이
+   * 정한 시각). `afterSeq` 가 있으면
    * 그 순번 **다음**에 끼우고 뒤 항목을 한 칸씩 민다(없으면 그 날 끝에 붙인다). 좌표 · 분류는
    * 응답으로 온 값을 저장하고 제목 · 주소(공사 원문)는 저장하지 않는다.
    */
   async insertPickedItem(
     productId: number,
     picked: PickedItemInput,
-    placement: { start: string; end: string | null; afterSeq: number | null },
+    placement: { start: string; end: string | null; endTimeSource: 'INPUT' | 'DWELL_DEFAULT'; afterSeq: number | null },
   ): Promise<ItemDetail> {
     return withTransaction(this.pool, async (client) => {
       let seq: number;
@@ -576,7 +577,7 @@ export class ProductRepository {
                    lcls_systm2, end_time_source`,
         [
           productId, picked.dayNo, seq, placement.start, placement.end,
-          placement.end === null ? 'INPUT' : 'DWELL_DEFAULT', picked.itemType, picked.origin,
+          placement.endTimeSource, picked.itemType, picked.origin,
           picked.content.contentId, picked.content.contentTypeId,
           picked.content.lcls1, picked.content.lcls2, picked.content.lcls3, picked.content.mapx, picked.content.mapy,
         ],

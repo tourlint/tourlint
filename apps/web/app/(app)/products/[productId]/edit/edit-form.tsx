@@ -168,7 +168,8 @@ export function EditForm({ productId }: { productId: number }) {
         const newIds = new Map<number, number>();
         for (const [i, add] of plan.added.entries()) {
           // 장소 담기로 고른 곳은 확정으로 넣는다 — 손으로 친 줄과 호출이 다르다 (FR-PL-013).
-          // 걷기 길은 식별자와 정한 시각만 보낸다 — 코스 이름은 보내지 않는다 (DR-MD-005 · UI-S2-048)
+          // 걷기 길은 식별자와 정한 시각만 보낸다 — 코스 이름은 보내지 않는다 (DR-MD-005 · UI-S2-048).
+          // 둘 다 적은 시각을 싣는다 — 안 실으면 서버가 앞 일정 끝으로 다시 채운다 (FR-IN-014)
           const created = add.walkId !== undefined
             ? await itemApi.addWalk(productId, { dayNo: add.dayNo, walkId: add.walkId, startTime: add.startTime, endTime: add.endTime })
             : add.content
@@ -177,6 +178,8 @@ export function EditForm({ productId }: { productId: number }) {
                 itemType: add.itemType,
                 // 분류가 빈 곳도 있다. 서버는 빈 값을 없는 것으로 받는다 (validatePickedItem)
                 content: { ...add.content, lcls1: add.content.lcls1 ?? "", lcls2: add.content.lcls2 ?? "" },
+                startTime: add.startTime,
+                endTime: add.endTime,
               })
             : await itemApi.add(productId, {
                 dayNo: add.dayNo, startTime: add.startTime, endTime: add.endTime,
