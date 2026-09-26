@@ -465,6 +465,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 **요청 · 응답 모양**
 ```json
 POST /api/v1/products                추가 "planOrigin": { "startedBy": "MANUAL|UPLOAD|TEXT|CLONE|SIGNAL", "signal"?: { "type": "T2", "regnCd", "signguCd", "from", "to", "contentId"? } }
+                                     days[].items[] 마다 "origin": "MANUAL|UPLOAD|TEXT|PICKER" (없거나 다른 값이면 MANUAL · PICKER 줄은 matched_by 를 비운다 · FR-PL-020)
 POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED · RATE_LIMIT_EXCEEDED(3-4)   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
 PATCH /api/v1/products/{id}          "startDate" 변경 = 출발일 옮기기. 항목 시각은 바꾸지 않는다
 GET /api/v1/products/{id}            추가 "plannedAt", "planOrigin", "composition": { "manual": 5, "picker": 2, "excluded": 1 }
@@ -487,7 +488,7 @@ GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" 
 <tr>
 <td>POST</td>
 <td>`/api/v1/products/{productId}/items`</td>
-<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움)</td>
+<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`(`MANUAL` · `UPLOAD` · `TEXT` · `PICKER`, 없으면 `MANUAL` · FR-PL-020). **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움)</td>
 <td>FR-IN-014 · FR-PL-013 · PM-NG-011</td>
 </tr>
 <tr>

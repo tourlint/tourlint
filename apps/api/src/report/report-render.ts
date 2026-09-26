@@ -239,6 +239,8 @@ function drawProduct(doc: Doc, m: ReportModel): void {
     // 저장 값은 enum 이고 사람에게는 한글로 보인다 (공용 표기 · UI-CM-004)
     ['이동수단', TRANSPORT_LABEL[p.transport as Transport] ?? p.transport],
     ['출시 상태', p.releasedAt === null ? '미출시' : `출시 ${stamp(p.releasedAt)}`],
+    // 시작 방식 · 줄마다 들어온 경로 · 고른 방식 한 줄 (FR-PL-020)
+    ...(p.planning === undefined ? [] : [['기획 출처', p.planning] as [string, string]]),
   ]);
 }
 

@@ -151,6 +151,8 @@ export interface ItemInput {
   endTime: string;
   placeLabel: string;
   itemType: string;
+  /** 들어온 경로 — MANUAL · UPLOAD · TEXT (FR-PL-020). 없으면 서버가 MANUAL 로 둔다 */
+  origin?: string;
 }
 
 export interface ContentCandidate {
@@ -381,7 +383,7 @@ export const productApi = {
 export const itemApi = {
   add: (productId: number, item: ItemInput) =>
     request<ProductItem>(`/products/${productId}/items`, { method: "POST", body: JSON.stringify(item) }),
-  patch: (itemId: number, patch: Partial<Omit<ItemInput, "dayNo">>) =>
+  patch: (itemId: number, patch: Partial<Omit<ItemInput, "dayNo" | "origin">>) =>
     request<ProductItem>(`/items/${itemId}`, { method: "PATCH", body: JSON.stringify(patch) }),
   remove: (itemId: number) => request<void>(`/items/${itemId}`, { method: "DELETE" }),
   reorder: (productId: number, items: readonly { itemId: number; dayNo: number; seq: number }[]) =>

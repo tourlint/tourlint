@@ -43,7 +43,7 @@ export function ScheduleEditor({
 
   function newItem(): ScheduleItem {
     idSeq.current += 1;
-    return { id: `it-${idSeq.current}`, start: "", end: "", place: "", itemType: "" };
+    return { id: `it-${idSeq.current}`, start: "", end: "", place: "", itemType: "", origin: "MANUAL" };
   }
   function updateDay(day: number, items: ScheduleItem[]) {
     onChange((current) => current.map((d, i) => (i === day ? items : d)));

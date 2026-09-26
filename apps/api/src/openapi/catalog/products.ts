@@ -44,7 +44,7 @@ export const PRODUCTS: readonly Endpoint[] = [
         conceptKey: 'EMOTIONAL',
         headCount: 24,
         transport: 'CHARTER_BUS',
-        planOrigin: { startedBy: 'MANUAL' },
+        planOrigin: { startedBy: 'TEXT' },
         days: [
           {
             day: 1,
@@ -54,6 +54,7 @@ export const PRODUCTS: readonly Endpoint[] = [
                 end: '11:30',
                 place: '강릉 경포대',
                 itemType: 'SIGHT',
+                origin: 'TEXT',
                 content: {
                   contentId: '125790',
                   contentTypeId: 12,
@@ -63,7 +64,7 @@ export const PRODUCTS: readonly Endpoint[] = [
                   mapy: 37.7955136762197,
                 },
               },
-              { start: '12:00', end: '13:00', place: '가람집옹심이', itemType: 'MEAL' },
+              { start: '12:00', end: '13:00', place: '가람집옹심이', itemType: 'MEAL', origin: 'TEXT' },
             ],
           },
           { day: 2, items: [] },
@@ -89,6 +90,7 @@ export const PRODUCTS: readonly Endpoint[] = [
         'days.items.end': '종료 시각 HH:MM. 비워도 됩니다',
         'days.items.place': '장소명',
         'days.items.itemType': 'SIGHT(관광) · MEAL(식사) · LODGING(숙박) · REST(휴식) · MOVE(이동) · FREE(자유)',
+        'days.items.origin': '그 줄이 들어온 경로 — MANUAL(직접 입력) · UPLOAD(엑셀) · TEXT(메모) · PICKER(장소 담기). 없으면 MANUAL',
         'days.items.content': '고른 관광지(선택)',
         'days.items.content.contentId': '관광지 번호',
         'days.items.content.contentTypeId': '관광지 유형 코드',

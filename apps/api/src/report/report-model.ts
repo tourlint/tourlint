@@ -35,6 +35,8 @@ export interface ReportProduct {
   readonly headCount: number | null;
   readonly transport: string;
   readonly releasedAt: string | null;
+  /** 1절 「기획 출처」 한 줄 — 시작 방식 · 줄마다 들어온 경로 · 고른 방식 (FR-PL-020). `assembleReport` 가 채운다 */
+  readonly planning?: string;
 }
 
 export interface ReportSummary {
@@ -269,6 +271,64 @@ export function describeAppliedBasis(run: StoredAuditRun, dismissedCount: number
   return basis;
 }
 
+const STARTED_BY_LABEL: Readonly<Record<string, string>> = {
+  MANUAL: '직접 입력으로 시작',
+  UPLOAD: '엑셀로 시작',
+  TEXT: '메모 붙여넣기로 시작',
+  CLONE: '복제로 시작',
+  SIGNAL: '레이더 소식으로 시작',
+};
+
+const ORIGIN_LABEL: readonly (readonly [string, string])[] = [
+  ['MANUAL', '직접 입력'], ['UPLOAD', '엑셀'], ['TEXT', '메모'], ['PICKER', '장소 담기'],
+  ['SIGNAL', '레이더 소식'], ['PATCH', '수정안'],
+];
+
+const MATCHED_BY_LABEL: readonly (readonly [string, string])[] = [
+  ['AUTO', '자동'], ['USER', '직접 고름'], ['AGENT', 'AI가 찾음'],
+];
+
+export interface PlanningItem {
+  readonly matchStatus: string;
+  readonly origin?: string | null;
+  readonly matchedBy?: string | null;
+}
+
+/**
+ * 1절 「기획 출처」 한 줄 (FR-PL-020). 어떻게 시작했는지, 줄마다 어디로 들어왔는지, 고른 곳을
+ * 어떻게 골랐는지를 센다. 장소 이름 · 행사명 같은 원문은 넣지 않는다 — 기획 출처에는 애초에
+ * 없다(DR-PR-009).
+ *
+ * 시작 방식이 없는 상품은 결과 화면처럼 「직접 기획」 이다. 경로를 남기기 전에 넣은 줄은
+ * 「기록 없음」 으로 센다 — 직접 입력으로 치면 모르는 것을 아는 것처럼 적게 된다.
+ */
+export function describePlanning(planOrigin: unknown, items: readonly PlanningItem[]): string {
+  const origin = typeof planOrigin === 'object' && planOrigin !== null ? planOrigin as Record<string, unknown> : null;
+  const startedBy = typeof origin?.startedBy === 'string' ? origin.startedBy : null;
+  let started = startedBy === null ? '직접 기획' : (STARTED_BY_LABEL[startedBy] ?? '기획으로 시작');
+  const signal = typeof origin?.signal === 'object' && origin.signal !== null ? origin.signal as Record<string, unknown> : null;
+  if (signal !== null && typeof signal.from === 'string' && typeof signal.to === 'string') {
+    started += signal.from === signal.to ? `(기간 ${signal.from})` : `(기간 ${signal.from} ~ ${signal.to})`;
+  }
+  if (items.length === 0) return `${started} · 일정 없음`;
+
+  const count = (pick: (i: PlanningItem) => boolean): number => items.filter(pick).length;
+  const origins = ORIGIN_LABEL
+    .map(([code, label]) => [label, count((i) => i.origin === code)] as const)
+    .filter(([, n]) => n > 0)
+    .map(([label, n]) => `${label} ${n}`);
+  const unknown = count((i) => i.origin == null || !ORIGIN_LABEL.some(([code]) => code === i.origin));
+  if (unknown > 0) origins.push(`기록 없음 ${unknown}`);
+
+  const picked = MATCHED_BY_LABEL
+    .map(([code, label]) => [label, count((i) => i.matchStatus === 'CONFIRMED' && i.matchedBy === code)] as const)
+    .filter(([, n]) => n > 0)
+    .map(([label, n]) => `${label} ${n}`);
+
+  const line = `${started} · 일정 ${items.length}개 (${origins.join(' · ')})`;
+  return picked.length === 0 ? line : `${line} · 고른 방식 (${picked.join(' · ')})`;
+}
+
 /** 확인 필요 목록에 들어가는 조건. `toUnverifiedResponse` 와 같아야 화면과 리포트가 안 갈린다 */
 export function needsAttention(f: StoredFinding): boolean {
   return f.severity === 'UNVERIFIED' || f.needsConfirmation;
@@ -288,7 +348,12 @@ export interface AssembleInput {
     readonly ktoContentId: string | null;
     readonly itemId: number;
     readonly walkId: string | null;
+    /** 들어온 경로 · 고른 방식 (FR-PL-020). 1절 기획 출처 요약에만 쓴다 */
+    readonly origin?: string | null;
+    readonly matchedBy?: string | null;
   }[];
+  /** 상품의 기획 출처 (`product.plan_origin`). 없으면 「직접 기획」 */
+  readonly planOrigin?: unknown;
   readonly patches: readonly ReportPatch[];
   readonly comparison: ReportComparison | null;
   readonly evidence: ReadonlyMap<string, ContentEvidence>;
@@ -359,7 +424,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
 
   return {
     auditRunId: run.id,
-    product: input.product,
+    product: { ...input.product, planning: describePlanning(input.planOrigin ?? null, input.items) },
     summary: {
       score: c.score,
       breakdown: c.breakdown,

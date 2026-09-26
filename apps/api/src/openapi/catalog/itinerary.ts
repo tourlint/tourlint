@@ -166,7 +166,7 @@ export const ITINERARY: readonly Endpoint[] = [
         dayNo: '넣을 일차. 1 ~ 박수+1',
         afterItemId: '이 항목 다음에 넣습니다. 없으면 그 날 끝에',
         itemType: ITEM_TYPES,
-        origin: '보내지 않아도 됩니다',
+        origin: '들어온 경로 — MANUAL(직접 입력) · UPLOAD(엑셀) · TEXT(메모) · PICKER(장소 담기). 없으면 MANUAL',
         content: '고른 관광지(`GET /api/v1/plan/places` 결과 값)',
         'content.contentId': '관광지 번호',
         'content.contentTypeId': '관광지 유형 코드',
