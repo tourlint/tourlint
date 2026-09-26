@@ -123,10 +123,20 @@ export const MATCHING: readonly Endpoint[] = [
     params: {
       itemId: { description: '일정 항목 번호', type: 'integer' },
     },
+    body: {
+      example: { placeLabel: '세인트존스' },
+      fields: {
+        placeLabel: '이 줄을 부를 이름(선택). 관광지를 골라 넣은 줄은 이름을 저장하지 않아 이 이름이 있어야 직접 정한 곳으로 둘 수 있습니다. 이름이 있는 줄은 그 이름을 그대로 둡니다',
+      },
+    },
     responses: {
       200: { description: '성공', example: { itemId: 352, matchStatus: 'EXCLUDED' } },
     },
     errors: [
+      {
+        status: 400, reasonCode: 'INPUT_INVALID', when: '이름을 저장하지 않은 줄인데 `placeLabel` 이 없음',
+        message: '직접 정한 곳으로 두려면 이 줄의 이름을 적어 주세요. 고른 곳의 공식 이름은 저장하지 않아요.', unit: 'ITEM',
+      },
       { status: 404, reasonCode: 'NOT_FOUND', when: '없는 항목이거나 다른 계정의 항목', message: '항목을 찾을 수 없습니다 (#352).', unit: 'ITEM' },
     ],
   },

@@ -496,9 +496,12 @@ export const matchApi = {
       `/items/${itemId}/match`,
       { method: "POST", body: JSON.stringify({ contentid, matchedBy }) },
     ),
-  // 해당 없음 → 검수 제외
-  exclude: (itemId: number) =>
-    request<{ itemId: number; matchStatus: string }>(`/items/${itemId}/exclude`, { method: "POST" }),
+  // 해당 없음 → 검수 제외. 이름을 저장하지 않은 고른 곳은 사용자가 친 이름이 있어야 둘 수 있다 (DR-PR-001)
+  exclude: (itemId: number, placeLabel?: string) =>
+    request<{ itemId: number; matchStatus: string }>(`/items/${itemId}/exclude`, {
+      method: "POST",
+      ...(placeLabel ? { body: JSON.stringify({ placeLabel }) } : {}),
+    }),
 };
 
 // ── 기획 조회 (F17 · FR-PL-005). 규칙 판정 없음 · 저장 없음 ────────────────────

@@ -47,8 +47,11 @@ export class PlaceMatchController {
   async exclude(
     @CurrentAccount() account: SessionAccount,
     @Param('itemId', ParseIntPipe) itemId: number,
+    @Body() body: { placeLabel?: unknown } | undefined,
   ): Promise<Record<string, unknown>> {
-    return this.service.exclude(account.accountId, itemId);
+    // 이름을 저장하지 않은 고른 곳을 직접 정한 곳으로 둘 때 사용자가 친 이름 (DR-PR-001)
+    const placeLabel = typeof body?.placeLabel === 'string' ? body.placeLabel : '';
+    return this.service.exclude(account.accountId, itemId, placeLabel);
   }
 }
 
