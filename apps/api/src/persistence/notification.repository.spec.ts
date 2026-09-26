@@ -177,7 +177,7 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
       await auditWithR10(['VE01', 'EX02']);
       const [found] = await repo.opportunityCandidates([watched()]);
       // 이동수단도 붙인다 — 넣을 자리의 사전 확인이 대중교통이면 길찾기를 부르지 않는다 (UI-S7-008)
-      expect(found).toMatchObject({ productId, ldongRegnCd: '51', missingLcls2: ['VE01', 'EX02'], transport: 'CHARTER_BUS' });
+      expect(found).toMatchObject({ productId, ldongRegnCd: '51', missingLcls2: ['VE01', 'EX02'], transport: 'CHARTER_BUS', accountId });
       expect(found?.items).toEqual([{ dayNo: 1, seq: 1, startTime: '10:00', endTime: null, mapX: null, mapY: null }]);
     });
 

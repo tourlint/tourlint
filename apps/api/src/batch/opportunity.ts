@@ -123,6 +123,8 @@ export interface OpportunityCandidate extends ImpactCandidate {
   readonly items: readonly OpportunityItem[];
   /** 이동수단. 대중교통이면 길찾기를 부르지 않는다 (EI-KM-007). 모르면 부르지 않는다 */
   readonly transport?: Transport;
+  /** 상품의 계정. 사전 확인을 계정마다 돌아가며 나눌 때 쓴다 (#690 과 같은 까닭). 모르면 상품 하나를 한 계정으로 본다 */
+  readonly accountId?: number;
 }
 
 /** 조건 5 가 찾은 빈 시간대 */
@@ -403,4 +405,28 @@ export function addClock(time: string, minutes: number): string | null {
   const total = base + minutes;
   if (total >= 24 * 60) return null;
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/**
+ * 계정마다 한 건씩 돌아가며 줄 세운다 (순수 함수). 사전 확인처럼 한 배치가 쓸 수 있는 양이 정해진 일을
+ * 상품 번호 순으로 나누면 번호가 작은 상품을 가진 계정이 다 쓴다 — 감시 상한을 전체에서 세던 #690 과
+ * 같은 모양이다. 계정 안의 순서와 계정의 순서(처음 나온 순서)는 그대로 둔다 — 같은 입력이면 늘 같은
+ * 줄이다 (NF-MT-001).
+ */
+export function roundRobinByAccount<T>(items: readonly T[], accountOf: (item: T) => string): T[] {
+  const queues = new Map<string, T[]>();
+  for (const item of items) {
+    const key = accountOf(item);
+    const queue = queues.get(key) ?? [];
+    queue.push(item);
+    queues.set(key, queue);
+  }
+  const out: T[] = [];
+  for (let round = 0; out.length < items.length; round += 1) {
+    for (const queue of queues.values()) {
+      const next = queue[round];
+      if (next !== undefined) out.push(next);
+    }
+  }
+  return out;
 }

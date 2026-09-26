@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_DETOUR_METERS, OPPORTUNITY_CAP_PER_PRODUCT, addClock, capOpportunities, departureOf, detourMeters, dwellOf, freeSlots,
-  isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType, pickSlot, precheckSlot,
+  isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType, pickSlot, precheckSlot, roundRobinByAccount,
   type OpportunityCandidate, type OpportunityItem, type OpportunitySlot,
 } from './opportunity';
 import { straightMeters } from '../engine/geo';
@@ -327,5 +327,13 @@ describe('사전 확인 — 겹침 · 이동 (UI-S7-008 · FR-MO-052)', () => {
     expect(departureOf('', 1, '12:00')).toBeNull();
     expect(addClock('12:00', 80)).toBe('13:20');
     expect(addClock('23:30', 60)).toBeNull();
+  });
+});
+
+describe('계정마다 돌아가며 (UI-S7-008 · #690 과 같은 까닭)', () => {
+  it('🔴 한 계정이 앞을 다 차지하지 않는다 — 계정 안 순서와 계정 순서는 그대로다', () => {
+    const items = ['a1', 'a2', 'a3', 'b1', 'c1', 'c2'];
+    expect(roundRobinByAccount(items, (x) => x.slice(0, 1))).toEqual(['a1', 'b1', 'c1', 'a2', 'c2', 'a3']);
+    expect(roundRobinByAccount([], (x: string) => x)).toEqual([]);
   });
 });

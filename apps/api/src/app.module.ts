@@ -254,7 +254,9 @@ import { SettingsRepository } from './settings/settings.repository';
           },
           /*
            * 새 소식의 넣을 자리를 미리 볼 때만 길찾기를 부른다 (UI-S7-008 · FR-MO-052). 상한 안에 든 새 소식만,
-           * 한 배치에 스무 건까지다. 키가 없거나 실패하면 그 구간을 모른다고 남긴다 — 알림은 그대로 만든다.
+           * 한 배치에 스무 건 · 60초까지다. 그 구간만의 실패(경로 없음 · 요청 오류)는 모른다로 남기고,
+           * 제공자가 응답하지 않거나(시간 초과 · 연결 실패 · 5xx) 키가 없으면 던져 사전 확인을 멈춘다
+           * (EX-EI-022). 어느 쪽이든 알림은 그대로 만든다.
            */
           travel: (() => {
             let kakao: KakaoMobilityClient | null | undefined;
@@ -266,12 +268,12 @@ import { SettingsRepository } from './settings/settings.repository';
                   kakao = null;
                 }
               }
-              if (kakao === null) return null;
+              if (kakao === null) throw new Error('길찾기 클라이언트를 만들지 못했다');
               try {
                 const route = await kakao.route(from, to, departureAt);
                 return { minutes: Math.ceil(route.durationSeconds / 60), futureBased: route.futureBased };
               } catch (e) {
-                if (isKakaoError(e)) return null;
+                if (isKakaoError(e) && !e.retryable) return null;
                 throw e;
               }
             };

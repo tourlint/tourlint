@@ -235,19 +235,25 @@ export class NotificationRepository {
       itemsOf.set(Number(row.product_id), list);
     }
 
-    // 이동수단 — 넣을 자리의 사전 확인이 대중교통이면 길찾기를 부르지 않는다 (UI-S7-008 · EI-KM-007)
-    const transports = await this.pool.query<{ id: string; transport: Transport }>(
-      `SELECT id, transport FROM product WHERE id = ANY($1::bigint[])`,
+    /*
+     * 이동수단 · 계정 — 넣을 자리의 사전 확인이 대중교통이면 길찾기를 부르지 않고(EI-KM-007), 한 배치의
+     * 사전 확인을 계정마다 돌아가며 나눈다 (UI-S7-008 · #690 과 같은 까닭)
+     */
+    const owners = await this.pool.query<{ id: string; transport: Transport; account_id: string }>(
+      `SELECT id, transport, account_id FROM product WHERE id = ANY($1::bigint[])`,
       [ids],
     );
-    const transportOf = new Map(transports.rows.map((r) => [Number(r.id), r.transport]));
+    const ownerOf = new Map(owners.rows.map((r) => [Number(r.id), { transport: r.transport, accountId: Number(r.account_id) }]));
 
-    return watched.map((c) => ({
-      ...c,
-      missingLcls2: [...new Set(missingOf.get(c.productId) ?? [])],
-      items: itemsOf.get(c.productId) ?? [],
-      ...(transportOf.has(c.productId) ? { transport: transportOf.get(c.productId) } : {}),
-    }));
+    return watched.map((c) => {
+      const owner = ownerOf.get(c.productId);
+      return {
+        ...c,
+        missingLcls2: [...new Set(missingOf.get(c.productId) ?? [])],
+        items: itemsOf.get(c.productId) ?? [],
+        ...(owner === undefined ? {} : { transport: owner.transport, accountId: owner.accountId }),
+      };
+    });
   }
 
   /**
