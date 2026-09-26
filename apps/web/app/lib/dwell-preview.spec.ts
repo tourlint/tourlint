@@ -51,7 +51,12 @@ describe("dwellDefault — 채워질 시각 · 「기본값 적용」 (UI-S2-009
     expect(dwellDefaultOf(item)).toEqual({ minutes: 60, end: "15:30", preview: true });
     expect(dwellDefaultOf({ ...item, matchStatus: "PENDING" })).toBeNull();
     expect(dwellDefaultOf({ start: "14:30", end: null, itemType: "SIGHT", matchStatus: "CONFIRMED" })).toBeNull();
-    // 직접 정한 곳은 분류가 없어 90분이다 — 엔진도 그렇게 채운다
-    expect(dwellDefaultOf({ ...item, matchStatus: "EXCLUDED", lcls2: null })).toEqual({ minutes: 90, end: "16:00", preview: true });
+  });
+
+  it("🔴 직접 정한 곳은 검수가 판정에서 빼므로 채울 시각 · 「기본값 적용」 을 짓지 않는다", () => {
+    const excluded = { start: "14:00", end: null, itemType: "SIGHT", matchStatus: "EXCLUDED", lcls2: null, endTimeSource: "DWELL_DEFAULT" };
+    expect(dwellDefaultOf(excluded)).toBeNull();
+    // 걷기 길 — 넣을 때 끝을 90분으로 채웠어도 배지를 달지 않는다
+    expect(dwellDefaultOf({ ...excluded, end: "15:30" })).toBeNull();
   });
 });

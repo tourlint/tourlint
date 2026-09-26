@@ -9,16 +9,17 @@ import { Section, SelectInput, TextInput } from "./controls";
 import { SchedulePlaceInput, type PlaceInputHandle } from "./schedule-place-input";
 import { canAnchor } from "./schedule-place-search";
 import { ITEM_TYPE_OPTIONS, dayCount, type ItemType, type Nights, type Schedule, type ScheduleItem } from "./types";
-import { dwellDefault, type DwellDefault } from "../../../lib/dwell-preview";
+import { dwellDefault, knownLcls2, type DwellDefault } from "../../../lib/dwell-preview";
 import { StatusBadge } from "../../../components/badges";
 
 /**
  * 그 줄의 끝 시각이 기본 체류시간에서 오는가 (FR-IN-011 · UI-S2-009). 분류는 불러온 줄이면 저장된
- * 분류(고르는 중이면 모름), 이 화면에서 고른 줄이면 고른 곳의 분류다. 모르면 시각을 짓지 않는다.
+ * 분류(고르는 중 · 직접 정한 곳이면 모름), 이 화면에서 고른 줄이면 고른 곳의 분류다. 모르면 시각을
+ * 짓지 않는다.
  */
 export function dwellOfRow(it: ScheduleItem): DwellDefault | null {
   const lcls2 = it.saved !== undefined
-    ? (it.saved.matchStatus === "PENDING" ? undefined : it.saved.lcls2)
+    ? knownLcls2(it.saved.matchStatus, it.saved.lcls2)
     : it.content ? (it.content.lcls2 ?? null) : undefined;
   return dwellDefault({
     start: it.start,

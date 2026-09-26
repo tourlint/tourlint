@@ -63,6 +63,8 @@ describe("끝 시각 — 채워질 시각과 「기본값 적용」 (FR-IN-011 �
       row({ itemId: 1, place: "강릉 경포대" }),
       row({ itemId: 2, seq: 2, place: "세인트존스 호텔", itemType: "LODGING", start: "18:00", end: null, lcls2: "AC01", endTimeSource: "DWELL_DEFAULT" }),
       row({ itemId: 3, seq: 3, place: "경포해변", matchStatus: "PENDING", ktoContentId: null, end: null, lcls2: null, endTimeSource: "DWELL_DEFAULT" }),
+      // 걷기 길 — 직접 정한 곳이라 검수가 판정에서 뺀다
+      row({ itemId: 4, seq: 4, place: "해파랑길 35코스", matchStatus: "EXCLUDED", ktoContentId: null, start: "14:00", end: "15:30", lcls2: null, endTimeSource: "DWELL_DEFAULT" }),
     ]);
     expect(host.textContent).not.toContain("기본값 적용");
     // 고르는 중인 줄은 분류를 몰라 시각은 짓지 않고 안내만 둔다

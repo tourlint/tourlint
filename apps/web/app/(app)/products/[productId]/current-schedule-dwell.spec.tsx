@@ -13,10 +13,21 @@ const render = (items: ProductItem[]) => renderToStaticMarkup(
 
 describe("현재 일정표 — 끝 시간을 비운 줄 (FR-IN-011 · EX-IN-009)", () => {
   it("🔴 「종료 미입력」 대신 검수가 채운 시각과 「기본값 적용 · N분」 을 보인다", () => {
-    const html = render([item({ itemId: 3, place: "주문진 등대", start: "14:30", end: null, lcls2: null, matchStatus: "EXCLUDED", endTimeSource: "DWELL_DEFAULT" })]);
-    expect(html).toContain("16:00");
-    expect(html).toContain("기본값 적용 · 90분");
+    const html = render([item({ itemId: 3, place: "주문진 등대", start: "14:30", end: null, lcls2: "VE01", endTimeSource: "DWELL_DEFAULT" })]);
+    expect(html).toContain("15:30");
+    expect(html).toContain("기본값 적용 · 60분");
     expect(html).not.toContain("종료 미입력");
+  });
+
+  it("🔴 직접 정한 곳은 검수가 판정에서 빼므로 채운 시각 · 배지를 달지 않는다", () => {
+    const html = render([
+      item({ itemId: 4, place: "강릉역", itemType: "MOVE", start: "09:00", end: null, lcls2: null, matchStatus: "EXCLUDED", endTimeSource: "DWELL_DEFAULT" }),
+      // 걷기 길 — 넣을 때 끝을 90분으로 채웠다
+      item({ itemId: 5, seq: 2, place: "해파랑길 35코스", start: "14:00", end: "15:30", lcls2: null, matchStatus: "EXCLUDED", endTimeSource: "DWELL_DEFAULT" }),
+    ]);
+    expect(html).not.toContain("기본값 적용");
+    expect(html).toContain("09:00 – 종료 미입력");
+    expect(html).toContain("14:00 – 15:30");
   });
 
   it("🔴 장소 담기가 채운 끝 시각에도 붙인다", () => {

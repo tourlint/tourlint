@@ -30,4 +30,16 @@ describe("일정 입력 — 끝 시간을 비운 줄 (UI-S2-009)", () => {
     // 고르는 중인 줄은 저장된 분류가 없다
     expect(dwellOfRow({ ...saved, end: "", saved: { ...saved.saved!, matchStatus: "PENDING", lcls2: null } })).toBeNull();
   });
+
+  it("🔴 편집 화면 — 직접 정한 곳은 끝을 비워도 · 체류시간으로 채웠어도 짓지 않는다", () => {
+    const walk: ScheduleItem = {
+      id: "srv-12", itemId: 12, start: "14:00", end: "15:30", place: "해파랑길 35코스", itemType: "SIGHT",
+      saved: { end: "15:30", endTimeSource: "DWELL_DEFAULT", lcls2: null, matchStatus: "EXCLUDED" },
+    };
+    expect(dwellOfRow(walk)).toBeNull();
+    expect(dwellOfRow({ ...walk, end: "" })).toBeNull();
+    const html = renderToStaticMarkup(<ScheduleEditor nights={0} schedule={[[{ ...walk, end: "" }]]} onChange={() => {}} />);
+    expect(html).not.toContain("기본값 적용");
+    expect(html).not.toContain("까지로 채워요");
+  });
 });

@@ -54,7 +54,16 @@ export function dwellDefault(line: DwellLine): DwellDefault | null {
   return line.endFromDwell ? { minutes, end: line.end, preview: false } : null;
 }
 
-/** 상품 상세의 항목 한 줄. 고르는 중인 줄은 분류가 아직 정해지지 않았다 */
+/**
+ * 저장된 줄의 분류 — 모르면 `undefined` 라 시각 · 배지를 짓지 않는다. 고르는 중(PENDING)이면 분류가
+ * 검수 때 정해지고, 직접 정한 곳(EXCLUDED)은 검수가 판정에서 통째로 빼서(`audit-runner` · FR-IN-025)
+ * 채울 시각이 어디에도 쓰이지 않는다. 걷기 길도 직접 정한 곳이다.
+ */
+export function knownLcls2(matchStatus: string, lcls2: string | null | undefined): string | null | undefined {
+  return matchStatus === "PENDING" || matchStatus === "EXCLUDED" ? undefined : lcls2;
+}
+
+/** 상품 상세의 항목 한 줄. 고르는 중 · 직접 정한 곳은 짓지 않는다 (`knownLcls2`) */
 export function dwellDefaultOf(item: {
   start: string;
   end: string | null;
@@ -67,7 +76,7 @@ export function dwellDefaultOf(item: {
     start: item.start,
     end: item.end,
     itemType: item.itemType,
-    lcls2: item.matchStatus === "PENDING" ? undefined : item.lcls2,
+    lcls2: knownLcls2(item.matchStatus, item.lcls2),
     endFromDwell: item.endTimeSource !== undefined && item.endTimeSource !== "INPUT",
   });
 }

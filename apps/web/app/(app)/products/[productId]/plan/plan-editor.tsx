@@ -220,8 +220,8 @@ function ItemRow({
   // 숙박은 끝 시간이 없다. 그 밖에 끝 시간을 비운 항목은 검수가 보통 머무는 시간으로 채운다.
   const endHint = item.matchStatus !== "EXCLUDED" && item.end === null && item.itemType !== "LODGING";
   // 끝 시각이 기본 체류시간에서 오는 줄 — 채워질 시각(회색)과 「기본값 적용 · N분」 (FR-IN-011 · UI-S2-009 · 032).
-  // 고르는 중인 줄은 분류가 아직 없어 시각을 짓지 않는다. 직접 정한 곳은 이용시간 안내만 적는다 (UI-S2-035)
-  const dwell = item.matchStatus === "EXCLUDED" ? null : dwellDefaultOf(item);
+  // 고르는 중인 줄은 분류가 아직 없고, 직접 정한 곳은 검수가 판정에서 빼서 짓지 않는다 (UI-S2-035)
+  const dwell = dwellDefaultOf(item);
   // 고르지 않은 줄은 접어 둔다 — [장소 찾기]를 눌러야 검색칸이 열린다 (UI-S2-034)
   const [searching, setSearching] = useState(false);
   // 고른 뒤에도 그 줄 안에서 다시 찾는다 (FR-IN-029 · #802)
