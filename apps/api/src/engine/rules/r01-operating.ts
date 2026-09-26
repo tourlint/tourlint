@@ -29,6 +29,8 @@ import {
  */
 
 /**
+ * `1.0.7` — 숙박은 입실 시각을 본다: 도착이 입실보다 이르면 주의 · 확인 필요, 입실 시각을 모르면 확인 불가
+ *   (FR-PA-024 · #875). 11번째 규칙으로 두지 않는다 — 기능설명서의 R01 이 「일정 시각에 열려 있는가」다
  * `1.0.6` — 휴무 · 운영시간을 모를 때(1-7 · 2-4) 남은 조각의 사유로 말한다 — 대상별 상이 · 참조형 · 조건 ·
  *   여러 범위 (EX-PS-002 · EX-PS-007 · #855). 전에는 늘 「… 정보를 확인할 수 없습니다」 였다
  * `1.0.5` — 게이트는 아직 남은 미해석 조각이 가리키는 경로만 본다. AI 가 읽어 뺀 조각은 해석된 것이다 (#784)
@@ -37,7 +39,7 @@ import {
  * `1.0.2` — 축제의 휴무 확인 불가만 막았다. 운영시간 단계로 흘러가 문제를 옮기기만 했다
  * `1.0.1` — 조건부 휴무 문구에서 원문을 뺐다 (FR-AU-071 계열 · DR-NM-014 · 이슈 #361)
  */
-export const R01_VERSION = '1.0.6';
+export const R01_VERSION = '1.0.7';
 
 /**
  * 1단계 결과.
@@ -335,6 +337,51 @@ function unknownBecause(
   );
 }
 
+/** 공사 콘텐츠 유형 — 숙박 */
+const LODGING_TYPE = 32;
+
+/**
+ * 숙박 — 도착이 입실 시각보다 이른가 (FR-PA-024 · #875).
+ *
+ * 공사 자료는 입실 **시작** 시각만 준다. 그래서 「입실 가능 시간을 넘기는가」 가운데 판정할 수 있는 것은
+ * 입실 전 도착뿐이다. 이른 도착은 짐 보관 · 이른 입실로 풀리는 일이 많아 차단 · 오류가 아니라 주의로 두고
+ * 확인 필요 목록에 올린다. 입실 시각을 모르면 정상으로 넘기지 않는다 (FR-RU-051).
+ */
+function lodgingCheckIn(item: AuditItem): readonly Finding[] {
+  const n = item.content?.normalized ?? null;
+  const date = parseIsoDate(item.date);
+  if (date === null) return [];
+  if (n === null) {
+    return [unverified(item, placeLine(item, '입실 시각 정보를 해석하지 못했습니다'), { step: 'L-2', date: item.date }, 'PARSE_SCHEMA_INVALID')];
+  }
+  if (n.checkIn === null) {
+    const reason = n.unparsed.find((u) => u.affects.includes('checkIn'))?.reason ?? 'MISSING';
+    return [unverified(
+      item,
+      placeLine(item, `${UNPARSED_REASON_TEXT[reason]('입실 시각')} 확인할 수 없습니다. 출시 전 숙소에 직접 확인해 주세요`),
+      { step: 'L-2', date: item.date },
+      UNPARSED_REASON_CODE[reason],
+    )];
+  }
+  if (toMinutes(item.startTime) >= toMinutes(n.checkIn)) return [];
+  return [{
+    ruleCode: 'R01',
+    ruleVersion: R01_VERSION,
+    severity: 'WARNING',
+    // 사유코드 15종 안에서 고른다 — 일정 시각이 그곳이 받는 시각 밖이다
+    reasonCode: 'OPEN_HOUR_CONFLICT',
+    targetItemId: item.id,
+    message: placeLine(
+      item,
+      `${dateLabel(date)} 도착 시각 ${item.startTime}이 입실 시각 ${n.checkIn}보다 이릅니다. 이른 입실이나 짐 보관이 되는지 숙소에 확인해 주세요`,
+    ),
+    evidence: { step: 'L-1', verdict: 'BEFORE_CHECK_IN', date: item.date, arrival: item.startTime, checkIn: n.checkIn },
+    requiresExternal: false,
+    externalSource: null,
+    needsConfirmation: true,
+  }];
+}
+
 /** [4단계] 등급 매핑 */
 const SEVERITY_BY_VERDICT: Readonly<Record<string, { severity: Severity; reason: ReasonCode }>> = {
   CLOSED: { severity: 'BLOCKER', reason: 'REST_DAY_CONFLICT' },
@@ -368,8 +415,10 @@ export class R01OperatingRule implements AuditRule {
     // 매칭되지 않은 항목은 판정 대상이 아니다 — R05 가 다룬다
     if (item.content === null || item.matchStatus !== 'CONFIRMED') return [];
 
-    // FR-RU-015 · FR-AU-011 — 휴무일 필드가 없는 유형(축제 · 숙박)은 R01 대상이 아니다.
-    // 숙박의 입실 · 퇴실은 정규화가 따로 해석해 F09 가 쓴다
+    // FR-PA-024 — 숙박은 휴무 · 운영시간 대신 입실 시각을 본다 (#875)
+    if (item.content.contentTypeId === LODGING_TYPE) return lodgingCheckIn(item);
+    // FR-RU-015 · FR-AU-011 — 휴무일 필드가 없는 유형(축제)은 R01 대상이 아니다. 숙박으로 적었지만
+    // 숙박 콘텐츠가 아닌 줄은 입실 시각이 없으니 보지 않는다
     if (hasNoRestDayField(item.content.contentTypeId) || item.itemType === 'LODGING') return [];
 
     const n = item.content.normalized;

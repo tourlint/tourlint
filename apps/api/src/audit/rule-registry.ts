@@ -42,14 +42,14 @@ export const RULES: readonly AuditRule[] = [
  * → `1.2.7` R09 예보를 못 받은 날은 평년 기준으로 판정한다 (#797) → `1.2.8` R05 출발 1일 이내 상품에
  *   「출발 전 운영기관 최종 확인」 을 올린다 (#808) → `1.2.9` R09 평년 기준 문장에 기준 평년과
  *   「예보가 아직 없는 날」을 적는다 (#849) → `1.2.10` R01 이 모르는 까닭을 남은 조각의 사유로 말하고,
- *   괄호 속 날짜 휴관을 시설 전체 휴무로 읽는다 (#855).
+ *   괄호 속 날짜 휴관을 시설 전체 휴무로 읽는다 (#855) → `1.2.11` R01 이 숙박 입실 시각을 본다 (#875).
  * R09 를 넣을 때 올리는 것을 빠뜨려 함께 올렸다 — 같은 버전으로 기록된 실행이
  * 실제로는 규칙 수가 다르면 나중에 결과를 되짚을 수 없다 (FR-AU-042).
  *
  * 규칙 수가 그대로여도 **판정 문구가 달라지면 올린다.** 저장된 finding 은 message 를
  * 그대로 들고 있어서, 같은 버전에 두 문구가 섞이면 어느 쪽인지 가릴 수 없다.
  */
-export const RULESET_VERSION = '1.2.10';
+export const RULESET_VERSION = '1.2.11';
 
 export interface RuleExplanation {
   /** 쓰는 데이터. 화면은 코드 대신 관광정보 · 일정 · 이동 시간 · 날씨 예보로 적는다 */
@@ -73,7 +73,7 @@ const percent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 export const RULE_EXPLANATIONS: Readonly<Record<string, RuleExplanation>> = {
   R01: {
     dataSources: ['KTO'],
-    threshold: '관광정보의 휴무일 · 운영시간 · 입장 마감 시각',
+    threshold: '관광정보의 휴무일 · 운영시간 · 입장 마감 시각 · 숙박 입실 시각',
     example: '경포대 — 10/26(월) 매주 월요일 휴무',
     companyAdjustable: false,
   },

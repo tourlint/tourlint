@@ -74,6 +74,8 @@ function r01(
   items: readonly AuditItem[],
   holidays: HolidayCalendar,
 ): readonly Patch[] {
+  // 숙박 입실 판정(L-*)에는 수정안을 붙이지 않는다 — 숙소를 옮기거나 바꾸는 것은 답이 아니다 (#875)
+  if (String(finding.evidence.step ?? '').startsWith('L-')) return [];
   const out: Patch[] = [];
   // 휴무를 몰라서 낸 확인 불가(1-7)는 사유가 PARSE_* 여도 휴무 쪽이다 — 날짜를 바꾸는 수정안이 맞다 (#855)
   const isRestDay = finding.reasonCode === 'REST_DAY_CONFLICT' || finding.reasonCode === 'REST_DAY_UNCERTAIN'
