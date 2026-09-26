@@ -13,6 +13,7 @@ import { STAGE_LABEL, STAGE_ORDER, type Stage } from "../lib/stage-of";
 import {
   alertChip,
   belongsTo,
+  isNotReleasable,
   isPastTrip,
   koreaToday,
   productHref,
@@ -603,6 +604,8 @@ export function ProductCard({ product: p, onDelete }: { product: WorkspaceProduc
         {NIGHTS[p.nights] ?? `${p.nights}박`}
       </span>
       {chip && <AlertChip chip={chip} />}
+      {/* 표에만 있던 배지를 보드에도 — 기본 보기가 보드다 (UI-S1-002) */}
+      {isNotReleasable(p) && <StatusBadge status="NOT_RELEASABLE" className="product-card-status" />}
       <h4>{p.name}</h4>
       <p className="product-region">
         <WorkspaceIcon name="pin" width="13" height="13" />
@@ -721,7 +724,7 @@ export function ProductTable({ products, onDelete }: { products: WorkspaceProduc
                         {a.readinessScore}
                         <small>점</small>
                       </strong>
-                      {!a.releasable && <StatusBadge status="NOT_RELEASABLE" />}
+                      {isNotReleasable(p) && <StatusBadge status="NOT_RELEASABLE" />}
                     </div>
                   ) : (
                     <span className="table-subtext">검수 전</span>

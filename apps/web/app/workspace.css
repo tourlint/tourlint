@@ -1707,6 +1707,14 @@ select {
 .alert-chip.is-unread {
   background: var(--notice-soft);
 }
+/* 보드 카드의 「출시 불가」 — 카드 글자 크기에 맞춘다 (UI-S1-002) */
+.product-card-status {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 9px;
+  line-height: 1.7;
+  vertical-align: middle;
+}
 .product-card.has-alert {
   border-color: color-mix(in srgb, var(--notice) 40%, var(--line));
 }

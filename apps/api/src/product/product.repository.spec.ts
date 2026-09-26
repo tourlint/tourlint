@@ -75,6 +75,20 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     expect(listA.rows[0]?.pendingMatches).toBe(3);
   });
 
+  it('🔴 목록에 기획을 시작한 방법을 싣는다 — 기록이 없는 상품은 null (UI-S1-010)', async () => {
+    const { product } = validateCreate({
+      name: '강릉 메모로 시작 스펙', ldongRegnCd: '51', ldongSignguCd: '150',
+      startDate: '2026-10-23', nights: 0, transport: 'CAR', planOrigin: { startedBy: 'TEXT' },
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const fromText = await repo.create(accountA, product);
+    const plain = await repo.create(accountA, sample());
+
+    const { rows } = await repo.list(accountA, 0, 100);
+    expect(rows.find((r) => r.id === fromText.productId)?.startedBy).toBe('TEXT');
+    expect(rows.find((r) => r.id === plain.productId)?.startedBy).toBeNull();
+  });
+
   it('남의 상품은 상세·수정·삭제가 안 된다', async () => {
     const created = await repo.create(accountA, sample());
     expect(await repo.detail(accountB, created.productId)).toBeNull();

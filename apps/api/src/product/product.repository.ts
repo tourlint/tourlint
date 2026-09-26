@@ -47,6 +47,8 @@ export interface ProductListRow {
   /** 검수 시작을 누른 시각. null 이면 기획 중 (DR-IN-014) */
   readonly plannedAt: string | null;
   readonly releasedAt: string | null;
+  /** 기획을 시작한 방법(`plan_origin.startedBy`). 기록이 없는 상품은 null — 보드의 기획 중 카드가 쓴다 (UI-S1-010) */
+  readonly startedBy: string | null;
 }
 
 export interface ProductDetailRow {
@@ -166,7 +168,7 @@ export class ProductRepository {
 
     const { rows } = await this.pool.query<ListRaw>(
       `SELECT p.id, p.name, p.start_date, p.nights, p.ldong_regn_cd, p.ldong_signgu_cd,
-              p.planned_at, p.released_at,
+              p.planned_at, p.released_at, p.plan_origin ->> 'startedBy' AS started_by,
               (SELECT count(*) FROM itinerary_item it
                  WHERE it.product_id = p.id AND it.match_status = 'PENDING')::int AS pending,
               nt.unread, nt.active, nt.risks,
@@ -772,6 +774,7 @@ interface ListRaw {
   failed_count: number | null;
   planned_at: Date | string | null;
   released_at: Date | string | null;
+  started_by: string | null;
 }
 
 /**
@@ -828,6 +831,7 @@ function toListRow(r: ListRaw, scores: ReadonlyMap<string, ScoreResult>): Produc
     latestAudit,
     plannedAt: isoStamp(r.planned_at),
     releasedAt: isoStamp(r.released_at),
+    startedBy: r.started_by ?? null,
   };
 }
 

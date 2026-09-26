@@ -422,7 +422,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>GET</td>
 <td>`/api/v1/products`</td>
-<td>상품 목록. 홈(내 상품) 보드용 — 출시 준비도 · 등급별 건수 · 알림 수 포함. 행마다 `plannedAt` · `releasedAt` 으로 칸(기획 중 · 검수 중 · 출시할 수 있음 · 출시함)을 나눈다. 알림 수는 셋이다 — `unreadNotifications`(확인하지 않은 알림) · `activeNotifications`(무시하지 않은 알림) · `risksSinceAudit`(알림 뒤에 다시 검수하지 않은 바뀐 정보, 목록의 `latestAudit.executedAt` 과 견준다). 무시한 알림은 세지 않고 여행이 끝난 상품은 셋 다 0 이다(FR-MO-018)</td>
+<td>상품 목록. 홈(내 상품) 보드용 — 출시 준비도 · 등급별 건수 · 알림 수 포함. 행마다 `plannedAt` · `releasedAt` 으로 칸(기획 중 · 검수 중 · 출시할 수 있음 · 출시함)을 나눈다. 알림 수는 셋이다 — `unreadNotifications`(확인하지 않은 알림) · `activeNotifications`(무시하지 않은 알림) · `risksSinceAudit`(알림 뒤에 다시 검수하지 않은 바뀐 정보, 목록의 `latestAudit.executedAt` 과 견준다). 무시한 알림은 세지 않고 여행이 끝난 상품은 셋 다 0 이다(FR-MO-018). `startedBy` 는 기획을 시작한 방법(`plan_origin.startedBy` — MANUAL · UPLOAD · TEXT · SIGNAL)이고 기록이 없는 상품은 `null` 이다 — 보드의 기획 중 카드가 쓴다(UI-S1-010)</td>
 <td>FR-CM-005 · FR-PL-001</td>
 </tr>
 <tr>
@@ -1151,7 +1151,8 @@ POST /api/v1/radar/today
       "unreadNotifications": 3,
       "activeNotifications": 4,
       "risksSinceAudit": 1,
-      "pendingMatches": 0
+      "pendingMatches": 0,
+      "startedBy": "MANUAL"
     }
   ],
   "page": 0, "size": 20, "totalElements": 1, "totalPages": 1
