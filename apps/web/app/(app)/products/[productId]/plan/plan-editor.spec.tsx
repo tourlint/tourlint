@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { auditApi, matchApi, planApi, productApi, type ProductDetail, type ProductItem } from "../../../../lib/api";
+import { agentApi, auditApi, matchApi, planApi, productApi, type ProductDetail, type ProductItem } from "../../../../lib/api";
 import { PlanEditor } from "./plan-editor";
 
 const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
@@ -67,5 +67,48 @@ describe("끝 시각 — 채워질 시각과 「기본값 적용」 (FR-IN-011 �
     expect(host.textContent).not.toContain("기본값 적용");
     // 고르는 중인 줄은 분류를 몰라 시각은 짓지 않고 안내만 둔다
     expect(rowText("경포해변")).toContain("끝 시간을 비우면 보통 머무는 시간으로 채워요.");
+  });
+});
+
+describe("고르지 않은 줄 (UI-S2-034 · UI-S2-023)", () => {
+  const beach = row({ itemId: 5, place: "경포해변", matchStatus: "PENDING", ktoContentId: null, lcls2: null });
+  const station = row({ itemId: 6, seq: 2, place: "강릉역", matchStatus: "PENDING", ktoContentId: null, lcls2: null, itemType: "MOVE" });
+  const buttonsIn = (place: string, label: string) =>
+    [...([...host.querySelectorAll("li.plan-timeline-item")].find((li) => li.textContent?.includes(place))?.querySelectorAll("button") ?? [])]
+      .filter((b) => b.textContent === label);
+  const click = async (label: string) => act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent === label)!.click());
+
+  it("🔴 줄 아래에는 「아직 고르지 않음」 과 두 버튼만 있고, 카드가 다루는 줄은 두 버튼을 숨긴다", async () => {
+    vi.spyOn(agentApi, "placeSuggestions").mockResolvedValue({
+      items: [{ itemId: 6, kind: "NOT_FOUND", place: null, alternatives: [], reason: "" }],
+      summary: { found: 0, notFound: 1, noName: 0 },
+      // 경포해변은 끝내지 못했다 — 카드에 없으니 줄에서 고른다 (EX-AG-002)
+      incomplete: { reasonCode: "LLM_UNAVAILABLE", itemIds: [5] },
+    });
+    await open([beach, station]);
+    await act(async () => { await new Promise((r) => setTimeout(r, 350)); });
+    expect(rowText("경포해변")).toContain("아직 고르지 않음");
+    expect(host.querySelector("li.plan-timeline-item input")).toBeNull();
+    expect(buttonsIn("강릉역", "장소 찾기")).toHaveLength(1);
+
+    await click("AI로 한 번에 찾기");
+    expect(buttonsIn("강릉역", "장소 찾기")).toHaveLength(0);
+    expect(buttonsIn("강릉역", "직접 정한 곳으로 두기")).toHaveLength(0);
+    expect(buttonsIn("경포해변", "장소 찾기")).toHaveLength(1);
+    expect(host.textContent).toContain("지금은 AI로 정리할 수 없어요");
+  });
+
+  it("🔴 검수 시작 창의 [AI로 한 번에 찾기]는 창을 닫고 같은 찾기를 돌린다", async () => {
+    const suggest = vi.spyOn(agentApi, "placeSuggestions").mockResolvedValue({
+      items: [{ itemId: 5, kind: "NOT_FOUND", place: null, alternatives: [], reason: "" }],
+      summary: { found: 0, notFound: 1, noName: 0 }, incomplete: null,
+    });
+    await open([beach, station]);
+    await click("검수 시작 →");
+    expect(host.textContent).toContain("1일차 · 10:00 · 경포해변");
+    await click("AI로 한 번에 찾기");
+    expect(suggest).toHaveBeenCalledWith(70);
+    expect(host.textContent).not.toContain("검수를 시작할까요?");
+    expect(host.textContent).toContain("1곳은 못 찾았어요");
   });
 });

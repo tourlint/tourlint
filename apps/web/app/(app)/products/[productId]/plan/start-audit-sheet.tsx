@@ -1,15 +1,35 @@
 "use client";
 
-// 검수 시작 창 (D7 · FR-PL-020 · UI-S2-045). 누르면 무엇을 확인하는지 알려 주고, 고르지 않은
-// 곳이 남았으면 이대로 검수를 시작할지 묻는다. 예산이 다 차면 429 로 막히고 상품은 기획 중에
-// 남는다 — 무엇이 · 왜 · 다음에 무엇을 할지 안내한다.
+// 검수 시작 창 (D7 · FR-PL-020 · UI-S2-042). 누르면 무엇을 확인하는지 알려 주고, 고르지 않은
+// 곳이 남았으면 그 목록과 [AI로 한 번에 찾기] · [이대로 검수 시작] · [돌아가기]를 준다
+// (UI-S2-023 · EX-PL-005). 예산이 다 차면 429 로 막히고 상품은 기획 중에 남는다 — 무엇이 · 왜 ·
+// 다음에 무엇을 할지 안내한다.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { isApiError, productApi } from "../../../../lib/api";
 import { AuditBudgetNotice, budgetBlockedText, useAuditAvailability } from "../../../../lib/audit-availability";
 
-export function StartAuditSheet({ productId, pendingCount }: { productId: number; pendingCount: number }) {
+/** 창에 적는 고르지 않은 줄 — 일차 · 시각 · 이름 */
+export interface PendingLine {
+  readonly itemId: number;
+  readonly day: number;
+  readonly start: string;
+  readonly place: string;
+}
+
+export function StartAuditSheet({
+  productId,
+  pendingCount,
+  pendingItems = [],
+  onFindAll,
+}: {
+  productId: number;
+  pendingCount: number;
+  pendingItems?: readonly PendingLine[];
+  /** 창을 닫고 기획 화면의 [AI로 한 번에 찾기]를 돌린다 */
+  onFindAll?: () => void;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -65,13 +85,22 @@ export function StartAuditSheet({ productId, pendingCount }: { productId: number
             {blocked !== null ? (
               <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">{blocked}</p>
             ) : pendingCount > 0 ? (
-              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                아직 고르지 않은 곳이 {pendingCount}곳 있어요. 이대로 시작하면 그곳은 검수에서 빠져요.
-              </p>
+              <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                <p>아직 고르지 않은 곳이 {pendingCount}곳 있어요. 이대로 시작하면 그곳은 검수에서 빠져요.</p>
+                {pendingItems.length > 0 && (
+                  <ul aria-label="아직 고르지 않은 곳" className="mt-2 max-h-40 space-y-0.5 overflow-y-auto text-xs">
+                    {pendingItems.map((p) => (
+                      <li key={p.itemId}>
+                        {p.day}일차 · {p.start} · {p.place.trim() || "이름 없는 줄"}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             ) : null}
             {err && <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{err}</p>}
 
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -80,6 +109,19 @@ export function StartAuditSheet({ productId, pendingCount }: { productId: number
               >
                 돌아가기
               </button>
+              {blocked === null && pendingCount > 0 && onFindAll !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onFindAll();
+                  }}
+                  disabled={busy}
+                  className="rounded-lg border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:opacity-60 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                >
+                  AI로 한 번에 찾기
+                </button>
+              )}
               {blocked === null && (
                 <button
                   type="button"
