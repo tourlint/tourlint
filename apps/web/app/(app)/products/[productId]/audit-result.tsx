@@ -31,7 +31,7 @@ import {
 import { DISMISS_REASON_PRESET, SETTING_DEFAULTS, ktoFieldLabel } from "@tourlint/shared";
 import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
-import { contactText, readNormalized, readVerdict } from "../../../lib/evidence";
+import { contactText, readNormalized, readVerdict, ruleLine } from "../../../lib/evidence";
 import { ruleName } from "../../../lib/rule-names";
 import { scoreSentence } from "../../../lib/score-sentence";
 import { WorkspaceIcon } from "../../../components/workspace-icon";
@@ -836,7 +836,7 @@ function FindingCard({
           {dismissed && finding.dismissReason && (
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">무시 사유: {finding.dismissReason}</p>
           )}
-          <EvidencePanel contentId={contentId} view={finding.evidenceView} ruleCode={finding.ruleCode} />
+          <EvidencePanel contentId={contentId} view={finding.evidenceView} ruleCode={finding.ruleCode} ruleVersion={finding.ruleVersion} />
           {!dismissed && finding.severity !== "UNVERIFIED" && onOpenPlaces && placeAction(finding.ruleCode) && <button type="button" className="button-secondary mt-3"
             onClick={() => onOpenPlaces(finding)}>{placeAction(finding.ruleCode)}</button>}
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
@@ -1187,6 +1187,7 @@ function EvidencePanel({
   view,
   extra,
   ruleCode,
+  ruleVersion,
 }: {
   contentId: string | null;
   view?: EvidenceView;
@@ -1194,6 +1195,8 @@ function EvidencePanel({
   extra?: boolean;
   /** 규칙 번호는 머리에 두지 않고 이 근거 칸 안에서만 보인다 (UI-CM-031) */
   ruleCode?: string;
+  /** 그 판정을 낸 규칙의 버전 — 기능설명서의 「판정마다 규칙 버전 병기」 (#848) */
+  ruleVersion?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<ContentDetail | null>(
@@ -1235,7 +1238,7 @@ function EvidencePanel({
 
       {open && (
         <div className="mt-2 space-y-3 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900/60">
-          {ruleCode !== undefined && <p className="text-slate-400">규칙 {ruleCode}</p>}
+          {ruleCode !== undefined && <p className="text-slate-400">{ruleLine(ruleCode, ruleVersion)}</p>}
           <EvidenceBlock label="공사 원문" badge="KTO_ORIGINAL">
             {busy && <p className="text-slate-400">불러오는 중…</p>}
             {err !== null && <p className="text-slate-500 dark:text-slate-400">{err}</p>}

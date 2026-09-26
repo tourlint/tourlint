@@ -111,6 +111,15 @@ describe('리포트 렌더', () => {
     expect(src).not.toMatch(/\$\{f\.ruleCode\}/);
   });
 
+  it('🔴 판정 머리에 그 판정의 규칙 버전을 싣는다 (#848)', () => {
+    // 산출물은 한글이 CID 로 들어가 긁히지 않는다 — 위 규칙 이름 검사와 같이 소스를 본다
+    const src = readFileSync(join(__dirname, 'report-render.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(src).toMatch(/`규칙 버전 \$\{f\.ruleVersion\}`/);
+    expect(missingGlyphs('규칙 버전 1.0.5', FONT_BOLD)).toEqual([]);
+  });
+
   it('🔴 규칙 이름 열 가지를 전부 그릴 수 있다 — 판정 머리는 굵은 글꼴이다', () => {
     const names = Object.values(RULE_NAMES).join(' ');
     expect(missingGlyphs(names)).toEqual([]);
