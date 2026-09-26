@@ -152,7 +152,8 @@ export function ScheduleEditor({
                 type="checkbox"
                 aria-label={`${it.place || "빈 일정"} 기준`}
                 checked={anchorId === it.id && canAnchor(it.content)}
-                disabled={onAnchorChange === undefined}
+                // 직접 정한 곳은 좌표가 없어 근처 3km 의 기준이 될 수 없다
+                disabled={onAnchorChange === undefined || it.excluded === true}
                 onChange={(e) => {
                   requestedAnchor.current = it.id;
                   if (!e.target.checked) { requestedAnchor.current = null; onAnchorChange?.(null); }
@@ -184,6 +185,9 @@ export function ScheduleEditor({
               onAnchorReady={() => { if (requestedAnchor.current === it.id) onAnchorChange?.(it.id); }}
               value={it.place}
               content={it.content ?? null}
+              excluded={it.excluded === true}
+              // 편집 화면의 저장된 고른 곳은 여기서 직접 정한 곳으로 바꿀 길이 없다
+              canExclude={it.saved === undefined || it.saved.matchStatus !== "CONFIRMED"}
               regnCd={regnCd}
               signguCd={signguCd}
               regionLabel={regionLabel}

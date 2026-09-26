@@ -234,3 +234,27 @@ describe('줄이 들어온 경로 (FR-PL-020)', () => {
     expect(add('SIGNAL')).toBe('MANUAL');
   });
 });
+
+describe('직접 정한 곳으로 둔 줄 (UI-S2-021 · FR-IN-025)', () => {
+  it('🔴 등록 저장 본문의 excluded: true 를 받는다 — 관광지를 고른 줄은 고른 곳이다', () => {
+    const content = { contentId: '125790', contentTypeId: 12, mapx: 128.9, mapy: 37.79, lcls1: 'HS', lcls2: 'HS01' };
+    const { product } = validateCreate(base({
+      days: [
+        { day: 1, items: [
+          { start: '09:00', end: '09:30', place: '강릉역', itemType: 'MOVE', excluded: true },
+          { start: '10:00', end: '11:30', place: '경포대', itemType: 'SIGHT', excluded: true, content },
+          { start: '12:00', end: '13:00', place: '가람집', itemType: 'MEAL', excluded: 'yes' },
+        ] },
+        { day: 2, items: [] }, { day: 3, items: [] },
+      ],
+    }));
+    expect(product?.items.map((i) => i.excluded)).toEqual([true, false, false]);
+  });
+
+  it('🔴 항목 추가의 excluded: true 도 받는다', () => {
+    const add = (excluded?: unknown) => validateAddItem(
+      { dayNo: 1, startTime: '10:00', endTime: '', placeLabel: '협력 공방', itemType: 'SIGHT', excluded }, 3).item?.excluded;
+    expect(add(true)).toBe(true);
+    expect(add()).toBe(false);
+  });
+});

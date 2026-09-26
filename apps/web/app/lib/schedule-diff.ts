@@ -18,6 +18,8 @@ export interface EditedItem {
   readonly content?: MatchedContent | null;
   /** 새 항목이 들어온 경로 (FR-PL-020). 견주기는 이 값을 보지 않는다 */
   readonly origin?: InputItemOrigin;
+  /** 「직접 정한 곳으로 두기」를 고른 줄 (UI-S2-021). 견주기는 이 값을 보지 않는다 — 저장이 따로 부른다 */
+  readonly excluded?: boolean;
   readonly dayNo: number;
   readonly seq: number;
   readonly startTime: string;

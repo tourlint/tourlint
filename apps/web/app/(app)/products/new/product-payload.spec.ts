@@ -28,4 +28,13 @@ describe("등록 저장 본문 — 줄이 들어온 경로 (FR-PL-020)", () => {
     expect(buildPayload({ ...base, planOrigin: { startedBy: "TEXT" } }).planOrigin).toEqual({ startedBy: "TEXT" });
     expect(buildPayload(base).planOrigin).toBeNull();
   });
+
+  it("🔴 「직접 정한 곳으로 두기」를 고른 줄은 excluded 로 보낸다 — 관광지를 고른 줄은 보내지 않는다 (UI-S2-021)", () => {
+    const items = buildPayload({ ...base, schedule: [[
+      { id: "it-1", start: "09:00", end: "09:30", place: "강릉역", itemType: "MOVE", origin: "MANUAL", excluded: true },
+      { ...base.schedule[0]![2]!, excluded: true },
+      { id: "it-2", start: "10:00", end: "", place: "경포해변", itemType: "SIGHT", origin: "MANUAL" },
+    ]] }).days[0]?.items ?? [];
+    expect(items.map((i) => "excluded" in i ? i.excluded : undefined)).toEqual([true, undefined, undefined]);
+  });
 });

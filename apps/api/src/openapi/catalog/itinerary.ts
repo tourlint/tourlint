@@ -170,6 +170,7 @@ export const ITINERARY: readonly Endpoint[] = [
         itemType: ITEM_TYPES,
         origin: '들어온 경로 — MANUAL(직접 입력) · UPLOAD(엑셀) · TEXT(메모) · PICKER(장소 담기). 없으면 MANUAL',
         content: '고른 관광지(`GET /api/v1/plan/places` 결과 값)',
+        excluded: 'true 면 장소명을 둔 채 직접 정한 곳(검수 제외)으로 넣습니다. 걷기 길은 `{ walkId }`',
         'content.contentId': '관광지 번호',
         'content.contentTypeId': '관광지 유형 코드',
         'content.lcls1': '대분류 코드',

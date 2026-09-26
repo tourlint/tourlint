@@ -39,6 +39,8 @@ export function buildPayload(f: PayloadInput) {
         itemType: it.itemType,
         // 입력하는 순간 고른 관광지가 있으면 저장 시 CONFIRMED 로 (UI-S2-020 · create content 계약)
         ...(it.content ? { content: it.content } : {}),
+        // 「직접 정한 곳으로 두기」를 고른 줄은 EXCLUDED 로 (UI-S2-021)
+        ...(it.excluded && !it.content ? { excluded: true } : {}),
         // 줄이 들어온 경로 (FR-PL-020)
         origin: it.origin ?? "MANUAL",
       })),

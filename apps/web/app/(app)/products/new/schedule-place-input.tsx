@@ -3,7 +3,8 @@
 // 등록 화면 일정 행의 장소 칸 — 입력하는 순간 목록에서 고르기 (UI-S2-020 · 개편안 4-2 변경 지점 3).
 // 장소 칸에 치면 "(지역)에서 찾은 곳"이 드롭다운으로 뜨고(searchKeyword2), 고르면 ✓ 와 함께
 // 좌표·분류를 상세(detailCommon2)로 잡아 폼에 담는다. 저장(create)이 CONFIRMED 로 저장한다.
-// 못 찾으면 "직접 정한 곳으로 두기" — 매칭 없이 둔다(저장 시 PENDING, /plan 에서 이어 고름).
+// 못 찾으면 "직접 정한 곳으로 두기" — 그 줄에 「직접 정한 곳」 을 붙이고 저장하면 EXCLUDED 다
+// (UI-S2-021 · FR-IN-025). [다시 고르기]로 되돌린다.
 
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { contentApi, type ContentCandidate } from "../../../lib/api";
@@ -24,6 +25,8 @@ export function SchedulePlaceInput({
   regnCd,
   signguCd,
   regionLabel,
+  excluded = false,
+  canExclude = true,
   onChange,
 }: {
   ref?: Ref<PlaceInputHandle>;
@@ -33,7 +36,14 @@ export function SchedulePlaceInput({
   regnCd: string;
   signguCd: string | null;
   regionLabel: string;
-  onChange: (patch: { place?: string; content?: MatchedContent | null }) => void;
+  /** 「직접 정한 곳으로 두기」를 고른 줄 (UI-S2-021) */
+  excluded?: boolean;
+  /**
+   * 그 선택지를 줄 수 있는가. 편집 화면의 저장된 고른 곳은 여기서 직접 정한 곳으로 바꿀 길이 없어
+   * 두지 않는다 — 누르고 저장해도 바뀌지 않으면 거짓 표시다
+   */
+  canExclude?: boolean;
+  onChange: (patch: { place?: string; content?: MatchedContent | null; excluded?: boolean }) => void;
 }) {
   const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -74,9 +84,10 @@ export function SchedulePlaceInput({
     },
   }));
 
-  // 고른 상태가 아니고 입력이 있으면 검색한다 (디바운스 300ms). 지역이 없으면 검색하지 않는다
+  // 고른 상태가 아니고 입력이 있으면 검색한다 (디바운스 300ms). 지역이 없으면 검색하지 않는다.
+  // 직접 정한 곳으로 둔 줄은 찾지 않는다
   useEffect(() => {
-    if (content !== null) return;
+    if (content !== null || excluded) return;
     const kw = value.trim();
     let alive = true;
     const id = window.setTimeout(() => {
@@ -100,7 +111,7 @@ export function SchedulePlaceInput({
       })();
     }, 300);
     return () => { alive = false; window.clearTimeout(id); };
-  }, [value, content, regnCd, signguCd, regionLabel, lookupKey, searchVersion]);
+  }, [value, content, excluded, regnCd, signguCd, regionLabel, lookupKey, searchVersion]);
 
   // 목록 밖을 누르면 드롭다운을 닫는다 (UI-CM-042)
   useEffect(() => {
@@ -155,6 +166,26 @@ export function SchedulePlaceInput({
         {!canAnchor(content) && <span>좌표 확인이 필요해요. 기준을 눌러 다시 확인할 수 있습니다.</span>}
         {busy && <span role="status">장소 확인 중…</span>}
         {error && <span role="alert" className="text-rose-600">{error}</span>}
+      </div>
+    );
+  }
+
+  // 직접 정한 곳으로 둔 줄 — 이름은 그대로 두고 표시만 붙인다. [다시 고르기]로 목록을 다시 연다 (UI-S2-021)
+  if (excluded) {
+    return (
+      <div className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
+        장소명
+        <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-900/40">
+          <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">직접 정한 곳</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100">{value}</span>
+          <button
+            type="button"
+            onClick={() => onChange({ excluded: false })}
+            className="shrink-0 text-xs text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
+          >
+            다시 고르기
+          </button>
+        </div>
       </div>
     );
   }
@@ -223,13 +254,15 @@ export function SchedulePlaceInput({
               </ul>
             </>
           )}
-          <button
-            type="button"
-            onClick={() => { anchorIntent.current = false; setOpen(false); }}
-            className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-          >
-            찾는 곳이 없나요? 직접 정한 곳으로 두기
-          </button>
+          {canExclude && (
+            <button
+              type="button"
+              onClick={() => { anchorIntent.current = false; setOpen(false); onChange({ excluded: true }); }}
+              className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            >
+              찾는 곳이 없나요? 직접 정한 곳으로 두기
+            </button>
+          )}
         </div>
       )}
     </div>

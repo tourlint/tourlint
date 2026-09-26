@@ -156,6 +156,29 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     ]);
   });
 
+  it('🔴 「직접 정한 곳으로 두기」를 고른 줄은 직접 정한 곳(EXCLUDED)으로 저장한다 (UI-S2-021)', async () => {
+    const { product } = validateCreate({
+      name: '강릉 직접 정한 곳 스펙', ldongRegnCd: '51', ldongSignguCd: '150',
+      startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        { start: '09:00', end: '09:30', place: '강릉역', itemType: 'MOVE', excluded: true },
+        { start: '10:00', end: '', place: '경포해변', itemType: 'SIGHT' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await repo.create(accountA, product);
+    const byLabel = new Map((await repo.detail(accountA, productId))?.items.map((i) => [i.place, i.matchStatus]));
+    expect(byLabel.get('강릉역')).toBe('EXCLUDED');
+    expect(byLabel.get('경포해변')).toBe('PENDING');
+
+    // 편집 화면에서 새로 넣은 줄도 같다
+    const added = await repo.addItem(productId, {
+      dayNo: 1, startTime: '18:00', endTime: null, endTimeSource: 'DWELL_DEFAULT',
+      placeLabel: '협력 공방', itemType: 'SIGHT', origin: 'MANUAL', excluded: true,
+    });
+    expect(added.matchStatus).toBe('EXCLUDED');
+  });
+
   it('삭제하면 일정 항목도 CASCADE 로 함께 지워진다', async () => {
     const created = await repo.create(accountA, sample());
     expect(await repo.remove(accountA, created.productId)).toBe(true);
@@ -173,6 +196,7 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
       placeLabel: '야식',
       itemType: 'MEAL',
       origin: 'TEXT',
+      excluded: false,
     });
     expect(added.matchStatus).toBe('PENDING');
     // 편집 화면에서 메모로 채운 줄이다 (FR-PL-020)

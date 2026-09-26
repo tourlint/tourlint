@@ -71,6 +71,8 @@ export interface ScheduleItem {
   itemType: ItemType | ""; // "" = 미선택
   /** 장소 칸에서 고른 관광지. null = 아직 안 고름(저장 시 PENDING) (UI-S2-020) */
   content?: MatchedContent | null;
+  /** 「찾는 곳이 없나요? 직접 정한 곳으로 두기」를 고른 줄 — 저장하면 직접 정한 곳(EXCLUDED) (UI-S2-021) */
+  excluded?: boolean;
   /** 이 줄이 들어온 경로 — 직접 입력 · 엑셀 · 메모 · 장소 담기 (FR-PL-020). 없으면 직접 입력으로 보낸다 */
   origin?: InputItemOrigin;
   /**

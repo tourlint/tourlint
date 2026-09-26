@@ -630,10 +630,12 @@ export class ProductRepository {
          (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status, origin)
        VALUES ($1, $2,
                (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
-               $3, $4, $5, $6, $7, 'PENDING', $8)
+               $3, $4, $5, $6, $7, $9, $8)
        RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status,
                  lcls_systm2, end_time_source`,
-      [productId, item.dayNo, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType, item.origin],
+      [productId, item.dayNo, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType, item.origin,
+        // 「직접 정한 곳으로 두기」를 고른 새 줄은 직접 정한 곳이다 (UI-S2-021)
+        item.excluded ? 'EXCLUDED' : 'PENDING'],
     );
     const row = rows[0];
     if (row === undefined) throw new Error('항목 추가 결과가 비어 있다');
@@ -749,11 +751,13 @@ async function insertItem(
     return;
   }
   // 안 고른 줄은 PENDING 이다 — 확정은 /plan 에서 이어 붙는다 (UI-S2-020: 못 고른 곳은 그대로 남긴다).
+  // 「직접 정한 곳으로 두기」를 고른 줄은 직접 정한 곳(EXCLUDED)이다 (UI-S2-021 · FR-IN-025)
   await client.query(
     `INSERT INTO itinerary_item
        (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status, origin)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9)`,
-    [productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType, item.origin],
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$10,$9)`,
+    [productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType, item.origin,
+      item.excluded ? 'EXCLUDED' : 'PENDING'],
   );
 }
 

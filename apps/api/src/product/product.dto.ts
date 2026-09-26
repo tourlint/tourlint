@@ -22,6 +22,8 @@ export interface CreateItemDto {
   readonly content?: unknown;
   // 그 줄이 들어온 경로 (FR-PL-020). MANUAL · UPLOAD · TEXT · PICKER, 없으면 MANUAL
   readonly origin?: unknown;
+  // 「찾는 곳이 없나요? 직접 정한 곳으로 두기」를 고른 줄이면 true — EXCLUDED 로 저장한다 (UI-S2-021)
+  readonly excluded?: unknown;
 }
 
 /** 등록 시 인라인으로 고른 관광지 (UI-S2-020 · D8). 코드·좌표·분류만 담는다 (DR-PR-001) */
@@ -87,6 +89,8 @@ export interface ValidItem {
   readonly content: MatchedContent | null;
   /** 들어온 경로 (FR-PL-020). 장소 담기(PICKER)로 넣은 줄은 고른 방식(matched_by)을 비운다 */
   readonly origin: InputItemOrigin;
+  /** 직접 정한 곳(EXCLUDED)으로 둔 줄 (UI-S2-021 · FR-IN-025). 고른 관광지가 있으면 무시한다 */
+  readonly excluded: boolean;
 }
 
 export interface ValidProduct {
@@ -358,6 +362,8 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
         itemType: itemType as ItemType,
         content,
         origin: readOrigin(item.origin),
+        // 관광지를 고른 줄은 고른 곳이다 — 둘 다 오면 고른 쪽을 따른다
+        excluded: item.excluded === true && content === null,
       });
     });
   });
@@ -376,6 +382,8 @@ export interface ValidItemInput {
   itemType: ItemType;
   /** 편집 화면에서 친 줄은 MANUAL, 엑셀 · 메모로 채운 줄은 UPLOAD · TEXT (FR-PL-020) */
   origin: InputItemOrigin;
+  /** 「직접 정한 곳으로 두기」를 고른 새 줄 — EXCLUDED 로 넣는다 (UI-S2-021) */
+  excluded: boolean;
 }
 
 /** 장소 담기로 넣는 항목 — 이미 고른 공사 콘텐츠라 CONFIRMED 로 들어간다 (D8 · FR-PL-013) */
@@ -403,6 +411,8 @@ interface RawItem {
   placeLabel?: unknown;
   itemType?: unknown;
   origin?: unknown;
+  /** true 면 직접 정한 곳. 걷기 길의 `excluded: { walkId }` 는 `validateWalkItem` 이 받는다 */
+  excluded?: unknown;
 }
 
 /**
@@ -507,6 +517,7 @@ export function validateAddItem(body: RawItem | undefined, dayCount: number): { 
       placeLabel: place,
       itemType: itemType as ItemType,
       origin: readOrigin(b.origin),
+      excluded: b.excluded === true,
     },
   };
 }

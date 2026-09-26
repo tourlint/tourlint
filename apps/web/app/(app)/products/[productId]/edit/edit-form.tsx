@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { isApiError, itemApi, productApi, type PlanPlace, type ProductDetail, type ProductUpdate } from "../../../../lib/api";
+import { isApiError, itemApi, matchApi, productApi, type PlanPlace, type ProductDetail, type ProductUpdate } from "../../../../lib/api";
 import { isEmptyPlan, planSchedule, type EditedItem } from "../../../../lib/schedule-diff";
 import { Field, Section, Segmented, SelectInput, TextInput } from "../../new/controls";
 import { ScheduleEditor } from "../../new/schedule-editor";
@@ -166,6 +166,8 @@ export function EditForm({ productId }: { productId: number }) {
                 placeLabel: add.placeLabel, itemType: add.itemType,
                 // 편집 화면에서 친 줄은 직접 입력, 엑셀 · 메모로 채운 줄은 그 경로 (FR-PL-020)
                 origin: add.origin ?? "MANUAL",
+                // 「직접 정한 곳으로 두기」를 고른 새 줄 (UI-S2-021)
+                ...(add.excluded ? { excluded: true } : {}),
               });
           newIds.set(i, created.itemId);
         }
@@ -178,6 +180,15 @@ export function EditForm({ productId }: { productId: number }) {
             seq: it.seq,
           }));
           await itemApi.reorder(productId, order);
+        }
+      }
+      /*
+       * 고르는 중이던 저장된 줄에 「직접 정한 곳으로 두기」를 골랐으면 직접 정한 곳으로 바꾼다 (UI-S2-021).
+       * 순서 · 시각 비교(planSchedule)와 따로다 — 그것만 바꿨으면 비교는 빈 계획이다
+       */
+      for (const it of filled.flat()) {
+        if (it.itemId !== undefined && it.excluded === true && it.saved?.matchStatus === "PENDING") {
+          await matchApi.exclude(it.itemId);
         }
       }
       router.push(`/products/${productId}${loaded.plannedAt === null ? "/plan" : ""}`);
@@ -409,6 +420,7 @@ function toEdited(schedule: Schedule): EditedItem[] {
         itemType: it.itemType,
         ...(it.content ? { content: it.content } : {}),
         ...(it.origin ? { origin: it.origin } : {}),
+        ...(it.excluded && !it.content ? { excluded: true } : {}),
       });
     });
   });
