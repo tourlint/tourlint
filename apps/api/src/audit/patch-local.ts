@@ -1,7 +1,7 @@
 import { LCLS_SYSTM2, PATCH_TIME_STEP_MINUTES, RULE_CONSTANTS, SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
 import { addDays, parseIsoDate } from '../engine/calendar/dates';
 import type { HolidayCalendar } from '../engine/calendar/holidays';
-import { evaluateClosed } from '../engine/rules/r01-operating';
+import { evaluateClosed, evaluateHours, selectHours } from '../engine/rules/r01-operating';
 import { addMinutes } from '../engine/itinerary/dwell';
 import { pointOf, straightMeters } from '../engine/geo';
 import { toMinutes } from '../engine/normalize/primitives';
@@ -64,9 +64,13 @@ export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
 /**
  * R01 — 방문 날짜 변경 · 일정 순서 교체 (FR-RU-013 ①②).
  *
- * 셋 중 어느 것을 내는지가 사유코드에 달렸다.
- *   휴무 충돌  → 날짜를 바꾸면 풀린다. 순서 교체는 같은 날 안이라 **의미가 없다**
- *   시각 충돌  → 같은 날 다른 시간대와 바꾸면 풀릴 수 있다
+ * 사유코드에 따라 둘을 고른다.
+ *   휴무 충돌  → ① 그곳이 여는 다른 날의 빈 자리로 옮긴다
+ *              ② 그곳이 여는 다른 날의 **같은 종류 일정과 맞바꾼다** — 상대도 옮겨 간 날에 열어야 한다 (#877)
+ *              같은 날 안의 순서 교체는 휴무를 못 푼다
+ *   시각 충돌  → ② 같은 날 다른 시간대와 바꾼다
+ *              ① 그 시각에 여는 다른 날로 옮긴다 (#877)
+ * 옮기는 자리 · 맞바꾸는 자리는 휴무뿐 아니라 운영시간 안인지도 본다. 운영시간을 모르면 휴무만 본다.
  */
 function r01(
   finding: Finding,
@@ -74,31 +78,73 @@ function r01(
   items: readonly AuditItem[],
   holidays: HolidayCalendar,
 ): readonly Patch[] {
+  // 숙박 입실 판정(L-*)에는 수정안을 붙이지 않는다 — 숙소를 옮기거나 바꾸는 것은 답이 아니다 (#875)
+  if (String(finding.evidence.step ?? '').startsWith('L-')) return [];
   const out: Patch[] = [];
-  const isRestDay = finding.reasonCode === 'REST_DAY_CONFLICT' || finding.reasonCode === 'REST_DAY_UNCERTAIN';
+  // 휴무를 몰라서 낸 확인 불가(1-7)는 사유가 PARSE_* 여도 휴무 쪽이다 — 날짜를 바꾸는 수정안이 맞다 (#855)
+  const isRestDay = finding.reasonCode === 'REST_DAY_CONFLICT' || finding.reasonCode === 'REST_DAY_UNCERTAIN'
+    || String(finding.evidence.step ?? '').startsWith('1-');
+
+  const shift = (slot: { dayNo: number; startTime: string; endTime: string | null }): Patch => ({
+    patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: target.id,
+    payload: {
+      newDayNo: slot.dayNo,
+      newStartTime: slot.startTime,
+      ...(slot.endTime === null ? {} : { newEndTime: slot.endTime }),
+    },
+  });
+  const reorder = (other: AuditItem): Patch => ({
+    patchId: patchId(out.length), type: 'REORDER', targetItemId: target.id,
+    payload: { swapWithItemId: other.id },
+  });
 
   if (isRestDay) {
     const slot = openSlotFor(target, items, holidays);
-    if (slot !== null) {
-      out.push({
-        patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: target.id,
-        payload: {
-          newDayNo: slot.dayNo,
-          newStartTime: slot.startTime,
-          ...(slot.endTime === null ? {} : { newEndTime: slot.endTime }),
-        },
-      });
-    }
+    if (slot !== null) out.push(shift(slot));
+    const other = crossDaySwap(target, items, holidays);
+    if (other !== null) out.push(reorder(other));
   } else {
     const swap = swapCandidate(target, items);
-    if (swap !== null) {
-      out.push({
-        patchId: patchId(out.length), type: 'REORDER', targetItemId: target.id,
-        payload: { swapWithItemId: swap.id },
-      });
-    }
+    if (swap !== null) out.push(reorder(swap));
+    const slot = openSlotFor(target, items, holidays);
+    if (slot !== null) out.push(shift(slot));
   }
   return out;
+}
+
+/**
+ * 다른 날의 같은 종류 일정 가운데 맞바꿔도 **둘 다 열려 있는** 것 (FR-RU-013 ② · #877).
+ *
+ * 옮겨 가는 쪽은 상대의 날짜 · 시각에, 상대는 이쪽의 날짜 · 시각에 연다. 상대의 운영정보를 모르면
+ * 바꾸지 않는다 — 한쪽을 풀려고 다른 쪽을 모르는 자리로 보내면 반영 뒤 재검수에서 새 문제가 난다.
+ */
+function crossDaySwap(target: AuditItem, items: readonly AuditItem[], holidays: HolidayCalendar): AuditItem | null {
+  const mine = target.content?.normalized ?? null;
+  if (mine === null) return null;
+  for (const other of items) {
+    if (other.id === target.id || other.dayNo === target.dayNo || other.itemType !== target.itemType) continue;
+    const theirs = other.content?.normalized ?? null;
+    if (theirs === null || other.matchStatus !== 'CONFIRMED') continue;
+    if (!opensAt(mine, other.date, other.startTime, other.endTime, holidays)) continue;
+    if (!opensAt(theirs, target.date, target.startTime, target.endTime, holidays)) continue;
+    return other;
+  }
+  return null;
+}
+
+/** 그 날 그 시각에 여는가. 휴무는 늘 보고, 운영시간은 아는 경우에만 본다 */
+function opensAt(
+  n: NonNullable<NonNullable<AuditItem['content']>['normalized']>,
+  isoDate: string,
+  start: string,
+  end: string | null,
+  holidays: HolidayCalendar,
+): boolean {
+  const date = parseIsoDate(isoDate);
+  if (date === null || evaluateClosed(n, date, holidays).kind !== 'OPEN') return false;
+  const hours = selectHours(n, date);
+  if (hours === null) return true;
+  return evaluateHours(hours.entry, start, end) === 'OPEN';
 }
 
 /**
@@ -133,9 +179,12 @@ function openSlotFor(
     const date = addDays(base, dayNo - target.dayNo);
     if (evaluateClosed(normalized, date, holidays).kind !== 'OPEN') continue;
 
-    const placed = placeIn(items.filter((i) => i.dayNo === dayNo), duration);
-    if (placed !== null) {
-      return { dayNo, startTime: placed, endTime: duration === null ? null : addMinutes(placed, duration) };
+    // 빈 자리 가운데 운영시간 안에 드는 첫 자리 (#877). 운영시간을 모르면 첫 자리다
+    const hours = selectHours(normalized, date);
+    for (const placed of placesIn(items.filter((i) => i.dayNo === dayNo), duration)) {
+      const end = duration === null ? null : addMinutes(placed, duration);
+      if (hours !== null && evaluateHours(hours.entry, placed, end) !== 'OPEN') continue;
+      return { dayNo, startTime: placed, endTime: end };
     }
   }
   return null;
@@ -149,23 +198,28 @@ function openSlotFor(
  */
 export const MIN_TRANSFER_MINUTES = 30;
 
-/** 그 일차에서 `duration` 분이 여유까지 들어가는 첫 자리. 없으면 null */
-function placeIn(dayItems: readonly AuditItem[], duration: number | null): string | null {
+/**
+ * 그 일차에서 `duration` 분이 여유까지 들어가는 자리들 — 빈 구간마다 첫 시각. 앞에서부터.
+ * 첫 자리가 운영시간 밖이면 다음 빈 구간을 본다 (#877).
+ */
+function placesIn(dayItems: readonly AuditItem[], duration: number | null): string[] {
   const need = (duration ?? SETTING_DEFAULTS.dwellFallbackMinutes) + MIN_TRANSFER_MINUTES * 2;
   const sorted = [...dayItems].sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+  const out: string[] = [];
 
   let cursor = toMinutes(DAY_STARTS_AT);
   for (const next of sorted) {
     const gap = toMinutes(next.startTime) - cursor;
-    if (gap >= need) return fromMinutes(cursor + MIN_TRANSFER_MINUTES);
+    if (gap >= need) out.push(fromMinutes(cursor + MIN_TRANSFER_MINUTES));
     // 숙박은 종료시간이 없다. 체크인 시각이 그 날의 끝이라 뒤로 못 간다 (R07 `daySpan`)
     const end = next.itemType === 'LODGING' ? null : next.endTime;
-    if (end === null) return null;
+    if (end === null) return out;
     cursor = Math.max(cursor, toMinutes(end));
   }
 
   const tail = toMinutes(DAY_ENDS_AT) - cursor;
-  return tail >= need ? fromMinutes(cursor + MIN_TRANSFER_MINUTES) : null;
+  if (tail >= need) out.push(fromMinutes(cursor + MIN_TRANSFER_MINUTES));
+  return out;
 }
 
 /** 하루의 양 끝. R07 의 연속 일정 판정과 같은 시간대를 본다 */
@@ -218,19 +272,21 @@ function r03(
   // 러너가 이미 조회한 연속 구간만 사용한다. 미조회 구간의 소요시간은 지어내지 않는다.
   const segment = travelTimes?.get(segmentKey(first.id, second.id));
   const travel = segment?.ok ? Math.ceil(segment.durationSeconds / 60) : 0;
+  // 이동시간을 모르면 겹침만 푼다 — 화면이 그 사실을 함께 적는다 (FR-RU-033 · #877)
+  const unchecked = segment?.ok === true ? {} : { travelUnchecked: true };
   const shift = travel > 0 ? roundedShift(second.startTime, overlap + travel) : overlap;
   const out: Patch[] = [];
   if (toMinutes(second.endTime) + shift < 24 * 60) {
     out.push({
       patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: second.id,
-      payload: { newStartTime: addMinutes(second.startTime, shift), newEndTime: addMinutes(second.endTime, shift) },
+      payload: { newStartTime: addMinutes(second.startTime, shift), newEndTime: addMinutes(second.endTime, shift), ...unchecked },
     });
   }
   const shortenedEnd = toMinutes(second.startTime) - travel;
   if (shortenedEnd > toMinutes(first.startTime)) {
     out.push({
       patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: first.id,
-      payload: { newEndTime: fromMinutes(shortenedEnd) },
+      payload: { newEndTime: fromMinutes(shortenedEnd), ...unchecked },
     });
   }
   return out;
@@ -382,6 +438,14 @@ function closerSwap(from: AuditItem, to: AuditItem, items: readonly AuditItem[])
   return best?.item ?? null;
 }
 
+/** R07 판정이 근거에 남긴 최소 식사 시간(`thresholds.mealMinutes`) */
+function mealMinutesOf(finding: Finding): number | null {
+  const thresholds = finding.evidence.thresholds;
+  if (typeof thresholds !== 'object' || thresholds === null) return null;
+  const minutes = Number((thresholds as Record<string, unknown>).mealMinutes);
+  return Number.isInteger(minutes) && minutes > 0 ? minutes : null;
+}
+
 /**
  * R07 — 일정 공백 구간에 식사 삽입 (FR-RU-073).
  *
@@ -395,7 +459,8 @@ function r07(finding: Finding, items: readonly AuditItem[]): readonly Patch[] {
     .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
   if (sameDay.length < 2) return [];
 
-  const need = SETTING_DEFAULTS.r07MealMinutes;
+  // 판정이 쓴 최소 식사 시간 — 회사 기준이 90분이면 90분을 넣는다. 60분을 넣으면 반영 뒤 다시 걸린다 (#877)
+  const need = mealMinutesOf(finding) ?? SETTING_DEFAULTS.r07MealMinutes;
   let best: { after: AuditItem; gap: number } | null = null;
   for (let i = 0; i < sameDay.length - 1; i++) {
     const a = sameDay[i] as AuditItem;

@@ -164,15 +164,17 @@ describe('[1단계] 휴무 판정 — 위에서부터, 걸리면 즉시 CLOSED (
       expect(festival(raw, '2026-11-18', '09:00', '10:00')).toHaveLength(0);
     });
 
-    it('숙박도 종전대로 R01 대상이 아니다 (FR-AU-011)', () => {
-      // 하드코딩 32 를 `INTRO_FIELDS` 로 바꿨다. 숙박이 빠지는 것은 그대로여야 한다
+    it('숙박은 휴무 판정을 받지 않는다 (FR-AU-011) — 입실 뒤 도착이면 판정이 없다', () => {
+      // 하드코딩 32 를 `INTRO_FIELDS` 로 바꿨다. 숙박에 휴무 · 운영시간 판정이 없는 것은 그대로다.
+      // 입실 시각은 본다(#875) — 여기서는 입실 뒤 도착이다
       expect(evaluate({ contentTypeId: 32, raw: { checkintime: '15:00', checkouttime: '11:00' },
-        date: '2026-11-18', itemType: 'LODGING' })).toHaveLength(0);
+        date: '2026-11-18', itemType: 'LODGING', start: '18:00', end: null })).toHaveLength(0);
     });
 
     it('관광지는 종전대로 확인 불가다 — 그쪽은 있어야 할 값이 빈 것이다', () => {
       const [f] = spot('', '09:00~18:00', '2026-11-18');
-      expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'REST_DAY_UNCERTAIN' });
+      // 빈 필드는 결측이다 — EX-PS-001 의 PARSE_MISSING (#855)
+      expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_MISSING' });
     });
   });
 
@@ -359,7 +361,7 @@ describe('대상 제외 (FR-AU-011 · FR-RU-014)', () => {
       const n = parseOperatingInfo({ contentTypeId: 32, raw });
       expect(n.sourceFieldNames, file).toEqual(['checkintime', 'checkouttime']);
       expect(n.openHours, file).toBeNull();
-      expect(evaluate({ contentTypeId: 32, raw, date: '2026-10-08', itemType: 'LODGING' }), file).toHaveLength(0);
+      expect(evaluate({ contentTypeId: 32, raw, date: '2026-10-08', itemType: 'LODGING', start: '18:00', end: null }), file).toHaveLength(0);
     }
   });
 
@@ -389,13 +391,13 @@ describe('대상 제외 (FR-AU-011 · FR-RU-014)', () => {
 describe('이름이 없는 항목의 문장 (#606)', () => {
   it('🔴 앞에 빈 자리를 남기지 않는다', () => {
     const [f] = evaluate({ contentTypeId: 12, raw: { usetime: '09:00~18:00' }, date: '2026-10-13', placeLabel: '' });
-    expect(f?.reasonCode).toBe('REST_DAY_UNCERTAIN');
-    expect(f?.message).toBe('휴무일 정보를 확인할 수 없습니다');
+    expect(f?.reasonCode).toBe('PARSE_MISSING');
+    expect(f?.message).toBe('휴무일 정보가 없어 데이터로 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요');
   });
 
   it('이름이 있으면 그대로 앞에 붙인다', () => {
     const [f] = evaluate({ contentTypeId: 12, raw: { usetime: '09:00~18:00' }, date: '2026-10-13', placeLabel: '리고엠' });
-    expect(f?.message).toBe('리고엠 — 휴무일 정보를 확인할 수 없습니다');
+    expect(f?.message).toBe('리고엠 — 휴무일 정보가 없어 데이터로 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요');
   });
 });
 
@@ -466,5 +468,75 @@ describe('[5단계] 「연다」 로 끝난 판정의 신뢰도 게이트 (FR-AU
     const findings = spot('매주 월요일※ 점포별 상이함', '09:00~18:00', '2026-10-12', '10:00', '11:00');
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'REST_DAY_CONFLICT' });
+  });
+});
+
+describe('모르는 까닭을 남은 조각의 사유로 말한다 (EX-PS-002 · EX-PS-007 · #855)', () => {
+  it('🔴 시각 범위가 여럿이라 못 고른 운영시간 — 주문진 등대', () => {
+    const [f] = evaluate({
+      contentTypeId: 12, date: '2026-11-19', start: '14:30', end: '15:30', placeLabel: '주문진 등대',
+      raw: { restdate: '연중무휴', usetime: '- 야외공간 개방시간 09:00~18:00 - 실내시설 개방시간 09:00~17:00 ※ 야간출입 금지' },
+    });
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_CONDITIONAL' });
+    expect(f?.message).toBe('주문진 등대 — 운영시간이 여러 가지로 안내되어 방문 시각에 열려 있는지 데이터로 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요');
+  });
+
+  it('🔴 휴무가 대상마다 다르면 PARSE_TARGET_VARIES — 중앙시장', () => {
+    const [f] = evaluate({ contentTypeId: 12, date: '2026-11-19', placeLabel: '중앙시장', raw: { restdate: '※ 점포별 상이함', usetime: '09:00~18:00' } });
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_TARGET_VARIES' });
+    expect(f?.message).toBe('중앙시장 — 휴무일이 대상마다 다르게 안내되어 데이터로 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요');
+  });
+
+  it('🔴 참조형이면 PARSE_REFERENCE — 갈골한과체험전시관(TP-03)', () => {
+    const [f] = evaluate({ contentTypeId: 12, date: '2026-11-19', raw: { restdate: '예약시 운영', usetime: '예약시 운영' } });
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_REFERENCE' });
+  });
+
+  it('🔴 연중무휴(1월 1일 휴관) 은 1월 1일 방문을 정상으로 넘기지 않는다 — 추정이라 주의 · 확인 필요', () => {
+    const [f] = evaluate({ contentTypeId: 12, date: '2027-01-01', raw: { restdate: '연중무휴(1월 1일 휴관)', usetime: '09:00~18:00' } });
+    expect(f).toMatchObject({ severity: 'WARNING', reasonCode: 'REST_DAY_CONFLICT', needsConfirmation: true });
+  });
+
+  it('그 밖의 날은 전처럼 연다', () => {
+    expect(evaluate({ contentTypeId: 12, date: '2027-01-02', raw: { restdate: '연중무휴(1월 1일 휴관)', usetime: '09:00~18:00' } })).toEqual([]);
+  });
+});
+
+describe('숙박 입실 시각 (FR-PA-024 · #875)', () => {
+  const lodging = (raw: Record<string, string>, start: string | undefined) =>
+    evaluate({ contentTypeId: 32, raw, date: '2026-11-17', itemType: 'LODGING', start, end: null, placeLabel: '하이오션 경포' });
+
+  it('🔴 입실 시각보다 이른 도착은 주의 · 확인 필요다 — 이른 입실 · 짐 보관을 숙소에 묻게', () => {
+    const [f] = lodging({ checkintime: '15:00', checkouttime: '11:00' }, '14:00');
+    expect(f).toMatchObject({ ruleCode: 'R01', severity: 'WARNING', reasonCode: 'OPEN_HOUR_CONFLICT', needsConfirmation: true });
+    expect(f?.message).toBe('하이오션 경포 — 11/17(화) 도착 시각 14:00이 입실 시각 15:00보다 이릅니다. 이른 입실이나 짐 보관이 되는지 숙소에 확인해 주세요');
+    expect(f?.evidence).toMatchObject({ step: 'L-1', arrival: '14:00', checkIn: '15:00' });
+  });
+
+  it('입실 시각 이후 도착은 판정이 없다 — 가이드 1 · 2일차 숙소(18:00)', () => {
+    expect(lodging({ checkintime: '15:00', checkouttime: '11:00' }, '18:00')).toEqual([]);
+    expect(lodging({ checkintime: '16:00', checkouttime: '11:00' }, '16:00')).toEqual([]);
+  });
+
+  it('🔴 입실 시각이 비어 있으면 정상으로 넘기지 않는다 — 확인 불가 (FR-RU-051)', () => {
+    const [f] = lodging({ checkintime: '', checkouttime: '11:00' }, '18:00');
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_MISSING', needsConfirmation: true });
+    expect(f?.message).toBe('하이오션 경포 — 입실 시각 정보가 없어 데이터로 확인할 수 없습니다. 출시 전 숙소에 직접 확인해 주세요');
+  });
+
+  it('🔴 입실 시각을 못 읽으면 확인 불가다', () => {
+    const [f] = lodging({ checkintime: '예약 시 안내', checkouttime: '11:00' }, '18:00');
+    expect(f).toMatchObject({ severity: 'UNVERIFIED', reasonCode: 'PARSE_SCHEMA_INVALID' });
+  });
+
+  it('숙박으로 적었지만 숙박 콘텐츠가 아니면 입실을 보지 않는다', () => {
+    expect(evaluate({ contentTypeId: 12, raw: { restdate: '연중무휴', usetime: '09:00~18:00' }, date: '2026-11-17', itemType: 'LODGING', start: '08:00' })).toEqual([]);
+  });
+
+  it('실호출 숙박 스냅샷 3건은 입실 전 도착이면 주의가 난다', () => {
+    for (const file of ['32_3534495.json', '32_3540781.json', '32_4074363.json']) {
+      const found = evaluate({ contentTypeId: 32, raw: intro(file), date: '2026-10-08', itemType: 'LODGING', start: '06:00', end: null });
+      expect(found.map((f) => f.severity), file).toEqual(['WARNING']);
+    }
   });
 });

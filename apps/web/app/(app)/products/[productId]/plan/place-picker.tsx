@@ -130,7 +130,7 @@ export function PlacePicker({ product, onInserted, openType = null, initialDay =
 
       {paused && (
         <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          오늘 공사 데이터 조회량을 다 써서 장소를 새로 불러올 수 없어요. 내일 다시 시도해 주세요.
+          오늘 쓸 수 있는 관광정보 조회를 다 써서 장소를 새로 불러올 수 없어요. 내일 다시 시도해 주세요.
         </p>
       )}
 

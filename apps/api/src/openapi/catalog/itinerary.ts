@@ -65,6 +65,20 @@ export const ITINERARY: readonly Endpoint[] = [
         },
       },
     },
+    errors: [
+      {
+        status: 400,
+        reasonCode: 'UPLOAD_FORMAT_INVALID',
+        when: '엑셀(.xlsx) · CSV 가 아니거나 이름만 바꾼 파일',
+        message: '엑셀(.xlsx) 파일로 읽을 수 없습니다. 파일 이름만 바꾼 것이 아닌지 확인하고, 지정 양식을 내려받아 작성해 주세요.',
+      },
+      {
+        status: 413,
+        reasonCode: 'UPLOAD_LIMIT_EXCEEDED',
+        when: '파일이 20MB 를 넘음 — 5MB 에서 20MB 사이는 거절 사유를 담아 201 로 돌려준다',
+        message: '올린 파일이 너무 큽니다. 5MB 이하로 줄여 주세요.',
+      },
+    ],
   },
   {
     route: 'POST /api/v1/uploads/schedule-text',

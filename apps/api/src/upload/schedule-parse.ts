@@ -1,4 +1,4 @@
-import { ITEM_TYPE, type ItemType } from '@tourlint/shared';
+import { ITEM_TYPE, type ExceptionReasonCode, type ItemType } from '@tourlint/shared';
 
 /**
  * 지정 양식(엑셀·CSV) 일정 파싱 (F01 · UI-S2-010·011 · FR-IN-015).
@@ -45,8 +45,13 @@ export interface ParseResult {
   nights: number; // 최대 일차 - 1
   items: readonly ParsedItem[]; // 정상 행만
   errors: readonly RowError[];
-  /** 파일 전체가 거부된 경우. 그 외엔 undefined */
-  rejected?: { code: string; message: string };
+  /**
+   * 파일 전체가 거부된 경우. 그 외엔 undefined.
+   *
+   * 코드는 예외 사유코드 목록의 값만 된다 (EX-CM-002 · 020) — 문자열이면 목록에 없는 코드를 적어도
+   * 컴파일러가 못 막는다. 화면은 `message` 만 쓴다.
+   */
+  rejected?: { code: ExceptionReasonCode; message: string };
 }
 
 type Cell = string | number | null | undefined;
@@ -76,7 +81,7 @@ export function parseSchedule(rows: readonly (readonly Cell[])[]): ParseResult {
       items: [],
       errors: [],
       rejected: {
-        code: 'TEMPLATE_MISMATCH',
+        code: 'UPLOAD_FORMAT_INVALID',
         message: '지정 양식이 아닙니다. 헤더(일차·시작시간·종료시간·장소명·유형)를 찾을 수 없습니다.',
       },
     };
@@ -88,7 +93,7 @@ export function parseSchedule(rows: readonly (readonly Cell[])[]): ParseResult {
       items: [],
       errors: [],
       rejected: {
-        code: 'TEMPLATE_MISMATCH',
+        code: 'UPLOAD_FORMAT_INVALID',
         message: `필수 컬럼이 없습니다: ${header.missing.join(' · ')}. 지정 양식을 내려받아 다시 작성해 주세요.`,
       },
     };

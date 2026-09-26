@@ -1,4 +1,5 @@
-import type { Patch, ProductDetail, ProductItem } from "../../../lib/api";
+import { useEffect, useState } from "react";
+import { planApi, type Patch, type PlanPlaceDetail, type ProductDetail, type ProductItem } from "../../../lib/api";
 
 type ScheduleItem = ProductItem & { day: number };
 interface Change { place: string; context?: string; before: string; after: string }
@@ -46,15 +47,20 @@ export function describePatch(patch: Patch, product: Pick<ProductDetail, "days">
       return {
         action: p.newDayNo !== undefined ? "방문 일차·시간 변경" : "방문 시간 변경",
         changes: [{ ...base, before: current(target), after: when(p.newDayNo ?? target?.day, p.newStartTime ?? target?.start, p.newEndTime ?? target?.end) }],
-        note: target ? undefined : "대상 일정을 확인한 뒤 미리보기에서 변경 내용을 확인해 주세요.",
+        // 이동시간을 몰라 겹침만 푼 안이다 — 반영 뒤 재검수가 이동을 다시 본다 (FR-RU-033 · #877)
+        note: !target
+          ? "대상 일정을 확인한 뒤 미리보기에서 변경 내용을 확인해 주세요."
+          : p.travelUnchecked ? "이동시간을 확인하지 못해 겹침만 풀었어요. 반영 후 다시 검수해 확인해요." : undefined,
       };
     case "REORDER": {
       const other = items.find(it => it.itemId === p.swapWithItemId);
+      // 다른 날 일정과 맞바꾸면 일차도 바뀐다 — R01 휴무 충돌의 순서 교체 (FR-RU-013 ② · #877)
+      const crossDay = target !== undefined && other !== undefined && target.day !== other.day;
       return {
-        action: "두 장소의 방문 순서·시간 교환",
+        action: crossDay ? "두 장소의 방문 일차·시간 교환" : "두 장소의 방문 순서·시간 교환",
         changes: [
-          { ...base, before: current(target), after: other ? when(target?.day, other.start, other.end) : "상대 일정 확인 불가" },
-          { ...identity(other, p.swapWithItemId ?? patch.targetItemId), before: current(other), after: target ? when(other?.day, target.start, target.end) : "상대 일정 확인 불가" },
+          { ...base, before: current(target), after: other ? when(other.day, other.start, other.end) : "상대 일정 확인 불가" },
+          { ...identity(other, p.swapWithItemId ?? patch.targetItemId), before: current(other), after: target ? when(target.day, target.start, target.end) : "상대 일정 확인 불가" },
         ],
       };
     }
@@ -74,7 +80,12 @@ export function describePatch(patch: Patch, product: Pick<ProductDetail, "days">
   }
 }
 
-export function PatchDescription({ patch, product }: { patch: Patch; product: Pick<ProductDetail, "days"> | null }) {
+export function PatchDescription({ patch, product, selected = false }: {
+  patch: Patch;
+  product: Pick<ProductDetail, "days"> | null;
+  /** 고른 대체 장소만 운영 조건을 부른다 — 후보마다 부르면 조회가 곱절이 된다 (UI-S3-016 · #880) */
+  selected?: boolean;
+}) {
   const description = describePatch(patch, product);
   return <span className="min-w-0 flex-1 text-slate-700 dark:text-slate-300">
     <span className="block text-xs font-semibold text-emerald-700 dark:text-emerald-300">{description.action}</span>
@@ -88,5 +99,42 @@ export function PatchDescription({ patch, product }: { patch: Patch; product: Pi
       </span>
     </span>)}
     {description.note && <span className="mt-2 block text-xs text-slate-500">{description.note}</span>}
+    {selected && patch.type === "REPLACE_CONTENT" && <ReplacementConditions patch={patch} />}
+  </span>;
+}
+
+/**
+ * 고른 대체 장소의 운영 조건 — 쉬는 날 · 이용시간(행사면 기간) (UI-S3-016 · #880).
+ *
+ * 수정안에는 공사 원문을 담지 않는다(DR-PR-001). 고를 때 장소 「자세히」 와 같은 조회로 그곳 하나만
+ * 부르고 저장하지 않는다. 못 받으면 그렇다고 적는다 — 고르는 데는 지장이 없다.
+ */
+function ReplacementConditions({ patch }: { patch: Patch }) {
+  const id = patch.payload.ktoContentId;
+  const type = patch.payload.contentTypeId;
+  const [detail, setDetail] = useState<PlanPlaceDetail | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (id === undefined || type === undefined) return;
+    let alive = true;
+    planApi.placeDetail(id, type)
+      .then((d) => { if (alive) setDetail(d); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [id, type]);
+
+  if (id === undefined || type === undefined) return null;
+  const rows: [string, string | null][] = detail === null ? [] : [
+    ["쉬는 날", detail.restDays],
+    ["이용시간", detail.hours],
+    ["행사 기간", detail.eventPeriod],
+  ];
+  const shown = rows.filter(([, v]) => v !== null && v.trim() !== "");
+  return <span className="mt-2 block rounded bg-slate-50 px-2 py-1.5 text-xs text-slate-600 dark:bg-slate-900/60 dark:text-slate-300" data-replacement-conditions>
+    {failed ? "운영 정보를 불러오지 못했어요."
+      : detail === null ? "운영 정보를 불러오는 중…"
+        : shown.length === 0 ? "관광정보에 올라 있는 이용 정보가 없어요."
+          : shown.map(([label, value]) => <span key={label} className="block"><span className="text-slate-400">{label}</span> <span className="whitespace-pre-line">{value}</span></span>)}
   </span>;
 }

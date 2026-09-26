@@ -112,3 +112,51 @@ describe('정규화 결과 병합', () => {
     expect(out.confidence.overall).toBe('CONFIRMED');
   });
 });
+
+describe('AI 가 두 시각 범위 중 하나를 고르지 못하게 (FR-AU-014 · EX-PS-007 · #855)', () => {
+  const hours = parseFallbackResult({ openHours: { open: '09:00', close: '18:00' } })!;
+
+  it('🔴 한 조각에 시각 범위가 둘이면 AI 가 운영시간을 돌려줘도 받지 않는다 — 주문진 등대', () => {
+    const frag: UnparsedFragment = {
+      fragment: '야외공간 개방시간 09:00~18:00 / 실내시설 개방시간 09:00~17:00', reason: 'CONDITIONAL', affects: ['openHours'],
+    };
+    const b = base({ unparsed: [frag], confidence: { overall: 'UNPARSED', byPath: { openHours: 'UNPARSED' } } });
+    const out = mergeFallback(b, frag, hours);
+    expect(out.openHours).toBeNull();
+    expect(out.unparsed).toEqual([frag]);
+    expect(out.confidence.byPath.openHours).toBe('UNPARSED');
+  });
+
+  it('🔴 운영시간 후보 조각이 둘이면 그중 하나로 채우지 않는다 — 라벨 없는 두 범위', () => {
+    const a: UnparsedFragment = { fragment: '09:00~18:00', reason: 'CONDITIONAL', affects: ['openHours'] };
+    const b2: UnparsedFragment = { fragment: '10:00~17:00', reason: 'CONDITIONAL', affects: ['openHours'] };
+    const out = mergeFallback(base({ unparsed: [a, b2] }), a, hours);
+    expect(out.openHours).toBeNull();
+  });
+
+  it('범위가 하나인 조각은 전처럼 채운다', () => {
+    const one: UnparsedFragment = { fragment: '매일 오전 9시부터 오후 6시까지', reason: 'CONDITIONAL', affects: ['openHours'] };
+    const out = mergeFallback(base({ unparsed: [one] }), one, hours);
+    expect(out.openHours).toMatchObject({ open: '09:00', close: '18:00' });
+  });
+});
+
+describe('연중무휴 위에 AI 가 휴무를 채우면 추정이다 (DR-NM-011 · #855)', () => {
+  it('🔴 채운 휴무와 연중무휴를 ESTIMATED 로 둔다 — 추정은 차단 근거가 되지 않는다(FR-AU-008)', () => {
+    const b = base({ alwaysOpen: true, confidence: { overall: 'CONFIRMED', byPath: { alwaysOpen: 'CONFIRMED' } } });
+    const out = mergeFallback(b, FRAG, parseFallbackResult({ weeklyClosed: ['MON'] })!);
+    expect(out.alwaysOpen).toBe(false);
+    expect(out.confidence.byPath.weeklyClosed).toBe('ESTIMATED');
+    expect(out.confidence.byPath.alwaysOpen).toBe('ESTIMATED');
+  });
+});
+
+describe('휴게시간은 운영시간 범위로 세지 않는다 (#855)', () => {
+  it('🔴 운영시간 하나 + 휴게 하나인 조각은 전처럼 채운다 — 초당할머니순두부(133808) 요일 충돌 조각', () => {
+    // 원문 「- 화요일 08:00~15:00 - 평일 08:00~19:00 (준비시간 16:00~17:00) …」 — 화요일이 겹쳐 평일 줄이 조각으로 남는다
+    const frag: UnparsedFragment = { fragment: 'TUE 08:00~19:00|16:00-17:00|', reason: 'CONDITIONAL', affects: [] };
+    const hours = parseFallbackResult({ openHours: { open: '08:00', close: '19:00', breaks: [{ from: '16:00', to: '17:00' }] } })!;
+    const out = mergeFallback(base({ unparsed: [frag] }), frag, hours);
+    expect(out.openHours).toMatchObject({ open: '08:00', close: '19:00' });
+  });
+});

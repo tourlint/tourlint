@@ -1,11 +1,11 @@
-import { BadRequestException, HttpStatus, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpStatus, NotFoundException, PayloadTooLargeException } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
 import { EXTERNAL_UNAVAILABLE_MESSAGE } from '@tourlint/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { KtoFetchError, KtoQuotaExceededError } from '../external/kto/kto.errors';
 import { RouteProviderError } from '../external/kakao/kakao.errors';
 import { ForecastProviderError } from '../external/kma/kma.errors';
-import { AllExceptionsFilter, INPUT_INVALID_MESSAGE } from './all-exceptions.filter';
+import { AllExceptionsFilter, INPUT_INVALID_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from './all-exceptions.filter';
 import { DomainException, RateLimitException } from './domain.exception';
 
 /**
@@ -114,9 +114,18 @@ describe('입력 형식 오류 (EX-CM-021 · #612)', () => {
   });
 });
 
+describe('업로드 안전망 초과 (NF-SC-006 · EX-IN-003 · #868)', () => {
+  it('🔴 multer 의 413 은 UPLOAD_LIMIT_EXCEEDED 와 우리 문구다 — INTERNAL_ERROR · 영어 문구로 나가지 않는다', () => {
+    // 20MB 를 넘는 파일에 multer 가 던지는 그대로다 (@nestjs/platform-express transformException)
+    const { status, body } = run(new PayloadTooLargeException('File too large'));
+    expect(status).toBe(HttpStatus.PAYLOAD_TOO_LARGE);
+    expect(body).toMatchObject({ reasonCode: 'UPLOAD_LIMIT_EXCEEDED', message: PAYLOAD_TOO_LARGE_MESSAGE });
+  });
+});
+
 describe('거절 로그 (#673)', () => {
   /** 5xx 만 남기던 때는 운영에서 저장이 계속 막히는데 로그에 실패한 적이 없는 것처럼 보였다 */
-  function logged(exception: unknown): { warn: string[]; error: unknown[][] } {
+  function logged(exception: unknown, request: Record<string, unknown> = {}): { warn: string[]; error: unknown[][] } {
     const warn: string[] = [];
     const error: unknown[][] = [];
     const res = {
@@ -127,7 +136,7 @@ describe('거절 로그 (#673)', () => {
     const host = {
       switchToHttp: () => ({
         getResponse: () => res,
-        getRequest: () => ({ method: 'POST', url: '/api/v1/products' }),
+        getRequest: () => ({ method: 'POST', url: '/api/v1/products', ...request }),
       }),
     } as unknown as ArgumentsHost;
     const filter = new AllExceptionsFilter();
@@ -164,5 +173,40 @@ describe('거절 로그 (#673)', () => {
     const { warn, error } = logged(new Error('터짐'));
     expect(warn).toHaveLength(0);
     expect(error).toHaveLength(1);
+  });
+
+  /** 검수 시작 거절 — 경로 파라미터 · 세션 쿠키 · 본문의 비밀번호를 함께 실은 요청 */
+  const handoff = {
+    url: '/api/v1/products/41/handoff',
+    params: { productId: '41' },
+    headers: { cookie: 'tl_session=SESSION-SECRET-123' },
+    body: { excludePending: false, password: 'PASSWORD-SECRET' },
+  };
+
+  it('🔴 처리 단위 · 대상 식별자 · 발생 시각을 함께 남긴다 (EX-CM-005)', () => {
+    const { warn } = logged(
+      new DomainException(HttpStatus.UNPROCESSABLE_ENTITY, 'PLACE_UNRESOLVED', '아직 고르지 않은 장소가 1곳 있습니다.', 'PRODUCT'),
+      handoff,
+    );
+    expect(warn[0]).toContain('PLACE_UNRESOLVED (422)');
+    expect(warn[0]).toContain('unit=PRODUCT');
+    expect(warn[0]).toContain('productId=41');
+    expect(warn[0]).toMatch(/at=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+
+    const { error } = logged(new Error('터짐'), { url: '/api/v1/audit-runs/7', params: { runId: '7' } });
+    expect(String(error[0]?.[0])).toContain('unit=REQUEST');
+    expect(String(error[0]?.[0])).toContain('runId=7');
+  });
+
+  it('🔴 세션 · 비밀번호는 남기지 않는다 — 대상은 경로 파라미터뿐이다', () => {
+    const { warn } = logged(new BadRequestException('형식이 틀렸습니다.'), handoff);
+    expect(warn[0]).not.toContain('SESSION-SECRET');
+    expect(warn[0]).not.toContain('PASSWORD-SECRET');
+  });
+
+  it('식별자 모양이 아닌 경로 값은 싣지 않는다 — 사용자가 친 말이 새지 않게', () => {
+    const { warn } = logged(new NotFoundException(), { params: { contentId: '경포대 해변', productId: '12' } });
+    expect(warn[0]).toContain('productId=12');
+    expect(warn[0]).not.toContain('경포대');
   });
 });

@@ -66,3 +66,28 @@ describe("수정안의 실제 대상과 전후 표시 (#567)", () => {
     expect(html).not.toContain("truncate");
   });
 });
+
+describe("다른 날과 맞바꾸기 · 이동시간 모름 (#877)", () => {
+  const lunch: ProductItem = { ...a, itemId: 11, seq: 1, start: "13:00", end: "14:00", place: "가람집옹심이", itemType: "MEAL" };
+  const other: ProductItem = { ...a, itemId: 12, seq: 1, start: "12:30", end: "13:30", place: "초당할머니순두부", itemType: "MEAL" };
+  const twoDays: Pick<ProductDetail, "days"> = { days: [{ day: 1, items: [lunch] }, { day: 3, items: [other] }] };
+
+  it("🔴 다른 날 일정과 맞바꾸면 일차까지 바뀐다고 적는다", () => {
+    const result = describePatch(patch("REORDER", 11, { swapWithItemId: 12 }), twoDays);
+    expect(result.action).toBe("두 장소의 방문 일차·시간 교환");
+    expect(result.changes.map(c => [c.place, c.before, c.after])).toEqual([
+      ["가람집옹심이", "1일차 · 13:00 – 14:00", "3일차 · 12:30 – 13:30"],
+      ["초당할머니순두부", "3일차 · 12:30 – 13:30", "1일차 · 13:00 – 14:00"],
+    ]);
+  });
+
+  it("같은 날 맞바꾸기는 이름이 그대로다 — 가이드 11-1 의 「두 장소의 방문 순서·시간 교환」", () => {
+    expect(describePatch(patch("REORDER", 1, { swapWithItemId: 2 }), product).action).toBe("두 장소의 방문 순서·시간 교환");
+  });
+
+  it("🔴 이동시간을 몰라 겹침만 푼 안은 그 사실을 적는다 (FR-RU-033)", () => {
+    const result = describePatch(patch("TIME_SHIFT", 2, { newStartTime: "12:00", newEndTime: "13:30", travelUnchecked: true }), product);
+    expect(result.note).toBe("이동시간을 확인하지 못해 겹침만 풀었어요. 반영 후 다시 검수해 확인해요.");
+    expect(describePatch(patch("TIME_SHIFT", 2, { newStartTime: "12:00" }), product).note).toBeUndefined();
+  });
+});

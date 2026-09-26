@@ -31,6 +31,18 @@ const insert = (id: string, day: number, start: string, end: string): SelectedPa
     payload: { dayNo: day, afterItemId: null, startTime: start, endTime: end, itemType: 'MEAL' },
   }) as SelectedPatch;
 
+describe('다른 날 일정과 맞바꾸기 (FR-RU-013 ② · #877)', () => {
+  it('🔴 순서 교체는 일차까지 맞바꾼다', () => {
+    const rows = [
+      item({ id: 1, seq: 1, dayNo: 1, startTime: '12:00', endTime: '13:00' }),
+      item({ id: 2, seq: 1, dayNo: 2, startTime: '12:30', endTime: '13:30' }),
+    ];
+    const out = applyPatches(rows, [reorder('p-1', 1, 2)]);
+    expect(out.items.find((i) => i.id === 1)).toMatchObject({ dayNo: 2, startTime: '12:30', endTime: '13:30' });
+    expect(out.items.find((i) => i.id === 2)).toMatchObject({ dayNo: 1, startTime: '12:00', endTime: '13:00' });
+  });
+});
+
 describe('반영 순서 (FR-PA-020)', () => {
   it('빼기 → 대체 → 이동 → 교체 → 넣기 순이다', () => {
     const order = orderPatches([

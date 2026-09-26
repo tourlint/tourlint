@@ -8,7 +8,7 @@ import {
 } from '../external/kto';
 import {
   AuditRunner, DEFAULT_AUDIT_CONCURRENCY, concurrencyFromEnv, departureStamp,
-  uniqueContentIds, withConcurrency,
+  replacementRule, uniqueContentIds, withConcurrency,
   type ClimateNormalLookup, type ItineraryItemRow, type ProductRow,
   type TargetProfileLookup,
 } from './audit-runner';
@@ -1108,7 +1108,8 @@ describe('외부 조회 상한은 차단부터 쓴다 (#602 · NF-PF-014)', () =
     for (const f of blockers) {
       expect((f.patches ?? []).map((p) => p.type), `${f.reasonCode} 에 대체가 없다`).toContain('REPLACE_CONTENT');
     }
-    const unsure = result.findings.find((f) => f.reasonCode === 'REST_DAY_UNCERTAIN');
+    // 사유코드는 남은 조각의 사유를 따른다(#855) — 등급으로 찾는다
+    const unsure = result.findings.find((f) => f.ruleCode === 'R01' && f.severity === 'UNVERIFIED');
     expect((unsure?.patches ?? []).map((p) => p.type), '확인 불가가 굶었다').toContain('REPLACE_CONTENT');
     expect((result.findings.find((f) => f.ruleCode === 'R10')?.patches ?? []).length,
       'R10 이 수정안 없이 남았다').toBeGreaterThan(0);
@@ -1137,5 +1138,19 @@ describe('이동 조회 → 겹침 수정안 관통 (#554)', () => {
     expect(overlap?.patches?.map(p => p.payload)).toEqual([
       {newStartTime: '12:00', newEndTime: '13:30'}, {newEndTime: '10:54'},
     ]);
+  });
+});
+
+describe('대체 관광지를 찾는 판정 (UI-S3-019 · #877)', () => {
+  it('🔴 R06 은 표출 중단만 대체한다 — 정보 변경 안내 · 확인 불가에는 수정안이 없다', () => {
+    expect(replacementRule({ ruleCode: 'R06', reasonCode: 'CONTENT_HIDDEN' }, false)).toBe(true);
+    expect(replacementRule({ ruleCode: 'R06', reasonCode: 'PARSE_SCHEMA_INVALID' }, false)).toBe(false);
+  });
+
+  it('R01 · R08 이동 부족 · R04 반복은 그대로 대체를 찾는다', () => {
+    expect(replacementRule({ ruleCode: 'R01', reasonCode: 'REST_DAY_CONFLICT' }, false)).toBe(true);
+    expect(replacementRule({ ruleCode: 'R08', reasonCode: 'TRAVEL_TIME_SHORT' }, false)).toBe(true);
+    expect(replacementRule({ ruleCode: 'R08', reasonCode: 'ROUTE_PROVIDER_FAILED' }, false)).toBe(false);
+    expect(replacementRule({ ruleCode: 'R04', reasonCode: 'CONTENT_IMBALANCE' }, true)).toBe(true);
   });
 });

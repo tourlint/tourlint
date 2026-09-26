@@ -2,6 +2,7 @@ import { Controller, Get, HttpCode, Param, ParseIntPipe, Post, Res } from '@nest
 import type { Response } from 'express';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
+import { RequestRateLimiter } from '../common/request-rate-limit';
 import { ReportService } from './report.service';
 
 /**
@@ -12,7 +13,10 @@ import { ReportService } from './report.service';
  */
 @Controller('api/v1')
 export class ReportController {
-  constructor(private readonly service: ReportService) {}
+  constructor(
+    private readonly service: ReportService,
+    private readonly limiter: RequestRateLimiter,
+  ) {}
 
   /**
    * 만든다. 201 + `reportId` (API 설계 4-7).
@@ -20,6 +24,8 @@ export class ReportController {
    * 렌더까지 끝내고 돌려준다 — 202 로 받아 두고 뒤에서 만들면 진행 상태를 물어볼 곳이
    * 필요한데, `report` 테이블이 없어 작업 상태를 남길 자리가 없다. NF-PF-006 이 p95 10초라
    * 요청을 붙잡고 있어도 되는 길이다.
+   *
+   * 계정당 분당 5회다 (NF-SC-010 · API 3-4).
    */
   @Post('audit-runs/:runId/reports')
   @HttpCode(201)
@@ -27,6 +33,7 @@ export class ReportController {
     @CurrentAccount() account: SessionAccount,
     @Param('runId', ParseIntPipe) runId: number,
   ): Promise<Record<string, unknown>> {
+    this.limiter.take(account, 'REPORT');
     return { ...(await this.service.create(runId, account.accountId)) };
   }
 

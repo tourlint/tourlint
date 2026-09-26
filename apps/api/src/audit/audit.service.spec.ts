@@ -217,6 +217,22 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
 
       expect(await service.getJob(staleId)).toMatchObject({ status: 'FAILED', errorCode: 'AUDIT_TIMEOUT' });
     });
+
+    it('🔴 도는 작업 번호를 검수 이력 응답에 싣는다 — 재검수 중 새로 연 결과 화면이 이어 폴링한다 (UI-ST-003)', async () => {
+      const liveId = await insertJob(5);
+      expect(await service.activeJobOf(productId)).toBe(liveId);
+      const body = toRunListResponse(await service.listRuns(productId), null, await service.activeJobOf(productId));
+      expect(body.activeJobId).toBe(liveId);
+
+      await pool.query(`UPDATE audit_job SET status = 'DONE', finished_at = now() WHERE id = $1`, [liveId]);
+      expect(await service.activeJobOf(productId)).toBeNull();
+      expect(toRunListResponse([]).activeJobId).toBeNull();
+    });
+
+    it('기한을 넘겨 멈춘 작업은 도는 작업으로 치지 않는다 — 화면이 죽은 작업을 붙잡지 않는다', async () => {
+      await insertJob(31);
+      expect(await service.activeJobOf(productId)).toBeNull();
+    });
   });
 
   describe('등록 → 검수 → 결과 (W1 게이트)', () => {
@@ -1273,7 +1289,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       const row = rows.find((r) => r.contentid === '3539725');
       expect(row, '갈골한과체험전시관의 확인 필요 항목이 없다').toBeDefined();
       expect(row?.placeLabel, '저장은 안 했지만 표시 이름은 있어야 한다').toBe('갈골한과체험전시관');
-      expect(row?.reason).toBe('갈골한과체험전시관 — 휴무일 정보를 확인할 수 없습니다');
+      // 문장은 남은 조각의 사유를 따른다 — `예약시 운영` 은 참조형이다 (EX-PS-002 · #855)
+      expect(row?.reason).toBe('갈골한과체험전시관 — 휴무일을 홈페이지 · 문의로 안내하고 있어 데이터로 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요');
     });
 
     it('일정 항목을 못 넘겨도 빈 값으로 응답한다 — 목록이 깨지지 않는다', async () => {

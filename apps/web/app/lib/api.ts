@@ -270,6 +270,8 @@ export interface Patch {
     newDayNo?: number;
     newStartTime?: string;
     newEndTime?: string;
+    /** R03 — 이동시간을 몰라 겹침만 푼 안 (#877) */
+    travelUnchecked?: boolean;
     swapWithItemId?: number;
     dayNo?: number;
     startTime?: string;
@@ -278,6 +280,9 @@ export interface Patch {
     distanceMeters?: number;
     /** 거리를 잰 기준 일정. 없으면 바꿀 장소 자리에서 잰 것이다 (#728) */
     fromItemId?: number;
+    /** 대체 관광지 — 고르면 그곳의 운영 조건을 부른다 (UI-S3-016 · #880) */
+    ktoContentId?: string;
+    contentTypeId?: number;
   };
 }
 
@@ -422,8 +427,9 @@ export interface RuleView {
 }
 
 export const auditApi = {
+  /** `activeJobId` — 지금 도는 검수 작업. 결과 화면이 다시 열려도 이어 폴링한다 (UI-ST-003) */
   listRuns: (productId: number) =>
-    request<{ totalCount: number; runs: RunListItem[] }>(`/products/${productId}/audit-runs`),
+    request<{ totalCount: number; runs: RunListItem[]; activeJobId?: number | null }>(`/products/${productId}/audit-runs`),
   /** 규칙 목록과 설명 (검수 기준 탭). 계정과 무관한 표준이라 캐시해도 된다. */
   rules: () => request<{ rulesetVersion: string; rules: RuleView[] }>(`/rules`),
   getRun: (runId: number) => request<RunSummary>(`/audit-runs/${runId}`),
@@ -939,6 +945,8 @@ export interface ContentDetail {
   lclsSystm1: string | null;
   lclsSystm2: string | null;
   lclsSystm3: string | null;
+  /** 저작권 유형 `Type1` · `Type3`. Type3 이면 공사 원문 배지에 「변경금지」 (FR-CM-011). 없으면 표기 생략 */
+  cpyrhtDivCd?: string | null;
 }
 
 export const contentApi = {

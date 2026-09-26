@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import PDFDocument from 'pdfkit';
-import { TRANSPORT_LABEL, ktoFieldLabel, ruleName, type Transport } from '@tourlint/shared';
+import { TRANSPORT_LABEL, ktoFieldLabel, ktoRawText, ruleName, unavailableText, type Transport } from '@tourlint/shared';
 import type { ContentEvidence, ReportFinding, ReportModel } from './report-model';
 
 /**
@@ -371,14 +371,11 @@ function drawEvidence(doc: Doc, e: ContentEvidence | null): void {
     return;
   }
   if (e.unavailableReason !== null) {
-    paragraph(doc, `공사 원문을 조회하지 못했습니다 (${e.unavailableReason}).`,
-      { color: GRAY, size: SMALL });
+    paragraph(doc, unavailableLine(e.unavailableReason), { color: GRAY, size: SMALL });
     return;
   }
 
-  const rows: (readonly string[])[] = e.fields.map((f) => [ktoFieldLabel(f.name), f.value === '' ? '(값 없음)' : f.value]);
-  // 7장이 같은 값을 `2026-06-15` 로 보인다. 같은 문서 안에서 같은 값은 같은 꼴이어야 한다
-  if (e.ktoModifiedTime !== null) rows.push([ktoFieldLabel('modifiedtime'), ktoStamp(e.ktoModifiedTime)]);
+  const rows = evidenceRows(e);
   if (rows.length > 0) {
     table(doc, [
       { header: '판정 필드', width: 132 },
@@ -391,6 +388,22 @@ function drawEvidence(doc: Doc, e: ContentEvidence | null): void {
     e.homepageUrl === null ? '' : `홈페이지 ${e.homepageUrl}`,
   ].filter((s) => s !== '');
   if (links.length > 0) paragraph(doc, links.join('   '), { color: GRAY, size: SMALL });
+}
+
+/**
+ * 근거 표의 줄 (UI-S6-002 · UI-S3-012). 원문은 그대로 싣되 섞여 오는 `<br>` 만 줄바꿈으로
+ * 되돌린다 — pdfkit 은 태그를 글자로 찍어 `06:00~23:00<br>※ 점포별 상이함` 이 그대로 나갔다.
+ */
+export function evidenceRows(e: ContentEvidence): (readonly string[])[] {
+  const rows: (readonly string[])[] = e.fields.map((f) => [ktoFieldLabel(f.name), f.value === '' ? '(값 없음)' : ktoRawText(f.value)]);
+  // 7장이 같은 값을 `2026-06-15` 로 보인다. 같은 문서 안에서 같은 값은 같은 꼴이어야 한다
+  if (e.ktoModifiedTime !== null) rows.push([ktoFieldLabel('modifiedtime'), ktoStamp(e.ktoModifiedTime)]);
+  return rows;
+}
+
+/** 원문을 못 읽은 곳 — 사유코드(KTO_FETCH_FAILED 등) 대신 조회 실패 / 정보 없음 (FR-CM-012 · UI-ST-005) */
+export function unavailableLine(reasonCode: string): string {
+  return `공사 원문 ${unavailableText(reasonCode)}`;
 }
 
 function drawPatchHistory(doc: Doc, m: ReportModel): void {

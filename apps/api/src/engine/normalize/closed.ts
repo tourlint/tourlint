@@ -167,18 +167,64 @@ const CONDITION_HINT = /단,|경우|공휴일|연휴|휴가철|정상\s*(?:개�
  *   `(단, 월요일이 공휴일인 경우 그 다음날 휴관)`            → 조건부 휴무
  *   `(1월 1일/설날/추석 당일은 오죽헌만 개방, 실내 전시실 휴관)` → 시설 일부 휴관
  */
-export function parseParenthetical(inner: string, contextDays: readonly DayOfWeek[]): ClosedHit {
+export function parseParenthetical(inner: string, contextDays: readonly DayOfWeek[]): readonly ClosedHit[] {
+  // 날짜 · 명절만 든 휴관은 시설 전체 휴무다 — 일부 휴관보다 먼저 본다 (#855)
+  const whole = parseDateClosure(inner);
+  if (whole !== null) return whole;
+
   const partial = parsePartialClosed(inner);
-  if (partial !== null) return { kind: 'PARTIAL', partial };
+  if (partial !== null) return [{ kind: 'PARTIAL', partial }];
 
   if (CONDITION_HINT.test(inner)) {
     const kind = /공휴일|연휴/.test(inner) && /익일|다음\s*날|휴관|휴무|휴원/.test(inner)
       ? 'HOLIDAY_NEXT_DAY'
       : 'OTHER';
-    return { kind: 'CONDITIONAL', rule: { kind, appliesTo: contextDays } };
+    return [{ kind: 'CONDITIONAL', rule: { kind, appliesTo: contextDays } }];
   }
 
-  return { kind: 'UNPARSED', reason: 'CONDITIONAL' };
+  return [{ kind: 'UNPARSED', reason: 'CONDITIONAL' }];
+}
+
+/** 괄호 끝의 휴관 말꼬리 — `1월 1일 휴관` · `명절 당일은 휴무` */
+const WHOLE_CLOSURE_TAIL = /\s*(?:은|는)?\s*(?:휴관|휴무|휴점|휴원|휴장)(?:일)?\s*$/;
+
+/**
+ * 괄호 안이 **날짜 · 명절만** 든 휴관이면 시설 전체가 쉬는 날이다 (FR-AU-012 · DR-NM-011 ① · #855).
+ *
+ *   `연중무휴(1월 1일 휴관)`      → FIXED 01-01
+ *   `연중무휴(설날, 추석 당일 휴무)` → HOLIDAY 설날 · 추석
+ *
+ * 종전에는 일부 휴관으로 읽어 대상을 「1월 1일」 로 잡았다. 그러면 연중무휴가 그대로 남아 그날 방문이
+ * 조용히 정상이 된다. 시설 이름 · 조건이 한 조각이라도 섞이면 `null` — 일부 휴관 · 조건으로 넘긴다
+ * (`1월 1일/설날/추석 당일은 오죽헌만 개방, 실내 전시실 휴관` 은 일부 휴관이다).
+ * 연중무휴와 함께 나오면 병합이 DR-NM-011 ① 대로 연중무휴를 내리고 추정으로 둔다.
+ */
+function parseDateClosure(inner: string): ClosedHit[] | null {
+  const text = stripFormatting(inner);
+  const tail = WHOLE_CLOSURE_TAIL.exec(text);
+  if (tail === null) return null;
+  const body = text.slice(0, tail.index).trim();
+  if (body === '') return null;
+
+  const dates: MonthDay[] = [];
+  const rules: HolidayRule[] = [];
+  for (const piece of body.split(/[/,·、]|\s*및\s*/)) {
+    const t = stripFormatting(piece);
+    if (t === '') continue;
+    const date = parseMonthDay(t);
+    if (date !== null) {
+      if (!dates.includes(date)) dates.push(date);
+      continue;
+    }
+    const holiday = HOLIDAY_TOKENS.find(([re]) => re.test(t));
+    if (holiday === undefined) return null;
+    for (const r of holiday[1]) if (!rules.includes(r)) rules.push(r);
+  }
+
+  const hits: ClosedHit[] = [];
+  if (dates.length > 0) hits.push({ kind: 'FIXED', dates });
+  if (rules.length > 0) hits.push({ kind: 'HOLIDAY', rules });
+  return hits.length === 0 ? null : hits;
 }
 
 /**
@@ -265,9 +311,10 @@ export function parseClosedRaw(raw: string): ClosedParseResult {
     const wholeHits: ClosedHit[] = [whole];
     const days = whole.kind === 'WEEKLY' ? sortDays(whole.days) : [];
     for (const inner of parentheticals) {
-      const hit = parseParenthetical(inner, days);
-      if (hit.kind === 'UNPARSED') unparsedFragments.push({ fragment: inner, reason: hit.reason });
-      else wholeHits.push(hit);
+      for (const hit of parseParenthetical(inner, days)) {
+        if (hit.kind === 'UNPARSED') unparsedFragments.push({ fragment: inner, reason: hit.reason });
+        else wholeHits.push(hit);
+      }
     }
     for (const note of notes) {
       const hit = parseClosedFragment(note);
@@ -293,9 +340,10 @@ export function parseClosedRaw(raw: string): ClosedParseResult {
 
   // 괄호는 앞선 요일 조각을 수식한다 — `매주 월요일 (단, 월요일이 공휴일인 …)`
   for (const inner of parentheticals) {
-    const hit = parseParenthetical(inner, sortDays(contextDays));
-    if (hit.kind === 'UNPARSED') unparsedFragments.push({ fragment: inner, reason: hit.reason });
-    else hits.push(hit);
+    for (const hit of parseParenthetical(inner, sortDays(contextDays))) {
+      if (hit.kind === 'UNPARSED') unparsedFragments.push({ fragment: inner, reason: hit.reason });
+      else hits.push(hit);
+    }
   }
 
   // `※` 주석은 **보조 정보**다. 조건 · 대상별 상이 신호만 받아들이고 확정 휴무 필드는 만들지 않는다.

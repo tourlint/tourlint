@@ -242,6 +242,9 @@ function seasonLabelNear(head: string): string | null {
   return m === null ? null : (m[1] as string);
 }
 
+/** 계절 라벨 길이 상한 — 휴관 대상어(`MAX_SCOPE_LENGTH`)와 같다 */
+export const MAX_SEASON_LABEL_LENGTH = 30;
+
 /** 블록 라벨을 범위로 읽는다 — `[월요일]` · `[평일]` · `[하절기(5월~10월)]` */
 function scopeFromLabel(label: string): HoursScope | null {
   const { head, parentheticals } = extractParentheticals(label);
@@ -249,7 +252,8 @@ function scopeFromLabel(label: string): HoursScope | null {
   for (const inner of parentheticals) {
     const period = parseMonthRange(inner);
     if (period !== null) {
-      return { kind: 'SEASON', from: period.from, to: period.to, label: head === '' ? null : head };
+      // 라벨은 블록 머리말이다. 원문 문장이 통째로 들어오지 않게 대상어 상한으로 자른다 (DR-PR-003 · #855)
+      return { kind: 'SEASON', from: period.from, to: period.to, label: head === '' ? null : head.slice(0, MAX_SEASON_LABEL_LENGTH) };
     }
   }
 

@@ -47,3 +47,27 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+
+  # 인증키가 저장소에 들어오지 않았는지 이력 전체를 본다 (NF-SC-008). .gitignore 만으로는
+  # 이름을 바꾼 .env · 코드에 붙여 넣은 키를 못 막는다. 오탐은 .gitleaks.toml 허용 목록으로 좁힌다.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      # gitleaks-action 은 조직 저장소에 라이선스 키를 요구한다. 릴리스 파일을 버전과 체크섬으로 고정해 받는다.
+      # 올릴 때는 두 값을 함께 바꾼다 — 체크섬은 릴리스의 gitleaks_<버전>_checksums.txt 에 있다.
+      - name: gitleaks 받기
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/gitleaks-bin"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/gitleaks-bin"
+      # 찾은 값은 로그에 싣지 않는다(--redact). 어느 커밋 · 파일 · 규칙인지만 남는다
+      - name: 시크릿 검사 (저장소 이력 전체)
+        run: |
+          "$RUNNER_TEMP/gitleaks-bin/gitleaks" git --config .gitleaks.toml --redact --verbose --no-banner --exit-code 1 .

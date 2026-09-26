@@ -66,6 +66,14 @@ describe('판정 입력값을 사람 말로 (#478)', () => {
     ]);
   });
 
+  it('🔴 숙박 입실 판정 근거를 한글로 보인다 (#875)', () => {
+    expect(verdictRows({ verdict: 'BEFORE_CHECK_IN', arrival: '14:00', checkIn: '15:00' })).toEqual([
+      { label: '판정', value: '입실 전 도착' },
+      { label: '도착 시각', value: '14:00' },
+      { label: '입실 시각', value: '15:00' },
+    ]);
+  });
+
   it('🔴 평년 경로도 전부 한글이다 (R09) — 조건부 스프레드 안이라 #480 에서 빠졌다', () => {
     expect(verdictRows(REAL.R09)).toEqual([
       { label: '방문일', value: '2026-12-05' },

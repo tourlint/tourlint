@@ -162,8 +162,9 @@ export function applyPatches(
          * 순서(`seq`)와 시각을 함께 바꾼다. `seq` 만 바꾸면 시각은 그대로라 화면에서
          * 순서와 시각이 어긋난다 — 두 항목이 자리를 맞바꾸는 것이 사용자가 기대하는 동작이다.
          */
-        working[index] = { ...a, seq: b.seq, startTime: b.startTime, endTime: b.endTime };
-        working[other] = { ...b, seq: a.seq, startTime: a.startTime, endTime: a.endTime };
+        // 일차도 맞바꾼다 — R01 휴무 충돌의 순서 교체는 다른 날 일정과 바꾼다 (FR-RU-013 ② · #877)
+        working[index] = { ...a, dayNo: b.dayNo, seq: b.seq, startTime: b.startTime, endTime: b.endTime };
+        working[other] = { ...b, dayNo: a.dayNo, seq: a.seq, startTime: a.startTime, endTime: a.endTime };
         break;
       }
 

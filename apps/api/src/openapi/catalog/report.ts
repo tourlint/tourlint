@@ -39,6 +39,12 @@ export const REPORT: readonly Endpoint[] = [
         when: 'PDF 를 만들지 못함',
         message: '리포트를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.',
       },
+      {
+        status: 429,
+        reasonCode: 'RATE_LIMIT_EXCEEDED',
+        when: '1분에 5번을 넘김 — 공개 테스트 계정은 세지 않는다',
+        message: '리포트는 1분에 5번까지 만들 수 있어요. 43초 뒤에 다시 눌러 주세요.',
+      },
     ],
   },
   {

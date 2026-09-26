@@ -7,7 +7,8 @@ import type { AuditItem, Finding } from '../engine/rules/types';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
 import { MIN_TRANSFER_MINUTES, lastRepeated, planInsertion, planNightInsertion, proposeLocalPatches } from './patch-local';
-import { proposeInsertions, proposeReplacements, rankCandidates } from './patch-remote';
+import { proposeEventReplacements, proposeInsertions, proposeReplacements, rankCandidates } from './patch-remote';
+import { rainyOutdoorTarget } from './audit-runner';
 import { MAX_PATCHES_PER_FINDING, type ReplaceContentPayload } from './patch-types';
 import { opensDuring } from './patch-verify';
 
@@ -57,6 +58,113 @@ describe('수정안은 표시 문구를 담지 않는다 (DR-PR-001)', () => {
       expect(s).not.toContain('label');
       expect(p.payload).toHaveProperty('ktoContentId');
     }
+  });
+});
+
+describe('R01 — 수정안 종류 (FR-RU-013 · #877)', () => {
+  // item() 의 날짜: 1일차 10/22(목) · 2일차 10/23(금) · 3일차 10/24(토)
+  it('🔴 휴무 충돌은 그곳이 여는 다른 날의 같은 종류 일정과 맞바꾼다 — 둘 다 옮겨 간 자리에서 열 때만', () => {
+    const target = item({ day: 1, start: '12:00', end: '13:00', type: 'MEAL', rest: '매주 목요일', use: '10:00~20:00' });
+    const other = item({ day: 2, start: '12:00', end: '13:00', type: 'MEAL', rest: '연중무휴', use: '10:00~20:00' });
+    const patches = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }), items: [target, other], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches.find((p) => p.type === 'REORDER')?.payload).toEqual({ swapWithItemId: other.id });
+  });
+
+  it('🔴 상대가 이쪽 날에 쉬면 맞바꾸지 않는다', () => {
+    const target = item({ day: 1, start: '12:00', end: '13:00', type: 'MEAL', rest: '매주 목요일', use: '10:00~20:00' });
+    const other = item({ day: 2, start: '12:00', end: '13:00', type: 'MEAL', rest: '매주 목요일', use: '10:00~20:00' });
+    const patches = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }), items: [target, other], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches.map((p) => p.type)).not.toContain('REORDER');
+  });
+
+  it('🔴 옮겨 간 시각에 이쪽이 문을 닫았으면 맞바꾸지 않는다', () => {
+    const target = item({ day: 1, start: '12:00', end: '13:00', type: 'MEAL', rest: '매주 목요일', use: '17:00~22:00' });
+    const other = item({ day: 2, start: '12:00', end: '13:00', type: 'MEAL', rest: '연중무휴', use: '10:00~20:00' });
+    const patches = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }), items: [target, other], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches.map((p) => p.type)).not.toContain('REORDER');
+  });
+
+  it('🔴 옮기는 날의 첫 빈 자리가 운영시간 밖이면 다음 빈 자리로 옮긴다', () => {
+    const target = item({ day: 1, start: '15:00', end: '16:00', rest: '매주 목요일', use: '14:00~20:00' });
+    const morning = item({ day: 2, start: '09:00', end: '10:00' });
+    const afternoon = item({ day: 2, start: '16:00', end: '17:00' });
+    const [p] = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }), items: [target, morning, afternoon], holidays: KOREAN_HOLIDAYS,
+    });
+    // 10:30 은 빈 자리지만 14:00 전이다 — 17:30 으로 옮긴다
+    expect(p).toMatchObject({ type: 'TIME_SHIFT', payload: { newDayNo: 2, newStartTime: '17:30', newEndTime: '18:30' } });
+  });
+
+  it('🔴 시각 충돌은 그 시각에 여는 다른 날로 옮기는 안도 낸다', () => {
+    const target = item({ day: 1, start: '19:00', end: '20:00', rest: '매주 금요일', use: '09:00~18:00' });
+    const day2 = item({ day: 2, start: '09:00', end: '10:00' });
+    const day3 = item({ day: 3, start: '09:00', end: '10:00' });
+    const patches = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id, reasonCode: 'OPEN_HOUR_CONFLICT' }),
+      items: [target, day2, day3], holidays: KOREAN_HOLIDAYS,
+    });
+    const shift = patches.find((p) => p.type === 'TIME_SHIFT');
+    // 2일차(금)는 쉬는 날이라 3일차(토) 운영시간 안으로
+    expect(shift?.payload).toMatchObject({ newDayNo: 3 });
+    const start = (shift?.payload as { newStartTime: string }).newStartTime;
+    expect(start >= '09:00' && start <= '17:00').toBe(true);
+  });
+});
+
+describe('R07 — 식사 길이는 판정의 기준을 따른다 (FR-RU-073 · #877)', () => {
+  it('🔴 회사 기준이 90분이면 90분을 넣는다 — 60분을 넣으면 반영 뒤 다시 걸린다', () => {
+    const a = item({ day: 1, start: '10:00', end: '11:00' });
+    const b = item({ day: 1, start: '14:00', end: '15:00' });
+    const [p] = proposeLocalPatches({
+      finding: finding({ ruleCode: 'R07', reasonCode: 'MEAL_REST_MISSING', targetItemId: null, evidence: { dayNo: 1, thresholds: { mealMinutes: 90 } } }),
+      items: [a, b], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(p?.payload).toMatchObject({ startTime: '11:00', endTime: '12:30', itemType: 'MEAL' });
+  });
+
+  it('기준이 없으면 표준 60분이다', () => {
+    const a = item({ day: 1, start: '10:00', end: '11:00' });
+    const b = item({ day: 1, start: '14:00', end: '15:00' });
+    const [p] = proposeLocalPatches({
+      finding: finding({ ruleCode: 'R07', reasonCode: 'MEAL_REST_MISSING', targetItemId: null, evidence: { dayNo: 1 } }),
+      items: [a, b], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(p?.payload).toMatchObject({ endTime: '12:00' });
+  });
+});
+
+describe('R01 — 숙박 입실 판정에는 수정안이 없다 (#875)', () => {
+  it('🔴 이른 도착(L-1)에 순서 교체 · 날짜 변경을 내지 않는다 — 숙소를 옮기는 것은 답이 아니다', () => {
+    const hotel = item({ day: 1, start: '14:00', end: null, type: 'LODGING' });
+    // 같은 날 · 같은 유형의 줄이 있으면 종전 코드는 둘을 맞바꾸는 수정안을 냈다
+    const other = item({ day: 1, start: '09:00', end: '10:00', type: 'LODGING' });
+    const patches = proposeLocalPatches({
+      finding: finding({
+        targetItemId: hotel.id, severity: 'WARNING', reasonCode: 'OPEN_HOUR_CONFLICT', evidence: { step: 'L-1' },
+      }),
+      items: [hotel, other], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches).toEqual([]);
+  });
+});
+
+describe('R01 — 휴무를 몰라서 낸 확인 불가(1-7)는 휴무 쪽 수정안이다 (#855)', () => {
+  it('🔴 사유가 PARSE_* 여도 같은 날 순서 교체를 내지 않는다 — 순서를 바꿔도 휴무는 안 풀린다', () => {
+    const target = item({ day: 1, start: '10:00', end: '11:00', rest: '※ 점포별 상이함', use: '09:00~18:00' });
+    const other = item({ day: 1, start: '12:00', end: '13:00', rest: '연중무휴', use: '09:00~18:00' });
+    const patches = proposeLocalPatches({
+      finding: finding({
+        targetItemId: target.id, severity: 'UNVERIFIED', reasonCode: 'PARSE_TARGET_VARIES', evidence: { step: '1-7' },
+      }),
+      items: [target, other], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches.map((p) => p.type)).not.toContain('REORDER');
   });
 });
 
@@ -197,9 +305,10 @@ describe('R03 — 뒤를 미루거나 앞을 줄인다 (FR-RU-033)', () => {
     expect(patches).toHaveLength(2);
     // ① 뒤 일정을 겹친 30분만큼 민다
     expect(patches[0]).toMatchObject({ type: 'TIME_SHIFT', targetItemId: b.id });
-    expect(patches[0]?.payload).toEqual({ newStartTime: '13:00', newEndTime: '14:30' });
+    // 이동시간을 조회하지 않은 구간이라 겹침만 풀고 그 사실을 싣는다 (FR-RU-033 · #877)
+    expect(patches[0]?.payload).toEqual({ newStartTime: '13:00', newEndTime: '14:30', travelUnchecked: true });
     // ② 앞 일정을 뒤 시작까지로 줄인다
-    expect(patches[1]?.payload).toEqual({ newEndTime: '12:30' });
+    expect(patches[1]?.payload).toEqual({ newEndTime: '12:30', travelUnchecked: true });
   });
 
   it('겹치지 않으면 제안하지 않는다', () => {
@@ -948,5 +1057,76 @@ describe('R03 수정안의 이동 여유 (#554)', () => {
     const patches = proposals(a,b,300);
     expect(patches).toHaveLength(1);
     expect(patches[0]?.payload).toEqual({newEndTime:'22:55'});
+  });
+});
+
+describe('R02 — 여행일에 열리는 같은 지역 행사로 교체 (FR-RU-022 ① · #880)', () => {
+  // item() 1일차 = 2026-10-22
+  const festival = (id: string, start: string, end: string, x = 128.90, y = 37.80) =>
+    ({ contentid: id, contenttypeid: '15', eventstartdate: start, eventenddate: end, mapx: String(x), mapy: String(y), lclsSystm2: 'EV01' });
+  const stub = (items: Record<string, unknown>[]) => {
+    const calls: Record<string, unknown>[] = [];
+    return {
+      calls,
+      kto: { searchFestival: async (p: Record<string, unknown>) => { calls.push(p); return { items, totalCount: items.length }; } } as never,
+    };
+  };
+
+  it('🔴 여행일이 기간 안인 행사만, 가까운 순으로 낸다 — 끝났거나 아직 안 한 행사는 빼고', async () => {
+    const target = item({ day: 1, contentId: 'old-fest', mapX: 128.90, mapY: 37.80 });
+    const { kto, calls } = stub([
+      festival('far', '20261020', '20261025', 129.10, 37.90),
+      festival('near', '20261022', '20261022', 128.901, 37.801),
+      festival('ended', '20261001', '20261021'),
+      festival('later', '20261023', '20261030'),
+    ]);
+    const { patches } = await proposeEventReplacements(target, { kto, region: { regnCd: '51', signguCd: '150' }, exclude: new Set() });
+    expect(patches.map((p) => (p.payload as ReplaceContentPayload).ktoContentId)).toEqual(['near', 'far']);
+    expect(patches.every((p) => p.type === 'REPLACE_CONTENT' && (p.payload as ReplaceContentPayload).contentTypeId === 15)).toBe(true);
+    expect(calls[0]).toMatchObject({ eventStartDate: '20261022', lDongRegnCd: '51', lDongSignguCd: '150' });
+  });
+
+  it('일정에 이미 있는 행사 · 좌표 없는 행사는 빼고, 대상 좌표나 지역을 모르면 부르지 않는다', async () => {
+    const target = item({ day: 1, mapX: 128.90, mapY: 37.80 });
+    const { kto } = stub([festival('dup', '20261020', '20261025'), { ...festival('nocoord', '20261020', '20261025'), mapx: '' }]);
+    expect((await proposeEventReplacements(target, { kto, region: { regnCd: '51', signguCd: null }, exclude: new Set(['dup']) })).patches).toEqual([]);
+
+    const none = stub([]);
+    const noCoord = item({ day: 1, mapX: null, mapY: null });
+    expect(await proposeEventReplacements(noCoord, { kto: none.kto, region: { regnCd: '51', signguCd: null }, exclude: new Set() }))
+      .toEqual({ patches: [], called: false });
+    expect(await proposeEventReplacements(target, { kto: none.kto, region: { regnCd: null, signguCd: null }, exclude: new Set() }))
+      .toEqual({ patches: [], called: false });
+    expect(none.calls).toEqual([]);
+  });
+});
+
+describe('R09 ③ — 실내 관광지로 바꾸기 (FR-RU-094 · #880)', () => {
+  it('🔴 실내 중분류의 관광 유형만 후보가 된다 — 유형은 대상과 맞추지 않는다', async () => {
+    const target = item({ day: 1, mapX: 128.9, mapY: 37.8 });
+    const asked: Record<string, unknown>[] = [];
+    const kto = {
+      locationBasedList: async (p: Record<string, unknown>) => {
+        asked.push(p);
+        return { items: [
+          { contentid: 'beach', contenttypeid: '12', lclsSystm2: 'NA02', mapx: '128.9', mapy: '37.8', dist: '100' },
+          { contentid: 'museum', contenttypeid: '14', lclsSystm2: 'VE07', mapx: '128.9', mapy: '37.8', dist: '300' },
+          { contentid: 'mart', contenttypeid: '38', lclsSystm2: 'SH01', mapx: '128.9', mapy: '37.8', dist: '50' },
+        ], totalCount: 3 };
+      },
+    } as never;
+    const patches = await proposeReplacements(target, { kto, indoorLcls2: new Set(['VE07', 'SH01']), limit: 1 });
+    expect(patches.map((p) => (p.payload as ReplaceContentPayload).ktoContentId)).toEqual(['museum']);
+    expect(asked[0]).not.toHaveProperty('contentTypeId');
+  });
+
+  it('비 오는 날의 가장 이른 야외 일정을 바꿀 대상으로 고른다', () => {
+    const settings = { r09IndoorOutdoor: { NA02: 'OUTDOOR', VE07: 'INDOOR' } } as never;
+    const morning = { ...item({ day: 1, start: '09:00' }), lclsSystm2: 'NA02' };
+    const noon = { ...item({ day: 1, start: '12:00' }), lclsSystm2: 'NA02' };
+    const museum = { ...item({ day: 1, start: '08:00' }), lclsSystm2: 'VE07' };
+    const other = { ...item({ day: 2, start: '08:00' }), lclsSystm2: 'NA02' };
+    const got = rainyOutdoorTarget({ evidence: { date: morning.date } }, { items: [noon, museum, other, morning], settings });
+    expect(got?.id).toBe(morning.id);
   });
 });

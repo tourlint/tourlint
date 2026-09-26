@@ -165,6 +165,12 @@ export const AUDIT: readonly Endpoint[] = [
           '관광지 2곳이 아직 확정되지 않았습니다. 일정 편집에서 관광지를 선택하거나 검수 대상에서 제외한 뒤 다시 요청해 주세요.',
       },
       { status: 429, reasonCode: 'BUDGET_EXHAUSTED', when: '오늘 관광정보 조회 한도를 다 씀', message: AUDIT_BUDGET_MESSAGE },
+      {
+        status: 429,
+        reasonCode: 'RATE_LIMIT_EXCEEDED',
+        when: '1분에 5번을 넘김 — 검수 시작과 같이 센다. 공개 테스트 계정은 세지 않는다',
+        message: '검수는 1분에 5번까지 요청할 수 있어요. 43초 뒤에 다시 눌러 주세요.',
+      },
     ],
   },
   {
@@ -214,13 +220,14 @@ export const AUDIT: readonly Endpoint[] = [
     route: 'GET /api/v1/products/{productId}/audit-runs',
     tag: '검수',
     summary: '검수 이력',
-    description: '상품의 검수 결과 목록을 최신순으로 돌려줍니다. 현재 일정의 결과에는 `isCurrent: true` 가 붙습니다.',
+    description: '상품의 검수 결과 목록을 최신순으로 돌려줍니다. 현재 일정의 결과에는 `isCurrent: true` 가 붙습니다. 검수가 도는 중이면 `activeJobId` 에 그 작업 번호가 있습니다(없으면 `null`) — 결과 화면이 다시 열려도 진행 상태를 이어서 봅니다.',
     params: PRODUCT,
     responses: {
       200: {
         description: '성공',
         example: {
           totalCount: 13,
+          activeJobId: null,
           runs: [
             {
               auditRunId: 111,
