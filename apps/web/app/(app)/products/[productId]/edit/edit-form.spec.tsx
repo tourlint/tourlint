@@ -397,3 +397,69 @@ describe("편집 화면 — 가이드 13단계 · 저장된 고른 곳 (UI-S2-02
     expect(patch).not.toHaveBeenCalled();
   });
 });
+
+describe("편집 화면 — 다시 고르기는 고르거나 직접 정한 곳으로 두기 전까지 줄을 바꾸지 않는다 (UI-S2-025)", () => {
+  const hotel = () => product([row({
+    matchStatus: "CONFIRMED", ktoContentId: "142785", contentTypeId: 32, mapx: 128.9, mapy: 37.8,
+    place: "세인트존스 호텔", itemType: "LODGING", start: "18:00", end: null,
+  })]);
+  const found = (title: string): ContentSearchResult => ({
+    regionFilterApplied: true, fetchedAt: "", totalCount: 1, source: "",
+    candidates: [{ contentid: "2766939", title, addr1: null, contenttypeid: 32, cpyrhtDivCd: null }],
+  });
+
+  it("🔴 찾는 칸에 치고 고르지 않은 채 저장하면 아무것도 보내지 않는다 — 칸의 글자는 검색어일 뿐이다", async () => {
+    vi.spyOn(productApi, "detail").mockResolvedValue(hotel());
+    vi.spyOn(matchApi, "search").mockResolvedValue(found("하이오션 경포"));
+    const patch = vi.spyOn(itemApi, "patch");
+    const match = vi.spyOn(matchApi, "match");
+    await act(async () => root.render(<EditForm productId={70} />));
+    await settle();
+    await act(async () => button("다시 고르기")!.click());
+    await type(rows()[0]!.querySelector<HTMLInputElement>('input[aria-label="장소명"]')!, "하이오");
+    await settle(350);
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(patch).not.toHaveBeenCalled();
+    expect(match).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain("장소명을 입력하세요");
+    expect(router.push).toHaveBeenCalledWith("/products/70/plan");
+  });
+
+  it("🔴 이름을 불러오지 못한 고른 곳도 다시 고르기 뒤 저장이 막히지 않는다", async () => {
+    vi.spyOn(productApi, "detail").mockResolvedValue(product([row({
+      matchStatus: "CONFIRMED", ktoContentId: "142785", contentTypeId: 32, mapx: 128.9, mapy: 37.8,
+      place: "", itemType: "LODGING", start: "18:00", end: null,
+    })]));
+    const patch = vi.spyOn(itemApi, "patch");
+    await act(async () => root.render(<EditForm productId={70} />));
+    await settle();
+    expect(rows()[0]!.textContent).toContain("이름을 불러오지 못한 곳");
+    await act(async () => button("다시 고르기")!.click());
+    await settle(350);
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(host.textContent).not.toContain("장소명을 입력하세요");
+    expect(patch).not.toHaveBeenCalled();
+    expect(router.push).toHaveBeenCalledWith("/products/70/plan");
+  });
+
+  it("다른 이름으로 찾아 새 곳을 고르면 그 이름으로 바꾸고 확정한다", async () => {
+    vi.spyOn(productApi, "detail").mockResolvedValue(hotel());
+    vi.spyOn(matchApi, "search").mockResolvedValue(found("하이오션 경포"));
+    vi.spyOn(contentApi, "detail").mockResolvedValue({ contentTypeId: 32, mapx: 128.9, mapy: 37.8, lclsSystm1: "AC", lclsSystm2: "AC01", lclsSystm3: null } as ContentDetail);
+    const patch = vi.spyOn(itemApi, "patch").mockResolvedValue({} as ProductItem);
+    const match = vi.spyOn(matchApi, "match").mockResolvedValue({} as Awaited<ReturnType<typeof matchApi.match>>);
+    await act(async () => root.render(<EditForm productId={70} />));
+    await settle();
+    await act(async () => button("다시 고르기")!.click());
+    await type(rows()[0]!.querySelector<HTMLInputElement>('input[aria-label="장소명"]')!, "하이오션");
+    await settle(350);
+    await act(async () => rows()[0]!.querySelector<HTMLButtonElement>("li button")!.click());
+    await settle();
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(patch.mock.calls).toEqual([[11, { placeLabel: "하이오션" }]]);
+    expect(match.mock.calls).toEqual([[11, "2766939", "USER"]]);
+  });
+});

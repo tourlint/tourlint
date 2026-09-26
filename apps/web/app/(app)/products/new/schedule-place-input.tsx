@@ -5,10 +5,13 @@
 // 좌표·분류를 상세(detailCommon2)로 잡아 폼에 담는다. 저장(create)이 CONFIRMED 로 저장한다.
 // 못 찾으면 "직접 정한 곳으로 두기" — 그 줄에 「직접 정한 곳」 을 붙이고 저장하면 EXCLUDED 다
 // (UI-S2-021 · FR-IN-025). [다시 고르기]로 되돌린다.
+// 고른 줄의 [다시 고르기]는 그 줄을 바꾸지 않는다 — 새 곳을 고르거나 「직접 정한 곳으로 두기」를 눌러야
+// 바뀐다. 찾는 칸의 글자는 검색어일 뿐이고, 그대로 저장하면 다시 고르기 전과 같다 (UI-S2-025).
 
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { contentApi, type ContentCandidate } from "../../../lib/api";
 import { canAnchor, searchSchedulePlaces } from "./schedule-place-search";
+import { UNNAMED_PICKED } from "../../../lib/place-label";
 import type { MatchedContent } from "./types";
 
 const CONTENT_TYPE_LABEL: Record<number, string> = {
@@ -30,7 +33,6 @@ export function SchedulePlaceInput({
   canReselect = true,
   walk = false,
   keepName = false,
-  savedPick = false,
   onChange,
 }: {
   ref?: Ref<PlaceInputHandle>;
@@ -59,11 +61,6 @@ export function SchedulePlaceInput({
    * `place_label` 로 저장되므로 사용자가 친 글을 둔다 (UI-S2-025 · DR-PR-001)
    */
   keepName?: boolean;
-  /**
-   * 편집 화면의 저장된 고른 곳. 다시 고르다 말고 저장해도 서버에는 고른 곳이 그대로 남는다 —
-   * 찾는 칸에 그렇다고 적는다 (UI-S2-025)
-   */
-  savedPick?: boolean;
   onChange: (patch: { place?: string; content?: MatchedContent | null; excluded?: boolean }) => void;
 }) {
   const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
@@ -79,10 +76,16 @@ export function SchedulePlaceInput({
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const [resultKey, setResultKey] = useState("");
   const [searchVersion, setSearchVersion] = useState(0);
-  // [다시 고르기]를 누르기 전의 고른 곳 — [취소]로 돌아간다 (UI-S2-025)
-  const [reselectFrom, setReselectFrom] = useState<{ place: string; content: MatchedContent } | null>(null);
+  /**
+   * 고른 줄을 [다시 고르기]로 찾는 중이면 찾는 칸의 글자 (UI-S2-025). **줄에는 쓰지 않는다** — 줄은 고른
+   * 곳 그대로이고, 새 곳을 고르거나 「직접 정한 곳으로 두기」를 눌러야 바뀐다
+   */
+  const [reselect, setReselect] = useState<string | null>(null);
+  const reselecting = reselect !== null;
   const focusOnSearch = useRef(false);
-  const lookupKey = JSON.stringify([value, regnCd, signguCd, content?.contentId]);
+  // 찾는 글자 — 다시 고르는 중이면 찾는 칸, 아니면 줄 이름
+  const query = reselect ?? value;
+  const lookupKey = JSON.stringify([query, regnCd, signguCd, content?.contentId, reselecting]);
   const busy = pendingPick?.key === lookupKey;
 
   // 조회 중 행이 편집·삭제·재변환되면 오래된 결과를 적용하지 않는다.
@@ -90,17 +93,17 @@ export function SchedulePlaceInput({
 
   // [다시 고르기]를 누르면 찾는 칸에 초점을 둔다 — 목록이 바로 열린다
   useEffect(() => {
-    if (!focusOnSearch.current || content !== null) return;
+    if (!focusOnSearch.current || !reselecting) return;
     focusOnSearch.current = false;
     inputRef.current?.focus();
-  }, [content]);
+  }, [reselecting]);
 
   function openSearch(asAnchor: boolean) {
     anchorIntent.current = asAnchor;
     setOpen(true);
     if (candidates === null) setSearchVersion((version) => version + 1);
     setError(regnCd === "" ? "먼저 기본정보에서 여행 지역을 선택해 주세요."
-      : value.trim() === "" ? "기준으로 삼을 장소명을 입력해 주세요." : null);
+      : query.trim() === "" ? "기준으로 삼을 장소명을 입력해 주세요." : null);
     inputRef.current?.focus();
   }
 
@@ -109,17 +112,19 @@ export function SchedulePlaceInput({
       if (busy) return;
       anchorIntent.current = true;
       if (content !== null) {
+        // 고른 곳의 좌표를 다시 확인한다 — 다시 고르던 중이어도 새로 고른 것이 아니다
+        setReselect(null);
         void pick({ contentid: content.contentId, contenttypeid: content.contentTypeId,
-          title: value, addr1: null, cpyrhtDivCd: null });
+          title: value, addr1: null, cpyrhtDivCd: null }, false);
       } else openSearch(true);
     },
   }));
 
   // 고른 상태가 아니고 입력이 있으면 검색한다 (디바운스 300ms). 지역이 없으면 검색하지 않는다.
-  // 직접 정한 곳으로 둔 줄은 찾지 않는다
+  // 직접 정한 곳으로 둔 줄은 찾지 않는다. 고른 줄은 [다시 고르기]를 눌렀을 때만 찾는다
   useEffect(() => {
-    if (content !== null || excluded || walk) return;
-    const kw = value.trim();
+    if ((content !== null && !reselecting) || excluded || walk) return;
+    const kw = query.trim();
     let alive = true;
     const id = window.setTimeout(() => {
       void (async () => {
@@ -142,7 +147,7 @@ export function SchedulePlaceInput({
       })();
     }, 300);
     return () => { alive = false; window.clearTimeout(id); };
-  }, [value, content, excluded, walk, regnCd, signguCd, regionLabel, lookupKey, searchVersion]);
+  }, [query, content, reselecting, excluded, walk, regnCd, signguCd, regionLabel, lookupKey, searchVersion]);
 
   // 목록 밖을 누르면 드롭다운을 닫는다 (UI-CM-042)
   useEffect(() => {
@@ -154,7 +159,9 @@ export function SchedulePlaceInput({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  async function pick(c: ContentCandidate): Promise<void> {
+  /** `fromReselect` — [다시 고르기]로 찾아 고른 것이다. 찾는 칸에 다른 이름을 쳤으면 그 말이 줄 이름이 된다 */
+  async function pick(c: ContentCandidate, fromReselect: boolean): Promise<void> {
+    const typed = fromReselect ? (reselect ?? "").trim() : "";
     const ticket = ++pickSeq.current;
     const shouldAnchor = anchorIntent.current;
     setPendingPick({ key: lookupKey, ticket });
@@ -166,8 +173,14 @@ export function SchedulePlaceInput({
       if (typeId === null) { setError("장소 유형을 확인하지 못했습니다. 다시 선택해 주세요."); return; }
       const matched: MatchedContent = { contentId: c.contentid, contentTypeId: typeId,
         mapx: d.mapx, mapy: d.mapy, lcls1: d.lclsSystm1, lcls2: d.lclsSystm2, lcls3: d.lclsSystm3 };
-      onChange(keepName ? { content: matched } : { place: c.title ?? value, content: matched });
-      setReselectFrom(null);
+      /*
+       * 불러온 줄은 이름을 그대로 둔다 — 다시 고르며 다른 이름으로 찾아 골랐을 때만 그 말로 바꾼다
+       * (UI-S2-025 · DR-PR-001). 새 줄은 고른 곳 이름을 보인다
+       */
+      onChange(keepName
+        ? (typed !== "" && typed !== value ? { place: typed, content: matched } : { content: matched })
+        : { place: c.title ?? value, content: matched });
+      setReselect(null);
       setOpen(false);
       if (!canAnchor(matched)) setError("이 장소는 좌표가 없어 근처 검색의 기준으로 사용할 수 없어요. 다른 장소를 골라 주세요.");
       else if (shouldAnchor) onAnchorReady?.();
@@ -179,17 +192,18 @@ export function SchedulePlaceInput({
   }
 
   // 고른 상태 — ✓ 와 다시 고르기
-  if (content !== null) {
+  if (content !== null && !reselecting) {
     return (
       <div className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
         장소명
         <div className="flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 dark:border-emerald-800 dark:bg-emerald-950/40">
           <span className="text-emerald-600 dark:text-emerald-400">✓</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100">{value}</span>
+          {/* 이름을 불러오지 못한 고른 곳 — 빈칸 대신 그렇다고 적는다. 줄 이름에는 쓰지 않는다 */}
+          <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100">{value || UNNAMED_PICKED}</span>
           <button
             type="button"
             disabled={busy}
-            onClick={() => { setError(null); setReselectFrom({ place: value, content }); focusOnSearch.current = true; onChange({ content: null }); }}
+            onClick={() => { setError(null); focusOnSearch.current = true; setReselect(value); }}
             className="shrink-0 text-xs text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
           >
             다시 고르기
@@ -236,17 +250,23 @@ export function SchedulePlaceInput({
         ref={inputRef}
         type="text"
         aria-label="장소명"
-        value={value}
+        value={query}
         placeholder="예: 경복궁"
         onFocus={() => setOpen(true)}
-        onChange={(e) => { pickSeq.current += 1; setPendingPick(null); onChange({ place: e.target.value }); }}
+        onChange={(e) => {
+          pickSeq.current += 1;
+          setPendingPick(null);
+          // 다시 고르는 중이면 검색어일 뿐이다 — 줄 이름을 바꾸지 않는다
+          if (reselecting) setReselect(e.target.value);
+          else onChange({ place: e.target.value });
+        }}
         className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
       />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <button type="button" disabled={busy} onClick={() => openSearch(false)} className="text-xs font-medium text-emerald-700 underline underline-offset-2 disabled:opacity-50">
           {busy ? "장소 확인 중…" : "장소 확인"}
         </button>
-        {reselectFrom !== null && (
+        {reselecting && (
           <button
             type="button"
             onClick={() => {
@@ -254,8 +274,7 @@ export function SchedulePlaceInput({
               setPendingPick(null);
               setOpen(false);
               setError(null);
-              setReselectFrom(null);
-              onChange({ place: reselectFrom.place, content: reselectFrom.content });
+              setReselect(null);
             }}
             className="text-xs text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
           >
@@ -263,9 +282,9 @@ export function SchedulePlaceInput({
           </button>
         )}
       </div>
-      {savedPick && <span>고르지 않으면 지금 고른 곳을 그대로 둬요</span>}
+      {reselecting && <span>고르지 않으면 지금 고른 곳을 그대로 둬요</span>}
       {error && <span role="alert" className="text-rose-600">{error}</span>}
-      {open && value.trim() !== "" && regnCd !== "" && (
+      {open && query.trim() !== "" && regnCd !== "" && (
         <div className="absolute top-full z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-800 dark:bg-slate-900">
           {failed && !searching ? (
             <div role="alert" className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -292,7 +311,7 @@ export function SchedulePlaceInput({
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => void pick(c)}
+                      onClick={() => void pick(c, reselecting)}
                       className="flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left transition hover:bg-slate-100 disabled:opacity-60 dark:hover:bg-slate-800"
                     >
                       <span className="text-sm text-slate-800 dark:text-slate-100">
@@ -313,7 +332,16 @@ export function SchedulePlaceInput({
               type="button"
               // 고른 후보를 확인하는 동안은 막는다 — 둘 다 걸리면 고른 곳과 직접 정한 곳이 겹친다
               disabled={busy}
-              onClick={() => { anchorIntent.current = false; setOpen(false); setReselectFrom(null); onChange({ excluded: true }); }}
+              onClick={() => {
+                anchorIntent.current = false;
+                setOpen(false);
+                if (reselecting) {
+                  // 다시 고르다 직접 정한 곳으로 — 찾는 칸의 글자가 줄 이름이다(고치지 않았으면 보이던 이름)
+                  const name = query.trim() || value;
+                  setReselect(null);
+                  onChange({ place: name, content: null, excluded: true });
+                } else onChange({ excluded: true });
+              }}
               className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800"
             >
               찾는 곳이 없나요? 직접 정한 곳으로 두기
