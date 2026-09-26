@@ -60,6 +60,21 @@ describe('수정안은 표시 문구를 담지 않는다 (DR-PR-001)', () => {
   });
 });
 
+describe('R01 — 숙박 입실 판정에는 수정안이 없다 (#875)', () => {
+  it('🔴 이른 도착(L-1)에 순서 교체 · 날짜 변경을 내지 않는다 — 숙소를 옮기는 것은 답이 아니다', () => {
+    const hotel = item({ day: 1, start: '14:00', end: null, type: 'LODGING' });
+    // 같은 날 · 같은 유형의 줄이 있으면 종전 코드는 둘을 맞바꾸는 수정안을 냈다
+    const other = item({ day: 1, start: '09:00', end: '10:00', type: 'LODGING' });
+    const patches = proposeLocalPatches({
+      finding: finding({
+        targetItemId: hotel.id, severity: 'WARNING', reasonCode: 'OPEN_HOUR_CONFLICT', evidence: { step: 'L-1' },
+      }),
+      items: [hotel, other], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches).toEqual([]);
+  });
+});
+
 describe('R01 — 휴무를 몰라서 낸 확인 불가(1-7)는 휴무 쪽 수정안이다 (#855)', () => {
   it('🔴 사유가 PARSE_* 여도 같은 날 순서 교체를 내지 않는다 — 순서를 바꿔도 휴무는 안 풀린다', () => {
     const target = item({ day: 1, start: '10:00', end: '11:00', rest: '※ 점포별 상이함', use: '09:00~18:00' });

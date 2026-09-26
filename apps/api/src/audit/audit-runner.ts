@@ -602,8 +602,11 @@ export class AuditRunner {
     const isR08 = finding.ruleCode === 'R08' && finding.reasonCode === 'TRAVEL_TIME_SHORT';
     // R04 는 반복된 것 중 마지막 한 곳을 다른 것으로 바꾼다 (FR-RU-043)
     const r04Target = finding.ruleCode === 'R04' ? lastRepeated(finding, ctx.items) : null;
+    // 숙박 입실 판정(R01 L-*)은 대체 숙소를 찾지 않는다 (#875)
+    const lodgingCheck = finding.ruleCode === 'R01' && String(finding.evidence.step ?? '').startsWith('L-');
     const wantsReplacement =
       (finding.ruleCode === 'R01' || finding.ruleCode === 'R06' || isR08 || r04Target !== null)
+      && !lodgingCheck
       && (finding.targetItemId !== null || r04Target !== null);
 
     const target = r04Target ?? (isR08

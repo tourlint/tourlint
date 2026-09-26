@@ -45,6 +45,7 @@ const VERDICT: Readonly<Record<string, string>> = {
   // R06 은 지문 비교 결과를 그대로 담는다
   HIDDEN: '공사에서 표출 중단', CHANGED: '정보 바뀜',
   FIRST: '첫 검수', UNCHANGED: '그대로', INCOMPARABLE: '비교할 이력 없음',
+  BEFORE_CHECK_IN: '입실 전 도착',
 };
 
 /** 명절 · 법정공휴일 (정규화 `HOLIDAY_RULES`). 화면의 AI 해석 칸도 같은 말을 쓴다 (#848) */
@@ -74,6 +75,9 @@ const LABEL: Readonly<Record<string, string>> = {
   // 출발 전 운영기관 최종 확인 (R05 · FR-AU-085 · #808)
   auditDate: '검수한 날',
   startDate: '출발일',
+  // 숙박 입실 (R01 L-1 · FR-PA-024 · #875)
+  arrival: '도착 시각',
+  checkIn: '입실 시각',
 };
 
 /** 분 단위 값 — `30` 을 `30분` 으로 */
