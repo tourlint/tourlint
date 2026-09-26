@@ -270,6 +270,8 @@ export interface Patch {
     newDayNo?: number;
     newStartTime?: string;
     newEndTime?: string;
+    /** R03 — 이동시간을 몰라 겹침만 푼 안 (#877) */
+    travelUnchecked?: boolean;
     swapWithItemId?: number;
     dayNo?: number;
     startTime?: string;

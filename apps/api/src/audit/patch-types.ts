@@ -38,6 +38,8 @@ export interface TimeShiftPayload {
   readonly newDayNo?: number;
   readonly newStartTime?: string;
   readonly newEndTime?: string;
+  /** R03 — 두 곳 사이 이동시간을 몰라 겹침만 푼 안이다. 화면이 함께 알린다 (FR-RU-033 · #877) */
+  readonly travelUnchecked?: boolean;
 }
 
 export interface ReorderPayload {

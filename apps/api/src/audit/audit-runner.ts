@@ -114,6 +114,19 @@ export type TargetProfileLookup = (targetKey: string, conceptKey: string) => Tar
  * 파일로 배포되는 통계라 고정 테이블이 정상 구현이다. **테이블이 비어 있으면 `null` 이고
  * 그 날짜는 확인 불가가 된다** — 정보가 없다는 이유로 정상 판정을 하지 않는다 (FR-RU-051).
  */
+/**
+ * 대체 관광지를 찾는 판정인가 — R01 · R06-b · R08 이동 부족 · R04 (FR-RU-013③ · 067 · 083③ · 043).
+ *
+ * R06 은 표출 중단(R06-b · `CONTENT_HIDDEN`)만이다. 정보 변경 안내 · 확인 불가에는 수정안이 없다
+ * (UI-S3-019 · #877). 전에는 R06 이면 다 찾아 확인 불가에도 대체가 붙었다.
+ */
+export function replacementRule(finding: Pick<Finding, 'ruleCode' | 'reasonCode'>, hasR04Target: boolean): boolean {
+  if (finding.ruleCode === 'R01') return true;
+  if (finding.ruleCode === 'R06') return finding.reasonCode === 'CONTENT_HIDDEN';
+  if (finding.ruleCode === 'R08') return finding.reasonCode === 'TRAVEL_TIME_SHORT';
+  return hasR04Target;
+}
+
 export interface ClimateNormalLookup {
   find(ldongRegnCd: string, month: number): Promise<ClimateNormal | null>;
 }
@@ -605,7 +618,7 @@ export class AuditRunner {
     // 숙박 입실 판정(R01 L-*)은 대체 숙소를 찾지 않는다 (#875)
     const lodgingCheck = finding.ruleCode === 'R01' && String(finding.evidence.step ?? '').startsWith('L-');
     const wantsReplacement =
-      (finding.ruleCode === 'R01' || finding.ruleCode === 'R06' || isR08 || r04Target !== null)
+      replacementRule(finding, r04Target !== null)
       && !lodgingCheck
       && (finding.targetItemId !== null || r04Target !== null);
 
