@@ -134,3 +134,44 @@ describe("AI 가 끝내지 못했을 때 (FR-AG-005 · EX-AG-001 · 002)", () =>
     expect(host.innerHTML).toBe("");
   });
 });
+
+describe("찾은 곳 카드 (UI-S2-044)", () => {
+  const withAlternatives = suggestions({
+    items: [{
+      itemId: 5, kind: "FOUND",
+      place: { contentId: "128758", contentTypeId: 12, title: "경포해수욕장", kindName: "해수욕장", addr: "강원특별자치도 강릉시 창해로 514" },
+      alternatives: [
+        { contentId: "2711001", title: "경포호수광장", kindName: "공원", distanceM: 1200 },
+        { contentId: "2711002", title: "경포 해변 산책로", kindName: "자연경관", distanceM: null },
+      ],
+      reason: "이름이 같은 해수욕장이에요",
+    }],
+    summary: { found: 1, notFound: 0, noName: 0 },
+  });
+  const rowOf = (text: string) => [...host.querySelectorAll("li")].find((li) => li.textContent?.includes(text))!;
+
+  it("🔴 「이곳이 맞나요?」 · 이름 · 종류 · 주소와 고른 이유를 보인다", async () => {
+    await render(withAlternatives, [beach]);
+    const text = rowOf("경포해수욕장").textContent ?? "";
+    expect(text).toContain("이곳이 맞나요? 경포해수욕장");
+    expect(text).toContain("해수욕장 · 강원특별자치도 강릉시 창해로 514");
+    expect(text).toContain("이름이 같은 해수욕장이에요");
+  });
+
+  it("🔴 [다른 곳 N곳 보기]로 응답의 다른 후보를 펼치고 고르면 그곳으로 정한다", async () => {
+    await render(withAlternatives, [beach]);
+    expect(host.textContent).not.toContain("경포호수광장");
+    await act(async () => buttons("다른 곳 2곳 보기")[0]!.click());
+    expect(host.textContent).toContain("경포호수광장공원 · 직선 1.2km");
+    expect(host.textContent).toContain("경포 해변 산책로자연경관");
+    const alt = [...host.querySelectorAll('ul[aria-label="다른 곳"] li')].find((li) => li.textContent?.includes("경포호수광장"))!;
+    await act(async () => [...alt.querySelectorAll("button")].find((b) => b.textContent === "이곳으로 선택")!.click());
+    expect(matchApi.match).toHaveBeenCalledWith(5, "2711001", "AGENT");
+    expect(findForbidden(host.innerHTML, true)).toEqual([]);
+  });
+
+  it("다른 후보가 없으면 그 버튼을 두지 않는다", async () => {
+    await render(suggestions(), [beach, station, lunch]);
+    expect(host.textContent).not.toContain("다른 곳");
+  });
+});
