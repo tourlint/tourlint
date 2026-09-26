@@ -42,4 +42,22 @@ describe("일정 입력 — 끝 시간을 비운 줄 (UI-S2-009)", () => {
     expect(html).not.toContain("기본값 적용");
     expect(html).not.toContain("까지로 채워요");
   });
+
+  it("🔴 직접 정한 곳으로 둔 줄은 그 표시가 붙고 근처 3km 기준으로 쓸 수 없다 (UI-S2-021)", () => {
+    const html = renderToStaticMarkup(<ScheduleEditor nights={0} regnCd="51" signguCd="150" regionLabel="강릉시" onAnchorChange={() => {}}
+      schedule={[[{ id: "it-1", start: "09:00", end: "09:30", place: "강릉역", itemType: "MOVE", excluded: true }]]} onChange={() => {}} />);
+    expect(html).toContain("직접 정한 곳");
+    const checkbox = html.match(/<input[^>]*type="checkbox"[^>]*>/)?.[0];
+    expect(checkbox).toMatch(/\sdisabled(?:=|\s|>)/);
+  });
+
+  it("🔴 걷기 길 줄은 코스 이름과 「직접 정한 곳」 만 — 고치거나 기준으로 쓸 수 없다 (UI-S2-048)", () => {
+    const html = renderToStaticMarkup(<ScheduleEditor nights={0} regnCd="51" signguCd="150" regionLabel="강릉시" onAnchorChange={() => {}}
+      schedule={[[{ id: "wk-1", start: "", end: "", place: "해파랑길 35코스", itemType: "SIGHT", walk: { walkId: "W1" } }]]} onChange={() => {}} />);
+    expect(html).toContain("직접 정한 곳");
+    expect(html).toContain("해파랑길 35코스");
+    expect(html).not.toContain("다시 고르기");
+    expect(html).not.toContain('aria-label="장소명"');
+    expect(html.match(/<input[^>]*type="checkbox"[^>]*>/)?.[0]).toMatch(/\sdisabled(?:=|\s|>)/);
+  });
 });

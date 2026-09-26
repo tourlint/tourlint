@@ -12,9 +12,7 @@ import {
   planApi,
   productApi,
   type PlanBriefing,
-  type PlanEvent,
   type PlanPlace,
-  type PlanWalk,
   type ProductDetail,
 } from "../../../../lib/api";
 import { isInserted, pickerReducer, pickerStateWith, type NearKind } from "./picker-state";
@@ -23,18 +21,13 @@ import { BriefingStatus } from "../../briefing-status";
 import { PlaceResults } from "../../place-results";
 import { PlaceDetailView } from "../../place-detail-view";
 import { NearGuide, PlaceFilters, appliedFilters, hasFilter, unavailableFilters } from "../../place-filters";
+import { EventsSection, WalksSection } from "../../plan-extras";
 
 const NEAR_KINDS: { kind: NearKind; label: string; itemType: string }[] = [
   { kind: "MEAL", label: "식당", itemType: "MEAL" },
   { kind: "CAFE", label: "카페", itemType: "REST" },
   { kind: "STAY", label: "숙소", itemType: "LODGING" },
 ];
-
-const RELATION_LABEL: Record<PlanEvent["relation"], string> = {
-  IN: "여행 날짜와 겹쳐요",
-  BEFORE: "여행 전에 끝나요",
-  AFTER: "여행 뒤에 열려요",
-};
 
 export interface PickerContext {
   initialDay?: number;
@@ -183,7 +176,8 @@ export function PlacePicker({ product, onInserted, openType = null, initialDay =
             onChange={(e) => dispatch({ type: "SET_ANCHOR", anchorItemId: e.target.value === "" ? null : Number(e.target.value) })}
             className="rounded-md border border-slate-300 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
           >
-            <option value="">고른 장소 다음</option>
+            {/* 비워 두면 그 일차 맨 뒤에 붙는다 — 이름을 동작대로 (UI-S2-039) */}
+            <option value="">맨 뒤</option>
             {confirmedItems.map((it) => (
               <option key={it.itemId} value={it.itemId}>{it.place} 다음</option>
             ))}
@@ -232,16 +226,21 @@ export function PlacePicker({ product, onInserted, openType = null, initialDay =
             onClearFilters={hasFilter(applied) ? () => dispatch({ type: "CLEAR_FILTERS" }) : undefined}
             onLoaded={(d) => setNearTotal({ key: queryKey, total: d.totalCount })}>
             {(p) => (
-                <PlaceCard key={p.contentId} place={p} expanded={state.expandedId === p.contentId} inserted={isInserted(state, p.contentId) || product.days.some(d => d.items.some(it => it.ktoContentId === p.contentId))}
+                <PlaceCard key={p.contentId} place={p} target={product.targetKey} expanded={state.expandedId === p.contentId} inserted={isInserted(state, p.contentId) || product.days.some(d => d.items.some(it => it.ktoContentId === p.contentId))}
                   onToggle={() => dispatch({ type: "TOGGLE_EXPAND", contentId: p.contentId })} onInsert={() => void insert(p, nearItemType)} />
             )}
           </PlaceResults>
         </div>
       )}
 
-      {showExtras && <><EventsSection product={product} onChanged={onInserted} />
-      {/* 걷기 길 목록을 못 받았으면 칸을 없애지 않고 「지금은 볼 수 없어요」 (UI-S2-043) */}
-      <WalksSection product={product} day={day} onInserted={onInserted} unavailable={briefing !== null && briefing.walks === null} /></>}
+      {showExtras && <>
+        {/* 출발일 옮기기는 상품을 바로 고친다 — 항목 시각은 그대로다 (FR-PL-014) */}
+        <EventsSection regnCd={product.ldongRegnCd} signguCd={product.ldongSignguCd} startDate={product.startDate} nights={product.nights}
+          onMoveStart={async (date) => { await productApi.update(product.productId, { startDate: date }); await onInserted(); }} />
+        {/* 걷기 길 목록을 못 받았으면 칸을 없애지 않고 「지금은 볼 수 없어요」 (UI-S2-043). 넣으면 넣을 일차 끝에 붙는다 */}
+        <WalksSection regnCd={product.ldongRegnCd} signguCd={product.ldongSignguCd} unavailable={briefing !== null && briefing.walks === null}
+          onAdd={async (w) => { await itemApi.addWalk(product.productId, { dayNo: day, walkId: w.walkId }); await onInserted(); }} />
+      </>}
 
       <p className="mt-4 text-xs text-slate-400">출처: ⓒ한국관광공사 · 사진 변경금지</p>
       </>}
@@ -261,7 +260,7 @@ function Chip({ active, disabled, onClick, children }: { active: boolean; disabl
   );
 }
 
-function PlaceCard({ place: p, expanded, inserted, onToggle, onInsert }: { place: PlanPlace; expanded: boolean; inserted: boolean; onToggle: () => void; onInsert: () => void }) {
+function PlaceCard({ place: p, target, expanded, inserted, onToggle, onInsert }: { place: PlanPlace; target: string | null; expanded: boolean; inserted: boolean; onToggle: () => void; onInsert: () => void }) {
   return (
     <li className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
       <div className="flex items-start justify-between gap-3">
@@ -288,134 +287,8 @@ function PlaceCard({ place: p, expanded, inserted, onToggle, onInsert }: { place
           <button type="button" onClick={onToggle} className="text-xs text-slate-400 hover:text-slate-600">{expanded ? "접기" : "자세히"}</button>
         </div>
       </div>
-      {expanded && <PlaceDetailView place={p} />}
+      {/* 상품 타깃에 따라 앞에 오는 정보가 다르다 (UI-S2-040) */}
+      {expanded && <PlaceDetailView place={p} target={target} />}
     </li>
-  );
-}
-
-// 행사 · 공연 (FR-PL-014). 겹침은 참고 표시일 뿐 판정은 검수의 몫이다. 출발일 옮기기 제안만 준다.
-// 0건이면 칸을 숨기지 않고 한 줄로 적고(출발일 옮기기 없음), 못 받았으면 따로 적는다 (EX-PL-002).
-function EventsSection({ product, onChanged }: { product: ProductDetail; onChanged: () => Promise<void> }) {
-  const [events, setEvents] = useState<PlanEvent[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const res = await planApi.events({ regnCd: product.ldongRegnCd, signguCd: product.ldongSignguCd, startDate: product.startDate, nights: product.nights });
-        if (alive) { setEvents(res.items); setFailed(false); }
-      } catch {
-        // 0건과 다르다 — 없다고 적지 않는다
-        if (alive) { setEvents(null); setFailed(true); }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [product.ldongRegnCd, product.ldongSignguCd, product.startDate, product.nights]);
-
-  async function moveStart(date: string) {
-    setBusy(true);
-    try {
-      await productApi.update(product.productId, { startDate: date });
-      await onChanged();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (events === null && !failed) return null;
-  return (
-    <div className="mt-6 border-t border-slate-200 pt-4 dark:border-slate-800">
-      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">행사 · 공연</h3>
-      {failed || events === null ? (
-        <p className="mt-1 text-xs text-slate-400">지금은 볼 수 없어요</p>
-      ) : events.length === 0 ? (
-        <p className="mt-1 text-xs text-slate-400">여행 날짜 앞뒤 3일에 등록된 행사가 없어요</p>
-      ) : (
-      <ul className="mt-2 space-y-2">
-        {events.map((e) => (
-          <li key={e.contentId} className="rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-800">
-            <p className="font-medium text-slate-800 dark:text-slate-100">{e.title}</p>
-            <p className="mt-0.5 text-xs text-slate-400">{e.eventStart} ~ {e.eventEnd} · {RELATION_LABEL[e.relation]}</p>
-            {e.suggestedStartDate !== null && (
-              <button type="button" onClick={() => void moveStart(e.suggestedStartDate as string)} disabled={busy}
-                className="mt-2 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-                출발일을 {Number(e.suggestedStartDate.slice(5, 7))}월 {Number(e.suggestedStartDate.slice(8, 10))}일로
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
-      )}
-    </div>
-  );
-}
-
-// 걷기 길 (D9 · FR-PL-015). 넣으면 직접 정한 곳으로 들어간다. 좌표 · 사진이 없어 카드에는
-// 이름 · 길이 · 걸리는 시간 · 난이도만 있다.
-function WalksSection({ product, day, onInserted, unavailable = false }: { product: ProductDetail; day: number; onInserted: () => Promise<void>; unavailable?: boolean }) {
-  const [walks, setWalks] = useState<PlanWalk[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const res = await planApi.walks({ regnCd: product.ldongRegnCd, signguCd: product.ldongSignguCd });
-        if (alive) { setWalks(res.items); setFailed(false); }
-      } catch {
-        if (alive) { setWalks([]); setFailed(true); }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [product.ldongRegnCd, product.ldongSignguCd]);
-
-  async function add(walkId: string) {
-    setBusyId(walkId);
-    try {
-      await itemApi.addWalk(product.productId, { dayNo: day, walkId });
-      await onInserted();
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  // 걷기 길 목록을 못 받았으면 그 칸만 「지금은 볼 수 없어요」 — 0곳으로 숨기지 않는다 (UI-S2-043 · EX-PL-004)
-  if (unavailable || failed) {
-    return (
-      <div className="mt-6 border-t border-slate-200 pt-4 dark:border-slate-800">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">걷기 길</h3>
-        <p className="mt-0.5 text-xs text-slate-400">지금은 볼 수 없어요</p>
-      </div>
-    );
-  }
-  if (walks === null || walks.length === 0) return null;
-  return (
-    <div className="mt-6 border-t border-slate-200 pt-4 dark:border-slate-800">
-      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">걷기 길</h3>
-      <p className="mt-0.5 text-xs text-slate-400">넣으면 직접 정한 곳으로 들어가요.</p>
-      <ul className="mt-2 space-y-2">
-        {walks.map((w) => (
-          <li key={w.walkId} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-800">
-            <div className="min-w-0">
-              <p className="truncate font-medium text-slate-800 dark:text-slate-100">{w.name}</p>
-              <p className="mt-0.5 text-xs text-slate-400">
-                {[w.lengthKm !== null ? `${w.lengthKm}km` : null, w.minutes !== null ? `약 ${w.minutes}분` : null, w.level !== null ? `난이도 ${w.level}` : null].filter(Boolean).join(" · ")}
-              </p>
-            </div>
-            <button type="button" onClick={() => void add(w.walkId)} disabled={busyId === w.walkId}
-              className="shrink-0 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60">
-              일정에 넣기
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }

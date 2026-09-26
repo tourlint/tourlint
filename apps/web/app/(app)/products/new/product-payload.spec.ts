@@ -28,4 +28,23 @@ describe("등록 저장 본문 — 줄이 들어온 경로 (FR-PL-020)", () => {
     expect(buildPayload({ ...base, planOrigin: { startedBy: "TEXT" } }).planOrigin).toEqual({ startedBy: "TEXT" });
     expect(buildPayload(base).planOrigin).toBeNull();
   });
+
+  it("🔴 「직접 정한 곳으로 두기」를 고른 줄은 excluded 로 보낸다 — 관광지를 고른 줄은 보내지 않는다 (UI-S2-021)", () => {
+    const items = buildPayload({ ...base, schedule: [[
+      { id: "it-1", start: "09:00", end: "09:30", place: "강릉역", itemType: "MOVE", origin: "MANUAL", excluded: true },
+      { ...base.schedule[0]![2]!, excluded: true },
+      { id: "it-2", start: "10:00", end: "", place: "경포해변", itemType: "SIGHT", origin: "MANUAL" },
+    ]] }).days[0]?.items ?? [];
+    expect(items.map((i) => "excluded" in i ? i.excluded : undefined)).toEqual([true, undefined, undefined]);
+  });
+
+  it("🔴 걷기 길 줄은 식별자만 보낸다 — 칸에 보이는 코스 이름은 보내지 않는다 (DR-MD-005 · UI-S2-048)", () => {
+    const payload = buildPayload({ ...base, schedule: [[
+      { id: "wk-1", start: "09:30", end: "12:00", place: "해파랑길 35코스 바우길 09구간", itemType: "SIGHT", origin: "PICKER", walk: { walkId: "T_CRS_MNG0000000402" } },
+    ]] });
+    expect(payload.days[0]?.items[0]).toEqual({
+      start: "09:30", end: "12:00", place: "", itemType: "SIGHT", excluded: { walkId: "T_CRS_MNG0000000402" }, origin: "PICKER",
+    });
+    expect(JSON.stringify(payload)).not.toContain("해파랑길");
+  });
 });

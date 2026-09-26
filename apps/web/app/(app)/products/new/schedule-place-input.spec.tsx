@@ -69,3 +69,38 @@ describe("등록 화면 장소 칸 — 검색 실패와 0곳 (EX-MC-004 · EX-PL
     expect(host.textContent).not.toContain("검색하지 못했어요");
   });
 });
+
+describe("「찾는 곳이 없나요? 직접 정한 곳으로 두기」 (UI-S2-021 · FR-IN-025)", () => {
+  const button = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
+
+  it("🔴 누르면 그 줄을 직접 정한 곳으로 둔다 — 목록만 닫지 않는다", async () => {
+    vi.spyOn(matchApi, "search").mockResolvedValue(result([]));
+    const change = vi.fn();
+    await act(async () => root.render(<SchedulePlaceInput value="강릉역" content={null} regnCd="51" signguCd="150" regionLabel="강릉시" onChange={change} />));
+    await act(async () => host.querySelector("input")!.focus());
+    await settle();
+    await act(async () => button("찾는 곳이 없나요? 직접 정한 곳으로 두기")!.click());
+    expect(change).toHaveBeenCalledWith({ excluded: true });
+  });
+
+  it("🔴 직접 정한 곳으로 둔 줄은 표시와 [다시 고르기]만 있고 찾지 않는다", async () => {
+    const search = vi.spyOn(matchApi, "search").mockResolvedValue(result([]));
+    const change = vi.fn();
+    await act(async () => root.render(<SchedulePlaceInput value="강릉역" content={null} excluded regnCd="51" signguCd="150" regionLabel="강릉시" onChange={change} />));
+    await settle();
+    expect(host.textContent).toContain("직접 정한 곳");
+    expect(host.textContent).toContain("강릉역");
+    expect(host.querySelector("input")).toBeNull();
+    expect(search).not.toHaveBeenCalled();
+    await act(async () => button("다시 고르기")!.click());
+    expect(change).toHaveBeenCalledWith({ excluded: false });
+  });
+
+  it("줄 수 없는 줄(편집 화면의 저장된 고른 곳)에는 그 선택지를 두지 않는다", async () => {
+    vi.spyOn(matchApi, "search").mockResolvedValue(result([]));
+    await act(async () => root.render(<SchedulePlaceInput value="오죽헌" content={null} canExclude={false} regnCd="51" signguCd="150" regionLabel="강릉시" onChange={() => {}} />));
+    await act(async () => host.querySelector("input")!.focus());
+    await settle();
+    expect(button("찾는 곳이 없나요? 직접 정한 곳으로 두기")).toBeUndefined();
+  });
+});

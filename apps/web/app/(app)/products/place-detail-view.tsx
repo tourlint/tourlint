@@ -4,13 +4,30 @@
 // 쉬는 날 · 요금 · 주차 · 행사 기간 · 문의를 채운다. 캐시가 없어 펼칠 때마다 부른다. 목록에서
 // 무장애 · 반려동물로 표시된 곳은 그 축의 상세를 함께 불러 조건을 적는다 (#850) — 목록은 해당
 // 여부만 알려 준다. 원문은 응답으로만 흐르고 저장하지 않는다 (DB 명세서 6-4). 등록 화면과
-// 기획 화면 카드가 함께 쓴다.
+// 기획 화면 카드가 함께 쓴다. 상품 타깃에 따라 앞에 오는 정보가 다르다 (UI-S2-040 · `detailLayout`).
 
 import { useEffect, useState } from "react";
 import { ACCESSIBLE_FIELD_LABEL, PET_FIELD_LABEL, conditionRows } from "@tourlint/shared";
 import { isApiError, planApi, type PlanPlace, type PlanPlaceDetail } from "../../lib/api";
 
-export function PlaceDetailView({ place: p }: { place: PlanPlace }) {
+type RowKey = "hours" | "restDays" | "fee" | "parking" | "eventPeriod" | "contact";
+const ROW_ORDER: readonly RowKey[] = ["hours", "restDays", "fee", "parking", "eventPeriod", "contact"];
+
+/**
+ * 타깃별로 앞에 오는 정보 (UI-S2-040). 시니어 · 가족(아이 동반)은 무장애 편의를 맨 앞에, 단체 ·
+ * 모임은 주차 · 요금을 앞에 둔다. 그 밖(타깃 없음 포함)은 이용시간부터 지금 순서다. 보이는 항목은
+ * 같고 순서만 바뀐다 — 숨기거나 더하지 않는다.
+ */
+export function detailLayout(target: string | null | undefined): { accessibleFirst: boolean; rows: readonly RowKey[] } {
+  if (target === "SENIOR" || target === "FAMILY_KIDS") return { accessibleFirst: true, rows: ROW_ORDER };
+  if (target === "GROUP") {
+    const front: RowKey[] = ["parking", "fee"];
+    return { accessibleFirst: false, rows: [...front, ...ROW_ORDER.filter((k) => !front.includes(k))] };
+  }
+  return { accessibleFirst: false, rows: ROW_ORDER };
+}
+
+export function PlaceDetailView({ place: p, target = null }: { place: PlanPlace; /** 상품 타깃(`targetKey`) — 앞에 오는 정보를 정한다 */ target?: string | null }) {
   const [detail, setDetail] = useState<PlanPlaceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -34,21 +51,27 @@ export function PlaceDetailView({ place: p }: { place: PlanPlace }) {
     };
   }, [p.contentId, p.contentTypeId, p.wheelchair, p.pet]);
 
-  const rows: [string, string | null][] = [
-    ["이용시간", detail?.hours ?? null],
-    ["쉬는 날", detail?.restDays ?? null],
-    ["요금", detail?.fee ?? null],
-    ["주차", detail?.parking ?? null],
-    ["행사 기간", detail?.eventPeriod ?? null],
-    ["문의", detail?.contact ?? null],
-  ];
+  const values: Record<RowKey, [string, string | null]> = {
+    hours: ["이용시간", detail?.hours ?? null],
+    restDays: ["쉬는 날", detail?.restDays ?? null],
+    fee: ["요금", detail?.fee ?? null],
+    parking: ["주차", detail?.parking ?? null],
+    eventPeriod: ["행사 기간", detail?.eventPeriod ?? null],
+    contact: ["문의", detail?.contact ?? null],
+  };
+  const layout = detailLayout(target);
   const accessible = conditionRows(detail?.accessible, ACCESSIBLE_FIELD_LABEL);
   const pet = conditionRows(detail?.pet, PET_FIELD_LABEL);
-  const shown = rows.filter(([, v]) => v !== null && v.trim() !== "");
+  const shown = layout.rows.map((k) => values[k]).filter(([, v]) => v !== null && v.trim() !== "");
+  /* 상세를 못 받았거나 적힌 항목이 없으면 목록이 알려 준 한 줄만 둔다 (EX-PL-004) */
+  const accessibleBlock = p.wheelchair === true
+    ? <Conditions title="무장애 편의" rows={loading ? [] : accessible} fallback="무장애 편의 있음" />
+    : null;
 
   return (
     <dl className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
       {p.addr1 !== null && <div>{p.addr1}</div>}
+      {layout.accessibleFirst && accessibleBlock}
       {loading ? (
         <div className="text-slate-400">불러오는 중…</div>
       ) : err !== null ? (
@@ -63,10 +86,7 @@ export function PlaceDetailView({ place: p }: { place: PlanPlace }) {
           {shown.length === 0 && <div className="text-slate-400">관광정보에 올라 있는 이용 정보가 없어요.</div>}
         </>
       )}
-      {/* 상세를 못 받았거나 적힌 항목이 없으면 목록이 알려 준 한 줄만 둔다 (EX-PL-004) */}
-      {p.wheelchair === true && (
-        <Conditions title="무장애 편의" rows={loading ? [] : accessible} fallback="무장애 편의 있음" />
-      )}
+      {!layout.accessibleFirst && accessibleBlock}
       {p.pet === true && (
         <Conditions title="반려동물 동반" rows={loading ? [] : pet} fallback="반려동물 동반 가능" />
       )}

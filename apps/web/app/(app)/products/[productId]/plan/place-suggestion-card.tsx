@@ -47,6 +47,8 @@ export function PlaceSuggestionCard({
   const [err, setErr] = useState<string | null>(null);
   // [장소 찾기]로 연 줄 — 그 줄 칸에서 직접 찾는다. 목록 밖을 누르면 카드로 돌아온다 (UI-CM-042)
   const [searchItemId, setSearchItemId] = useState<number | null>(null);
+  // [다른 곳 N곳 보기]로 펼친 줄 (UI-S2-044)
+  const [altItemId, setAltItemId] = useState<number | null>(null);
   const itemOf = (itemId: number): LineItem | undefined => items.find((it) => it.itemId === itemId);
 
   // 고른 줄(고른 곳 · 직접 정한 곳)은 카드에서 뺀다. 응답 시점의 목록을 그대로 두면 위 안내가 「1곳」 인데
@@ -179,13 +181,15 @@ export function PlaceSuggestionCard({
                     />
                   </InlineSearch>
                 ) : s.kind === "FOUND" && s.place !== null ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="font-medium text-slate-800 dark:text-slate-100">{s.place.title}</span>
-                      <span className="ml-2 text-xs text-slate-400">{s.place.kindName}</span>
-                      {s.reason !== "" && <p className="text-xs text-slate-400">{s.reason}</p>}
-                    </div>
-                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                  // 「이곳이 맞나요?」 · 이름 · 종류 · 주소, 고른 이유 한 줄 (UI-S2-044). 값은 모두 그 실행의 공사 검색 결과다
+                  <div className="min-w-0">
+                    <p className="text-slate-800 dark:text-slate-100">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">이곳이 맞나요?</span>{" "}
+                      <span className="font-medium">{s.place.title}</span>
+                      <span className="ml-2 text-xs text-slate-400">{[s.place.kindName, s.place.addr].filter((v) => v !== null && v !== "").join(" · ")}</span>
+                    </p>
+                    {s.reason !== "" && <p className="text-xs text-slate-400">{s.reason}</p>}
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
                       <button
                         type="button"
                         onClick={() => void pickOne(s.itemId, s.place!.contentId)}
@@ -194,8 +198,41 @@ export function PlaceSuggestionCard({
                       >
                         이곳으로 선택
                       </button>
+                      {/* 다른 후보는 AI 가 그 실행의 공사 검색 결과에서 고른 곳만 온다 — 없으면 버튼을 두지 않는다 */}
+                      {s.alternatives.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setAltItemId((id) => (id === s.itemId ? null : s.itemId))}
+                          aria-expanded={altItemId === s.itemId}
+                          className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          {altItemId === s.itemId ? "다른 곳 접기" : `다른 곳 ${s.alternatives.length}곳 보기`}
+                        </button>
+                      )}
                       {findButton(s.itemId)}
                     </div>
+                    {altItemId === s.itemId && (
+                      <ul aria-label="다른 곳" className="mt-2 space-y-1">
+                        {s.alternatives.map((a) => (
+                          <li key={a.contentId} className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800/50">
+                            <p className="min-w-0 text-slate-700 dark:text-slate-200">
+                              {a.title}
+                              <span className="ml-2 text-xs text-slate-400">
+                                {[a.kindName, a.distanceM === null ? null : `직선 ${(a.distanceM / 1000).toFixed(1)}km`].filter((v) => v !== null && v !== "").join(" · ")}
+                              </span>
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => void pickOne(s.itemId, a.contentId)}
+                              disabled={busy}
+                              className="shrink-0 rounded-md border border-indigo-300 px-2.5 py-1 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:opacity-60 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                            >
+                              이곳으로 선택
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-2">

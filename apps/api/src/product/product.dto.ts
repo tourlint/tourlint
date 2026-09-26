@@ -22,6 +22,9 @@ export interface CreateItemDto {
   readonly content?: unknown;
   // 그 줄이 들어온 경로 (FR-PL-020). MANUAL · UPLOAD · TEXT · PICKER, 없으면 MANUAL
   readonly origin?: unknown;
+  // 「찾는 곳이 없나요? 직접 정한 곳으로 두기」를 고른 줄이면 true — EXCLUDED 로 저장한다 (UI-S2-021).
+  // 걷기 길이면 `{ walkId }` — 코스 이름은 보내지 않는다 (DR-MD-005 · UI-S2-048)
+  readonly excluded?: unknown;
 }
 
 /** 등록 시 인라인으로 고른 관광지 (UI-S2-020 · D8). 코드·좌표·분류만 담는다 (DR-PR-001) */
@@ -87,6 +90,10 @@ export interface ValidItem {
   readonly content: MatchedContent | null;
   /** 들어온 경로 (FR-PL-020). 장소 담기(PICKER)로 넣은 줄은 고른 방식(matched_by)을 비운다 */
   readonly origin: InputItemOrigin;
+  /** 직접 정한 곳(EXCLUDED)으로 둔 줄 (UI-S2-021 · FR-IN-025). 고른 관광지가 있으면 무시한다 */
+  readonly excluded: boolean;
+  /** 걷기 길 식별자 (D9 · DR-MD-005). 있으면 직접 정한 곳이고 장소명은 저장하지 않는다 */
+  readonly walkId: string | null;
 }
 
 export interface ValidProduct {
@@ -318,8 +325,11 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
       const start = str(item.start);
       const endRaw = str(item.end);
       const itemType = str(item.itemType);
+      // 걷기 길 (UI-S2-048 · D9) — 코스 식별자만 받는다. 이름은 표시할 때 찾으므로 장소명이 없어도 된다
+      const walk = typeof item.excluded === 'object' && item.excluded !== null ? str((item.excluded as Record<string, unknown>).walkId) : null;
+      if (walk === '') errors.push(`${dayNo}일차 ${seq}번 걷기 길 식별자가 필요합니다.`);
 
-      if (place === '') errors.push(`${dayNo}일차 ${seq}번 장소명을 입력하세요.`);
+      if (place === '' && walk === null) errors.push(`${dayNo}일차 ${seq}번 장소명을 입력하세요.`);
       if (!HHMM.test(start)) errors.push(`${dayNo}일차 ${seq}번 시작 시각이 올바르지 않습니다.`);
       if (endRaw !== '' && !HHMM.test(endRaw)) errors.push(`${dayNo}일차 ${seq}번 종료 시각이 올바르지 않습니다.`);
       if (!(ITEM_TYPE as readonly string[]).includes(itemType)) {
@@ -347,6 +357,7 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
         }
       }
 
+      const walkId = walk === null || walk === '' ? null : walk;
       items.push({
         dayNo,
         seq,
@@ -354,10 +365,14 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
         endTime: endRaw === '' ? null : endRaw,
         // 종료 시각이 있으면 입력값, 없으면 기본 체류시간 보완 대상 (FR-IN-011)
         endTimeSource: endRaw === '' ? 'DWELL_DEFAULT' : 'INPUT',
-        placeLabel: place,
+        // 걷기 길은 코스 이름을 저장하지 않는다 — 보내 와도 버린다 (DR-MD-005)
+        placeLabel: walkId === null ? place : '',
         itemType: itemType as ItemType,
-        content,
+        content: walkId === null ? content : null,
         origin: readOrigin(item.origin),
+        // 관광지를 고른 줄은 고른 곳이다 — 둘 다 오면 고른 쪽을 따른다. 걷기 길은 직접 정한 곳이다
+        excluded: walkId !== null || (item.excluded === true && content === null),
+        walkId,
       });
     });
   });
@@ -376,6 +391,8 @@ export interface ValidItemInput {
   itemType: ItemType;
   /** 편집 화면에서 친 줄은 MANUAL, 엑셀 · 메모로 채운 줄은 UPLOAD · TEXT (FR-PL-020) */
   origin: InputItemOrigin;
+  /** 「직접 정한 곳으로 두기」를 고른 새 줄 — EXCLUDED 로 넣는다 (UI-S2-021) */
+  excluded: boolean;
 }
 
 /** 장소 담기로 넣는 항목 — 이미 고른 공사 콘텐츠라 CONFIRMED 로 들어간다 (D8 · FR-PL-013) */
@@ -403,6 +420,8 @@ interface RawItem {
   placeLabel?: unknown;
   itemType?: unknown;
   origin?: unknown;
+  /** true 면 직접 정한 곳. 걷기 길의 `excluded: { walkId }` 는 `validateWalkItem` 이 받는다 */
+  excluded?: unknown;
 }
 
 /**
@@ -458,6 +477,9 @@ export interface WalkItemInput {
   itemType: ItemType;
   origin: 'PICKER';
   walkId: string;
+  /** 편집 화면이 정한 시각. 없으면 그 날 끝(앞 항목 끝 · 표준 체류시간)에 붙인다 (UI-S2-048) */
+  startTime: string | null;
+  endTime: string | null;
 }
 
 export function validateWalkItem(body: Record<string, unknown> | undefined, dayCount: number): { errors: string[]; walk?: WalkItemInput } {
@@ -470,8 +492,20 @@ export function validateWalkItem(body: Record<string, unknown> | undefined, dayC
   const excluded = b.excluded as Record<string, unknown> | undefined;
   const walkId = str(excluded?.walkId);
   if (walkId === '') errors.push('걷기 길 식별자가 필요합니다.');
+  const start = str(b.startTime);
+  const end = str(b.endTime);
+  if (start !== '' && !HHMM.test(start)) errors.push('시작 시각을 HH:MM 형식으로 입력하세요.');
+  if (end !== '' && !HHMM.test(end)) errors.push('종료 시각을 HH:MM 형식으로 입력하세요.');
+  if (end !== '' && start === '') errors.push('종료 시각만 보낼 수는 없습니다.');
   if (errors.length > 0) return { errors };
-  return { errors, walk: { dayNo, itemType: itemType as ItemType, origin: 'PICKER', walkId } };
+  return {
+    errors,
+    walk: {
+      dayNo, itemType: itemType as ItemType, origin: 'PICKER', walkId,
+      startTime: start === '' ? null : start,
+      endTime: end === '' ? null : end,
+    },
+  };
 }
 
 function strOrNull(v: unknown): string | null {
@@ -507,6 +541,7 @@ export function validateAddItem(body: RawItem | undefined, dayCount: number): { 
       placeLabel: place,
       itemType: itemType as ItemType,
       origin: readOrigin(b.origin),
+      excluded: b.excluded === true,
     },
   };
 }
