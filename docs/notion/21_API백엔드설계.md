@@ -335,7 +335,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>검수 실행 요청</td>
-<td>계정당 분당 5회</td>
+<td>계정당 분당 5회 — 다시 검수(`audit-jobs`)와 검수 시작(`handoff`)을 한 창으로 센다. **공개된 테스트 계정은 세지 않는다**(심사위원 여럿이 한 계정으로 같은 가이드를 따라가 남의 클릭으로 막힌다 — 로그인 시도와 같은 기준). 배치가 거는 재검수는 세지 않는다. 창은 프로세스 메모리에 둔다(API 인스턴스 1개 전제)</td>
 <td>NF-SC-010 · EX-SY-008</td>
 </tr>
 <tr>
@@ -345,12 +345,12 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>리포트 생성</td>
-<td>계정당 분당 5회</td>
+<td>계정당 분당 5회. 공개된 테스트 계정은 세지 않는다</td>
 <td>NF-SC-010</td>
 </tr>
 <tr>
 <td>장소 담기 · 장소 정보 한 줄 조회 (`/plan/*` · `place-facts`)</td>
-<td>계정당 분당 상한 (수치는 구현에서 정해 이 표에 적는다). 예산 100% 에서 검수와 같은 게이트 — 429 `BUDGET_EXHAUSTED`</td>
+<td>분당 상한을 두지 않는다 — 종류 칩 · 카드 펼침 · 줄마다 부르므로 짧은 시간에 수십 번이 정상이고, 공사 호출은 예산 게이트가 막는다. 예산 100% 에서 검수와 같은 게이트 — 429 `BUDGET_EXHAUSTED`</td>
 <td>NF-SC-010 · FR-PL-018</td>
 </tr>
 <tr>
@@ -460,7 +460,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 **요청 · 응답 모양**
 ```json
 POST /api/v1/products                추가 "planOrigin": { "startedBy": "MANUAL|UPLOAD|TEXT|CLONE|SIGNAL", "signal"?: { "type": "T2", "regnCd", "signguCd", "from", "to", "contentId"? } }
-POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
+POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED · RATE_LIMIT_EXCEEDED(3-4)   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
 PATCH /api/v1/products/{id}          "startDate" 변경 = 출발일 옮기기. 항목 시각은 바꾸지 않는다
 GET /api/v1/products/{id}            추가 "plannedAt", "planOrigin", "composition": { "manual": 5, "picker": 2, "excluded": 1 }
 GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" (보드 분류용 — 차단 건수 · 안 읽은 알림은 기존 `latestAudit.counts.blocker` · `unreadNotifications` 를 쓴다)
@@ -1756,6 +1756,8 @@ POST /products/{id}/audit-jobs
         ├─ 사전 검증 : PENDING 매칭 존재 → 422 PLACE_UNRESOLVED
         │              진행 중 작업 존재 → 202 + 기존 jobId
         │              예산 100% 소진   → 429 BUDGET_EXHAUSTED
+        │              계정당 분당 5회 초과 → 429 RATE_LIMIT_EXCEEDED + Retry-After
+        │                                  (검수 시작과 한 창 · 공개 테스트 계정 제외 · 3-4)
         │
         ├─ audit_job INSERT (QUEUED) ──→ 202 + jobId  [p95 500ms]
         │

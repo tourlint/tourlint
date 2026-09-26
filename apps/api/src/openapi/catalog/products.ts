@@ -300,6 +300,12 @@ export const PRODUCTS: readonly Endpoint[] = [
         when: '오늘 관광정보 조회 한도를 다 씀',
         message: '오늘 쓸 수 있는 관광정보 조회를 모두 썼습니다. 내일 0시부터 다시 검수할 수 있고, 일정 편집과 지난 결과 보기는 지금도 할 수 있습니다.',
       },
+      {
+        status: 429,
+        reasonCode: 'RATE_LIMIT_EXCEEDED',
+        when: '1분에 5번을 넘김 — 다시 검수와 같이 센다. 공개 테스트 계정은 세지 않는다',
+        message: '검수는 1분에 5번까지 요청할 수 있어요. 43초 뒤에 다시 눌러 주세요.',
+      },
     ],
   },
 ];

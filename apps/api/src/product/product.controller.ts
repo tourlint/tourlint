@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { CurrentAccount } from '../auth/current-account.decorator';
+import { RequestRateLimiter } from '../common/request-rate-limit';
 import type { SessionAccount } from '../auth/session.repository';
 import { validateHandoff, type CreateProductDto, type UpdateProductDto } from './product.dto';
 import { ProductService } from './product.service';
@@ -11,7 +12,10 @@ import { ProductService } from './product.service';
  */
 @Controller('api/v1/products')
 export class ProductController {
-  constructor(private readonly service: ProductService) {}
+  constructor(
+    private readonly service: ProductService,
+    private readonly limiter: RequestRateLimiter,
+  ) {}
 
   @Post()
   @HttpCode(201)
@@ -35,7 +39,8 @@ export class ProductController {
   /**
    * 검수 시작 (handoff · FR-PL-020 · D7). 기획 중 상품을 검수 중으로 넘긴다.
    * 미확정이 남으면 422 `PLACE_UNRESOLVED`, `{excludePending:true}` 면 제외하고 넘긴다.
-   * 예산 100% 면 429 로 되돌아가 기획 중에 남는다.
+   * 예산 100% 면 429 로 되돌아가 기획 중에 남는다. 검수 요청이라 다시 검수와 같은 분당 상한을
+   * 같이 센다 (NF-SC-010 · EX-SY-008).
    */
   @Post(':productId/handoff')
   @HttpCode(202)
@@ -45,6 +50,7 @@ export class ProductController {
     @Body() body: unknown,
   ): Promise<Record<string, unknown>> {
     const { excludePending } = validateHandoff(body);
+    this.limiter.take(account, 'AUDIT');
     return { ...(await this.service.handoff(account.accountId, productId, excludePending)) };
   }
 

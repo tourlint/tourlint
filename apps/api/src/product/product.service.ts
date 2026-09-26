@@ -206,7 +206,8 @@ export class ProductService {
     const wasPlanned = state.plannedAt !== null;
     const plannedAt = await this.repo.applyHandoff(productId, excludeIds);
     try {
-      const { job } = await this.audit.requestAudit(productId, 'MANUAL');
+      // 첫 검수다 — 다시 검수(MANUAL)와 가른다 (FR-AU-026 ①)
+      const { job } = await this.audit.requestAudit(productId, 'INITIAL');
       return { productId, plannedAt, jobId: job.id, excludedCount: excludeIds.length };
     } catch (err) {
       // 검수 요청이 거절됐다 — 방금 넘긴 것을 되돌려 기획 중에 남긴다
