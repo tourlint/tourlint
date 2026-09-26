@@ -690,6 +690,19 @@ export const ITEM_ORIGIN = ['MANUAL', 'UPLOAD', 'TEXT', 'PICKER', 'SIGNAL', 'PAT
 export type ItemOrigin = (typeof ITEM_ORIGIN)[number];
 
 /**
+ * 기획을 시작한 방법의 화면 말 (`product.plan_origin.startedBy` · FR-PL-020 · UI-S1-010). 검수 결과 화면의
+ * 기획 칸 · 홈 보드의 기획 중 카드 · 리포트 1절이 이 표 하나를 본다 — 한 상품을 화면마다 다르게
+ * 부르지 않는다. 옛 기록의 CLONE 도 읽는다.
+ */
+export const STARTED_BY_LABEL: Readonly<Record<string, string>> = {
+  MANUAL: '직접 입력으로 시작',
+  UPLOAD: '엑셀로 시작',
+  TEXT: '메모 붙여넣기로 시작',
+  CLONE: '복제로 시작',
+  SIGNAL: '레이더 소식으로 시작',
+};
+
+/**
  * 등록 · 편집 화면이 줄마다 보내는 경로 (FR-PL-020). 직접 입력 · 엑셀 · 메모 붙여넣기 · 장소 담기.
  * 수정안이 넣은 줄(PATCH)은 서버가 붙이고, 레이더 소식(SIGNAL)으로 줄을 넣는 화면은 아직 없다.
  */

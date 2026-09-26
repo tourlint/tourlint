@@ -1,3 +1,4 @@
+import { STARTED_BY_LABEL } from "@tourlint/shared";
 import { stageOf, type Stage } from "./stage-of";
 
 export interface LatestAudit {
@@ -31,18 +32,6 @@ export interface WorkspaceProduct {
   /** 기획을 시작한 방법 (`plan_origin.startedBy`). 기록이 없는 상품은 null */
   startedBy?: string | null;
 }
-
-/**
- * 시작 방식 (UI-S1-010 · FR-PL-020). 검수 결과 화면의 기획 칸과 같은 말이다 — 한 상품을 두 이름으로
- * 부르지 않는다. 옛 기록의 CLONE 도 읽는다.
- */
-export const STARTED_BY_LABEL: Readonly<Record<string, string>> = {
-  MANUAL: "직접 입력으로 시작",
-  UPLOAD: "엑셀로 시작",
-  TEXT: "메모 붙여넣기로 시작",
-  CLONE: "복제로 시작",
-  SIGNAL: "레이더 소식으로 시작",
-};
 
 export type Workspace = "home" | "planning" | "review";
 export type SortKey = "startDate" | "readiness" | "audited";
