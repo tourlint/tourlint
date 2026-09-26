@@ -1,5 +1,6 @@
 import {
-  INPUT_ITEM_ORIGIN, ITEM_TYPE, TRANSPORT, isConceptKey, isTargetKey, type InputItemOrigin, type ItemType, type Transport,
+  INPUT_ITEM_ORIGIN, ITEM_CAP_MESSAGE, ITEM_TYPE, MAX_ITEMS_PER_PRODUCT, TRANSPORT, isConceptKey, isTargetKey,
+  type InputItemOrigin, type ItemType, type Transport,
 } from '@tourlint/shared';
 
 /**
@@ -169,6 +170,8 @@ export function validateCreate(dto: CreateProductDto): { errors: string[]; produ
   const conceptKey = keyOrNull(dto.conceptKey, isConceptKey, '콘셉트', errors);
 
   const items = validateDays(dto.days, nights, errors);
+  // 업로드 · 메모 읽기만 막고 직접 입력은 46건 이상도 저장됐다 (NF-CP-003 · NF-CP-010 · #892)
+  if (items.length > MAX_ITEMS_PER_PRODUCT) errors.push(ITEM_CAP_MESSAGE);
 
   if (errors.length > 0) return { errors, product: null };
   return {

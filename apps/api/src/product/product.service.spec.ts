@@ -151,6 +151,29 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     expect(Number(rows[2]?.id)).toBe(tailId);       // 밀린 항목이 3번
   });
 
+  it('🔴 45건이 찬 상품에는 줄 · 장소 담기 · 걷기 길 어느 길로도 더 넣지 않는다 (NF-CP-003 · #892)', async () => {
+    const { productId } = await makeProduct();
+    // 1건(경포대) + 44건 = 45건
+    await pool.query(
+      `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status)
+       SELECT $1, 1, 1 + g, '12:00', NULL, 'DWELL_DEFAULT', '채움 ' || g, 'SIGHT', 'PENDING' FROM generate_series(1, 44) AS g`,
+      [productId],
+    );
+    const attempts = [
+      { dayNo: 1, startTime: '20:00', endTime: '', placeLabel: '한 줄 더', itemType: 'SIGHT' },
+      picked(REPLACEMENT),
+      { dayNo: 1, itemType: 'SIGHT', excluded: { walkId: 'T_TEST_WALK', startTime: '20:00', endTime: '21:00' } },
+    ];
+    for (const body of attempts) {
+      const e = await service.addItem(accountId, productId, body).catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(DomainException);
+      expect((e as DomainException).getStatus()).toBe(HttpStatus.BAD_REQUEST);
+      expect((e as DomainException).reasonCode).toBe('INPUT_INVALID');
+    }
+    const { rows } = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM itinerary_item WHERE product_id = $1`, [productId]);
+    expect(rows[0]?.n).toBe(45);
+  });
+
   it('넣을 위치를 안 주면 그 날 끝에 붙는다', async () => {
     const { productId } = await makeProduct();
     await service.addItem(accountId, productId, picked(REPLACEMENT));

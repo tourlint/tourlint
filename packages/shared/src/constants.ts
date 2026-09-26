@@ -65,6 +65,14 @@ export const TRANSPORT_LABEL: Readonly<Record<Transport, string>> = {
 
 export const NIGHTS_ALLOWED = [0, 1, 2] as const;
 
+/**
+ * 상품당 일정 항목 상한 (NF-CP-003). 엑셀 · 메모 읽기 · 직접 입력 · 장소 담기 · 걷기 길 · 수정안이
+ * 같은 수를 본다 — 업로드만 막고 다른 길로는 넘겨 저장되던 것을 막는다 (NF-CP-010 · #892).
+ */
+export const MAX_ITEMS_PER_PRODUCT = 45;
+export const ITEM_CAP_MESSAGE =
+  `일정은 상품당 ${MAX_ITEMS_PER_PRODUCT}건까지 넣을 수 있어요. 다른 일정을 지우거나 상품을 나눠 주세요.`;
+
 // ─────────────────────────────────────────────────────────────
 // 규칙 판정 사유코드 15종 — 예외 사유코드와 네임스페이스가 다르다 (EX-CM-022)
 // ─────────────────────────────────────────────────────────────

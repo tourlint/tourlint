@@ -482,6 +482,15 @@ export class ProductRepository {
     return rows[0]?.nights ?? null;
   }
 
+  /** 상품의 일정 항목 수. 상한(NF-CP-003) 검사용 — 소유권은 호출 전 ownedNights 로 확인한다 */
+  async countItems(productId: number): Promise<number> {
+    const { rows } = await this.pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM itinerary_item WHERE product_id = $1`,
+      [productId],
+    );
+    return rows[0]?.n ?? 0;
+  }
+
   /** 항목 추가. seq 는 그 일차 끝에 붙인다. 소유권은 호출 전 ownedNights 로 확인한다. */
   /**
    * 넣을 위치를 잡는다 (4-3). `afterItemId` 를 주면 그 항목(같은 날)을, 없으면 그 날 마지막

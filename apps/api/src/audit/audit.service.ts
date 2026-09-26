@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, Logger, Optional, type OnApplicationBootstrap } from '@nestjs/common';
 import type { Pool } from 'pg';
 import {
-  findingMessage, kstIso, SEVERITY, withPlaceName, type Severity,
+  findingMessage, ITEM_CAP_MESSAGE, kstIso, MAX_ITEMS_PER_PRODUCT, SEVERITY, withPlaceName, type Severity,
 } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
@@ -490,6 +490,11 @@ export class AuditService implements OnApplicationBootstrap {
         '선택한 수정안의 대상 일정이 이미 변경되었습니다. 다시 검토한 뒤 확정해 주세요.', 'REQUEST',
         applied.skipped.map((s) => ({ field: s.patchId, message: s.reason })),
       );
+    }
+
+    // 넣는 수정안이 상품당 상한을 넘기면 받지 않는다. 늘지 않는 확정은 막지 않는다 (NF-CP-003 · #892)
+    if (applied.items.length > items.length && applied.items.length > MAX_ITEMS_PER_PRODUCT) {
+      throw new DomainException(HttpStatus.BAD_REQUEST, 'INPUT_INVALID', ITEM_CAP_MESSAGE, 'PRODUCT');
     }
 
     /*
