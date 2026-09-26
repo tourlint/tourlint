@@ -264,8 +264,8 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>201 Created</td>
-<td>상품 · 일정 항목 · 리포트 생성</td>
-<td>–</td>
+<td>상품 · 일정 항목 · 리포트 생성. 업로드 · 메모 읽기(`POST /api/v1/uploads/*`)도 저장 없이 201 로 결과를 돌려주며, 파일 · 글 전체 거부도 201 의 `rejected` 로 싣는다(4-3)</td>
+<td>`rejected.code` — `UPLOAD_FORMAT_INVALID` `UPLOAD_LIMIT_EXCEEDED` `DAY_COUNT_MISMATCH` `NL_STRUCTURE_FAILED`</td>
 </tr>
 <tr>
 <td>202 Accepted</td>
@@ -280,7 +280,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>400 Bad Request</td>
 <td>입력 형식 오류 · 상한 초과</td>
-<td>`UPLOAD_FORMAT_INVALID` `DAY_COUNT_MISMATCH` `UPLOAD_LIMIT_EXCEEDED` `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED` `INPUT_INVALID`(전용 코드가 없는 입력 형식 오류 · 깨진 JSON 본문)</td>
+<td>`UPLOAD_FORMAT_INVALID`(확장자 · 내용 · MIME · 파서 실패) `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED` `INPUT_INVALID`(전용 코드가 없는 입력 형식 오류 · 깨진 JSON 본문)</td>
 </tr>
 <tr>
 <td>401 Unauthorized</td>
@@ -303,9 +303,14 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <td>`PATCH_CONFLICT` `PATCH_STALE` `UNDO_UNAVAILABLE`</td>
 </tr>
 <tr>
+<td>413 Payload Too Large</td>
+<td>업로드 안전망(20MB) 초과 — 받기 전에 막는다. 5MB 에서 20MB 사이는 201 의 `rejected`</td>
+<td>`UPLOAD_LIMIT_EXCEEDED`</td>
+</tr>
+<tr>
 <td>422 Unprocessable</td>
 <td>선행 조건 미충족</td>
-<td>`PLACE_UNRESOLVED`</td>
+<td>`PLACE_UNRESOLVED` `DAY_COUNT_MISMATCH`</td>
 </tr>
 <tr>
 <td>429 Too Many Requests</td>
@@ -505,26 +510,20 @@ GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" 
 </tr>
 <tr>
 <td>POST</td>
-<td>`/api/v1/products/{productId}/items/import`</td>
-<td>엑셀·CSV 업로드 → **미리보기 반환**. 사용자 확정 전에는 저장하지 않음</td>
+<td>`/api/v1/uploads/schedule`</td>
+<td>엑셀 · CSV 파일(multipart `file`)을 읽어 **편집용 결과**(`nights` · `items` · `errors` · `rejected`)를 201 로 돌려준다. 저장하지 않는다 — 화면이 편집한 뒤 상품 저장(`POST /api/v1/products` 의 `days[].items[]`)으로 저장한다. 상품에 딸리지 않는 경로라 등록 전에도 부른다</td>
 <td>FR-IN-002·015</td>
 </tr>
 <tr>
 <td>POST</td>
-<td>`/api/v1/products/{productId}/items/parse-text`</td>
-<td>자연어 텍스트 → LLM 구조화 → **미리보기 반환**</td>
+<td>`/api/v1/uploads/schedule-text`</td>
+<td>메모(자연어) `{ text }` → LLM 구조화 → 같은 모양의 **편집용 결과**를 201 로 돌려준다. 저장하지 않는다</td>
 <td>FR-IN-003·013</td>
 </tr>
 <tr>
-<td>POST</td>
-<td>`/api/v1/products/{productId}/items/commit`</td>
-<td>미리보기 확정 저장</td>
-<td>FR-IN-013</td>
-</tr>
-<tr>
 <td>GET</td>
-<td>`/api/v1/templates/itinerary-form.xlsx`</td>
-<td>지정 양식 파일 내려받기</td>
+<td>`/api/v1/uploads/template`</td>
+<td>지정 양식 파일(.xlsx) 내려받기</td>
 <td>FR-IN-002</td>
 </tr>
 </table>
@@ -540,12 +539,16 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 ```
 <callout icon="📥" color="yellow_bg">
 	**업로드 상한과 거부 규칙**
-	파일 5MB · 500행 초과 → 파싱 전에 400 `UPLOAD_LIMIT_EXCEEDED`
-	유효 일정 항목 45건 초과 → 400 `UPLOAD_LIMIT_EXCEEDED` + 상품 분할 안내 (NF-CP-003)
-	자연어 입력 5,000자 초과 → 400
-	일부 행 형식 오류 → **200 + 정상 행 유지 + 실패 행 번호·사유 반환** (전체 거부 아님)
-	박수와 일자별 일정 수 불일치 → 400 `DAY_COUNT_MISMATCH`
+	업로드 · 메모 붙여넣기는 저장하지 않고 편집용 결과를 201 로 돌려준다. **파일 · 글 전체를 거부할 때도 201 이고** 사유는 결과의 `rejected`(`code` · `message`)에 담는다 — 화면은 `message` 만 보인다
+	파일 5MB · 500행 초과 → 파싱 전에 `rejected` `UPLOAD_LIMIT_EXCEEDED`
+	유효 일정 항목 45건 초과 → `rejected` `UPLOAD_LIMIT_EXCEEDED` + 상품 분할 안내 (NF-CP-003)
+	자연어 입력 4,000자 초과 → `rejected` `UPLOAD_LIMIT_EXCEEDED` (화면은 글자 수를 보이고 넘으면 보내지 않는다 · NF-CP-006)
+	양식 헤더를 못 찾음 · 필수 컬럼 누락 → `rejected` `UPLOAD_FORMAT_INVALID` (없는 컬럼을 짚는다)
+	일부 행 형식 오류 → **201 + 정상 행 유지 + 실패 행 번호 · 사유 반환**(`errors[]` · 사유코드는 싣지 않는다 · 전체 거부 아님)
+	박수와 일자별 일정 수 불일치 → 업로드 · 저장은 막지 않는다. 검수 시작이 422 `DAY_COUNT_MISMATCH` 로 거부한다 (EX-IN-005). 파일에 4일차 이상이 있으면 `rejected` `DAY_COUNT_MISMATCH` 로 파일 전체를 거부한다
+	메모에서 항목을 하나도 못 만듦 · LLM 을 쓸 수 없음 · 빈 글 → `rejected` `NL_STRUCTURE_FAILED`
 	확장자가 .xlsx · .csv 가 아님 · 내용이 형식과 다름(xlsx 는 `PK` 로 시작, CSV 는 NUL 없는 글자) · MIME 이 이미지 · PDF 처럼 명백히 다름 · 파서가 못 읽음 → 400 `UPLOAD_FORMAT_INVALID`
+	파일이 없음 · 메모 본문 `text` 가 문자열이 아님 → 400 `INPUT_INVALID`
 	20MB 초과(업로드 안전망) → 413 `UPLOAD_LIMIT_EXCEEDED`
 	업로드 파일은 파싱 후 폐기하며 서버에 영구 저장하지 않습니다 (NF-SC-006).
 </callout>
@@ -590,7 +593,7 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 <tr>
 <td>GET</td>
 <td>`/api/v1/lcls-codes`</td>
-<td>분류체계 코드. `level` `parentCode` 계층 조회. 수집된 기준 테이블에서 응답</td>
+<td>분류체계 대분류 목록. 파라미터 없음 — 부팅 때(실패하면 첫 요청 때) `lclsSystmCode2` 를 불러 메모리에 둔 것으로 응답한다. 중분류 기준표는 `packages/shared` 상수(`LCLS_SYSTM2`)이고 이 경로로 내보내지 않는다</td>
 <td>EI-KT-015</td>
 </tr>
 </table>
@@ -599,7 +602,7 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 POST /api/v1/items/{itemId}/match     기존 본문에 "matchedBy": "USER" | "AGENT"  (1곳 자동 확정은 서버가 AUTO 로 남긴다)
 ```
 <callout icon="📍" color="blue_bg">
-	**`/contents/search`****는 검색 결과가 10건 이상이면 상품 지역(법정동 코드)으로 자동 필터링**하고, 응답에 `regionFilterApplied: true`를 함께 반환해 화면이 해제 수단을 제공할 수 있게 합니다 (FR-IN-023 · EX-MC-003).
+	**`/contents/search`****는 지역을 받으면 그 지역 안에서만 찾습니다.** 지역은 `regnCd` · `signguCd` 로 받고, 응답의 `regionFilterApplied` 는 지역을 줬는지를 알립니다. 화면은 결과 건수와 무관하게 늘 상품 지역을 붙여 부르고 해제 수단을 두지 않으며, 적용 중인 지역을 후보 목록 머리("강릉시에서 찾은 곳 N곳")에 적습니다 (FR-IN-023 · EX-MC-003).
 	검색 호출 자체가 실패하면 항목을 `PENDING`으로 두고 재시도 수단을 제공합니다. **검수 제외로 자동 전환하지 않습니다** (EX-MC-004).
 </callout>
 ## 4-5. 검수 (F04 ~ F07)
@@ -863,7 +866,7 @@ POST /api/v1/radar/region-signals/refresh   배치가 꺼진 기간에만(켜져
 	지문 비교값(FR-MO-058)은 알림에 저장돼 있어 항상 실리되, 조건 2 · 3 은 지문 이력이 없어 둘 다 `null` 입니다.
 </callout>
 <callout icon="🔁" color="blue_bg">
-	**"다시 검수"(옛 "지금 재검수")는 별도 엔드포인트가 아닙니다.** `POST /products/{id}/audit-jobs` 에 `triggerType: "MANUAL"` 로 요청하며, 사용자가 누른 요청이라 **예산 100%까지 허용**됩니다 (자동 배치는 80%에서 중지, FR-OP-003 · FR-MO-017).
+	**검수 결과 화면의 "지금 재검수"는 별도 엔드포인트가 아닙니다.** `POST /products/{id}/audit-jobs` 에 `triggerType: "MANUAL"` 로 요청하며, 사용자가 누른 요청이라 **예산 100%까지 허용**됩니다 (자동 배치는 80%에서 중지, FR-OP-003 · FR-MO-017). 레이더 바뀐 정보 카드 · 오늘 할 일의 "다시 검수"는 그 결과 화면으로 보내는 링크입니다.
 </callout>
 ## 4-9. 운영 — 예산 · 검수 기준 · 헬스 (F15 · F16)
 <table fit-page-width="true" header-row="true">
@@ -2240,7 +2243,7 @@ public interface AuditRule {
 </table>
 - 격자 좌표 변환은 **상품 여행 지역 대표 지점 1개**로 수행합니다. 일정 항목별 개별 조회를 하지 않습니다 (EI-WX-002).
 - 예보 API 실패 시 **평년 테이블로 자동 강등**하고 표기를 "평년 기준"으로 바꿉니다. R09 전체를 확인 불가로 만들지 않습니다 (EI-WX-006).
-- 공사 인증키와 **별개의 키**를 사용합니다 (EI-WX-001).
+- 키 문자열은 공사 인증키와 같은 계정 인증키이고(data.go.kr 은 계정당 키 하나), 서비스별 활용신청으로 인가를 따로 받습니다. 환경변수는 `KMA_SERVICE_KEY` 로 분리합니다 — 어댑터가 다른 연동의 설정을 읽지 않습니다 (EI-WX-001).
 - 예보 결과는 발표분 단위로 캐시할 수 있습니다 (단기 1시간 · 중기 12시간). 이 캐시는 자체 판정 입력값이므로 무저장 원칙과 무관합니다 (EI-WX-007).
 <callout icon="📊" color="gray_bg">
 	**평년 강수일수를 파일로 받아 고정 테이블로 쓰는 것은 축소안이 아니라 정상 구현입니다.** 실시간 호출 의무는 한국관광공사 데이터에만 적용되며(SC-DT-014), 기상자료개방포털 통계는 공공누리 제1유형(출처표시)입니다.
@@ -2332,8 +2335,8 @@ public interface AuditRule {
 <td>약 29콜(1박 2일 8곳) · 약 43콜(2박 3일 12곳)</td>
 </tr>
 <tr>
-<td>분류체계 전체 수집 (배포 시 1회)</td>
-<td>약 70콜</td>
+<td>분류체계 대분류 목록 (부팅 때 1회 · 메모리 캐시)</td>
+<td>1콜 — 중분류 59행은 `packages/shared` 상수라 부르지 않는다(EI-KT-015)</td>
 </tr>
 </table>
 ## 8-2. 예산 관리자 (F15)
@@ -2371,7 +2374,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
         증설 종료일 다음 날(10.17)부터 다섯 다 800 으로 돌아간다
       소진율 분자 = 당일 그 provider 합산
   서비스마다 BudgetGuard 인스턴스를 두고, 게이트는 부르려는 서비스의 예산을 본다
-  → 새 서비스 호출이 국문 800건 예산을 잠식하지 않는다
+  → 새 서비스 호출이 국문 예산을 잠식하지 않는다
   LLM(에이전트) 호출은 provider=LLM · operation=목적으로 세며 공사 예산에 들어가지 않는다
 데모 계정 포함 전 계정이 같은 예산을 공유한다 (PM-DA-006 · DR-CF-007).
 ```
@@ -2415,32 +2418,32 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <tr>
 <td>`UPLOAD_FORMAT_INVALID`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부. 누락 컬럼 명시 + 양식 링크</td>
+<td>400 · 201</td>
+<td>거부. 확장자 · 내용 · MIME · 파서 실패는 400. 양식 헤더를 못 찾거나 필수 컬럼이 빠지면 201 의 `rejected`(없는 컬럼을 짚는다). 양식 내려받기 링크는 업로드 칸에 늘 있다</td>
 </tr>
 <tr>
 <td>`UPLOAD_ROW_INVALID`</td>
 <td>REQUEST</td>
-<td>200</td>
-<td>부분 수용. 실패 행 번호·사유 반환</td>
+<td>201</td>
+<td>부분 수용. 정상 행은 `items`, 실패 행은 `errors[]`(행 번호 · 사유)로 돌려준다 — 응답에 이 코드를 싣지는 않는다</td>
 </tr>
 <tr>
 <td>`UPLOAD_LIMIT_EXCEEDED`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부. 상한값 안내</td>
+<td>201 · 413</td>
+<td>거부. 상한값 안내. 5MB · 500행 · 유효 항목 45건 · 메모 4,000자 초과는 201 의 `rejected`, 20MB 안전망 초과는 413</td>
 </tr>
 <tr>
 <td>`DAY_COUNT_MISMATCH`</td>
-<td>REQUEST</td>
-<td>400</td>
-<td>거부. 비어 있는 일차 표시</td>
+<td>PRODUCT</td>
+<td>422</td>
+<td>검수 시작 거부. 비어 있는 일차 표시(`missingDays`). 업로드 파일의 4일차 이상도 같은 코드로 파일 전체를 거부한다(201 의 `rejected`)</td>
 </tr>
 <tr>
 <td>`NL_STRUCTURE_FAILED`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부 + 직접 입력 유도. 빈 상품 생성 금지</td>
+<td>201</td>
+<td>거부 + 직접 입력 유도(201 의 `rejected`). 빈 상품 생성 금지</td>
 </tr>
 <tr>
 <td>`PLACE_NOT_FOUND`</td>
@@ -2878,7 +2881,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <td>미리보기 비동기 처리 불필요 수준</td>
 </tr>
 </table>
-**용량 상한** — 동시 사용자 10명 · 계정당 상품 50건 · 상품당 일정 항목 30건 · 동시 검수 3건 · 업로드 5MB/500행 · 자연어 5,000자 · 공사 일일 호출 800건.
+**용량 상한** — 동시 사용자 10명 · 계정당 상품 50건(성능 보증 수 · 막는 한도 아님) · 상품당 일정 항목 45건 · 동시 검수 3건 · 업로드 5MB/500행 · 자연어 4,000자 · 국문 관광정보 일일 예산 8,000건(트래픽 증설 기간 · 증설 마지막 날 다음 날부터 800건).
 <callout icon="📏" color="gray_bg">
 	**성능 측정은 정식 배포된 실제 환경에서 수행합니다.** 로컬 측정치를 근거로 쓰지 않으며, 목표 미달 항목은 미달 사실과 실측치를 함께 문서화합니다. **목표값의 사후 하향은 금지합니다** (NF-PF-020·021).
 </callout>
