@@ -4,6 +4,8 @@ import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DomainException } from '../common/domain.exception';
 import { PlaceNameResolver } from '../audit/place-name';
+import { AuditService } from '../audit/audit.service';
+import type { StoredAuditRun } from '../persistence/audit-result.repository';
 import { CatalogService } from '../catalog/catalog.service';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { FixtureKtoTransport, KtoClient } from '../external/kto';
@@ -162,6 +164,7 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     const attempts = [
       { dayNo: 1, startTime: '20:00', endTime: '', placeLabel: '한 줄 더', itemType: 'SIGHT' },
       picked(REPLACEMENT),
+      { ...picked(REPLACEMENT), startTime: '20:00', endTime: '21:00' },
       { dayNo: 1, itemType: 'SIGHT', excluded: { walkId: 'T_TEST_WALK', startTime: '20:00', endTime: '21:00' } },
     ];
     for (const body of attempts) {
@@ -172,6 +175,21 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     }
     const { rows } = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM itinerary_item WHERE product_id = $1`, [productId]);
     expect(rows[0]?.n).toBe(45);
+  });
+
+  it('🔴 편집 화면이 정한 시각이 있으면 그 시각으로 넣는다 — 끝을 비우면 기본 체류시간 보완 대상 (FR-IN-014)', async () => {
+    const { productId, itemId } = await makeProduct();
+    const timed = await service.addItem(accountId, productId, { ...picked(REPLACEMENT), afterItemId: itemId, startTime: '14:30', endTime: '15:45' });
+    const open = await service.addItem(accountId, productId, { ...picked(REPLACEMENT), startTime: '18:00', endTime: '' });
+    const { rows } = await pool.query<{ id: string; seq: number; start_time: string; end_time: string | null; end_time_source: string; match_status: string }>(
+      `SELECT id, seq, start_time::text, end_time::text, end_time_source, match_status FROM itinerary_item WHERE product_id = $1 ORDER BY seq`,
+      [productId],
+    );
+    expect(rows.map((r) => [Number(r.id), r.seq, r.start_time, r.end_time, r.end_time_source, r.match_status])).toEqual([
+      [itemId, 1, '10:00:00', '11:30:00', 'INPUT', 'CONFIRMED'],
+      [timed.itemId, 2, '14:30:00', '15:45:00', 'INPUT', 'CONFIRMED'],
+      [open.itemId, 3, '18:00:00', null, 'DWELL_DEFAULT', 'CONFIRMED'],
+    ]);
   });
 
   it('넣을 위치를 안 주면 그 날 끝에 붙는다', async () => {
@@ -201,6 +219,81 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     expect(days[0]?.items.map((i) => [i.lcls2, i.endTimeSource, i.start, i.end])).toEqual([
       [null, 'INPUT', '10:00', '11:30'],
       ['FD05', 'DWELL_DEFAULT', '11:30', '12:30'],
+    ]);
+  });
+
+  it('🔴 등록 저장은 고른 관광지 줄의 이름을 저장하지 않고, 상세는 공식 명칭을 찾아 채운다 (DR-PR-001 · DR-IN-013)', async () => {
+    const { product } = validateCreate({
+      name: '등록 이름 스펙', ldongRegnCd: '51', ldongSignguCd: '150', startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        // 장소 칸에서 고른 줄 — 화면은 칸 이름을 고른 곳의 공식 명칭으로 바꿔 둔다
+        { start: '10:00', end: '11:30', place: '강릉 경포대', itemType: 'SIGHT', content: { contentId: ORIGINAL, contentTypeId: 12 } },
+        // 장소 담기로 넣은 줄
+        { start: '12:00', end: '', place: '강릉 오죽헌·시립박물관', itemType: 'SIGHT', origin: 'PICKER', content: { contentId: REPLACEMENT, contentTypeId: 14 } },
+        { start: '14:00', end: '15:00', place: '초당순두부', itemType: 'MEAL' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await new ProductRepository(pool).create(accountId, product);
+    const { rows } = await pool.query<{ place_label: string | null }>(
+      `SELECT place_label FROM itinerary_item WHERE product_id = $1 ORDER BY seq`, [productId]);
+    expect(rows.map((r) => r.place_label)).toEqual([null, null, '초당순두부']);
+    // 보이는 이름은 그대로다 — 공사 명칭을 표시할 때 찾는다
+    const days = (await service.detail(accountId, productId)).days as { items: Record<string, unknown>[] }[];
+    expect(days[0]?.items.map((i) => [i.place, i.contentTypeId])).toEqual([
+      ['강릉 경포대', 12],
+      ['강릉 오죽헌·시립박물관', 14],
+      ['초당순두부', null],
+    ]);
+  });
+
+  it('결과 화면이 여는 상세 · 판정 · 확인 필요가 이름 없는 곳마다 한 번만 부르고, 다시 열면 부르지 않는다 (#911 리뷰)', async () => {
+    // 프로세스에 하나인 이름 리졸버 — app.module 과 같은 모양으로 둘에 같은 것을 준다
+    const transport = new FixtureKtoTransport(FIXTURE_DIR);
+    const client = new KtoClient({ transport, logger: new InMemoryApiCallLogger() });
+    const names = new PlaceNameResolver({ kto: () => client });
+    const kto = (): KtoClient => client;
+    const products = new ProductService(
+      new ProductRepository(pool), new CatalogService(kto), patches, names, {} as never,
+      new WalkNameResolver({ kto, budget: async () => ({ allowed: true, ratio: 0, reasonCode: null, warn: false, remaining: 800 }) }),
+      () => null,
+    );
+    const audit = new AuditService(pool, undefined, names);
+    // 이름을 저장하지 않은 고른 곳 넷 — 가이드 상품의 세인트존스 호텔 · 주문진 등대 · 하이오션 경포 · 하슬라아트월드 자리
+    const picked = (contentId: string, contentTypeId: number, start: string) =>
+      ({ start, end: '', place: '', itemType: 'SIGHT', origin: 'PICKER', content: { contentId, contentTypeId } });
+    const { product } = validateCreate({
+      name: '이름 조회 한 번 스펙', ldongRegnCd: '51', ldongSignguCd: '150', startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        picked(ORIGINAL, 12, '09:00'), picked(REPLACEMENT, 14, '11:00'), picked('125769', 12, '13:00'), picked('1756581', 14, '15:00'),
+        { start: '17:00', end: '18:00', place: '초당순두부', itemType: 'MEAL' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await new ProductRepository(pool).create(accountId, product);
+    const items = await audit.itemsOf(productId);
+    const screen = () => Promise.all([
+      products.detail(accountId, productId),
+      audit.targetsByItem({ productId } as StoredAuditRun),
+      audit.displayLabels(items),
+    ]);
+
+    const [, targets, labels] = await screen();
+    expect(transport.replayCounts.get('detailCommon2')).toBe(4);
+    expect([...labels.values()]).toContain('강릉 경포대');
+    expect(targets.get(items[0]?.id ?? 0)?.placeLabel).toBe('강릉 경포대');
+    // 10분 안에 다시 열면 부르지 않는다
+    await screen();
+    expect(transport.replayCounts.get('detailCommon2')).toBe(4);
+  });
+
+  it('🔴 상세의 항목에 걷기 길 식별자가 실린다 — 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 (UI-S2-048)', async () => {
+    const { productId } = await makeProduct();
+    await service.addItem(accountId, productId, { dayNo: 1, itemType: 'SIGHT', excluded: { walkId: 'T_TEST_WALK' }, startTime: '14:00', endTime: '16:00' });
+    const days = (await service.detail(accountId, productId)).days as { items: Record<string, unknown>[] }[];
+    expect(days[0]?.items.map((i) => [i.walkId, i.matchStatus])).toEqual([
+      [null, 'CONFIRMED'],
+      ['T_TEST_WALK', 'EXCLUDED'],
     ]);
   });
 });

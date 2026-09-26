@@ -64,6 +64,22 @@ it('같은 이름 그대로 고르면 줄 이름을 건드리지 않는다', asy
   expect(itemApi.patch).not.toHaveBeenCalled();
 });
 
+it('🔴 다시 고르다 「직접 정한 곳으로 두기」를 누르면 칸에 친 이름을 함께 보낸다 (DR-PR-001)', async () => {
+  vi.spyOn(matchApi, 'search').mockResolvedValue(found('129784', '강릉 경포대'));
+  await act(async () => root.render(<PlaceAutocomplete item={confirmed} regnCd="51" signguCd="150" regionLabel="강릉시" autoPick={false} onCancel={() => {}} onResolved={async () => {}} />));
+  await typeInto('경포 산책로');
+  await act(async () => { button('찾는 곳이 없나요? 직접 정한 곳으로 두기')!.click(); });
+  expect(matchApi.exclude).toHaveBeenCalledWith(7, '경포 산책로');
+});
+
+it('🔴 칸을 고치지 않고 눌러도 칸의 이름을 보낸다 — 이름이 저장되지 않은 줄이 400 에 막히지 않는다 (#911)', async () => {
+  vi.spyOn(matchApi, 'search').mockResolvedValue(found('129784', '강릉 경포대'));
+  await act(async () => root.render(<PlaceAutocomplete item={confirmed} regnCd="51" signguCd="150" regionLabel="강릉시" autoPick={false} onCancel={() => {}} onResolved={async () => {}} />));
+  await settle();
+  await act(async () => { button('찾는 곳이 없나요? 직접 정한 곳으로 두기')!.click(); });
+  expect(matchApi.exclude).toHaveBeenCalledWith(7, '강릉 경포대');
+});
+
 it('「취소」 는 다시 고를 때만 보인다', async () => {
   vi.spyOn(matchApi, 'search').mockResolvedValue({ ...found('1', 'x'), candidates: [] });
   const cancel = vi.fn();

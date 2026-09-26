@@ -80,12 +80,14 @@ function service(options: {
   provider?: ScriptedLlmProvider;
   lock?: AgentLock;
   llm?: () => LlmClient;
+  names?: (contentIds: readonly string[]) => ReadonlyMap<string, string>;
 }): TodayBriefService {
   const provider = options.provider ?? new ScriptedLlmProvider(options.turns ?? []);
   return new TodayBriefService({
     radar: sourceOf(options),
     llm: options.llm ?? ((): LlmClient => new LlmClient({ provider, config: CONFIG })),
     lock: options.lock ?? new AgentLock(),
+    ...(options.names === undefined ? {} : { names: options.names }),
   });
 }
 
@@ -122,6 +124,26 @@ describe('할 일 후보와 순서 (FR-AG-030)', () => {
       [],
     );
     expect(built[0]?.facts).toMatchObject({ changedCount: 2, changedPlaces: ['오죽헌', '경포대'] });
+  });
+
+  it('🔴 이름을 저장하지 않은 곳은 알림 목록이 읽어 둔 이름을 쓴다 — 표출이 중단된 곳은 부르지 않는다 (#908)', () => {
+    const { candidates: built } = buildCandidates(
+      [product()],
+      [
+        change({ placeLabel: null, ktoContentId: '142785' }),
+        change({ notificationId: 10, placeLabel: '', ktoContentId: '126175' }),
+        change({ notificationId: 11, placeLabel: null, ktoContentId: '999', hidden: true }),
+        change({ notificationId: 12, placeLabel: '경포대' }),
+      ],
+      [],
+      new Map([['142785', '세인트존스 호텔'], ['126175', '주문진 등대'], ['999', '숨은 곳']]),
+    );
+    expect(built[0]?.facts).toMatchObject({ changedCount: 4, changedPlaces: ['세인트존스 호텔', '주문진 등대', '경포대'] });
+  });
+
+  it('읽어 둔 이름이 없으면 그 곳은 세기만 한다 — 빈 이름을 싣지 않는다', () => {
+    const { candidates: built } = buildCandidates([product()], [change({ placeLabel: null }), change({ notificationId: 10, placeLabel: '' })], []);
+    expect(built[0]?.facts).toMatchObject({ changedCount: 2, changedPlaces: [] });
   });
 
   it('🔴 새 소식(조건 4 ~ 6)만 온 상품은 다시 검수할 일이 아니다 — 조용한 상품에 그 수만 붙는다 (#724)', () => {
@@ -216,6 +238,21 @@ describe('TodayBriefService — 오늘 할 일 (FR-AG-030 · 031)', () => {
     expect(result.todos.map((t) => t.action)).toEqual(['REAUDIT', 'REAUDIT', 'NEW_PLAN']);
     expect(result.incomplete).toBeNull();
     expect(result.basisAt).toBe('2026-09-16T14:00:00+09:00');
+  });
+
+  it('🔴 이름을 저장하지 않은 곳은 읽어 둔 이름만 묻고 모델에게 싣는다 — 표출이 중단된 곳은 묻지 않는다 (#908)', async () => {
+    const asked: string[][] = [];
+    const provider = new ScriptedLlmProvider([[candidates('t1')], [submit({ todos: [], quiet: [] })]]);
+    await service({
+      provider,
+      changes: [
+        change({ placeLabel: null, ktoContentId: '142785' }),
+        change({ notificationId: 10, placeLabel: null, ktoContentId: '999', hidden: true }),
+      ],
+      names: (ids) => { asked.push([...ids]); return new Map([['142785', '세인트존스 호텔']]); },
+    }).brief(1, NOW);
+    expect(asked).toEqual([['142785']]);
+    expect(JSON.stringify(provider.requests)).toContain('세인트존스 호텔');
   });
 
   it('🔴 후보에 없는 할 일은 버린다 — 알림 · 새 소식에 없는 것을 만들어 내지 않는다 (FR-AG-003)', async () => {

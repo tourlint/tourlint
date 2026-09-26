@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateAddItem, validateCreate, validateUpdate, validateWalkItem, type CreateProductDto } from './product.dto';
+import { validateAddItem, validateCreate, validatePickedItem, validateUpdate, validateWalkItem, type CreateProductDto } from './product.dto';
 
 /**
  * 상품 등록 검증 — 순수 함수라 DB 없이 돈다. 서버가 저장 전에 다시 보는 가드다 (EX-IN-005).
@@ -72,6 +72,27 @@ describe('validateCreate', () => {
     // 고른 줄은 content 가 붙고, 안 고른 줄은 null 이다 (안 고른 곳은 PENDING 으로 남는다)
     expect(product?.items[0]?.content).toMatchObject({ contentId: '125790', contentTypeId: 12 });
     expect(product?.items[1]?.content).toBeNull();
+  });
+
+  it('🔴 고른 관광지 줄은 장소명이 없어도 받고, 보내 온 이름은 버린다 — 공식 명칭이다 (DR-PR-001 · DR-IN-013)', () => {
+    const content = { contentId: '142785', contentTypeId: 32, mapx: 128.9, mapy: 37.8, lcls1: 'AC', lcls2: 'AC01', lcls3: null };
+    const { errors, product } = validateCreate(base({
+      days: [{ day: 1, items: [
+        { start: '18:00', end: '', place: '', itemType: 'LODGING', content },
+        { start: '14:30', end: '', place: '주문진 등대', itemType: 'SIGHT', origin: 'PICKER', content: { ...content, contentId: '126175' } },
+        { start: '12:30', end: '13:30', place: '', itemType: 'MEAL' },
+      ] }, { day: 2, items: [] }, { day: 3, items: [] }],
+    }));
+    // 안 고른 줄만 이름을 요구한다
+    expect(errors).toEqual(['1일차 3번 장소명을 입력하세요.']);
+    const ok = validateCreate(base({
+      days: [{ day: 1, items: [
+        { start: '18:00', end: '', place: '', itemType: 'LODGING', content },
+        { start: '14:30', end: '', place: '주문진 등대', itemType: 'SIGHT', origin: 'PICKER', content: { ...content, contentId: '126175' } },
+      ] }, { day: 2, items: [] }, { day: 3, items: [] }],
+    })).product;
+    expect(ok?.items.map((i) => i.placeLabel)).toEqual(['', '']);
+    expect(product).toBeNull();
   });
 
   it('🔴 고른 장소 정보가 깨졌으면(contentId 없음) 거부한다', () => {
@@ -290,5 +311,17 @@ describe('등록 화면에서 담은 걷기 길 (UI-S2-048 · DR-MD-005)', () =>
     expect(walk({}).walk).toMatchObject({ startTime: null, endTime: null });
     expect(walk({ startTime: '9시' }).errors).toContain('시작 시각을 HH:MM 형식으로 입력하세요.');
     expect(walk({ endTime: '12:00' }).errors).toContain('종료 시각만 보낼 수는 없습니다.');
+  });
+});
+
+describe('편집 화면의 고른 곳 추가 (FR-IN-014)', () => {
+  it('🔴 정한 시각을 받는다 — 없으면 전처럼 서버가 채운다', () => {
+    const picked = (over: Record<string, unknown>) => validatePickedItem({
+      dayNo: 1, itemType: 'SIGHT', content: { contentId: '129784', contentTypeId: 14 }, ...over,
+    }, 3);
+    expect(picked({ startTime: '14:30', endTime: '' }).picked).toMatchObject({ startTime: '14:30', endTime: null });
+    expect(picked({}).picked).toMatchObject({ startTime: null, endTime: null });
+    expect(picked({ startTime: '14시' }).errors).toContain('시작 시각을 HH:MM 형식으로 입력하세요.');
+    expect(picked({ endTime: '15:00' }).errors).toContain('종료 시각만 보낼 수는 없습니다.');
   });
 });

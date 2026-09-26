@@ -41,8 +41,44 @@ function fillMealName(message: string, name?: string | null): string {
   return message.replace(/(식사|휴식)\(\)/, (_, kind: string) => (label === '' ? kind : `${kind}(${label})`));
 }
 
+/** 두 곳을 잇는 규칙 — 문장 안에 대상 두 곳의 이름이 든다 (R03 겹침 · R08 이동) */
+const PAIR_RULES = new Set(['R03', 'R08']);
+
+/**
+ * R03 · R08 문장의 빈 이름을 **표시할 때** 채운다.
+ *
+ * 두 규칙은 두 곳의 이름을 문장 안에 넣어 굳히는데, 이름을 저장하지 않은 곳(장소 담기 · 등록 화면에서
+ * 고른 곳)은 자리가 비어 「(10:00~11:30) 와 …」 · 「 →  이동에 …」 가 된다 — 이름은 공사 명칭이라
+ * 저장할 수 없다 (DR-PR-001). 저장된 이름은 그대로 두고 빈 자리만 부르는 쪽이 준 이름으로 채운다.
+ * `first` 는 대상(`targetItemId`), `second` 는 두 번째 대상(`targetItemId2`)이다. 이름을 못 얻은
+ * 자리는 빈 채로 둔다 — 지어내지 않는다.
+ */
+export function withPairNames(rule: string, message: string, evidence: Record<string, unknown>, first?: string | null, second?: string | null): string {
+  if (!PAIR_RULES.has(rule)) return message;
+  const a = first?.trim() ?? '';
+  const b = second?.trim() ?? '';
+  if (rule === 'R08') {
+    const m = /^(.*?) → (.*?) (이동에 약 |구간별 대중교통 |이동시간을 조회하지 )/.exec(message);
+    if (m === null) return message;
+    return `${(m[1] ?? '').trim() || a} → ${(m[2] ?? '').trim() || b} ${m[3] ?? ''}${message.slice(m[0].length)}`;
+  }
+  const m = /^(.*?)\((\d{2}:\d{2}~\d{2}:\d{2})\) 와 (.*?)\((\d{2}:\d{2}~\d{2}:\d{2})\) 가 /.exec(message);
+  if (m === null) return message;
+  const n1 = (m[1] ?? '').trim() || a;
+  const n2 = (m[3] ?? '').trim() || b;
+  let rest = message.slice(m[0].length);
+  // 「(ㄱ · ㄴ 은 기본 체류시간을 적용한 값입니다)」 — 끝 시각을 채운 곳의 이름이 든다. 근거로 어느 곳인지 안다
+  const sources = [evidence.first, evidence.second].map((x) => (x as { endTimeSource?: unknown } | undefined)?.endTimeSource);
+  if (sources.every((x) => typeof x === 'string')) {
+    const estimated = [n1, n2].filter((_, i) => sources[i] !== 'INPUT');
+    // 바꿀 글을 함수로 준다 — 이름에 `$&` · `$1` 같은 글자가 있으면 치환 문자열로 읽혀 문장이 깨진다
+    rest = rest.replace(/ \((.*) 은 기본 체류시간을 적용한 값입니다\)$/, () => ` (${estimated.join(' · ')} 은 기본 체류시간을 적용한 값입니다)`);
+  }
+  return `${n1}(${m[2] ?? ''}) 와 ${n2}(${m[4] ?? ''}) 가 ${rest}`;
+}
+
 /** 판정·감점은 유지하고 저장된 결과도 같은 말로 표시한다. 분류명을 추측하지 않는다. */
-export function findingMessage(rule: string, original: string, evidence: Record<string, unknown>, names: ReadonlyMap<number, string> = new Map(), targetName?: string | null): string {
+export function findingMessage(rule: string, original: string, evidence: Record<string, unknown>, names: ReadonlyMap<number, string> = new Map(), targetName?: string | null, secondName?: string | null): string {
   if (rule === 'R04' && typeof evidence.count === 'number' && typeof evidence.threshold === 'number') {
     const places = Array.isArray(evidence.itemIds)
       ? [...new Set(evidence.itemIds.map(id => names.get(Number(id))).filter((name): name is string => !!name))].slice(0, 3) : [];
@@ -72,5 +108,6 @@ export function findingMessage(rule: string, original: string, evidence: Record<
     const profile = original.split(' 상품인데 ')[0];
     if (missing.length && original.includes(' 상품인데 ')) return `${profile} 여행에 어울리는 ${missing.join('·')} 방문이 아직 없어요. 해당 장소를 추가해 일정을 보완해 보세요.`;
   }
+  if (PAIR_RULES.has(rule)) return withPairNames(rule, original, evidence, targetName, secondName);
   return PLACE_RULES.has(rule) ? withPlaceName(original, targetName) : original;
 }

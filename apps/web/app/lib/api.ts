@@ -89,10 +89,14 @@ export interface ProductItem {
   place: string;
   itemType: string;
   ktoContentId: string | null;
+  /** 고른 곳의 유형 코드. 편집 화면이 저장된 고른 곳을 ✓ 로 연다 (UI-S2-025). 옛 응답 · 항목 추가 응답에는 없다 */
+  contentTypeId?: number | null;
   matchStatus: string;
   /** 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
   mapx: number | null;
   mapy: number | null;
+  /** 걷기 길 식별자 (UI-S2-048). 편집 화면이 이 줄을 고칠 수 없는 걷기 길로 연다. 옛 응답에는 없다 */
+  walkId?: string | null;
   /**
    * 중분류 · 끝 시각 출처 (FR-IN-011). 끝 시간을 비운 줄에 채워질 시각과 「기본값 적용 · N분」 을
    * 엔진과 같은 표로 보이는 데만 쓴다. 옛 응답에는 없다 — 없으면 짓지 않는다
@@ -397,10 +401,15 @@ export const itemApi = {
   reorder: (productId: number, items: readonly { itemId: number; dayNo: number; seq: number }[]) =>
     request<void>(`/products/${productId}/items/order`, { method: "PUT", body: JSON.stringify({ items }) }),
   // 장소 담기로 넣기 (FR-PL-013 · 4-3). 넣을 위치(afterItemId) 다음에 끼운다 — 시각 · 좌표는 서버가 채운다
-  addPicked: (productId: number, input: { dayNo: number; itemType: string; content: PlanContentRef; afterItemId?: number | null }) =>
+  // 시각을 주면 그 시각으로 넣고(편집 화면 · FR-IN-014), 안 주면 앞 항목 끝 + 이동시간으로 채운다
+  addPicked: (productId: number, input: { dayNo: number; itemType: string; content: PlanContentRef; afterItemId?: number | null; startTime?: string; endTime?: string }) =>
     request<ProductItem>(`/products/${productId}/items`, {
       method: "POST",
-      body: JSON.stringify({ dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", afterItemId: input.afterItemId ?? null, content: input.content }),
+      body: JSON.stringify({
+        dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", afterItemId: input.afterItemId ?? null, content: input.content,
+        ...(input.startTime ? { startTime: input.startTime } : {}),
+        ...(input.startTime && input.endTime ? { endTime: input.endTime } : {}),
+      }),
     }),
   // 걷기 길로 넣기 (D9). 코스 식별자만 보낸다 — 이름은 보내지도 저장하지도 않는다. 시각을 주면 그 시각으로
   // 넣고(편집 화면 · UI-S2-048), 안 주면 그 날 끝에 붙는다
@@ -487,9 +496,12 @@ export const matchApi = {
       `/items/${itemId}/match`,
       { method: "POST", body: JSON.stringify({ contentid, matchedBy }) },
     ),
-  // 해당 없음 → 검수 제외
-  exclude: (itemId: number) =>
-    request<{ itemId: number; matchStatus: string }>(`/items/${itemId}/exclude`, { method: "POST" }),
+  // 해당 없음 → 검수 제외. 이름을 저장하지 않은 고른 곳은 사용자가 친 이름이 있어야 둘 수 있다 (DR-PR-001)
+  exclude: (itemId: number, placeLabel?: string) =>
+    request<{ itemId: number; matchStatus: string }>(`/items/${itemId}/exclude`, {
+      method: "POST",
+      ...(placeLabel ? { body: JSON.stringify({ placeLabel }) } : {}),
+    }),
 };
 
 // ── 기획 조회 (F17 · FR-PL-005). 규칙 판정 없음 · 저장 없음 ────────────────────

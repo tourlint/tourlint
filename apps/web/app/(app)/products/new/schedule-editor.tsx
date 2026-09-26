@@ -189,6 +189,10 @@ export function ScheduleEditor({
               walk={it.walk !== undefined}
               // 편집 화면의 저장된 고른 곳은 여기서 직접 정한 곳으로 바꿀 길이 없다
               canExclude={it.saved === undefined || it.saved.matchStatus !== "CONFIRMED"}
+              // 저장된 직접 정한 곳은 고르는 중으로 되돌릴 길이 없다 (UI-S2-021)
+              canReselect={it.saved === undefined || it.saved.matchStatus !== "EXCLUDED"}
+              // 불러온 줄은 이름이 그대로 저장된다 — 골라도 공식 명칭으로 바꾸지 않는다 (DR-PR-001)
+              keepName={it.saved !== undefined}
               regnCd={regnCd}
               signguCd={signguCd}
               regionLabel={regionLabel}

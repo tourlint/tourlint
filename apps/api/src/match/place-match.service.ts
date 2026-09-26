@@ -104,10 +104,24 @@ export class PlaceMatchService {
     };
   }
 
-  /** 해당 없음 — 검수 대상에서 제외한다 (FR-IN-021) */
-  async exclude(accountId: number, itemId: number): Promise<Record<string, unknown>> {
+  /**
+   * 해당 없음 — 검수 대상에서 제외한다 (FR-IN-021).
+   *
+   * 장소 담기 · 등록 화면에서 고른 줄은 이름을 저장하지 않는다 — 보이는 이름이 공사 명칭이다. 그런
+   * 줄을 직접 정한 곳으로 두려면 화면이 준 이름(`placeLabel` — 사용자가 찾는 칸에서 보고 둔 글)이
+   * 있어야 한다. 없으면 DB 제약(ck_item_label_required)에서 500 이 났다. 이름이 있는 줄은 그 이름을
+   * 그대로 둔다 (DR-PR-001)
+   */
+  async exclude(accountId: number, itemId: number, placeLabel = ''): Promise<Record<string, unknown>> {
     const item = await this.requireItem(accountId, itemId);
-    await this.repo.exclude(item.itemId);
+    const typed = placeLabel.trim();
+    if ((item.placeLabel ?? '') === '' && item.walkId === null && typed === '') {
+      throw new DomainException(
+        HttpStatus.BAD_REQUEST, 'INPUT_INVALID',
+        '직접 정한 곳의 이름을 적어 주세요.', 'ITEM',
+      );
+    }
+    await this.repo.exclude(item.itemId, typed === '' ? null : typed);
     return { itemId: item.itemId, matchStatus: 'EXCLUDED' };
   }
 

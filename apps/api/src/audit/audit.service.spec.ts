@@ -1421,3 +1421,38 @@ describe('규칙 목록 (API 설계 5-10)', () => {
     expect(r07?.threshold).toBe(`연속 ${SETTING_DEFAULTS.r07SpanHours}시간 · 식사 ${SETTING_DEFAULTS.r07MealMinutes}분`);
   });
 });
+
+/**
+ * 겹침 · 이동은 두 곳의 이름이 문장 안에 든다. 장소 담기 · 등록 화면에서 고른 곳은 이름을 저장하지
+ * 않아 그 자리가 비어 저장된다 (DR-PR-001 · DR-IN-013 · #908). DB 없이 도는 순수 함수다.
+ */
+describe('겹침 · 이동 문장의 두 곳 이름 (#908)', () => {
+  const r08 = {
+    id: 501, ruleCode: 'R08', ruleVersion: '1.0.0', severity: 'ERROR', reasonCode: 'TRAVEL_TIME_SHORT',
+    targetItemId: 11, targetItemId2: 12,
+    message: ' →  이동에 약 25분이 걸리는데 배정된 시간은 10분입니다. 15분이 모자랍니다.',
+    evidence: {}, requiresExternal: true, externalSource: 'KAKAO', dismissReason: null, confirmed: false,
+    needsConfirmation: true, dismissed: false, patches: [],
+  };
+  const run = { id: 9, productId: 1, executedAt: new Date('2026-09-27T01:00:00Z'), findings: [r08] } as unknown as Parameters<typeof toFindingsResponse>[0];
+
+  it('🔴 카드 문장에 이름을 저장하지 않은 두 곳의 이름을 채운다', () => {
+    const targets = new Map([
+      [11, { dayNo: 2, seq: 3, startTime: '11:00', placeLabel: '정동진해변' }],
+      [12, { dayNo: 2, seq: 4, startTime: '12:05', placeLabel: '하슬라아트월드' }],
+    ]);
+    const body = toFindingsResponse(run, undefined, new Map(), new Map(), targets);
+    expect((body.content as { message: string }[])[0]?.message)
+      .toBe('정동진해변 → 하슬라아트월드 이동에 약 25분이 걸리는데 배정된 시간은 10분입니다. 15분이 모자랍니다.');
+  });
+
+  it('🔴 직접 확인할 곳 이유에도 두 곳 이름을 채운다', () => {
+    const items = [
+      { id: 11, dayNo: 2, seq: 3, startTime: '11:00', placeLabel: '', ktoContentId: '2733968' },
+      { id: 12, dayNo: 2, seq: 4, startTime: '12:05', placeLabel: '', ktoContentId: '1756581' },
+    ] as unknown as Parameters<typeof toUnverifiedResponse>[1];
+    const body = toUnverifiedResponse(run, items, new Map([[11, '정동진해변'], [12, '하슬라아트월드']]));
+    expect((body.items as { reason: string }[])[0]?.reason)
+      .toBe('정동진해변 — 정동진해변 → 하슬라아트월드 이동에 약 25분이 걸리는데 배정된 시간은 10분입니다. 15분이 모자랍니다.');
+  });
+});

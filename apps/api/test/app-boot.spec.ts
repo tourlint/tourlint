@@ -8,6 +8,10 @@ import { RootController } from '../src/root/root.controller';
 import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
 import { AuditService } from '../src/audit/audit.service';
 import { WalkNameResolver } from '../src/plan/walk-names';
+import { PlaceNameResolver } from '../src/audit/place-name';
+import { ProductService } from '../src/product/product.service';
+import { NotificationService } from '../src/radar/notification.service';
+import { PlaceFactsService } from '../src/plan/place-facts.service';
 
 /**
  * 앱이 실제로 뜨는지 본다.
@@ -64,6 +68,18 @@ describe('앱 부팅', () => {
     expect(audit.walkNames).toBeInstanceOf(WalkNameResolver);
     // 상품 응답 · 리포트와 같은 인스턴스여야 10분 캐시를 나눠 쓴다
     expect(audit.walkNames).toBe(app.get(WalkNameResolver));
+  });
+
+  it('🔴 고른 곳 이름 조회기는 하나다 — 상품 상세 · 판정 · 알림 · 장소 정보가 캐시를 나눠 쓴다 (#911 리뷰)', () => {
+    const shared = app.get(PlaceNameResolver);
+    expect(shared).toBeInstanceOf(PlaceNameResolver);
+    const fields = [
+      (app.get(ProductService) as unknown as { placeNames: unknown }).placeNames,
+      (app.get(AuditService) as unknown as { sharedNames?: unknown }).sharedNames,
+      (app.get(NotificationService) as unknown as { names?: unknown }).names,
+      (app.get(PlaceFactsService) as unknown as { names: unknown }).names,
+    ];
+    for (const field of fields) expect(field).toBe(shared);
   });
 
   it('실엔진 엔드포인트가 등록돼 있다', () => {
