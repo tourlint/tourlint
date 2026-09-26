@@ -40,6 +40,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const reasonCode = external?.reasonCode ?? pickReasonCode(body, status);
     const unit = typeof body.unit === 'string' ? (body.unit as ExceptionUnit) : defaultUnit(status);
+    const occurredAt = kstIso(new Date());
+    /*
+     * 로그 한 줄에 사유 코드 · 처리 단위 · 대상 식별자 · 발생 시각을 싣는다 (EX-CM-005). 대상은 경로
+     * 파라미터뿐이다 — 본문 · 쿼리 값 · 헤더 · 쿠키는 싣지 않는다(인증키 · 비밀번호 · 세션).
+     */
+    const context = [`unit=${unit}`, targetOf(req.params), `at=${occurredAt}`].filter((s) => s !== '').join(' ');
 
     /*
      * 처리되지 않은 예외만 서버 로그에 남긴다 (NF-OB-005).
@@ -47,16 +53,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
      * 공사 응답 본문이 예외 메시지에 실려 로그로 새는 경로를 막아야 한다 (DB 명세서 6-4 ②).
      */
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-      this.logger.error(`[${traceId}] ${req.method} ${req.url} → ${reasonCode}`, exception);
+      this.logger.error(`[${traceId}] ${req.method} ${req.url} → ${reasonCode} ${context}`, exception);
     } else if (status >= HttpStatus.BAD_REQUEST) {
       /*
        * 거절도 한 줄 남긴다 (#673). 5xx 만 남기던 때는 운영에서 저장이 계속 막히는데 로그에
        * 실패한 적이 없는 것처럼 보였다.
        *
-       * ⚠️ **경로 · 사유코드 · traceId 까지다.** 거절 메시지에는 사용자가 친 장소명이 들어
-       * 있고 그건 공사 원문일 수 있다 — 예외 객체도 메시지도 넘기지 않는다 (DB 명세서 6-4).
+       * ⚠️ **경로 · 사유코드 · 단위 · 대상 · 시각 · traceId 까지다.** 거절 메시지에는 사용자가 친
+       * 장소명이 들어 있고 그건 공사 원문일 수 있다 — 예외 객체도 메시지도 넘기지 않는다 (DB 명세서 6-4).
        */
-      this.logger.warn(`[${traceId}] ${req.method} ${req.url} → ${reasonCode} (${status})`);
+      this.logger.warn(`[${traceId}] ${req.method} ${req.url} → ${reasonCode} (${status}) ${context}`);
     }
 
     // 빈도 제한은 언제 다시 되는지 알린다 (API 3-4 · EX-SY-008)
@@ -72,9 +78,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? { fieldErrors: body.fieldErrors }
         : {}),
       traceId,
-      occurredAt: kstIso(new Date()),
+      occurredAt,
     });
   }
+}
+
+/**
+ * 로그의 대상 식별자 — 경로 파라미터(productId · runId · itemId …)를 `이름=값` 으로 (EX-CM-005).
+ *
+ * 식별자 모양(영숫자 · `-` · `_`, 64자까지)이 아닌 값은 뺀다. 경로에 글자를 받는 라우트가 생겨도
+ * 사용자가 친 말이 로그로 새지 않게 한다. 404(없는 경로)처럼 파라미터가 없으면 빈 문자열이다.
+ */
+export function targetOf(params: Readonly<Record<string, unknown>> | undefined): string {
+  return Object.entries(params ?? {})
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && /^[\w-]{1,64}$/.test(entry[1]))
+    .map(([name, value]) => `${name}=${value}`)
+    .join(' ');
 }
 
 /** 형식이 틀린 입력 — 무엇이 틀렸는지 우리 문구가 없을 때 쓴다 */
