@@ -10,6 +10,7 @@ import { SignupEmailSender } from './auth/signup-email.sender';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './auth/auth.guard';
 import { AgentLock } from './agent/agent-lock';
+import { RequestRateLimiter } from './common/request-rate-limit';
 import { CheckQuestionController } from './agent/check-question.controller';
 import { CheckQuestionService } from './agent/check-question.service';
 import { TodayBriefController } from './agent/today-brief.controller';
@@ -241,7 +242,8 @@ import { SettingsRepository } from './settings/settings.repository';
           },
           /*
            * 상세 한 번으로 행사기간(조건 3)과 지문(FR-MO-036)을 둘 다 얻는다. 유형을 함께
-           * 넘겨야 유형별 필드가 채워져 온다 (EI-KT).
+           * 넘겨야 유형별 필드가 채워져 온다 (EI-KT). 목록이 페이지 상한을 넘은 날의 개별
+           * 확인(FR-MO-016)도 이것을 쓴다 — 「없음」이면 표출 중단이다.
            */
           fetchDetail: async (contentId: string, contentTypeId: number) =>
             kto().detailIntro(contentId, contentTypeId as ContentTypeId),
@@ -332,6 +334,11 @@ import { SettingsRepository } from './settings/settings.repository';
       /** 에이전트 셋이 함께 쓰는 자물쇠 — 계정마다 같은 에이전트 동시 1회 (FR-AG-002 · EX-AG-004) */
       provide: AgentLock,
       useFactory: () => new AgentLock(),
+    },
+    {
+      /** 검수 요청 · 리포트 생성의 계정당 분당 상한 — 세 컨트롤러가 한 개를 같이 쓴다 (NF-SC-010 · EX-SY-008) */
+      provide: RequestRateLimiter,
+      useFactory: () => new RequestRateLimiter(),
     },
     {
       /*

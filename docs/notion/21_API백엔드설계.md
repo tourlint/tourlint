@@ -335,7 +335,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>검수 실행 요청</td>
-<td>계정당 분당 5회</td>
+<td>계정당 분당 5회 — 다시 검수(`audit-jobs`)와 검수 시작(`handoff`)을 한 창으로 센다. **공개된 테스트 계정은 세지 않는다**(심사위원 여럿이 한 계정으로 같은 가이드를 따라가 남의 클릭으로 막힌다 — 로그인 시도와 같은 기준). 배치가 거는 재검수는 세지 않는다. 창은 프로세스 메모리에 둔다(API 인스턴스 1개 전제)</td>
 <td>NF-SC-010 · EX-SY-008</td>
 </tr>
 <tr>
@@ -345,12 +345,12 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>리포트 생성</td>
-<td>계정당 분당 5회</td>
+<td>계정당 분당 5회. 공개된 테스트 계정은 세지 않는다</td>
 <td>NF-SC-010</td>
 </tr>
 <tr>
 <td>장소 담기 · 장소 정보 한 줄 조회 (`/plan/*` · `place-facts`)</td>
-<td>계정당 분당 상한 (수치는 구현에서 정해 이 표에 적는다). 예산 100% 에서 검수와 같은 게이트 — 429 `BUDGET_EXHAUSTED`</td>
+<td>분당 상한을 두지 않는다 — 종류 칩 · 카드 펼침 · 줄마다 부르므로 짧은 시간에 수십 번이 정상이고, 공사 호출은 예산 게이트가 막는다. 예산 100% 에서 검수와 같은 게이트 — 429 `BUDGET_EXHAUSTED`</td>
 <td>NF-SC-010 · FR-PL-018</td>
 </tr>
 <tr>
@@ -460,7 +460,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 **요청 · 응답 모양**
 ```json
 POST /api/v1/products                추가 "planOrigin": { "startedBy": "MANUAL|UPLOAD|TEXT|CLONE|SIGNAL", "signal"?: { "type": "T2", "regnCd", "signguCd", "from", "to", "contentId"? } }
-POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
+POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED · RATE_LIMIT_EXCEEDED(3-4)   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
 PATCH /api/v1/products/{id}          "startDate" 변경 = 출발일 옮기기. 항목 시각은 바꾸지 않는다
 GET /api/v1/products/{id}            추가 "plannedAt", "planOrigin", "composition": { "manual": 5, "picker": 2, "excluded": 1 }
 GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" (보드 분류용 — 차단 건수 · 안 읽은 알림은 기존 `latestAudit.counts.blocker` · `unreadNotifications` 를 쓴다)
@@ -545,6 +545,8 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 	자연어 입력 5,000자 초과 → 400
 	일부 행 형식 오류 → **200 + 정상 행 유지 + 실패 행 번호·사유 반환** (전체 거부 아님)
 	박수와 일자별 일정 수 불일치 → 400 `DAY_COUNT_MISMATCH`
+	확장자가 .xlsx · .csv 가 아님 · 내용이 형식과 다름(xlsx 는 `PK` 로 시작, CSV 는 NUL 없는 글자) · MIME 이 이미지 · PDF 처럼 명백히 다름 · 파서가 못 읽음 → 400 `UPLOAD_FORMAT_INVALID`
+	20MB 초과(업로드 안전망) → 413 `UPLOAD_LIMIT_EXCEEDED`
 	업로드 파일은 파싱 후 폐기하며 서버에 영구 저장하지 않습니다 (NF-SC-006).
 </callout>
 ## 4-4. 관광지 매칭 · 공사 코드 프록시 (F02)
@@ -1756,6 +1758,8 @@ POST /products/{id}/audit-jobs
         ├─ 사전 검증 : PENDING 매칭 존재 → 422 PLACE_UNRESOLVED
         │              진행 중 작업 존재 → 202 + 기존 jobId
         │              예산 100% 소진   → 429 BUDGET_EXHAUSTED
+        │              계정당 분당 5회 초과 → 429 RATE_LIMIT_EXCEEDED + Retry-After
+        │                                  (검수 시작과 한 창 · 공개 테스트 계정 제외 · 3-4)
         │
         ├─ audit_job INSERT (QUEUED) ──→ 202 + jobId  [p95 500ms]
         │
@@ -2279,6 +2283,10 @@ public interface AuditRule {
         │                     주말 · 이틀 지난 평일의 0건은 변경 없는 날로 보고 넘어간다
         ├─ 비표출 페이지 상한(20) 초과 → BATCH_HIDDEN_OVERFLOW
         │                     배치 중단 후 등록 상품 contentid 개별 확인으로 전환
+        │                     초과는 그 날짜 첫 쪽 totalCount 로 안다 · 그 날에서 순회를 멈춘다
+        │                     여행이 끝나지 않은 등록 상품의 contentid 마다 detailIntro2 1콜 (예산 게이트)
+        │                     없음 = 표출 중단 알림 · 있음 = 직전 지문 비교(조건 1 과 같은 판정)
+        │                     전부 확인해야 last_covered 를 그 날짜로 올린다
         └─ 예산 소진율 80% 도달 → 중단하고 다음 회차로 이월
         │
 [2단계] 변경분 중 등록 상품에 포함된 contentid만 상세 재호출

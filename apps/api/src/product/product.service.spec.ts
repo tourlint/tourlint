@@ -279,6 +279,7 @@ describe('검수 시작 handoff (FR-PL-020 · D7) — 저장소 · 검수는 스
     applied?: readonly number[];
     reverted?: { ids: readonly number[]; clearPlanned: boolean };
     requested: boolean;
+    trigger?: string;
   }
 
   // 미확정 pendingIds 와 검수 요청 성공 여부를 주면, 그 조합으로 handoff 를 돌린다.
@@ -298,8 +299,9 @@ describe('검수 시작 handoff (FR-PL-020 · D7) — 저장소 · 검수는 스
       },
     } as unknown as ProductRepository;
     const audit = {
-      requestAudit: async () => {
+      requestAudit: async (_productId: number, triggerType: string) => {
         calls.requested = true;
+        calls.trigger = triggerType;
         if (!opts.budgetOk) {
           throw new DomainException(HttpStatus.TOO_MANY_REQUESTS, 'BUDGET_EXHAUSTED', '예산 소진', 'REQUEST');
         }
@@ -340,6 +342,12 @@ describe('검수 시작 handoff (FR-PL-020 · D7) — 저장소 · 검수는 스
       excludedCount: 2,
     });
     expect(calls.applied).toEqual([1, 2]);
+  });
+
+  it('🔴 첫 검수로 요청한다 — 다시 검수(MANUAL)와 가른다 (FR-AU-026 ①)', async () => {
+    const { svc, calls } = make({ pendingIds: [], plannedAt: null, budgetOk: true });
+    await svc.handoff(1, 9, false);
+    expect(calls.trigger).toBe('INITIAL');
   });
 
   it('예산 100% 로 검수 요청이 거절되면 되돌려 기획 중에 남긴다', async () => {

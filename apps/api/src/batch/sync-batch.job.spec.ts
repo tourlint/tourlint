@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { KtoClient } from '../external/kto';
-import { KtoFetchError } from '../external/kto/kto.errors';
+import { ContentNotFoundError, KtoFetchError } from '../external/kto/kto.errors';
 import type { BatchState, BatchStateRepository, BatchStatus, SystemSetting } from '../persistence/batch-state.repository';
-import type { NotificationRepository, NotificationToSave } from '../persistence/notification.repository';
+import type {
+  NotificationRepository, NotificationToSave, RegisteredContent,
+} from '../persistence/notification.repository';
 import { FINGERPRINT_FIELDS } from '@tourlint/shared';
 import { buildContentFingerprint, type FingerprintSnapshot } from '../engine/fingerprint';
 import type { ImpactCandidate } from './impact-finder';
@@ -108,6 +110,10 @@ function stubNotifications(spec: {
   watched?: ImpactCandidate[];
   /** 조건 4 ~ 6 후보 — 결손 유형 · 일정 항목을 붙인 감시 상품 */
   opportunity?: OpportunityCandidate[];
+  /** 넘친 날 개별 확인 대상 — 등록 상품에 든 콘텐츠 */
+  registered?: RegisteredContent[];
+  /** 상품마다 이미 표출 중단으로 남긴 콘텐츠 */
+  hidden?: Record<number, string[]>;
 } = {}) {
   const saved: NotificationToSave[] = [];
   const lookups: string[] = [];
@@ -125,6 +131,8 @@ function stubNotifications(spec: {
     },
     watchedProducts: async (): Promise<readonly ImpactCandidate[]> => spec.watched ?? [],
     opportunityCandidates: async (): Promise<readonly OpportunityCandidate[]> => spec.opportunity ?? [],
+    registeredContents: async (): Promise<readonly RegisteredContent[]> => spec.registered ?? [],
+    hiddenContentIds: async (productId: number): Promise<ReadonlySet<string>> => new Set(spec.hidden?.[productId] ?? []),
     insertMany: async (items: readonly NotificationToSave[]): Promise<number> => {
       saved.push(...items);
       return items.length;
@@ -286,21 +294,28 @@ describe('예산 (FR-OP-002)', () => {
   });
 });
 
-/** 한 날짜가 여러 페이지로 나오는 공사 스텁. `total` 이 응답의 totalCount 다 */
-function stubPagedKto(date: string, total: number, perPage = 1000) {
+/**
+ * 날짜가 여러 페이지로 나오는 공사 스텁. 값이 그 날의 totalCount 다 — 날짜 하나만 주면 `total` 을 쓴다.
+ * 정하지 않은 날짜는 0건이다.
+ */
+function stubPagedKto(date: string | Record<string, number>, total = 0, perPage = 1000) {
+  const totals = typeof date === 'string' ? { [date]: total } : date;
   const calls: { date: string; pageNo: number }[] = [];
   const kto = {
     areaBasedSyncList: async ({ modifiedDate, pageNo = 1 }: { modifiedDate: string; pageNo?: number }) => {
       calls.push({ date: modifiedDate, pageNo });
-      if (modifiedDate !== date) return { items: [], pageNo, numOfRows: perPage, totalCount: 0 };
+      const dayTotal = totals[modifiedDate] ?? 0;
       const start = (pageNo - 1) * perPage;
-      const count = Math.max(0, Math.min(perPage, total - start));
-      const items = Array.from({ length: count }, (_, i) => item({ contentid: String(start + i + 1) }));
-      return { items, pageNo, numOfRows: perPage, totalCount: total };
+      const count = Math.max(0, Math.min(perPage, dayTotal - start));
+      const items = Array.from({ length: count }, (_, i) => item({ contentid: `${modifiedDate}-${String(start + i + 1)}` }));
+      return { items, pageNo, numOfRows: perPage, totalCount: dayTotal };
     },
   } as unknown as KtoClient;
   return { kto, calls };
 }
+
+/** 상한(20쪽)을 한 건 넘는 날의 변경 수 */
+const OVERFLOW = 1000 * SYNC_PAGE_LIMIT + 1;
 
 describe('한 날짜가 여러 페이지 (FR-MO-016 · #773)', () => {
   it('🔴 1,000건을 넘는 날은 다음 페이지까지 읽는다 — 뒤쪽의 표출 중단을 놓치지 않는다', async () => {
@@ -326,15 +341,150 @@ describe('한 날짜가 여러 페이지 (FR-MO-016 · #773)', () => {
     expect(recorded[0]?.lastCovered).toBeUndefined();
   });
 
-  it('페이지 상한을 넘으면 읽은 데까지 처리하고 HIDDEN_OVERFLOW 로 남긴다', async () => {
+  it(`딱 ${String(SYNC_PAGE_LIMIT)}쪽인 날은 넘친 날이 아니다 — 끝까지 읽는다`, async () => {
     const { repo, recorded } = stubState({ lastCovered: '2026-08-25' });
-    const { kto, calls } = stubPagedKto('20260826', 1000 * SYNC_PAGE_LIMIT + 1);
+    const { kto, calls } = stubPagedKto('20260826', 1000 * SYNC_PAGE_LIMIT);
     const result = await job(kto, repo).run();
 
     expect(calls).toHaveLength(SYNC_PAGE_LIMIT);
+    expect(result.status).toBe('OK');
+    expect(recorded[0]).toMatchObject({ status: 'OK', lastCovered: '2026-08-26' });
+  });
+});
+
+describe('페이지 상한을 넘은 날 — 등록 상품 개별 확인 (FR-MO-016 · EX-MO-003 · #866)', () => {
+  it('🔴 그 날에서 순회를 멈춘다 — 뒤 날짜를 부르지 않고, 넘친 날의 목록을 읽은 척 올리지 않는다', async () => {
+    /*
+     * 전에는 20쪽까지 읽고 나머지를 버린 채 `last_covered` 를 그 날짜로 올렸다 — 뒤쪽에 든 표출
+     * 중단은 다시 볼 길이 없었다. 개별 확인을 할 수 없으면(알림 저장소 없음) 그 날짜를 올리지 않는다.
+     */
+    const { repo, recorded } = stubState({ lastCovered: '2026-08-24' });
+    const { kto, calls } = stubPagedKto({ '20260825': OVERFLOW, '20260826': 3 });
+    const result = await job(kto, repo).run();
+
+    // 첫 쪽의 totalCount 로 넘친 줄 안다. 20쪽을 읽고 버리지 않는다
+    expect(calls).toEqual([{ date: '20260825', pageNo: 1 }]);
     expect(result.status).toBe('HIDDEN_OVERFLOW');
-    expect(result.contents).toHaveLength(1000 * SYNC_PAGE_LIMIT);
+    expect(result.contents).toEqual([]);
+    expect(result.covered).toBeNull();
+    expect(recorded[0]).toMatchObject({ status: 'HIDDEN_OVERFLOW' });
+    expect(recorded[0]?.lastCovered).toBeUndefined();
+  });
+
+  /** 등록 상품 7 · 8 에 든 콘텐츠 셋 — 숨은 곳 · 판정 필드가 바뀐 곳 · 그대로인 곳 */
+  const registered: RegisteredContent[] = [
+    { contentId: 'gone', contentTypeId: 12 },
+    { contentId: 'moved', contentTypeId: 12 },
+    { contentId: 'same', contentTypeId: 12 },
+  ];
+  const withContent = {
+    gone: [candidate({ productId: 7 })],
+    moved: [candidate({ productId: 7 })],
+    same: [candidate({ productId: 8 })],
+  };
+  const before = intro();
+  const after = intro({ usetime: '10:00~17:00' });
+
+  /** 상세 조회 스텁. 숨은 곳은 공사가 「없는 곳」 으로 답한다 (#745) */
+  const detailOf = (fetched: string[], broken: readonly string[] = []) =>
+    async (id: string): Promise<Record<string, unknown>> => {
+      fetched.push(id);
+      if (broken.includes(id)) throw new KtoFetchError('detailIntro2', 'HTTP 503', 503);
+      if (id === 'gone') throw new ContentNotFoundError('detailIntro2', id);
+      return id === 'moved' ? after : before;
+    };
+  const previousFingerprints = async (): Promise<ReadonlyMap<string, FingerprintSnapshot>> =>
+    new Map([['gone', snapshot(before)], ['moved', snapshot(before)], ['same', snapshot(before)]]);
+
+  it('🔴 등록 상품의 콘텐츠를 하나씩 본다 — 없는 곳은 표출 중단, 바뀐 곳은 조건 1 로 알리고 다 본 뒤에 그 날짜까지 올린다', async () => {
+    const { repo, recorded } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubPagedKto('20260826', OVERFLOW);
+    const notif = stubNotifications({ registered, withContent });
+    const fetched: string[] = [];
+    const audited: number[] = [];
+
+    const result = await job(kto, repo, {
+      notifications: notif.repo,
+      fetchDetail: detailOf(fetched),
+      previousFingerprints,
+      requestAudit: async (id) => { audited.push(id); },
+    }).run();
+
+    expect(fetched).toEqual(['gone', 'moved', 'same']);
+    expect(notif.saved.map((n) => [n.productId, n.condition, n.ktoContentId, (n.body as { hidden: boolean }).hidden]))
+      .toEqual([[7, 1, 'gone', true], [7, 1, 'moved', false]]);
+    // 바뀐 곳은 목록으로 봤을 때와 같은 키다 — 다음 배치가 목록으로 다시 봐도 두 번 들어가지 않는다
+    expect(notif.saved[1]?.changeKey).toBe(`FP:${hashOf(before)}:${hashOf(after)}`);
+    expect(notif.saved[0]?.changeKey).toBe('CHECKED:2026-08-26');
+    // 표출 중단은 재검수가 R06-b 차단을 내야 한다. 그대로인 상품 8 은 다시 검수하지 않는다
+    expect(audited).toEqual([7]);
+    expect(result.status).toBe('HIDDEN_OVERFLOW');
+    expect(result.impacts).toEqual([
+      { productId: 7, condition: 1, kind: 'RISK' },
+      { productId: 7, condition: 1, kind: 'RISK' },
+    ]);
     expect(recorded[0]).toMatchObject({ status: 'HIDDEN_OVERFLOW', lastCovered: '2026-08-26' });
+  });
+
+  it('🔴 한 콜씩 예산 문을 지난다 — 도중에 떨어지면 그 날짜를 올리지 않는다', async () => {
+    const { repo, recorded } = stubState({ lastCovered: '2026-08-24' });
+    // 08-25 는 0건(이틀 지난 평일)이라 넘어가고 08-26 이 넘친다
+    const { kto } = stubPagedKto('20260826', OVERFLOW);
+    const notif = stubNotifications({ registered, withContent });
+    const fetched: string[] = [];
+    let left = 3; // 08-25 목록 · 08-26 목록 · 상세 한 건
+
+    const result = await job(kto, repo, {
+      notifications: notif.repo,
+      hasBudget: () => left-- > 0,
+      fetchDetail: detailOf(fetched),
+      previousFingerprints,
+    }).run();
+
+    expect(fetched).toEqual(['gone']);
+    expect(result.covered).toBe('2026-08-25');
+    expect(recorded[0]).toMatchObject({ status: 'HIDDEN_OVERFLOW', lastCovered: '2026-08-25' });
+  });
+
+  it('🔴 한 곳이라도 못 읽으면 그 날짜를 올리지 않는다 — 못 읽은 곳을 「안 바뀌었다」 로 넘기지 않는다', async () => {
+    const { repo, recorded } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubPagedKto('20260826', OVERFLOW);
+    const notif = stubNotifications({ registered, withContent });
+    const fetched: string[] = [];
+
+    await job(kto, repo, {
+      notifications: notif.repo,
+      fetchDetail: detailOf(fetched, ['same']),
+      previousFingerprints,
+    }).run();
+
+    // 나머지는 본다. 본 곳의 알림은 그대로 남는다
+    expect(fetched).toEqual(['gone', 'moved', 'same']);
+    expect(notif.saved.map((n) => n.ktoContentId)).toEqual(['gone', 'moved']);
+    expect(recorded[0]?.status).toBe('HIDDEN_OVERFLOW');
+    expect(recorded[0]?.lastCovered).toBeUndefined();
+  });
+
+  it('🔴 이미 표출 중단으로 남긴 곳은 다시 알리지 않는다', async () => {
+    // 상품 7 은 gone 을 앞선 배치가 표출 중단으로 알렸다. 상품 9 는 처음이다
+    const { repo } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubPagedKto('20260826', OVERFLOW);
+    const notif = stubNotifications({
+      registered: [{ contentId: 'gone', contentTypeId: 12 }],
+      withContent: { gone: [candidate({ productId: 7 }), candidate({ productId: 9 })] },
+      hidden: { 7: ['gone'] },
+    });
+    const audited: number[] = [];
+
+    await job(kto, repo, {
+      notifications: notif.repo,
+      fetchDetail: detailOf([]),
+      previousFingerprints,
+      requestAudit: async (id) => { audited.push(id); },
+    }).run();
+
+    expect(notif.saved.map((n) => n.productId)).toEqual([9]);
+    expect(audited).toEqual([9]);
   });
 });
 

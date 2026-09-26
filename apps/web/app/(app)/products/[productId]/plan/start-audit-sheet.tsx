@@ -27,7 +27,8 @@ export function StartAuditSheet({ productId, pendingCount }: { productId: number
       // 검수가 걸렸다 — 결과 화면에서 진행을 본다
       router.push(`/products/${productId}`);
     } catch (e) {
-      if (isApiError(e) && e.status === 429) {
+      // 분당 상한(RATE_LIMIT_EXCEEDED)은 잠시 뒤 다시 되는 것이라 예산 소진과 가른다 — 서버 문구를 그대로 보인다
+      if (isApiError(e) && e.status === 429 && e.reasonCode !== "RATE_LIMIT_EXCEEDED") {
         // 예산 100% — 상품은 기획 중에 남는다. 버튼도 막는다
         setBlocked(`${budgetBlockedText(budget.resumesAt)} 상품은 기획 중에 그대로 있어요.`);
         budget.refresh();

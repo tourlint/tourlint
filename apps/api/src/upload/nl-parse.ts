@@ -1,3 +1,4 @@
+import type { ExceptionReasonCode } from '@tourlint/shared';
 import type { JsonSchema } from '../external/llm/llm.types';
 import { MAX_DAY, MAX_ITEMS, TIME_RE, TYPE_MAP, type ParseResult, type ParsedItem, type RowError } from './schedule-parse';
 
@@ -12,7 +13,7 @@ import { MAX_DAY, MAX_ITEMS, TIME_RE, TYPE_MAP, type ParseResult, type ParsedIte
  * 일차 상한 · 항목 상한 · 시각 형식 · 유형 6종은 `schedule-parse` 에서 가져온다. 두 경로가
  * 각자 규칙을 들고 있으면 어긋난다 — 엑셀로는 되고 자연어로는 안 되는 일정이 생긴다.
  *
- * 문구는 나눈다. 자연어에는 「행 번호」가 없고 `TEMPLATE_MISMATCH` 같은 사유도 뜻이 없다.
+ * 문구는 나눈다. 자연어에는 「행 번호」가 없고 양식 불일치(`UPLOAD_FORMAT_INVALID`) 같은 사유도 뜻이 없다.
  */
 
 /** 붙여넣기 상한. 한 상품 일정을 담기에 넉넉하고, 문서를 통째로 붙이는 것은 막는다 */
@@ -65,7 +66,7 @@ interface RawItem {
   type?: unknown;
 }
 
-function rejected(code: string, message: string): ParseResult {
+function rejected(code: ExceptionReasonCode, message: string): ParseResult {
   return { nights: 0, items: [], errors: [], rejected: { code, message } };
 }
 

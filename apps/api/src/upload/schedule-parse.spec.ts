@@ -59,7 +59,7 @@ describe('parseSchedule', () => {
 
   it('헤더가 없으면 양식 불일치로 거부한다', () => {
     const r = parseSchedule([['아무거나'], ['1', '10:00', '', 'x', '관광']]);
-    expect(r.rejected?.code).toBe('TEMPLATE_MISMATCH');
+    expect(r.rejected?.code).toBe('UPLOAD_FORMAT_INVALID');
   });
 
   it('필수 컬럼이 빠지면 어느 컬럼인지 짚어 거부한다 (EX-IN-001)', () => {
@@ -70,7 +70,7 @@ describe('parseSchedule', () => {
       ['일차', '시작시간', '종료시간', '유형'],
       ['1', '10:00', '11:30', '관광'],
     ]);
-    expect(r.rejected?.code).toBe('TEMPLATE_MISMATCH');
+    expect(r.rejected?.code).toBe('UPLOAD_FORMAT_INVALID');
     expect(r.rejected?.message).toContain('장소명');
   });
 

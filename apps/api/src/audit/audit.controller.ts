@@ -2,6 +2,7 @@ import {
   BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query,
 } from '@nestjs/common';
 import { DomainException } from '../common/domain.exception';
+import { RequestRateLimiter } from '../common/request-rate-limit';
 import { CurrentAccount } from '../auth/current-account.decorator';
 import type { SessionAccount } from '../auth/session.repository';
 import {
@@ -29,9 +30,16 @@ import { TRIGGER_TYPE, type TriggerType } from './audit-job.repository';
  */
 @Controller('api/v1')
 export class AuditController {
-  constructor(private readonly service: AuditService) {}
+  constructor(
+    private readonly service: AuditService,
+    private readonly limiter: RequestRateLimiter,
+  ) {}
 
-  /** 202 + jobId. 실제 검수는 뒤에서 돈다 (p95 500ms) */
+  /**
+   * 202 + jobId. 실제 검수는 뒤에서 돈다 (p95 500ms).
+   *
+   * 계정당 분당 5회다 — 검수 시작(handoff)과 한 창을 같이 쓴다 (NF-SC-010 · EX-SY-008).
+   */
   @Post('products/:productId/audit-jobs')
   @HttpCode(202)
   async createJob(
@@ -40,6 +48,7 @@ export class AuditController {
     @Body() body: { triggerType?: string } | undefined,
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('product', productId, account.accountId);
+    this.limiter.take(account, 'AUDIT');
     const triggerType = normalizeTrigger(body?.triggerType);
     const { job } = await this.service.requestAudit(productId, triggerType);
     return toJobResponse(job, true);
