@@ -32,7 +32,8 @@ import { AuditBasis } from "../../components/audit-basis";
 import { addKeyword, removeKeyword } from "../../lib/radar-keywords";
 import { hasRegionNews, regionPlanHref } from "../../lib/region-news";
 import { announceNotificationsChanged, markShownRead } from "../../lib/notification-badge";
-import { lastCheckedText, nextCheckText, zeroMeaning } from "../../lib/radar-time";
+import { batchStatusLabel, emptyListText, lastCheckedText, nextCheckText, zeroMeaning } from "../../lib/radar-time";
+import { AI_UNAVAILABLE, aiUnavailableReason, todayFailure, todayTitle } from "../../lib/today-brief";
 import { EMPTY_REGION_NAMES, regionLabel, type RegionNameMaps } from "../../lib/region-names";
 import { RegionSelect, type RegionValue } from "../products/new/region-select";
 import type { CodeItem } from "../products/new/types";
@@ -206,6 +207,8 @@ export default function RadarPage() {
   }
 
   const batch = summary?.lastBatch ?? null;
+  // 0 의 뜻. 요약을 읽기 전 · 못 읽었을 때는 모른다 — 「아직 확인 전」으로도 「없다」로도 적지 않는다 (UI-S7-010)
+  const zero = summary === null ? null : zeroMeaning(batch?.covered ?? null, todayIso(), batch?.status ?? null);
 
   return (
     <>
@@ -215,10 +218,14 @@ export default function RadarPage() {
           <h1>여행의 변화에, 한발 먼저</h1>
           <p className="page-description">여행이 끝나지 않은 상품의 변화와 관심 지역의 새로운 기회를 살펴보세요.</p>
         </div>
-        {/* 언제 확인했고 다음은 언제인지 (UI-S7-010) */}
-        <div className="shrink-0 text-right text-xs text-slate-500 dark:text-slate-400">
-          <p>{lastCheckedText(summary?.lastBatchAt ?? null, todayIso())}</p>
-          <p>{nextCheckText(summary?.nextBatchAt ?? null, todayIso())}</p>
+        {/* 언제 확인했고 다음은 언제인지 (UI-S7-010). 요약을 읽기 전에는 비운다 — 「확인하기 전 · 꺼져 있어요」가 아니다 */}
+        <div className="shrink-0 text-right text-xs text-slate-500 dark:text-slate-400" data-checked-at>
+          {summary !== null && (
+            <>
+              <p>{lastCheckedText(summary.lastBatchAt, todayIso())}</p>
+              <p>{nextCheckText(summary.nextBatchAt, todayIso())}</p>
+            </>
+          )}
         </div>
       </div>
 
@@ -230,16 +237,17 @@ export default function RadarPage() {
 
       <section className="radar-overview" aria-label="레이더 현황">
         <div className="radar-overview-intro"><WorkspaceIcon name="radar" width="32" height="32" /><div><h2>수요 · 변경 레이더</h2><p>내 상품에 생긴 변화를 여기서 먼저 봅니다. 아래 수요 신호는 그 지역 · 기간을 관측한 값입니다.</p></div></div>
-        <button type="button" className="radar-metric" onClick={() => { setTab("RISK"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>바뀐 정보</span><strong>{summary?.risk ?? "—"}<small>건</small></strong>{summary?.risk === 0 && <em>{zeroMeaning(summary.lastBatch?.covered ?? null, todayIso())}</em>}</button>
-        <button type="button" className="radar-metric" onClick={() => { setTab("OPPORTUNITY"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>새 소식</span><strong>{summary?.opportunity ?? "—"}<small>건</small></strong>{summary?.opportunity === 0 && <em>{zeroMeaning(summary.lastBatch?.covered ?? null, todayIso())}</em>}</button>
+        <button type="button" className="radar-metric" onClick={() => { setTab("RISK"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>바뀐 정보</span><strong>{summary?.risk ?? "—"}<small>건</small></strong>{summary?.risk === 0 && zero !== null && <em>{zero}</em>}</button>
+        <button type="button" className="radar-metric" onClick={() => { setTab("OPPORTUNITY"); document.getElementById("notifications")?.scrollIntoView({ behavior: "smooth" }); }}><span>새 소식</span><strong>{summary?.opportunity ?? "—"}<small>건</small></strong>{summary?.opportunity === 0 && zero !== null && <em>{zero}</em>}</button>
       </section>
 
       {/* 레이더 에이전트 — 오늘 할 일 정리 (FR-AG-030 · 031) */}
       <TodayAgentCard products={products} />
 
       {/* 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) */}
-      <WatchAndNews onError={setError} automatic={summary?.nextBatchAt != null}
-        checkedText={lastCheckedText(summary?.lastBatchAt ?? null, todayIso())} />
+      {/* 요약을 읽기 전에는 저장된 결과를 읽는 쪽으로 둔다 — 지금 새로 세는 요청은 자동 확인이 꺼졌을 때만 된다 */}
+      <WatchAndNews onError={setError} automatic={summary === null || summary.nextBatchAt !== null}
+        checkedText={summary === null ? null : lastCheckedText(summary.lastBatchAt, todayIso())} />
 
       {/* 바뀐 정보 · 새 소식 탭 (UI-S7-003). 검수 등급 색 마커를 쓰지 않는다. */}
       <div id="notifications" className="mt-6 flex gap-2 border-b border-slate-200 dark:border-slate-800">
@@ -256,7 +264,8 @@ export default function RadarPage() {
         <p className="mt-8 text-sm text-slate-400">불러오는 중…</p>
       ) : items.length === 0 ? (
         <div className="mt-8 rounded-2xl border border-dashed border-slate-300 py-14 text-center text-sm text-slate-400 dark:border-slate-700 dark:text-slate-500">
-          <p>{tab === "RISK" ? "현재 여행에 확인할 바뀐 정보가 없습니다." : "현재 여행에 확인할 새 소식이 없습니다."}</p>
+          {/* 0 의 뜻과 같은 기준 — 확인해 보니 없는 것만 「없습니다」다 (UI-S7-010) */}
+          <p data-empty-meaning>{emptyListText(tab, zero)}</p>
           <p className="mt-2">여행이 끝난 상품의 알림은 표시하지 않아요.</p>
           <Link href="/review" className="mt-3 inline-block text-emerald-700 underline">검수에서 지난 상품 보기</Link>
         </div>
@@ -280,13 +289,7 @@ export default function RadarPage() {
        * 모은 변경이라, 규칙셋·지문·대상 건수 대신 그 배치가 무엇을 언제 봤는지를 적는다.
        * 없는 값을 채워 넣지 않는다.
        */}
-      <AuditBasis
-        rows={[
-          { label: "마지막 배치", value: batch?.runAt ? formatStamp(batch.runAt) : "실행 없음" },
-          { label: "처리 기준일", value: batch?.covered ?? "—" },
-          { label: "상태", value: batch?.status ?? "—" },
-        ]}
-      />
+      <AuditBasis rows={summary === null ? [] : batchRows(batch)} />
     </>
   );
 }
@@ -320,11 +323,11 @@ function TabButton({
 }
 
 // 바뀐 정보 · 새 소식 텍스트 배지. 검수 등급(적·주황·황·회) 색을 재사용하지 않는다 (UI-S7-003).
-function KindBadge({ kind }: { kind: NotificationKind }) {
+function KindBadge({ kind, className = "" }: { kind: NotificationKind; className?: string }) {
   const risk = kind === "RISK";
   return (
     <span
-      className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${
+      className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${className} ${
         risk
           ? "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-950/50 dark:text-fuchsia-300"
           : "bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300"
@@ -661,20 +664,43 @@ function formatStamp(iso: string): string {
   return iso.replace("T", " ").slice(0, 16);
 }
 
+/**
+ * 근거 줄 — 마지막 확인이 무엇을 언제 봤는지 (NF-OB-004 · UI-S7-010). 실행 시각 · 처리 기준일 · 조회 건수 ·
+ * 결과를 적는다. 결과는 저장된 코드(OK · FAILED …)가 아니라 말로 적는다 (TM-013).
+ */
+export function batchRows(batch: RadarSummary["lastBatch"]): { label: string; value: string }[] {
+  return [
+    { label: "마지막 확인", value: batch?.runAt ? formatStamp(batch.runAt) : "실행 없음" },
+    { label: "처리 기준일", value: batch?.covered ?? "—" },
+    { label: "조회 건수", value: batch === null ? "—" : `${batch.itemCount.toLocaleString()}건` },
+    { label: "결과", value: batchStatusLabel(batch?.status) },
+  ];
+}
+
 // ── 레이더 에이전트 — 오늘 할 일 (FR-AG-030 · 031) ────────────────────────────
 // 사람이 누를 때만 돈다. 서버가 정한 순서를 화면이 다시 정렬하지 않는다. 할 일마다 기존 버튼.
 function TodayAgentCard({ products }: { products: ProductLite[] }) {
   const [brief, setBrief] = useState<TodayBrief | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // 요청이 실패해 AI 로 정리하지 못했을 때의 까닭 (FR-AG-005)
+  const [failure, setFailure] = useState<string | null>(null);
 
   async function run() {
     setBusy(true);
     setErr(null);
+    setFailure(null);
     try {
       setBrief(await agentApi.today());
     } catch (e) {
-      setErr(isApiError(e) ? e.message : "오늘 할 일을 불러오지 못했어요.");
+      const f = todayFailure(e);
+      if (f.unavailable) {
+        // 앞서 받은 정리를 남겨 두면 제목의 할 일 수가 지금 것처럼 읽힌다
+        setBrief(null);
+        setFailure(f.reason);
+      } else {
+        setErr(f.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -689,7 +715,7 @@ function TodayAgentCard({ products }: { products: ProductLite[] }) {
   return (
     <section className="radar-today mt-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">오늘 할 일</h2><p className="mt-1 text-sm text-slate-500">다시 확인할 상품과 관심 지역 소식을 한 번에 정리해 드려요.</p></div>
+        <div><h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">{todayTitle(brief, todayIso())}</h2><p className="mt-1 text-sm text-slate-500">다시 확인할 상품과 관심 지역 소식을 한 번에 정리해 드려요.</p></div>
         <button
           type="button"
           onClick={run}
@@ -700,24 +726,46 @@ function TodayAgentCard({ products }: { products: ProductLite[] }) {
         </button>
       </div>
       {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
-      {brief && (
-        <div className="mt-3 space-y-2">
-          {brief.todos.length === 0 ? (
-            <p className="text-sm text-slate-500 dark:text-slate-400">오늘 챙길 일이 없어요.</p>
-          ) : (
-            <ul className="space-y-2">
-              {brief.todos.map((t, i) => (
-                <TodoRow key={i} item={t} subject={todoSubject(t, productNames, regionNames)} />
-              ))}
-            </ul>
-          )}
-          <QuietProducts lines={brief.quiet} />
-          {brief.incomplete && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">일부만 정리했어요. 잠시 후 다시 시도해 주세요.</p>
-          )}
-        </div>
-      )}
+      {failure !== null && <TodayBriefUnavailable reason={failure} partial={false} />}
+      {brief && failure === null && <TodayBriefResult brief={brief} productNames={productNames} regionNames={regionNames} />}
     </section>
+  );
+}
+
+/**
+ * 정리 결과 (UI-S7-018 · FR-AG-005). 끝까지 정리하지 못했으면 정리한 할 일만 보이고 「지금은 AI로 정리할 수
+ * 없어요」와 까닭을 적는다 — 정리하지 못한 것을 「오늘 챙길 일이 없어요」로 적지 않는다.
+ */
+export function TodayBriefResult({
+  brief, productNames, regionNames,
+}: { brief: TodayBrief; productNames: ReadonlyMap<number, string>; regionNames: RegionNameMaps }) {
+  return (
+    <div className="mt-3 space-y-2" data-today-result>
+      {brief.incomplete !== null && (
+        <TodayBriefUnavailable reason={aiUnavailableReason(brief.incomplete.reasonCode)} partial={brief.todos.length > 0} />
+      )}
+      {brief.todos.length > 0 ? (
+        <ul className="space-y-2">
+          {brief.todos.map((t, i) => (
+            <TodoRow key={i} item={t} subject={todoSubject(t, productNames, regionNames)} />
+          ))}
+        </ul>
+      ) : (
+        brief.incomplete === null && <p className="text-sm text-slate-500 dark:text-slate-400">오늘 챙길 일이 없어요.</p>
+      )}
+      <QuietProducts lines={brief.quiet} />
+    </div>
+  );
+}
+
+/** AI 가 끝까지 못 했을 때 (FR-AG-005 · EX-AG-001). 사람이 하는 길은 아래 목록에 그대로 있다 */
+function TodayBriefUnavailable({ reason, partial }: { reason: string; partial: boolean }) {
+  return (
+    <div role="status" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300" data-ai-unavailable>
+      <p className="font-semibold">{AI_UNAVAILABLE}</p>
+      <p className="mt-0.5">{partial ? `정리한 것만 보여 드려요. ${reason}` : reason}</p>
+      <p className="mt-0.5">바뀐 정보와 새 소식은 아래에서 그대로 보고 다시 검수하거나 새 상품을 기획할 수 있어요.</p>
+    </div>
   );
 }
 
@@ -774,6 +822,8 @@ export function TodoRow({ item, subject }: { item: TodayItem; subject: string | 
   return (
     <li className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
       <span className="text-sm text-slate-700 dark:text-slate-200">
+        {/* 종류 — 바뀐 정보 · 새 소식 (UI-S7-018). 알림 카드와 같은 배지다 */}
+        <KindBadge kind={item.kind === "CHANGE" ? "RISK" : "OPPORTUNITY"} className="mr-2 align-middle" />
         {subject !== null && <span className="mr-2 font-semibold text-slate-900 dark:text-slate-100" data-todo-subject>{subject}</span>}
         {item.reason}
       </span>
@@ -785,7 +835,7 @@ export function TodoRow({ item, subject }: { item: TodayItem; subject: string | 
 }
 
 // ── 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) ────────────
-function WatchAndNews({ onError, automatic, checkedText }: { onError: (m: string | null) => void; automatic: boolean; checkedText: string }) {
+function WatchAndNews({ onError, automatic, checkedText }: { onError: (m: string | null) => void; automatic: boolean; checkedText: string | null }) {
   const [keywords, setKeywords] = useState<string[]>([]);
   const [regions, setRegions] = useState<{ regnCd: string; signguCd: string | null; month: string }[]>([]);
   const [signals, setSignals] = useState<RegionSignal[]>([]);
@@ -1182,8 +1232,8 @@ export function hasRegion(
  * 「새 소식 확인」 을 누른 뒤의 한 줄 (#715). 자동 확인이 켜져 있으면 아침에 확인해 둔 결과를 다시
  * 읽는 것이라 그 시각을 함께 말한다 — 지금 새로 센 것처럼 읽히면 안 된다.
  */
-export function refreshNote(automatic: boolean, checkedText: string): string {
-  return automatic
-    ? `가장 최근에 확인한 결과를 다시 불러왔어요. ${checkedText}`
-    : "지금 다시 확인했어요.";
+export function refreshNote(automatic: boolean, checkedText: string | null): string {
+  if (!automatic) return "지금 다시 확인했어요.";
+  // 언제 확인했는지 모르면(요약을 못 읽었으면) 지어내지 않는다
+  return checkedText === null ? "가장 최근에 확인한 결과를 다시 불러왔어요." : `가장 최근에 확인한 결과를 다시 불러왔어요. ${checkedText}`;
 }
