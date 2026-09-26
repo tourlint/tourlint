@@ -39,11 +39,40 @@ export function forbiddenWords(planScreen: boolean): string[] {
 }
 
 /**
- * 접힌 근거 칸(`data-evidence`)이 붙은 요소의 내용을 뺀 화면 글자. 근거 칸 안의 말은 검사
- * 대상이 아니다 — 규칙셋 · 지문 · 출처는 거기 있어도 된다 (UI-CM-030 · 031).
+ * 근거 칸(`data-evidence`)이 붙은 요소의 내용을 뺀 화면 글자. 근거 칸 안의 말은 검사 대상이
+ * 아니다 — 규칙셋 · 지문 · 출처는 거기 있어도 된다 (UI-CM-030 · 031). 접힌 칸이든 검수 근거 영역처럼
+ * 펼쳐 둔 칸이든 같다.
+ *
+ * 요소가 끝나는 곳은 **짝이 맞는 닫는 태그**다. 첫 닫는 태그에서 끊으면 근거 칸 안에 같은 태그가
+ * 또 있을 때(칸 안의 `div` · `dl`) 나머지 근거가 화면 글자로 남는다.
  */
 export function visibleText(html: string): string {
-  return html.replace(/<([a-z]+)[^>]*\bdata-evidence\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const open = /<([a-z][a-z0-9]*)\b[^>]*\bdata-evidence\b[^>]*>/gi;
+  let out = "";
+  let pos = 0;
+  for (let m = open.exec(html); m !== null; m = open.exec(html)) {
+    if (m.index < pos) continue;
+    out += html.slice(pos, m.index);
+    const tag = (m[1] ?? "").toLowerCase();
+    let end = m.index + m[0].length;
+    if (!m[0].endsWith("/>")) {
+      const tags = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+      tags.lastIndex = end;
+      let depth = 1;
+      end = html.length;
+      for (let t = tags.exec(html); t !== null; t = tags.exec(html)) {
+        if (t[1] === "/") depth -= 1;
+        else if (!t[0].endsWith("/>")) depth += 1;
+        if (depth === 0) {
+          end = t.index + t[0].length;
+          break;
+        }
+      }
+    }
+    pos = end;
+    open.lastIndex = end;
+  }
+  return out + html.slice(pos);
 }
 
 /** 화면 HTML 에서 금지 낱말을 찾는다. 접힌 근거 칸은 먼저 뺀다. */
