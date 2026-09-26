@@ -48,6 +48,8 @@ describe('직접 정한 곳으로 두기 (FR-IN-021 · DR-PR-001)', () => {
     expect(e).toBeInstanceOf(DomainException);
     expect((e as DomainException).getStatus()).toBe(HttpStatus.BAD_REQUEST);
     expect((e as DomainException).reasonCode).toBe('INPUT_INVALID');
+    // 화면 말이다 — 저장 방식을 말하지 않는다 (UI-CM-040)
+    expect((e as DomainException).message).toBe('직접 정한 곳의 이름을 적어 주세요.');
     expect(exclude).not.toHaveBeenCalled();
     await service.exclude(7, 101, ' 세인트존스 ');
     expect(exclude).toHaveBeenCalledWith(101, '세인트존스');

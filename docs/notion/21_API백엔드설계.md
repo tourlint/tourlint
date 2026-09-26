@@ -577,7 +577,7 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 <tr>
 <td>POST</td>
 <td>`/api/v1/items/{itemId}/exclude`</td>
-<td>"직접 정한 곳으로 두기"(옛 "해당 없음") 처리. 항목은 유지하고 `EXCLUDED`로 전환. 호출처는 화면 2 편집기 행 · 기획 에이전트 카드. 본문 `{placeLabel?}` — 이름을 저장하지 않은 고른 곳(장소 담기 · 등록 화면에서 고른 줄)은 이 이름(사용자가 친 글)으로 직접 정한 곳이 되고, 없으면 400 `INPUT_INVALID` 다. 이름이 있는 줄은 그 이름을 그대로 둔다(DR-PR-001 · DR-IN-013)</td>
+<td>"직접 정한 곳으로 두기"(옛 "해당 없음") 처리. 항목은 유지하고 `EXCLUDED`로 전환. 호출처는 화면 2 편집기 행 · 기획 에이전트 카드. 본문 `{placeLabel?}` — 이름을 저장하지 않은 고른 곳(장소 담기 · 등록 화면에서 고른 줄)은 이 이름(화면이 보낸 찾는 칸의 글자)으로 직접 정한 곳이 되고, 비었으면 400 `INPUT_INVALID` 다. 이름이 있는 줄은 그 이름을 그대로 둔다(DR-PR-001 · DR-IN-013)</td>
 <td>FR-IN-024·025 · FR-AG-012</td>
 </tr>
 <tr>

@@ -156,8 +156,11 @@ export interface DiffableItem {
   readonly walkId?: string | null;
 }
 
-/** 이름을 끝내 알 수 없는 항목. 되돌려서 지금 일정에 없는 곳은 공식 명칭을 다시 읽지 않는다 */
-export const UNNAMED_PLACE = '이름을 저장하지 않은 곳';
+/**
+ * 이름을 끝내 알 수 없는 항목. 되돌려서 지금 일정에 없는 곳은 공식 명칭을 다시 읽지 않는다.
+ * 화면 말이다 — 저장 방식을 말하지 않는다 (UI-CM-040)
+ */
+export const UNNAMED_PLACE = '이름을 불러오지 못한 곳';
 
 /**
  * 변경 서술에 쓸 표시 이름. 3절 일정표와 같은 순서로 찾는다 — 공식 명칭, 걷기 길 이름, 입력 라벨.

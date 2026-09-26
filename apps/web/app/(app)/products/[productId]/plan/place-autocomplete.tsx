@@ -153,12 +153,12 @@ export function PlaceAutocomplete({
     setErr(null);
     try {
       /*
-       * 찾는 칸에 친 이름을 함께 보낸다 — 이름을 저장하지 않은 고른 곳(장소 담기 · 등록 화면에서 고른 줄)은
-       * 그 이름으로 직접 정한 곳이 된다. 칸에 처음 있던 이름은 공식 명칭이라 보내지 않는다(DR-PR-001).
-       * 이름이 저장된 줄은 서버가 그 이름을 그대로 둔다
+       * 찾는 칸의 글자를 함께 보낸다 — 이름을 저장하지 않은 고른 곳(장소 담기 · 등록 화면에서 고른 줄)은
+       * 그 글자로 직접 정한 곳이 된다. 칸을 고치지 않았어도 사용자가 보고 둔 이름이다. 이름이 저장된 줄은
+       * 서버가 그 이름을 그대로 둔다
        */
       const typed = keyword.trim();
-      await matchApi.exclude(item.itemId, typed !== "" && typed !== item.place ? typed : undefined);
+      await matchApi.exclude(item.itemId, typed === "" ? undefined : typed);
       await onResolved();
     } catch (e) {
       setErr(isApiError(e) ? e.message : "처리하지 못했어요.");

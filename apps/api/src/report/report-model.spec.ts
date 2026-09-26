@@ -144,12 +144,12 @@ describe('리포트 모델 조립', () => {
     expect(JSON.stringify(m)).not.toContain('오죽헌');
   });
 
-  it('🔴 이름을 저장하지 않은 곳인데 명칭도 못 읽었으면(비표출) 빈칸 대신 그렇다고 적는다 (#908)', () => {
+  it('🔴 이름을 저장하지 않은 곳인데 명칭도 못 읽었으면(비표출) 빈칸 대신 「이름을 불러오지 못한 곳」 — 저장 방식은 말하지 않는다 (#908 · UI-CM-040)', () => {
     const m = assembleReport(input({
       items: [item({ place: '' })],
       evidence: new Map([['126508', evidence({ hidden: true, officialName: null, imageUrl: null })]]),
     }));
-    expect(m.itinerary[0]?.items[0]?.place).toBe(UNNAMED_PLACE);
+    expect(m.itinerary[0]?.items[0]?.place).toBe('이름을 불러오지 못한 곳');
     expect(m.findings[0]?.targetPlace).toBe(UNNAMED_PLACE);
     expect(JSON.stringify(m)).not.toContain('오죽헌');
   });

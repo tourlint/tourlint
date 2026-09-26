@@ -135,7 +135,7 @@ export const MATCHING: readonly Endpoint[] = [
     errors: [
       {
         status: 400, reasonCode: 'INPUT_INVALID', when: '이름을 저장하지 않은 줄인데 `placeLabel` 이 없음',
-        message: '직접 정한 곳으로 두려면 이 줄의 이름을 적어 주세요. 고른 곳의 공식 이름은 저장하지 않아요.', unit: 'ITEM',
+        message: '직접 정한 곳의 이름을 적어 주세요.', unit: 'ITEM',
       },
       { status: 404, reasonCode: 'NOT_FOUND', when: '없는 항목이거나 다른 계정의 항목', message: '항목을 찾을 수 없습니다 (#352).', unit: 'ITEM' },
     ],

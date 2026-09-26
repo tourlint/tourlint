@@ -72,12 +72,12 @@ it('🔴 다시 고르다 「직접 정한 곳으로 두기」를 누르면 칸�
   expect(matchApi.exclude).toHaveBeenCalledWith(7, '경포 산책로');
 });
 
-it('칸에 처음 있던 이름(공식 명칭일 수 있다)은 보내지 않는다 — 이름이 저장된 줄은 서버가 그 이름을 둔다', async () => {
+it('🔴 칸을 고치지 않고 눌러도 칸의 이름을 보낸다 — 이름이 저장되지 않은 줄이 400 에 막히지 않는다 (#911)', async () => {
   vi.spyOn(matchApi, 'search').mockResolvedValue(found('129784', '강릉 경포대'));
   await act(async () => root.render(<PlaceAutocomplete item={confirmed} regnCd="51" signguCd="150" regionLabel="강릉시" autoPick={false} onCancel={() => {}} onResolved={async () => {}} />));
   await settle();
   await act(async () => { button('찾는 곳이 없나요? 직접 정한 곳으로 두기')!.click(); });
-  expect(matchApi.exclude).toHaveBeenCalledWith(7, undefined);
+  expect(matchApi.exclude).toHaveBeenCalledWith(7, '강릉 경포대');
 });
 
 it('「취소」 는 다시 고를 때만 보인다', async () => {
