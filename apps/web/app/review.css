@@ -31,6 +31,8 @@
 .audit-score > p { font-size: 14px; font-weight: 650; color: var(--accent); }
 .audit-score strong { color: var(--ink); font-size: 64px; line-height: 1; font-weight: 750; letter-spacing: -3px; }
 .audit-score span { font-size: 12px; color: var(--muted); }
+/* 다시 검수하는 동안 점수는 직전 결과 — 흐리게 (UI-ST-002) */
+.audit-score.is-stale > div, .audit-lifecycle > div.is-stale > p:last-child { opacity: .45; }
 .audit-verdict-label { display: inline-flex; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; }
 .audit-verdict-label.is-ready { background: var(--accent-soft); color: var(--accent); }
 .audit-verdict-label.is-partial { background: var(--severity-unverified-bg); color: var(--severity-unverified-fg); }

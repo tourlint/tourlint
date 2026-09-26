@@ -215,10 +215,10 @@ export class AuditController {
     @Param('productId', ParseIntPipe) productId: number,
   ): Promise<Record<string, unknown>> {
     await this.service.assertOwns('product', productId, account.accountId);
-    const [runs, currentRunId] = await Promise.all([
-      this.service.listRuns(productId), this.service.currentRunIdOf(productId),
+    const [runs, currentRunId, activeJobId] = await Promise.all([
+      this.service.listRuns(productId), this.service.currentRunIdOf(productId), this.service.activeJobOf(productId),
     ]);
-    return toRunListResponse(runs, currentRunId);
+    return toRunListResponse(runs, currentRunId, activeJobId);
   }
 
   /**

@@ -671,7 +671,7 @@ POST /api/v1/items/{itemId}/match     기존 본문에 "matchedBy": "USER" | "AG
 <tr>
 <td>GET</td>
 <td>`/api/v1/products/{productId}/audit-runs`</td>
-<td>검수 실행 이력 목록 (전후 비교 선택용). 실행마다 `isCurrent` — 지금 일정의 결과이면 true. 결과 화면은 이 실행부터 연다</td>
+<td>검수 실행 이력 목록 (전후 비교 선택용). 실행마다 `isCurrent` — 지금 일정의 결과이면 true. 결과 화면은 이 실행부터 연다. `activeJobId` — 지금 도는 검수 작업 번호(없거나 기한을 넘겨 멈춘 작업이면 `null`). 결과 화면이 다시 열려도 이 작업을 이어 폴링한다 (UI-ST-003)</td>
 <td>FR-PA-045</td>
 </tr>
 </table>
@@ -1248,7 +1248,7 @@ POST /api/v1/radar/today
 <callout icon="⏱" color="yellow_bg">
 	**같은 상품에 진행 중인 작업이 있으면 새 작업을 만들지 않고 기존 ****`jobId`****를 202로 반환합니다** (EX-AU-004).
 	미확정 관광지가 남아 있으면 작업을 만들지 않고 **422 ****`PLACE_UNRESOLVED`** 로 거부하며, 응답에 미확정 항목 목록을 담습니다 (EX-AU-001).
-	화면 이탈 후 재진입 시 `jobId`로 진행 상태를 이어서 표시합니다 (EX-AU-003).
+	화면 이탈 후 재진입 시 `jobId`로 진행 상태를 이어서 표시합니다 (EX-AU-003). 재진입한 화면은 검수 이력(`GET /products/{productId}/audit-runs`)의 `activeJobId` 로 그 작업을 찾습니다(UI-ST-003). 폴링 간격은 202 응답의 `pollIntervalMs` 입니다.
 </callout>
 ## 5-5. 검수 결과 요약
 ```json

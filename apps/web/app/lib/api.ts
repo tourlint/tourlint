@@ -424,8 +424,9 @@ export interface RuleView {
 }
 
 export const auditApi = {
+  /** `activeJobId` — 지금 도는 검수 작업. 결과 화면이 다시 열려도 이어 폴링한다 (UI-ST-003) */
   listRuns: (productId: number) =>
-    request<{ totalCount: number; runs: RunListItem[] }>(`/products/${productId}/audit-runs`),
+    request<{ totalCount: number; runs: RunListItem[]; activeJobId?: number | null }>(`/products/${productId}/audit-runs`),
   /** 규칙 목록과 설명 (검수 기준 탭). 계정과 무관한 표준이라 캐시해도 된다. */
   rules: () => request<{ rulesetVersion: string; rules: RuleView[] }>(`/rules`),
   getRun: (runId: number) => request<RunSummary>(`/audit-runs/${runId}`),

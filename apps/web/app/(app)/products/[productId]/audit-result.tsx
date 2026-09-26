@@ -16,6 +16,7 @@ import {
   patchApi,
   productApi,
   reportApi,
+  type AuditJob,
   type ContentDetail,
   type EvidenceView,
   type Finding,
@@ -120,6 +121,8 @@ export function AuditResult({ productId }: { productId: number }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      /** 재검수가 도는 중에 다시 연 화면이면 그 작업 (UI-ST-003) */
+      let resumeJobId: number | null = null;
       try {
         const [detail, runs] = await Promise.all([productApi.detail(productId), auditApi.listRuns(productId)]);
         if (cancelled) return;
@@ -134,6 +137,11 @@ export function AuditResult({ productId }: { productId: number }) {
           try { remembered = sessionStorage.getItem(`review-changed:${productId}`) === String(latest.auditRunId); } catch { /* 저장소 사용 불가 */ }
           setScheduleChanged(remembered || isEditedSinceAudit(detail));
           await loadRun(latest.auditRunId);
+          /*
+           * 「지금 재검수」 · 「확정하고 재검수」가 도는 중에 새로 열었다. 끝난 실행만 보면 직전
+           * 결과를 최종처럼 보이게 된다 — 도는 작업을 이어 폴링하고 끝나면 새 결과로 바꾼다 (UI-ST-003)
+           */
+          resumeJobId = runs.activeJobId ?? null;
         } else if (detail.plannedAt !== null) {
           /*
            * 검수 시작(handoff)이 건 작업이 아직 도는 중이다 (#711). 여기서 「아직 검수하지 않았습니다 ·
@@ -158,6 +166,28 @@ export function AuditResult({ productId }: { productId: number }) {
       } finally {
         if (!cancelled) setLoading(false);
       }
+
+      if (resumeJobId === null || cancelled) return;
+      setRunning(true);
+      try {
+        const runId = await followJob(resumeJobId, {
+          cancelled: () => cancelled,
+          onProgress: (label) => { if (!cancelled) setProgress(label); },
+        });
+        if (cancelled || runId === null) return;
+        const [fresh] = await Promise.all([productApi.detail(productId), loadRun(runId)]);
+        if (cancelled) return;
+        setProduct(fresh);
+        setScheduleChanged(false);
+        try { sessionStorage.removeItem(`review-changed:${productId}`); } catch { /* 저장소 사용 불가 */ }
+      } catch (err) {
+        if (!cancelled) setError(isApiError(err) ? err.message : err instanceof Error ? err.message : "검수 결과를 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) {
+          setRunning(false);
+          setProgress(null);
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -170,17 +200,9 @@ export function AuditResult({ productId }: { productId: number }) {
     setPatchMsg(null);
   }
 
-  async function pollJob(jobId: number): Promise<number | null> {
-    let job = await auditApi.getJob(jobId);
-    const interval = job.pollIntervalMs ?? 1500;
-    while (job.auditRunId === null && job.errorCode === undefined) {
-      await sleep(interval);
-      if (!alive.current) return null;
-      job = await auditApi.getJob(jobId);
-      setProgress(job.progress.label);
-    }
-    if (job.errorCode !== undefined) throw new Error(`검수를 마치지 못했습니다 (${job.errorCode}).`);
-    return job.auditRunId;
+  /** 폴링 간격은 작업을 만든 응답이 준다(FR-AU-022 · 2초). GET 응답에는 없다 */
+  async function pollJob(jobId: number, intervalMs?: number): Promise<number | null> {
+    return followJob(jobId, { intervalMs, cancelled: () => !alive.current, onProgress: setProgress });
   }
 
   async function runAudit() {
@@ -191,7 +213,7 @@ export function AuditResult({ productId }: { productId: number }) {
     setUndoMsg(null);
     try {
       const job = await auditApi.runAudit(productId, "MANUAL");
-      const runId = await pollJob(job.jobId);
+      const runId = await pollJob(job.jobId, job.pollIntervalMs);
       if (runId !== null) {
         resetPatchState();
         await Promise.all([loadRun(runId), refetchProduct()]);
@@ -254,7 +276,7 @@ export function AuditResult({ productId }: { productId: number }) {
     setUndoMsg(null);
     try {
       const applied = await patchApi.apply(productId, selections(), preview.previewToken);
-      const runId = await pollJob(applied.reauditJobId);
+      const runId = await pollJob(applied.reauditJobId, applied.pollIntervalMs);
       if (runId !== null) {
         resetPatchState();
         await Promise.all([loadRun(runId), refetchProduct()]);
@@ -311,6 +333,8 @@ export function AuditResult({ productId }: { productId: number }) {
   const labelOf = itemLabeler(product);
   const contentOf = contentIdOf(product);
   const selectedCount = Object.keys(selected).length;
+  // 재검수가 도는 동안 보이는 점수는 직전 결과다 — 확정처럼 적지 않는다 (UI-ST-002)
+  const rechecking = running || patchBusy === "apply";
   const pendingItems: ProductItem[] = product
     ? product.days.flatMap((d) => d.items).filter((it) => it.matchStatus === "PENDING")
     : [];
@@ -393,8 +417,8 @@ export function AuditResult({ productId }: { productId: number }) {
               }}
             />
           )}
-          {product && <LifecycleBar product={product} run={data.run} />}
-          <SummaryCard run={data.run} confirmationCount={data.unverified.length} />
+          {product && <LifecycleBar product={product} run={data.run} rechecking={rechecking} />}
+          <SummaryCard run={data.run} confirmationCount={data.unverified.length} rechecking={rechecking} />
           <nav className="audit-section-nav" aria-label="검수 결과 바로 가기">
             <a href="#audit-findings"><span>01</span> 문제와 수정안 <b>{data.findings.length}</b></a>
             <a href="#audit-confirmations"><span>02</span> 직접 확인할 곳 <b>{data.unverified.length}</b></a>
@@ -610,23 +634,28 @@ function planCell(product: ProductDetail): string {
   return `${started} · ${places}`;
 }
 
-function reviewCell(run: RunSummary): string {
+export function reviewCell(run: RunSummary, rechecking = false): string {
+  // 다시 검수하는 동안은 직전 결과라고 적는다 — 확정 점수로 읽히지 않게 (UI-ST-002)
+  if (rechecking) return run.readinessScore === null || run.isPartial
+    ? "다시 검수하고 있어요"
+    : `직전 결과 ${run.readinessScore}점 · 다시 검수하고 있어요`;
   if (run.isPartial) return "부분 검수";
   if (run.readinessScore === null) return "검수 전";
   return `${run.readinessScore}점 · ${run.releasable ? "출시할 수 있어요" : `차단 ${run.counts.blocker}건`}`;
 }
 
-function LifecycleBar({ product, run }: { product: ProductDetail; run: RunSummary }) {
+function LifecycleBar({ product, run, rechecking = false }: { product: ProductDetail; run: RunSummary; rechecking?: boolean }) {
   const released = product.releasedAt !== null;
-  const cells: { title: string; text: string }[] = [
+  const cells: { title: string; text: string; stale?: boolean }[] = [
     { title: "기획", text: planCell(product) },
-    { title: "검수", text: reviewCell(run) },
+    { title: "검수", text: reviewCell(run, rechecking), stale: rechecking },
     { title: "레이더", text: released ? "바뀐 정보를 알려 드려요" : "출시하면 바뀐 정보를 알려 드려요" },
   ];
   return (
     <div className="audit-lifecycle grid gap-2 sm:grid-cols-3">
       {cells.map((c) => (
-        <div key={c.title} className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-800">
+        <div key={c.title} className={`rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-800${c.stale ? " is-stale" : ""}`}
+          data-stale={c.stale ? "true" : undefined}>
           <p className="text-xs text-slate-400">{c.title}</p>
           <p className="mt-0.5 text-sm text-slate-700 dark:text-slate-200">{c.text}</p>
         </div>
@@ -644,13 +673,18 @@ function companyBasisText(snapshot: RunSummary["settingSnapshot"]): string {
   return parts.join(" · ");
 }
 
-export function SummaryCard({ run, confirmationCount }: { run: RunSummary; confirmationCount: number }) {
+export function SummaryCard({ run, confirmationCount, rechecking = false }: {
+  run: RunSummary;
+  confirmationCount: number;
+  /** 다시 검수하는 중 — 보이는 점수는 직전 결과라 흐리게 두고 그렇게 적는다 (UI-ST-002) */
+  rechecking?: boolean;
+}) {
   const status = run.isPartial ? "검수가 일부 완료됐어요" : run.releasable ? "출시할 수 있는 상품이에요" : "출시 전, 해결할 항목이 있어요";
   return (
     <section className="audit-overview" aria-label="검수 결과 요약">
       <div className="audit-overview-main">
-        <div className="audit-score">
-          <p>출시 준비도</p>
+        <div className={`audit-score${rechecking ? " is-stale" : ""}`} data-stale={rechecking ? "true" : undefined}>
+          <p>{rechecking ? "출시 준비도 · 직전 결과" : "출시 준비도"}</p>
           {run.isPartial ? <StatusBadge status="PARTIAL" /> : <div><strong>{run.readinessScore ?? "—"}</strong><span> / 100점</span></div>}
           <span>검수 대상 {run.targetCount}곳</span>
         </div>
@@ -1621,9 +1655,41 @@ export function isEditedSinceAudit(detail: ProductDetail | null): boolean {
   return detail?.auditState?.kind === "STALE" && detail.auditState.reason === "EDIT";
 }
 
-/** 첫 검수 결과를 기다리는 간격과 한도 (#711). 15곳 검수가 5 ~ 15초라 1분이면 넉넉하다 */
-export const FIRST_RUN_POLL_MS = 1500;
-export const FIRST_RUN_POLL_TRIES = 40;
+/** 검수 진행 폴링 간격 (FR-AU-022). 작업을 만든 응답의 `pollIntervalMs` 가 없을 때 쓴다 */
+export const POLL_MS = 2000;
+
+/** 작업 실패를 사용자 말로 — 사유코드를 화면에 찍지 않는다 (UI-CM-040) */
+export function jobFailureText(errorCode: string): string {
+  return errorCode === "AUDIT_TIMEOUT"
+    ? "검수가 30분 안에 끝나지 않아 멈췄습니다. 다시 검수해 주세요."
+    : "검수를 마치지 못했습니다. 잠시 후 다시 검수해 주세요.";
+}
+
+/**
+ * 검수 작업이 끝날 때까지 따라간다 (FR-AU-022 · 023). 끝나면 실행 번호, 화면을 떠났으면 null,
+ * 실패하면 사용자 말로 던진다. 재검수 중에 다시 연 화면도 이것으로 이어 본다 (UI-ST-003).
+ */
+export async function followJob(
+  jobId: number,
+  opts: { cancelled: () => boolean; onProgress: (label: string) => void; intervalMs?: number },
+  getJob: (id: number) => Promise<AuditJob> = auditApi.getJob,
+  wait: (ms: number) => Promise<void> = sleep,
+): Promise<number | null> {
+  const interval = opts.intervalMs ?? POLL_MS;
+  let job = await getJob(jobId);
+  while (job.auditRunId === null && job.errorCode === undefined) {
+    if (job.progress?.label) opts.onProgress(job.progress.label);
+    await wait(interval);
+    if (opts.cancelled()) return null;
+    job = await getJob(jobId);
+  }
+  if (job.errorCode !== undefined) throw new Error(jobFailureText(job.errorCode));
+  return job.auditRunId;
+}
+
+/** 첫 검수 결과를 기다리는 간격과 한도 (#711 · FR-AU-022). 15곳 검수가 5 ~ 15초라 1분이면 넉넉하다 */
+export const FIRST_RUN_POLL_MS = POLL_MS;
+export const FIRST_RUN_POLL_TRIES = 30;
 
 /**
  * 검수 시작이 건 작업이 끝나 첫 결과가 생길 때까지 기다린다 (#711). 한도를 넘기면 null —
