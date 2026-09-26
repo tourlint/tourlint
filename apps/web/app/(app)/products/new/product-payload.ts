@@ -32,7 +32,15 @@ export function buildPayload(f: PayloadInput) {
     planOrigin: f.planOrigin ?? null,
     days: f.schedule.map((items, i) => ({
       day: i + 1,
-      items: items.map((it) => ({
+      items: items.map((it) => it.walk !== undefined ? {
+        // 걷기 길 — 코스 식별자만 보낸다. 칸에 보이는 코스 이름은 보내지도 저장하지도 않는다 (DR-MD-005 · UI-S2-048)
+        start: it.start,
+        end: it.end || null,
+        place: "",
+        itemType: it.itemType,
+        excluded: { walkId: it.walk.walkId },
+        origin: it.origin ?? "PICKER",
+      } : {
         start: it.start,
         end: it.end || null,
         place: it.place.trim(),
@@ -43,7 +51,7 @@ export function buildPayload(f: PayloadInput) {
         ...(it.excluded && !it.content ? { excluded: true } : {}),
         // 줄이 들어온 경로 (FR-PL-020)
         origin: it.origin ?? "MANUAL",
-      })),
+      }),
     })),
   };
 }

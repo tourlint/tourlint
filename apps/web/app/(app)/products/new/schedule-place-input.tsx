@@ -27,6 +27,7 @@ export function SchedulePlaceInput({
   regionLabel,
   excluded = false,
   canExclude = true,
+  walk = false,
   onChange,
 }: {
   ref?: Ref<PlaceInputHandle>;
@@ -43,6 +44,8 @@ export function SchedulePlaceInput({
    * 두지 않는다 — 누르고 저장해도 바뀌지 않으면 거짓 표시다
    */
   canExclude?: boolean;
+  /** 장소 담기에서 넣은 걷기 길 — 코스 이름만 보이고 고치지 않는다 (UI-S2-048) */
+  walk?: boolean;
   onChange: (patch: { place?: string; content?: MatchedContent | null; excluded?: boolean }) => void;
 }) {
   const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
@@ -87,7 +90,7 @@ export function SchedulePlaceInput({
   // 고른 상태가 아니고 입력이 있으면 검색한다 (디바운스 300ms). 지역이 없으면 검색하지 않는다.
   // 직접 정한 곳으로 둔 줄은 찾지 않는다
   useEffect(() => {
-    if (content !== null || excluded) return;
+    if (content !== null || excluded || walk) return;
     const kw = value.trim();
     let alive = true;
     const id = window.setTimeout(() => {
@@ -111,7 +114,7 @@ export function SchedulePlaceInput({
       })();
     }, 300);
     return () => { alive = false; window.clearTimeout(id); };
-  }, [value, content, excluded, regnCd, signguCd, regionLabel, lookupKey, searchVersion]);
+  }, [value, content, excluded, walk, regnCd, signguCd, regionLabel, lookupKey, searchVersion]);
 
   // 목록 밖을 누르면 드롭다운을 닫는다 (UI-CM-042)
   useEffect(() => {
@@ -170,21 +173,24 @@ export function SchedulePlaceInput({
     );
   }
 
-  // 직접 정한 곳으로 둔 줄 — 이름은 그대로 두고 표시만 붙인다. [다시 고르기]로 목록을 다시 연다 (UI-S2-021)
-  if (excluded) {
+  // 직접 정한 곳으로 둔 줄 — 이름은 그대로 두고 표시만 붙인다. [다시 고르기]로 목록을 다시 연다 (UI-S2-021).
+  // 걷기 길도 직접 정한 곳이다 — 다시 고를 곳이 없어 빼려면 줄을 지운다
+  if (excluded || walk) {
     return (
       <div className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
         장소명
         <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-900/40">
           <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">직접 정한 곳</span>
           <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100">{value}</span>
-          <button
-            type="button"
-            onClick={() => onChange({ excluded: false })}
-            className="shrink-0 text-xs text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
-          >
-            다시 고르기
-          </button>
+          {!walk && (
+            <button
+              type="button"
+              onClick={() => onChange({ excluded: false })}
+              className="shrink-0 text-xs text-slate-500 underline-offset-2 hover:underline dark:text-slate-400"
+            >
+              다시 고르기
+            </button>
+          )}
         </div>
       </div>
     );

@@ -402,11 +402,16 @@ export const itemApi = {
       method: "POST",
       body: JSON.stringify({ dayNo: input.dayNo, itemType: input.itemType, origin: "PICKER", afterItemId: input.afterItemId ?? null, content: input.content }),
     }),
-  // 걷기 길로 넣기 (D9). 코스 식별자만 보낸다 — 이름은 보내지도 저장하지도 않는다
-  addWalk: (productId: number, input: { dayNo: number; walkId: string }) =>
+  // 걷기 길로 넣기 (D9). 코스 식별자만 보낸다 — 이름은 보내지도 저장하지도 않는다. 시각을 주면 그 시각으로
+  // 넣고(편집 화면 · UI-S2-048), 안 주면 그 날 끝에 붙는다
+  addWalk: (productId: number, input: { dayNo: number; walkId: string; startTime?: string; endTime?: string }) =>
     request<ProductItem>(`/products/${productId}/items`, {
       method: "POST",
-      body: JSON.stringify({ dayNo: input.dayNo, itemType: "SIGHT", origin: "PICKER", excluded: { walkId: input.walkId } }),
+      body: JSON.stringify({
+        dayNo: input.dayNo, itemType: "SIGHT", origin: "PICKER", excluded: { walkId: input.walkId },
+        ...(input.startTime ? { startTime: input.startTime } : {}),
+        ...(input.startTime && input.endTime ? { endTime: input.endTime } : {}),
+      }),
     }),
 };
 

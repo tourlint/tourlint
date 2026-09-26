@@ -32,7 +32,7 @@ import {
   type ScheduleItem,
   type Transport,
 } from "./types";
-import type { PlanPlace } from "../../../lib/api";
+import type { PlanPlace, PlanWalk } from "../../../lib/api";
 import { koreaToday } from "../../../lib/workspace";
 import {
   CONCEPT_KEY,
@@ -206,6 +206,21 @@ export default function ProductNewPage() {
         return next;
       }),
     );
+  }
+
+  // 장소 담기에서 고른 걷기 길을 폼 일정에 끼운다 (UI-S2-048). 칸에는 코스 이름을 보이되 저장할 때는
+  // 식별자만 보낸다 — 직접 정한 곳으로 들어간다 (DR-MD-005)
+  function handleInsertWalk(w: PlanWalk, dayIdx: number, insertAt: number) {
+    insertSeq.current += 1;
+    const item: ScheduleItem = {
+      id: `wk-${insertSeq.current}`, start: "", end: "", place: w.name, itemType: "SIGHT", origin: "PICKER", walk: { walkId: w.walkId },
+    };
+    setSchedule((prev) => prev.map((items, i) => {
+      if (i !== dayIdx) return items;
+      const next = [...items];
+      next.splice(Math.max(0, Math.min(insertAt, next.length)), 0, item);
+      return next;
+    }));
   }
 
   async function onSubmit(e: FormEvent) {
@@ -441,6 +456,8 @@ export default function ProductNewPage() {
             anchor={anchor}
             schedule={schedule}
             onInsert={handleInsert}
+            onStartDateChange={setStartDate}
+            onInsertWalk={handleInsertWalk}
           />
         </aside>
       </div>

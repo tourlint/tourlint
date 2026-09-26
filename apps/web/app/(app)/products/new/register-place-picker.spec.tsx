@@ -82,3 +82,62 @@ describe("등록 화면 장소 담기 (UI-S2-036 · 037 · 038 · 043)", () => {
     expect(t.indexOf("무장애 편의")).toBeLessThan(t.indexOf("이용시간"));
   });
 });
+
+describe("등록 화면 장소 담기 — 행사 · 공연과 걷기 길 (UI-S2-048)", () => {
+  const walk = { walkId: "T_CRS_MNG0000000402", name: "해파랑길 35코스 바우길 09구간", lengthKm: 10, minutes: 210, level: 2 as const };
+  const renderWith = async (props: { onStartDateChange?: (d: string) => void; onInsertWalk?: (...a: unknown[]) => void } = {}) => {
+    await act(async () => root.render(
+      <RegisterPlacePicker regnCd="51" signguCd="150" startDate="2026-11-17" nights={1} regionLabel="강릉시" anchor={null}
+        schedule={[[{ id: "it-1", start: "10:00", end: "11:30", place: "강릉 경포대", itemType: "SIGHT" }], []]} onInsert={() => {}}
+        onStartDateChange={props.onStartDateChange ?? (() => {})} onInsertWalk={props.onInsertWalk ?? (() => {})} />,
+    ));
+    await settle();
+  };
+  const section = (title: string) => [...host.querySelectorAll("h3")].find((h) => h.textContent === title)?.parentElement ?? null;
+
+  it("🔴 기획 화면과 같은 행사 카드 — 「출발일을 MM월 DD일로」 는 폼의 출발일을 바꾼다", async () => {
+    vi.spyOn(planApi, "briefing").mockResolvedValue(briefing());
+    vi.spyOn(planApi, "events").mockResolvedValue({ window: { from: "2026-11-14", to: "2026-11-21" }, items: [
+      { contentId: "695592", contentTypeId: 15, title: "강릉 커피축제", eventStart: "2026-11-20", eventEnd: "2026-11-23", relation: "AFTER", suggestedStartDate: "2026-11-20", firstImage: null, mapx: null, mapy: null },
+    ] });
+    vi.spyOn(planApi, "walks").mockResolvedValue({ items: [], notice: "" });
+    const move = vi.fn();
+    await renderWith({ onStartDateChange: move });
+    expect(section("행사 · 공연")?.textContent).toContain("강릉 커피축제2026-11-20 ~ 2026-11-23 · 여행 뒤에 열려요");
+    await act(async () => btn("출발일을 11월 20일로")!.click());
+    expect(move).toHaveBeenCalledWith("2026-11-20");
+  });
+
+  it("행사가 0건이면 한 줄로 적는다", async () => {
+    vi.spyOn(planApi, "briefing").mockResolvedValue(briefing());
+    vi.spyOn(planApi, "events").mockResolvedValue({ window: { from: "2026-11-14", to: "2026-11-21" }, items: [] });
+    vi.spyOn(planApi, "walks").mockResolvedValue({ items: [], notice: "" });
+    await renderWith();
+    expect(section("행사 · 공연")?.textContent).toContain("여행 날짜 앞뒤 3일에 등록된 행사가 없어요");
+  });
+
+  it("🔴 걷기 길 [일정에 넣기]는 다른 카드처럼 일차 · 넣을 위치를 고른다", async () => {
+    vi.spyOn(planApi, "briefing").mockResolvedValue(briefing());
+    vi.spyOn(planApi, "events").mockResolvedValue({ window: { from: "2026-11-14", to: "2026-11-21" }, items: [] });
+    vi.spyOn(planApi, "walks").mockResolvedValue({ items: [walk], notice: "" });
+    const insert = vi.fn();
+    await renderWith({ onInsertWalk: insert });
+    const walks = section("걷기 길")!;
+    expect(walks.textContent).toContain("해파랑길 35코스 바우길 09구간10km · 약 210분 · 난이도 2");
+    expect(walks.textContent).toContain("넣으면 직접 정한 곳으로 들어가요.");
+    await act(async () => [...walks.querySelectorAll("button")].find((b) => b.textContent === "일정에 넣기")!.click());
+    const [daySelect, posSelect] = [...walks.querySelectorAll("select")];
+    await act(async () => { posSelect!.value = "1"; posSelect!.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(daySelect!.value).toBe("0");
+    await act(async () => [...walks.querySelectorAll("button")].find((b) => b.textContent === "여기에 넣기")!.click());
+    expect(insert).toHaveBeenCalledWith(walk, 0, 1);
+  });
+
+  it("🔴 걷기 길 목록을 못 받으면 그 칸만 「지금은 볼 수 없어요」", async () => {
+    vi.spyOn(planApi, "briefing").mockResolvedValue(briefing({ walks: null }));
+    vi.spyOn(planApi, "events").mockResolvedValue({ window: { from: "2026-11-14", to: "2026-11-21" }, items: [] });
+    vi.spyOn(planApi, "walks").mockResolvedValue({ items: [walk], notice: "" });
+    await renderWith();
+    expect(section("걷기 길")?.textContent).toContain("지금은 볼 수 없어요");
+  });
+});

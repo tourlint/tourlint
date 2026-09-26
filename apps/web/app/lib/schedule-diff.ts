@@ -20,6 +20,8 @@ export interface EditedItem {
   readonly origin?: InputItemOrigin;
   /** 「직접 정한 곳으로 두기」를 고른 줄 (UI-S2-021). 견주기는 이 값을 보지 않는다 — 저장이 따로 부른다 */
   readonly excluded?: boolean;
+  /** 장소 담기에서 넣은 걷기 길 (UI-S2-048). 새 항목에만 있다 — 걷기 길 추가로 넣는다 */
+  readonly walkId?: string;
   readonly dayNo: number;
   readonly seq: number;
   readonly startTime: string;

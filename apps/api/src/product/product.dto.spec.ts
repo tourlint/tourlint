@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateAddItem, validateCreate, validateUpdate, type CreateProductDto } from './product.dto';
+import { validateAddItem, validateCreate, validateUpdate, validateWalkItem, type CreateProductDto } from './product.dto';
 
 /**
  * 상품 등록 검증 — 순수 함수라 DB 없이 돈다. 서버가 저장 전에 다시 보는 가드다 (EX-IN-005).
@@ -256,5 +256,39 @@ describe('직접 정한 곳으로 둔 줄 (UI-S2-021 · FR-IN-025)', () => {
       { dayNo: 1, startTime: '10:00', endTime: '', placeLabel: '협력 공방', itemType: 'SIGHT', excluded }, 3).item?.excluded;
     expect(add(true)).toBe(true);
     expect(add()).toBe(false);
+  });
+});
+
+describe('등록 화면에서 담은 걷기 길 (UI-S2-048 · DR-MD-005)', () => {
+  it('🔴 excluded.walkId 줄은 장소명이 없어도 받고, 보내 온 코스 이름은 버린다', () => {
+    const { errors, product } = validateCreate(base({
+      days: [
+        { day: 1, items: [
+          { start: '09:30', end: '12:00', place: '', itemType: 'SIGHT', excluded: { walkId: 'T_CRS_MNG0000000401' }, origin: 'PICKER' },
+          { start: '13:00', end: '', place: '해파랑길 35코스', itemType: 'SIGHT', excluded: { walkId: 'T_CRS_MNG0000000402' } },
+        ] },
+        { day: 2, items: [] }, { day: 3, items: [] },
+      ],
+    }));
+    expect(errors).toEqual([]);
+    expect(product?.items.map((i) => [i.walkId, i.placeLabel, i.excluded, i.content])).toEqual([
+      ['T_CRS_MNG0000000401', '', true, null],
+      ['T_CRS_MNG0000000402', '', true, null],
+    ]);
+  });
+
+  it('식별자 없는 걷기 길은 거부한다', () => {
+    const { errors } = validateCreate(base({
+      days: [{ day: 1, items: [{ start: '09:30', end: '', place: '', itemType: 'SIGHT', excluded: {} }] }, { day: 2, items: [] }, { day: 3, items: [] }],
+    }));
+    expect(errors).toContain('1일차 1번 걷기 길 식별자가 필요합니다.');
+  });
+
+  it('🔴 편집 화면의 걷기 길 추가는 정한 시각을 받는다 — 없으면 전처럼 비워 둔다', () => {
+    const walk = (over: Record<string, unknown>) => validateWalkItem({ dayNo: 1, excluded: { walkId: 'W1' }, ...over }, 3);
+    expect(walk({ startTime: '09:30', endTime: '12:00' }).walk).toMatchObject({ startTime: '09:30', endTime: '12:00' });
+    expect(walk({}).walk).toMatchObject({ startTime: null, endTime: null });
+    expect(walk({ startTime: '9시' }).errors).toContain('시작 시각을 HH:MM 형식으로 입력하세요.');
+    expect(walk({ endTime: '12:00' }).errors).toContain('종료 시각만 보낼 수는 없습니다.');
   });
 });

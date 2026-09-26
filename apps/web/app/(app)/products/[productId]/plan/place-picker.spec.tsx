@@ -141,3 +141,17 @@ it('🔴 「자세히」에 상품 타깃을 넘긴다 — 단체 · 모임은 �
   expect(t.indexOf('주차')).toBeGreaterThan(-1);
   expect(t.indexOf('주차')).toBeLessThan(t.indexOf('이용시간'));
 });
+
+it('걷기 길 [일정에 넣기]는 전처럼 넣을 일차 끝에 바로 넣는다 — 시각은 서버가 채운다 (FR-PL-015)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing());
+  vi.spyOn(planApi, 'walks').mockResolvedValue({ items: [{ walkId: 'W1', name: '해파랑길 35코스', lengthKm: 10, minutes: 210, level: 2 }], notice: '' });
+  const addWalk = vi.spyOn(itemApi, 'addWalk').mockResolvedValue({} as Awaited<ReturnType<typeof itemApi.addWalk>>);
+  const inserted = vi.fn(async () => {});
+  await act(async () => root.render(<PlacePicker product={{ ...product, region: { regnName: '강원특별자치도', signguName: '강릉시' } } as ProductDetail} onInserted={inserted} initialDay={2} />));
+  await settle();
+  const walks = [...host.querySelectorAll('h3')].find(h => h.textContent === '걷기 길')!.parentElement!;
+  await act(async () => [...walks.querySelectorAll('button')].find(b => b.textContent === '일정에 넣기')!.click());
+  expect(addWalk).toHaveBeenCalledWith(42, { dayNo: 2, walkId: 'W1' });
+  expect(inserted).toHaveBeenCalledTimes(1);
+  expect(walks.querySelector('select')).toBeNull();
+});

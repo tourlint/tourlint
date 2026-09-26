@@ -85,3 +85,30 @@ describe("편집 화면 — 「직접 정한 곳으로 두기」 (UI-S2-021)", (
     expect(matchApi.exclude).not.toHaveBeenCalled();
   });
 });
+
+describe("편집 화면 — 장소 담기의 걷기 길 (UI-S2-048)", () => {
+  it("🔴 걷기 길을 넣고 시각을 적어 저장하면 식별자와 그 시각으로 넣는다 — 코스 이름은 보내지 않는다", async () => {
+    vi.spyOn(productApi, "detail").mockResolvedValue(product([row({ matchStatus: "CONFIRMED", ktoContentId: "125790", place: "경포대", itemType: "SIGHT" })]));
+    vi.spyOn(planApi, "briefing").mockResolvedValue({ region: { regnCd: "51", signguCd: "150", name: "강릉시" }, types: [], events: null, accessible: null, pet: null, walks: { count: 1 }, budget: "OK" });
+    vi.spyOn(planApi, "walks").mockResolvedValue({ items: [{ walkId: "T_CRS_MNG0000000402", name: "해파랑길 35코스 바우길 09구간", lengthKm: 10, minutes: 210, level: 2 }], notice: "" });
+    const addWalk = vi.spyOn(itemApi, "addWalk").mockResolvedValue({ itemId: 13 } as ProductItem);
+    const add = vi.spyOn(itemApi, "add");
+    const reorder = vi.spyOn(itemApi, "reorder").mockResolvedValue(undefined);
+    await act(async () => root.render(<EditForm productId={70} />));
+    await settle();
+    const walks = [...host.querySelectorAll("h3")].find((h) => h.textContent === "걷기 길")!.parentElement!;
+    await act(async () => [...walks.querySelectorAll("button")].find((b) => b.textContent === "일정에 넣기")!.click());
+    const pos = [...walks.querySelectorAll("select")][1]!;
+    await act(async () => { pos.value = "1"; pos.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => [...walks.querySelectorAll("button")].find((b) => b.textContent === "여기에 넣기")!.click());
+    expect(host.textContent).toContain("해파랑길 35코스 바우길 09구간");
+    const start = [...host.querySelectorAll("input")].filter((i) => i.type === "time").at(-2)!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(start, "12:30");
+    await act(async () => start.dispatchEvent(new Event("input", { bubbles: true })));
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(addWalk).toHaveBeenCalledWith(70, { dayNo: 1, walkId: "T_CRS_MNG0000000402", startTime: "12:30", endTime: "" });
+    expect(add).not.toHaveBeenCalled();
+    expect(reorder).toHaveBeenCalledWith(70, [{ itemId: 11, dayNo: 1, seq: 1 }, { itemId: 13, dayNo: 1, seq: 2 }]);
+  });
+});

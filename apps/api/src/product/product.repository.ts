@@ -601,23 +601,33 @@ export class ProductRepository {
    * `ck_item_walk` 가 walk_id 를 EXCLUDED 에만 허용한다.
    */
   async addWalkItem(productId: number, walk: WalkItemInput): Promise<ItemDetail> {
-    const prev = await this.pool.query<{ start_time: string; end_time: string | null }>(
-      `SELECT start_time, end_time FROM itinerary_item
-        WHERE product_id = $1 AND day_no = $2 ORDER BY seq DESC LIMIT 1`,
-      [productId, walk.dayNo],
-    );
-    const start = (prev.rows[0]?.end_time ?? prev.rows[0]?.start_time ?? '09:00').slice(0, 5);
-    const end = addMinutes(start, SETTING_DEFAULTS.dwellFallbackMinutes);
+    // 편집 화면이 시각을 정해 보냈으면 그대로 쓴다 (UI-S2-048). 아니면 그 날 끝 · 표준 체류시간이다
+    let start: string;
+    let end: string | null;
+    if (walk.startTime !== null) {
+      start = walk.startTime;
+      end = walk.endTime;
+    } else {
+      const prev = await this.pool.query<{ start_time: string; end_time: string | null }>(
+        `SELECT start_time, end_time FROM itinerary_item
+          WHERE product_id = $1 AND day_no = $2 ORDER BY seq DESC LIMIT 1`,
+        [productId, walk.dayNo],
+      );
+      start = (prev.rows[0]?.end_time ?? prev.rows[0]?.start_time ?? '09:00').slice(0, 5);
+      end = addMinutes(start, SETTING_DEFAULTS.dwellFallbackMinutes);
+    }
     const { rows } = await this.pool.query<ItemRaw>(
       `INSERT INTO itinerary_item
          (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
           match_status, origin, walk_id)
        VALUES ($1, $2,
                (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
-               $3, $4, 'DWELL_DEFAULT', NULL, $5, 'EXCLUDED', $6, $7)
+               $3, $4, $8, NULL, $5, 'EXCLUDED', $6, $7)
        RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin,
                    lcls_systm2, end_time_source`,
-      [productId, walk.dayNo, start, end, walk.itemType, walk.origin, walk.walkId],
+      [productId, walk.dayNo, start, end, walk.itemType, walk.origin, walk.walkId,
+        // 사람이 정한 끝 시각만 입력값이다
+        walk.startTime !== null && end !== null ? 'INPUT' : 'DWELL_DEFAULT'],
     );
     const row = rows[0];
     if (row === undefined) throw new Error('걷기 길 담기 결과가 비어 있다');
@@ -730,6 +740,16 @@ async function insertItem(
   productId: number,
   item: ValidItem,
 ): Promise<void> {
+  // 걷기 길 — 직접 정한 곳으로 코스 식별자만 남긴다. 코스 이름은 저장하지 않는다 (DR-MD-005 · UI-S2-048)
+  if (item.walkId !== null) {
+    await client.query(
+      `INSERT INTO itinerary_item
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status, origin, walk_id)
+       VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,'EXCLUDED',$8,$9)`,
+      [productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.itemType, item.origin, item.walkId],
+    );
+    return;
+  }
   // 입력하는 순간 고른 관광지가 있으면 CONFIRMED 로 넣는다 (UI-S2-020 · D8). place_label 은 사용자가
   // 친 이름 그대로 두고(공식 명칭은 표시할 때 읽는다 · DR-PR-001) 코드·좌표·분류만 채운다.
   // 줄이 들어온 경로도 남긴다 (FR-PL-020). 장소 담기로 넣은 줄은 기획 화면 장소 담기와 같이 고른

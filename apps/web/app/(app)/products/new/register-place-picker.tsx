@@ -4,15 +4,18 @@
 // 브리핑 · 장소를 부르고, [일정에 넣기]는 폼 일정에 곧바로 끼운다(서버 호출 없음).
 // 지역이 비어 있으면 기본 템플릿만 보이고, 지역을 넣으면 그 지역 장소로 채운다.
 // 점수 · 추천 · 인기 표현은 쓰지 않는다. 근처 3km 는 왼쪽에서 체크한 "고른 줄" 좌표를 기준으로 한다.
-// 칸은 접을 수 있고 처음에는 펼쳐 둔다 (UI-S2-036).
+// 칸은 접을 수 있고 처음에는 펼쳐 둔다 (UI-S2-036). 아래 행사 · 공연과 걷기 길은 기획 화면과 같은
+// 카드 · 규칙이고 폼만 바꾼다 — 출발일 칸, 일차와 넣을 위치를 고른 걷기 길 줄 (UI-S2-048).
 
-import { useEffect, useMemo, useState } from "react";
-import { isApiError, planApi, type PlanBriefing, type PlanPlace } from "../../../lib/api";
+import { useEffect, useState } from "react";
+import { isApiError, planApi, type PlanBriefing, type PlanPlace, type PlanWalk } from "../../../lib/api";
 import { BriefingStatus } from "../briefing-status";
 import { PlaceResults } from "../place-results";
 import { PlaceDetailView } from "../place-detail-view";
 import { NearGuide, PlaceFilters, appliedFilters, hasFilter, unavailableFilters } from "../place-filters";
-import { dayCount, type Nights, type Schedule, type ScheduleItem } from "./types";
+import { EventsSection, WalksSection } from "../plan-extras";
+import { InsertForm } from "./insert-form";
+import type { Nights, Schedule, ScheduleItem } from "./types";
 
 type NearKind = "MEAL" | "CAFE" | "STAY";
 const NEAR_KINDS: { kind: NearKind; label: string; itemType: ScheduleItem["itemType"] }[] = [
@@ -45,6 +48,8 @@ export function RegisterPlacePicker({
   anchor,
   schedule,
   onInsert,
+  onStartDateChange,
+  onInsertWalk,
 }: {
   regnCd: string;
   signguCd: string | null;
@@ -57,6 +62,10 @@ export function RegisterPlacePicker({
   anchor: RegisterAnchor | null;
   schedule: Schedule;
   onInsert: (place: PlanPlace, dayIdx: number, insertAt: number, itemType: ScheduleItem["itemType"]) => void;
+  /** 행사 카드의 「출발일을 MM월 DD일로」 — 폼의 출발일을 바꾼다. 없으면 행사 칸을 두지 않는다 */
+  onStartDateChange?: (date: string) => void;
+  /** 걷기 길 카드의 [일정에 넣기] — 폼 일정에 걷기 길 줄을 끼운다. 없으면 걷기 길 칸을 두지 않는다 */
+  onInsertWalk?: (walk: PlanWalk, dayIdx: number, insertAt: number) => void;
 }) {
   const [lcls2, setLcls2] = useState<string | null>(openType);
   const [nearKind, setNearKind] = useState<NearKind | null>(null);
@@ -256,6 +265,15 @@ export function RegisterPlacePicker({
         </div>
       )}
 
+      {/* 행사 · 공연 · 걷기 길 — 기획 화면과 같은 카드 · 규칙 (UI-S2-048 · FR-PL-014 · 015) */}
+      {ready && onStartDateChange !== undefined && (
+        <EventsSection regnCd={regnCd} signguCd={signguCd} startDate={startDate} nights={nights} onMoveStart={onStartDateChange} />
+      )}
+      {ready && onInsertWalk !== undefined && (
+        <WalksSection regnCd={regnCd} signguCd={signguCd} unavailable={briefing !== null && briefing.walks === null}
+          choose={{ nights, schedule, onInsert: onInsertWalk }} />
+      )}
+
       <p className="mt-4 text-xs text-slate-400">출처: ⓒ한국관광공사 · 사진 변경금지</p>
     </section>
   );
@@ -322,62 +340,5 @@ function PlaceCard({
       {expanded && <PlaceDetailView place={p} target={target} />}
       {inserting && <InsertForm nights={nights} schedule={schedule} onConfirm={onInsert} />}
     </li>
-  );
-}
-
-// 어느 일차 · 어느 자리에 넣을지 고르는 작은 폼 (개편안 4-3 넣을 위치). 맨 앞 · 맨 뒤 포함.
-function InsertForm({ nights, schedule, onConfirm }: { nights: Nights; schedule: Schedule; onConfirm: (dayIdx: number, insertAt: number) => void }) {
-  const [dayIdx, setDayIdx] = useState(0);
-  const [insertAt, setInsertAt] = useState(0);
-  const days = dayCount(nights);
-  const items = useMemo(() => schedule[dayIdx] ?? [], [schedule, dayIdx]);
-
-  // 위치 옵션: 맨 앞(0) · 각 항목 다음(i+1). 마지막 항목 다음 = 맨 뒤.
-  const positions = useMemo(() => {
-    const opts: { value: number; label: string }[] = [{ value: 0, label: items.length === 0 ? "맨 앞 (첫 항목)" : "맨 앞" }];
-    items.forEach((it, i) => {
-      const name = it.place.trim() !== "" ? it.place : `${i + 1}번째 항목`;
-      opts.push({ value: i + 1, label: i === items.length - 1 ? `${name} 다음 (맨 뒤)` : `${name} 다음` });
-    });
-    return opts;
-  }, [items]);
-
-  // 일차를 바꾸면 위치가 범위를 벗어날 수 있어 맨 앞으로 되돌린다
-  const safeInsertAt = Math.min(insertAt, items.length);
-
-  return (
-    <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
-      <label className="flex flex-col gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-        일차
-        <select
-          value={dayIdx}
-          onChange={(e) => { setDayIdx(Number(e.target.value)); setInsertAt(0); }}
-          className="rounded-md border border-slate-300 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
-        >
-          {Array.from({ length: days }, (_, d) => (
-            <option key={d} value={d}>{d + 1}일차</option>
-          ))}
-        </select>
-      </label>
-      <label className="flex min-w-0 flex-1 flex-col gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-        넣을 위치
-        <select
-          value={safeInsertAt}
-          onChange={(e) => setInsertAt(Number(e.target.value))}
-          className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
-        >
-          {positions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      </label>
-      <button
-        type="button"
-        onClick={() => onConfirm(dayIdx, safeInsertAt)}
-        className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
-      >
-        여기에 넣기
-      </button>
-    </div>
   );
 }
