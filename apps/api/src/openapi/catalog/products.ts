@@ -92,6 +92,7 @@ export const PRODUCTS: readonly Endpoint[] = [
         'days.items.itemType': 'SIGHT(관광) · MEAL(식사) · LODGING(숙박) · REST(휴식) · MOVE(이동) · FREE(자유)',
         'days.items.origin': '그 줄이 들어온 경로 — MANUAL(직접 입력) · UPLOAD(엑셀) · TEXT(메모) · PICKER(장소 담기). 없으면 MANUAL',
         'days.items.content': '고른 관광지(선택)',
+        'days.items.excluded': 'true 면 직접 정한 곳(검수 제외)으로 저장합니다. 고른 관광지가 있으면 무시. 걷기 길은 `{ walkId }` — 장소명은 저장하지 않습니다',
         'days.items.content.contentId': '관광지 번호',
         'days.items.content.contentTypeId': '관광지 유형 코드',
         'days.items.content.lcls1': '대분류 코드',

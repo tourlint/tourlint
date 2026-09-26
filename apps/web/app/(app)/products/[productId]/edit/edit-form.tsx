@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { isApiError, itemApi, productApi, type PlanPlace, type ProductDetail, type ProductUpdate } from "../../../../lib/api";
+import { isApiError, itemApi, matchApi, productApi, type PlanPlace, type PlanWalk, type ProductDetail, type ProductUpdate } from "../../../../lib/api";
 import { isEmptyPlan, planSchedule, type EditedItem } from "../../../../lib/schedule-diff";
 import { Field, Section, Segmented, SelectInput, TextInput } from "../../new/controls";
 import { ScheduleEditor } from "../../new/schedule-editor";
@@ -127,6 +127,20 @@ export function EditForm({ productId }: { productId: number }) {
     );
   }
 
+  // 장소 담기에서 고른 걷기 길을 폼 일정에 끼운다 — 저장할 때 걷기 길 추가로 넣는다 (UI-S2-048)
+  function handleInsertWalk(w: PlanWalk, dayIdx: number, insertAt: number) {
+    insertSeq.current += 1;
+    const item: ScheduleItem = {
+      id: `wk-${insertSeq.current}`, start: "", end: "", place: w.name, itemType: "SIGHT", origin: "PICKER", walk: { walkId: w.walkId },
+    };
+    setSchedule((prev) => prev.map((items, i) => {
+      if (i !== dayIdx) return items;
+      const next = [...items];
+      next.splice(Math.max(0, Math.min(insertAt, next.length)), 0, item);
+      return next;
+    }));
+  }
+
   async function save() {
     if (loaded === null || basic === null) return;
     // 추가만 하고 만 줄은 보내지 않고, 채우다 만 줄은 짚어 준다 (#673)
@@ -153,8 +167,11 @@ export function EditForm({ productId }: { productId: number }) {
          */
         const newIds = new Map<number, number>();
         for (const [i, add] of plan.added.entries()) {
-          // 장소 담기로 고른 곳은 확정으로 넣는다 — 손으로 친 줄과 호출이 다르다 (FR-PL-013)
-          const created = add.content
+          // 장소 담기로 고른 곳은 확정으로 넣는다 — 손으로 친 줄과 호출이 다르다 (FR-PL-013).
+          // 걷기 길은 식별자와 정한 시각만 보낸다 — 코스 이름은 보내지 않는다 (DR-MD-005 · UI-S2-048)
+          const created = add.walkId !== undefined
+            ? await itemApi.addWalk(productId, { dayNo: add.dayNo, walkId: add.walkId, startTime: add.startTime, endTime: add.endTime })
+            : add.content
             ? await itemApi.addPicked(productId, {
                 dayNo: add.dayNo,
                 itemType: add.itemType,
@@ -166,6 +183,8 @@ export function EditForm({ productId }: { productId: number }) {
                 placeLabel: add.placeLabel, itemType: add.itemType,
                 // 편집 화면에서 친 줄은 직접 입력, 엑셀 · 메모로 채운 줄은 그 경로 (FR-PL-020)
                 origin: add.origin ?? "MANUAL",
+                // 「직접 정한 곳으로 두기」를 고른 새 줄 (UI-S2-021)
+                ...(add.excluded ? { excluded: true } : {}),
               });
           newIds.set(i, created.itemId);
         }
@@ -178,6 +197,15 @@ export function EditForm({ productId }: { productId: number }) {
             seq: it.seq,
           }));
           await itemApi.reorder(productId, order);
+        }
+      }
+      /*
+       * 고르는 중이던 저장된 줄에 「직접 정한 곳으로 두기」를 골랐으면 직접 정한 곳으로 바꾼다 (UI-S2-021).
+       * 순서 · 시각 비교(planSchedule)와 따로다 — 그것만 바꿨으면 비교는 빈 계획이다
+       */
+      for (const it of filled.flat()) {
+        if (it.itemId !== undefined && it.excluded === true && it.saved?.matchStatus === "PENDING") {
+          await matchApi.exclude(it.itemId);
         }
       }
       router.push(`/products/${productId}${loaded.plannedAt === null ? "/plan" : ""}`);
@@ -365,9 +393,12 @@ export function EditForm({ productId }: { productId: number }) {
             nights={loaded.nights as Nights}
             regionLabel={loaded.region.signguName || loaded.region.regnName || "이 지역"}
             openType={null}
+            target={basic.targetKey || null}
             anchor={anchor}
             schedule={schedule}
             onInsert={handleInsert}
+            onStartDateChange={(date) => setBasic({ ...basic, startDate: date })}
+            onInsertWalk={handleInsertWalk}
           />
         </aside>
       </div>
@@ -408,6 +439,8 @@ function toEdited(schedule: Schedule): EditedItem[] {
         itemType: it.itemType,
         ...(it.content ? { content: it.content } : {}),
         ...(it.origin ? { origin: it.origin } : {}),
+        ...(it.excluded && !it.content ? { excluded: true } : {}),
+        ...(it.walk ? { walkId: it.walk.walkId } : {}),
       });
     });
   });

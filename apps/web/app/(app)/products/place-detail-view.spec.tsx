@@ -72,3 +72,36 @@ it("🔴 문의처를 적는다 (UI-S2-040)", async () => {
   await settle();
   expect(host.textContent).toContain("문의 033-660-3301");
 });
+
+// 타깃에 따라 앞에 오는 정보 (UI-S2-040)
+const everything = detail({
+  hours: "09:00~18:00", restDays: "매주 월요일", fee: "3,000원", parking: "가능(무료)", contact: "033-660-3301",
+  accessible: { wheelchair: "대여 가능" }, pet: { acmpyTypeCd: "전구역 동반가능" },
+});
+const order = (text: string, labels: string[]) => labels.map((l) => text.indexOf(l));
+const increasing = (xs: number[]) => xs.every((x, i) => x >= 0 && (i === 0 || x > xs[i - 1]!));
+
+it("🔴 시니어 · 가족(아이 동반)은 무장애 편의가 맨 앞이다", async () => {
+  vi.spyOn(planApi, "placeDetail").mockResolvedValue(everything);
+  for (const target of ["SENIOR", "FAMILY_KIDS"]) {
+    await act(async () => root.render(<PlaceDetailView key={target} place={place({ wheelchair: true, pet: true })} target={target} />));
+    await settle();
+    expect(increasing(order(host.textContent ?? "", ["무장애 편의", "이용시간", "쉬는 날", "요금", "주차", "문의", "반려동물 동반"])), target).toBe(true);
+  }
+});
+
+it("🔴 단체 · 모임은 주차 · 요금이 앞이다", async () => {
+  vi.spyOn(planApi, "placeDetail").mockResolvedValue(everything);
+  await act(async () => root.render(<PlaceDetailView place={place({ wheelchair: true, pet: true })} target="GROUP" />));
+  await settle();
+  expect(increasing(order(host.textContent ?? "", ["주차", "요금", "이용시간", "쉬는 날", "문의", "무장애 편의", "반려동물 동반"]))).toBe(true);
+});
+
+it("그 밖의 타깃 · 타깃 없음은 지금 순서다", async () => {
+  vi.spyOn(planApi, "placeDetail").mockResolvedValue(everything);
+  for (const target of ["YOUTH_20S", null]) {
+    await act(async () => root.render(<PlaceDetailView key={String(target)} place={place({ wheelchair: true, pet: true })} target={target} />));
+    await settle();
+    expect(increasing(order(host.textContent ?? "", ["이용시간", "쉬는 날", "요금", "주차", "문의", "무장애 편의", "반려동물 동반"])), String(target)).toBe(true);
+  }
+});

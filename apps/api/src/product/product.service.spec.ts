@@ -181,6 +181,17 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     expect(days[0]?.items.map((i) => i.seq)).toEqual([1, 2]);
   });
 
+  it('🔴 항목 추가의 excluded: true 는 직접 정한 곳이다 — 걷기 길(excluded 객체)로 읽지 않는다 (UI-S2-021)', async () => {
+    const { productId } = await makeProduct();
+    const added = await service.addItem(accountId, productId, {
+      dayNo: 1, startTime: '18:00', endTime: '', placeLabel: '협력 공방', itemType: 'SIGHT', excluded: true,
+    });
+    expect(added.matchStatus).toBe('EXCLUDED');
+    const { rows } = await pool.query<{ walk_id: string | null; place_label: string | null }>(
+      `SELECT walk_id, place_label FROM itinerary_item WHERE id = $1`, [added.itemId]);
+    expect(rows[0]).toEqual({ walk_id: null, place_label: '협력 공방' });
+  });
+
   it('🔴 상세의 항목에 중분류와 끝 시각 출처가 실린다 — 화면이 「기본값 적용 · N분」 을 보인다 (FR-IN-011)', async () => {
     const { productId } = await makeProduct();
     const cafe = picked(REPLACEMENT);

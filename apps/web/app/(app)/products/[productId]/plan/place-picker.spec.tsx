@@ -117,3 +117,41 @@ it('🔴 행사가 0건이면 칸을 숨기지 않고 한 줄로, 못 받았으�
   expect(events()).toContain('지금은 볼 수 없어요');
   expect(events()).not.toContain('등록된 행사가 없어요');
 });
+
+it('🔴 빈 「넣을 위치」는 동작대로 「맨 뒤」 — 넣으면 그 일차 끝에 붙는다 (UI-S2-039)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing());
+  const insert = vi.spyOn(itemApi, 'addPicked').mockResolvedValue({} as Awaited<ReturnType<typeof itemApi.addPicked>>);
+  await renderPicker({ openType: 'VE07' });
+  const anchorSelect = host.querySelectorAll('select')[1]!;
+  expect(anchorSelect.value).toBe('');
+  expect(anchorSelect.options[0]?.textContent).toBe('맨 뒤');
+  expect(text()).not.toContain('고른 장소 다음');
+  await act(async () => btn('일정에 넣기')!.click());
+  expect(insert).toHaveBeenCalledWith(42, expect.objectContaining({ dayNo: 1, afterItemId: null }));
+});
+
+it('🔴 「자세히」에 상품 타깃을 넘긴다 — 단체 · 모임은 주차가 앞 (UI-S2-040)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing());
+  vi.spyOn(planApi, 'placeDetail').mockResolvedValue({ contentId: '100', hours: '11:00~21:00', restDays: null, fee: null, parking: '가능', eventPeriod: null, contact: null });
+  await act(async () => root.render(<PlacePicker product={{ ...product, targetKey: 'GROUP', region: { regnName: '강원특별자치도', signguName: '강릉시' } } as ProductDetail} onInserted={async () => {}} openType="VE07" />));
+  await settle();
+  await act(async () => btn('자세히')!.click());
+  await settle();
+  const t = text();
+  expect(t.indexOf('주차')).toBeGreaterThan(-1);
+  expect(t.indexOf('주차')).toBeLessThan(t.indexOf('이용시간'));
+});
+
+it('걷기 길 [일정에 넣기]는 전처럼 넣을 일차 끝에 바로 넣는다 — 시각은 서버가 채운다 (FR-PL-015)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing());
+  vi.spyOn(planApi, 'walks').mockResolvedValue({ items: [{ walkId: 'W1', name: '해파랑길 35코스', lengthKm: 10, minutes: 210, level: 2 }], notice: '' });
+  const addWalk = vi.spyOn(itemApi, 'addWalk').mockResolvedValue({} as Awaited<ReturnType<typeof itemApi.addWalk>>);
+  const inserted = vi.fn(async () => {});
+  await act(async () => root.render(<PlacePicker product={{ ...product, region: { regnName: '강원특별자치도', signguName: '강릉시' } } as ProductDetail} onInserted={inserted} initialDay={2} />));
+  await settle();
+  const walks = [...host.querySelectorAll('h3')].find(h => h.textContent === '걷기 길')!.parentElement!;
+  await act(async () => [...walks.querySelectorAll('button')].find(b => b.textContent === '일정에 넣기')!.click());
+  expect(addWalk).toHaveBeenCalledWith(42, { dayNo: 2, walkId: 'W1' });
+  expect(inserted).toHaveBeenCalledTimes(1);
+  expect(walks.querySelector('select')).toBeNull();
+});

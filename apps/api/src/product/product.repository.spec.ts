@@ -156,6 +156,53 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     ]);
   });
 
+  it('🔴 「직접 정한 곳으로 두기」를 고른 줄은 직접 정한 곳(EXCLUDED)으로 저장한다 (UI-S2-021)', async () => {
+    const { product } = validateCreate({
+      name: '강릉 직접 정한 곳 스펙', ldongRegnCd: '51', ldongSignguCd: '150',
+      startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        { start: '09:00', end: '09:30', place: '강릉역', itemType: 'MOVE', excluded: true },
+        { start: '10:00', end: '', place: '경포해변', itemType: 'SIGHT' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await repo.create(accountA, product);
+    const byLabel = new Map((await repo.detail(accountA, productId))?.items.map((i) => [i.place, i.matchStatus]));
+    expect(byLabel.get('강릉역')).toBe('EXCLUDED');
+    expect(byLabel.get('경포해변')).toBe('PENDING');
+
+    // 편집 화면에서 새로 넣은 줄도 같다
+    const added = await repo.addItem(productId, {
+      dayNo: 1, startTime: '18:00', endTime: null, endTimeSource: 'DWELL_DEFAULT',
+      placeLabel: '협력 공방', itemType: 'SIGHT', origin: 'MANUAL', excluded: true,
+    });
+    expect(added.matchStatus).toBe('EXCLUDED');
+  });
+
+  it('🔴 등록 화면에서 담은 걷기 길은 직접 정한 곳으로 코스 식별자만 남긴다 (UI-S2-048 · DR-MD-005)', async () => {
+    const { product } = validateCreate({
+      name: '강릉 걷기 길 스펙', ldongRegnCd: '51', ldongSignguCd: '150',
+      startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        { start: '09:30', end: '12:00', place: '해파랑길 35코스', itemType: 'SIGHT', excluded: { walkId: 'T_CRS_MNG0000000402' }, origin: 'PICKER' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await repo.create(accountA, product);
+    const { rows } = await pool.query<{ match_status: string; walk_id: string | null; place_label: string | null; origin: string | null; start_time: string; end_time: string | null }>(
+      `SELECT match_status, walk_id, place_label, origin, start_time::text, end_time::text FROM itinerary_item WHERE product_id = $1`, [productId]);
+    expect(rows[0]).toEqual({ match_status: 'EXCLUDED', walk_id: 'T_CRS_MNG0000000402', place_label: null, origin: 'PICKER', start_time: '09:30:00', end_time: '12:00:00' });
+  });
+
+  it('🔴 편집 화면이 시각을 정해 보낸 걷기 길은 그 시각으로 넣는다', async () => {
+    const p = (await repo.create(accountA, sample())).productId;
+    const timed = await repo.addWalkItem(p, { dayNo: 1, itemType: 'SIGHT', origin: 'PICKER', walkId: 'W-1', startTime: '14:00', endTime: '16:30' });
+    expect([timed.start, timed.end, timed.endTimeSource]).toEqual(['14:00', '16:30', 'INPUT']);
+    // 시각이 없으면 전처럼 그 날 끝 · 표준 체류시간이다
+    const auto = await repo.addWalkItem(p, { dayNo: 1, itemType: 'SIGHT', origin: 'PICKER', walkId: 'W-2', startTime: null, endTime: null });
+    expect([auto.start, auto.end, auto.endTimeSource]).toEqual(['16:30', '18:00', 'DWELL_DEFAULT']);
+  });
+
   it('삭제하면 일정 항목도 CASCADE 로 함께 지워진다', async () => {
     const created = await repo.create(accountA, sample());
     expect(await repo.remove(accountA, created.productId)).toBe(true);
@@ -173,6 +220,7 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
       placeLabel: '야식',
       itemType: 'MEAL',
       origin: 'TEXT',
+      excluded: false,
     });
     expect(added.matchStatus).toBe('PENDING');
     // 편집 화면에서 메모로 채운 줄이다 (FR-PL-020)
