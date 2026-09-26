@@ -71,7 +71,8 @@ export function withPairNames(rule: string, message: string, evidence: Record<st
   const sources = [evidence.first, evidence.second].map((x) => (x as { endTimeSource?: unknown } | undefined)?.endTimeSource);
   if (sources.every((x) => typeof x === 'string')) {
     const estimated = [n1, n2].filter((_, i) => sources[i] !== 'INPUT');
-    rest = rest.replace(/ \((.*) 은 기본 체류시간을 적용한 값입니다\)$/, ` (${estimated.join(' · ')} 은 기본 체류시간을 적용한 값입니다)`);
+    // 바꿀 글을 함수로 준다 — 이름에 `$&` · `$1` 같은 글자가 있으면 치환 문자열로 읽혀 문장이 깨진다
+    rest = rest.replace(/ \((.*) 은 기본 체류시간을 적용한 값입니다\)$/, () => ` (${estimated.join(' · ')} 은 기본 체류시간을 적용한 값입니다)`);
   }
   return `${n1}(${m[2] ?? ''}) 와 ${n2}(${m[4] ?? ''}) 가 ${rest}`;
 }
