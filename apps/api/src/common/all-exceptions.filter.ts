@@ -80,6 +80,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
 /** 형식이 틀린 입력 — 무엇이 틀렸는지 우리 문구가 없을 때 쓴다 */
 export const INPUT_INVALID_MESSAGE = '보낸 값의 형식이 올바르지 않습니다. 요청 본문과 파라미터를 확인해 주세요.';
 
+/**
+ * 올린 파일이 업로드 안전망(20MB)을 넘었다. multer 가 413 과 영어 문구(`File too large`)로 던진다 —
+ * 5MB 상한 안내와 같은 말로 바꾼다 (EX-IN-003 · NF-SC-006).
+ */
+export const PAYLOAD_TOO_LARGE_MESSAGE = '올린 파일이 너무 큽니다. 5MB 이하로 줄여 주세요.';
+
 function pickReasonCode(body: Record<string, unknown>, status: number): ExceptionReasonCode {
   if (typeof body.reasonCode === 'string') return body.reasonCode as ExceptionReasonCode;
   /*
@@ -88,6 +94,7 @@ function pickReasonCode(body: Record<string, unknown>, status: number): Exceptio
    * (EX-CM-021 · #612).
    */
   if (status === HttpStatus.BAD_REQUEST) return 'INPUT_INVALID';
+  if (status === HttpStatus.PAYLOAD_TOO_LARGE) return 'UPLOAD_LIMIT_EXCEEDED';
   if (status === HttpStatus.NOT_FOUND) return 'NOT_FOUND';
   if (status === HttpStatus.UNAUTHORIZED) return 'NOT_AUTHENTICATED';
   if (status === HttpStatus.FORBIDDEN) return 'FORBIDDEN_ACTION';
@@ -107,6 +114,7 @@ function pickMessage(body: Record<string, unknown>, status: number): string {
    * ("Expected double-quoted property name in JSON at position 27")가 그대로 나갔다 (#612).
    */
   if (status === HttpStatus.BAD_REQUEST && !/[가-힣]/.test(message)) return INPUT_INVALID_MESSAGE;
+  if (status === HttpStatus.PAYLOAD_TOO_LARGE && !/[가-힣]/.test(message)) return PAYLOAD_TOO_LARGE_MESSAGE;
   return message !== '' ? message : '요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.';
 }
 

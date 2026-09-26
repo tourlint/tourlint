@@ -1,11 +1,11 @@
-import { BadRequestException, HttpStatus, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpStatus, NotFoundException, PayloadTooLargeException } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
 import { EXTERNAL_UNAVAILABLE_MESSAGE } from '@tourlint/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { KtoFetchError, KtoQuotaExceededError } from '../external/kto/kto.errors';
 import { RouteProviderError } from '../external/kakao/kakao.errors';
 import { ForecastProviderError } from '../external/kma/kma.errors';
-import { AllExceptionsFilter, INPUT_INVALID_MESSAGE } from './all-exceptions.filter';
+import { AllExceptionsFilter, INPUT_INVALID_MESSAGE, PAYLOAD_TOO_LARGE_MESSAGE } from './all-exceptions.filter';
 import { DomainException, RateLimitException } from './domain.exception';
 
 /**
@@ -111,6 +111,15 @@ describe('입력 형식 오류 (EX-CM-021 · #612)', () => {
   it('사유코드를 실은 400 은 그 코드를 그대로 쓴다', () => {
     const { body } = run(new DomainException(HttpStatus.BAD_REQUEST, 'DISMISS_REASON_REQUIRED', '무시하려면 사유를 입력해 주세요.', 'REQUEST'));
     expect(body.reasonCode).toBe('DISMISS_REASON_REQUIRED');
+  });
+});
+
+describe('업로드 안전망 초과 (NF-SC-006 · EX-IN-003 · #868)', () => {
+  it('🔴 multer 의 413 은 UPLOAD_LIMIT_EXCEEDED 와 우리 문구다 — INTERNAL_ERROR · 영어 문구로 나가지 않는다', () => {
+    // 20MB 를 넘는 파일에 multer 가 던지는 그대로다 (@nestjs/platform-express transformException)
+    const { status, body } = run(new PayloadTooLargeException('File too large'));
+    expect(status).toBe(HttpStatus.PAYLOAD_TOO_LARGE);
+    expect(body).toMatchObject({ reasonCode: 'UPLOAD_LIMIT_EXCEEDED', message: PAYLOAD_TOO_LARGE_MESSAGE });
   });
 });
 

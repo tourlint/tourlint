@@ -545,6 +545,8 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 	자연어 입력 5,000자 초과 → 400
 	일부 행 형식 오류 → **200 + 정상 행 유지 + 실패 행 번호·사유 반환** (전체 거부 아님)
 	박수와 일자별 일정 수 불일치 → 400 `DAY_COUNT_MISMATCH`
+	확장자가 .xlsx · .csv 가 아님 · 내용이 형식과 다름(xlsx 는 `PK` 로 시작, CSV 는 NUL 없는 글자) · MIME 이 이미지 · PDF 처럼 명백히 다름 · 파서가 못 읽음 → 400 `UPLOAD_FORMAT_INVALID`
+	20MB 초과(업로드 안전망) → 413 `UPLOAD_LIMIT_EXCEEDED`
 	업로드 파일은 파싱 후 폐기하며 서버에 영구 저장하지 않습니다 (NF-SC-006).
 </callout>
 ## 4-4. 관광지 매칭 · 공사 코드 프록시 (F02)
