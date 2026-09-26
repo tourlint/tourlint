@@ -1224,8 +1224,8 @@ function UnverifiedSection({
         <p>정보가 부족하거나 운영기관 확인이 필요한 항목이에요. 확인 표시는 점수를 바꾸지 않습니다.</p>
       </div></div>
       {items.length === 0 && <p className="audit-empty">이번 검수에서 별도로 확인할 항목이 없습니다.</p>}
-      {/* 전화로 물어볼 내용 정리 (FR-AG-020~022) */}
-      {items.length > 0 && <CheckQuestionsCard runId={runId} itemLabel={itemLabel} />}
+      {/* 전화로 물어볼 내용 정리 (FR-AG-020~022 · UI-S3-036 · 037). 곳마다 [확인했어요]는 아래 목록과 같은 확인이다 */}
+      {items.length > 0 && <CheckQuestionsCard runId={runId} itemLabel={itemLabel} items={items} onChanged={onChanged} />}
       <ul className="mt-3 space-y-2">
         {items.map((item) => (
           <UnverifiedRow key={item.findingId} item={item} itemLabel={itemLabel} onChanged={onChanged} />
