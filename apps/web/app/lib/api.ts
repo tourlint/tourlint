@@ -757,12 +757,37 @@ export interface RadarNotification {
   impact: string;
   action: string;
   hidden: boolean;
+  // 새 소식의 넣을 자리 · 사전 확인 (UI-S7-008). 배치가 남기기 전 알림 · 바뀐 정보는 null
+  opportunity?: OpportunityView | null;
+  // 알림 직전 검수와 알림 뒤 첫 검수에서 그 곳의 판정 차이 (FR-RU-061). 견줄 두 검수가 없으면 null
+  verdictDiff?: VerdictDiff | null;
   // 지문 비교값. 조건 2·3 은 지문 이력이 없어 from·to 가 둘 다 null 이다 (FR-MO-058)
   fingerprint: { from: string | null; to: string | null };
   dismissable: boolean;
   readAt: string | null;
   dismissedAt: string | null;
   createdAt: string;
+}
+
+export interface OpportunityView {
+  slot: { dayNo: number; from: string; to: string | null; minutes: number; dwellMinutes: number } | null;
+  slotMissing: "NO_GAP" | "DWELL_UNKNOWN" | null;
+  precheck: {
+    travel: "FITS" | "SHORT" | "UNKNOWN";
+    inMinutes: number | null;
+    outMinutes: number | null;
+    addedMinutes: number | null;
+    shortMinutes: number | null;
+    currentTimeBased: boolean;
+  } | null;
+  /** 이동시간을 잰 곳. 잰 값이 없으면 null */
+  travelSource: string | null;
+}
+
+export interface VerdictDiff {
+  added: { ruleCode: string; severity: Severity }[];
+  removed: { ruleCode: string; severity: Severity }[];
+  changed: { ruleCode: string; from: Severity; to: Severity }[];
 }
 
 export interface NotificationPage {

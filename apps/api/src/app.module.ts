@@ -30,7 +30,7 @@ import { CatalogService } from './catalog/catalog.service';
 const WARM_TIMEOUT_MS = 25_000;
 import { DemoController } from './demo/demo.controller';
 import { ktoBudgetGuard } from './external/budget-guard';
-import { KakaoMobilityClient, createKakaoTransport } from './external/kakao';
+import { KakaoMobilityClient, createKakaoTransport, isKakaoError } from './external/kakao';
 import { KtoClient, createKtoClient, createKtoTransport } from './external/kto';
 import { LlmClient, createProvider, readLlmConfig } from './external/llm';
 import { LlmNotConfiguredError } from './external/llm';
@@ -252,6 +252,30 @@ import { SettingsRepository } from './settings/settings.repository';
           requestAudit: async (productId: number) => {
             await audit.requestAudit(productId, 'BATCH');
           },
+          /*
+           * 새 소식의 넣을 자리를 미리 볼 때만 길찾기를 부른다 (UI-S7-008 · FR-MO-052). 상한 안에 든 새 소식만,
+           * 한 배치에 스무 건까지다. 키가 없거나 실패하면 그 구간을 모른다고 남긴다 — 알림은 그대로 만든다.
+           */
+          travel: (() => {
+            let kakao: KakaoMobilityClient | null | undefined;
+            return async (from: { x: number; y: number }, to: { x: number; y: number }, departureAt: string | null) => {
+              if (kakao === undefined) {
+                try {
+                  kakao = new KakaoMobilityClient({ transport: createKakaoTransport(), logger: logs });
+                } catch {
+                  kakao = null;
+                }
+              }
+              if (kakao === null) return null;
+              try {
+                const route = await kakao.route(from, to, departureAt);
+                return { minutes: Math.ceil(route.durationSeconds / 60), futureBased: route.futureBased };
+              } catch (e) {
+                if (isKakaoError(e)) return null;
+                throw e;
+              }
+            };
+          })(),
         });
       },
       inject: [DB_POOL, AuditService],

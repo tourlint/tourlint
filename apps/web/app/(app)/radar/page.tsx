@@ -23,11 +23,13 @@ import {
   type SignalDetail,
   type TodayBrief,
   type TodayItem,
+  type VerdictDiff,
 } from "../../lib/api";
 import { loadWorkspaceProducts } from "../../lib/workspace-products";
 import { isPastTrip } from "../../lib/workspace";
 import { WorkspaceIcon } from "../../components/workspace-icon";
-import { StatusBadge } from "../../components/badges";
+import { SourceBadge, StatusBadge, gradeLabel } from "../../components/badges";
+import { ruleName } from "../../lib/rule-names";
 import { AuditBasis } from "../../components/audit-basis";
 import { addKeyword, removeKeyword } from "../../lib/radar-keywords";
 import { hasRegionNews, regionPlanHref } from "../../lib/region-news";
@@ -357,6 +359,21 @@ export function reauditLine(createdAt: string, audit: AuditNow | null): string |
   return `알림 뒤에 다시 검수했어요 · ${score} · 차단 ${audit.counts.blocker} · 오류 ${audit.counts.error}`;
 }
 
+/**
+ * 재검수 판정 차이 한 줄 (FR-RU-061). 규칙은 화면 말 이름으로, 등급은 명세 용어로 적는다 — 규칙 번호를
+ * 적지 않는다(UI-CM-040). 달라진 것이 없으면 그렇게 말한다.
+ */
+export function verdictDiffLine(diff: VerdictDiff): string {
+  const parts = [
+    diff.added.length > 0 ? `새로 생김 ${diff.added.map((a) => `${ruleName(a.ruleCode)} ${gradeLabel(a.severity)}`).join(", ")}` : null,
+    diff.removed.length > 0 ? `사라짐 ${diff.removed.map((r) => `${ruleName(r.ruleCode)} ${gradeLabel(r.severity)}`).join(", ")}` : null,
+    diff.changed.length > 0
+      ? `등급 변화 ${diff.changed.map((c) => `${ruleName(c.ruleCode)} ${gradeLabel(c.from)} → ${gradeLabel(c.to)}`).join(", ")}`
+      : null,
+  ].filter((p): p is string => p !== null);
+  return parts.length === 0 ? "다시 검수한 판정은 전과 같아요" : `다시 검수한 판정 · ${parts.join(" · ")}`;
+}
+
 export function NotificationCard({
   notification: n, audit = null, onDismiss,
 }: { notification: RadarNotification; audit?: AuditNow | null; onDismiss: () => void }) {
@@ -417,7 +434,15 @@ export function NotificationCard({
 
       <dl className="mt-2 space-y-1 text-xs">
         {n.impact && <Row label="영향">{n.impact}</Row>}
-        {(reaudited ?? n.action) && <Row label="조치">{reaudited ?? n.action}</Row>}
+        {(reaudited ?? n.action) && (
+          <Row label="조치">
+            {reaudited ?? n.action}
+            {/* 새 소식의 이동시간은 길찾기 값이다 — 관광정보와 다른 출처라는 표시 (UI-S7-008 · UI-CM-011) */}
+            {n.opportunity?.travelSource && <SourceBadge source="EXTERNAL_REFERENCE" externalName={n.opportunity.travelSource} className="ml-1.5 align-middle" />}
+          </Row>
+        )}
+        {/* 알림 뒤 재검수에서 그 곳의 판정이 어떻게 달라졌는지 (FR-RU-061) */}
+        {n.kind === "RISK" && n.verdictDiff != null && <Row label="판정"><span data-verdict-diff>{verdictDiffLine(n.verdictDiff)}</span></Row>}
         {n.modifiedOn && <Row label="수정일">관광정보가 {koreanDay(n.modifiedOn)}에 수정됐어요</Row>}
       </dl>
 

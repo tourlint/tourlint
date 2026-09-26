@@ -14,8 +14,8 @@ import {
   type ChangedContent, type EventPeriod, type Impact, type ImpactCandidate,
 } from './impact-finder';
 import {
-  capOpportunities, dwellOf, isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType,
-  type OpportunityCandidate,
+  addClock, capOpportunities, departureOf, dwellOf, isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType,
+  pickSlot, precheckSlot, type Leg, type OpportunityCandidate, type PickedSlot,
 } from './opportunity';
 import { isSyncDelay, isWeekend, kstToday, pendingDates, toKtoDate } from './sync-window';
 
@@ -143,6 +143,24 @@ export interface SyncBatchOptions {
   readonly requestAudit?: (productId: number) => Promise<void>;
   /** 감시 대상 상한 — **계정별**이다 (#690). 안 주면 환경변수 (FR-MO-020) */
   readonly watchLimit?: number;
+  /**
+   * 두 지점 사이 차로 걸리는 시간 (UI-S7-008 · FR-MO-052). 새 소식의 넣을 자리를 미리 볼 때만 쓴다.
+   * 못 재면 null — 직선거리로 짓지 않는다 (EI-KM-009). 없으면 사전 확인을 하지 않는다.
+   */
+  readonly travel?: (from: { x: number; y: number }, to: { x: number; y: number }, departureAt: string | null) => Promise<Leg | null>;
+}
+
+/**
+ * 한 번 도는 배치가 사전 확인하는 새 소식 수 (UI-S7-008). 한 건에 길찾기가 많아야 세 번이다.
+ * 상품당 상한(`OPPORTUNITY_CAP_PER_PRODUCT`)을 지난 알림만 센다.
+ */
+export const PRECHECK_LIMIT_PER_RUN = 20;
+
+/** 넣을 자리를 잡은 새 소식 — 좌표는 사전 확인에만 쓰고 알림에 남기지 않는다 */
+interface Slotted {
+  readonly picked: PickedSlot;
+  readonly candidate: OpportunityCandidate;
+  readonly content: SyncedContent;
 }
 
 /**
@@ -172,6 +190,7 @@ export class SyncBatchJob {
   private readonly previousFingerprints: SyncBatchOptions['previousFingerprints'];
   private readonly requestAudit: SyncBatchOptions['requestAudit'];
   private readonly watchLimit: number;
+  private readonly travel: SyncBatchOptions['travel'];
 
   constructor(options: SyncBatchOptions) {
     this.kto = typeof options.kto === 'function' ? options.kto : (): KtoClient => options.kto as KtoClient;
@@ -183,6 +202,7 @@ export class SyncBatchJob {
     this.previousFingerprints = options.previousFingerprints;
     this.requestAudit = options.requestAudit;
     this.watchLimit = options.watchLimit ?? readWatchLimit();
+    this.travel = options.travel;
   }
 
   /**
@@ -484,6 +504,8 @@ export class SyncBatchJob {
       const details = await this.fetchDetails(contents, direct, watched.length > 0);
       const previous = new Map<number, ReadonlyMap<string, FingerprintSnapshot>>();
       const pending: NotificationToSave[] = [];
+      // 새 소식마다 잡은 넣을 자리. 사전 확인에서 앞뒤 좌표를 다시 쓴다 (UI-S7-008)
+      const slotted = new Map<NotificationToSave, Slotted>();
       const allImpacts: Impact[] = [];
       const toReaudit = new Set<number>();
       let unchanged = 0;
@@ -536,7 +558,23 @@ export class SyncBatchJob {
           chances,
         );
         allImpacts.push(...impacts);
-        pending.push(...impacts.map((i) => toNotification(i, changed, hashes.get(i.productId) ?? NO_HASHES)));
+        for (const impact of impacts) {
+          const n = toNotification(impact, changed, hashes.get(impact.productId) ?? NO_HASHES);
+          const candidate = impact.kind === 'OPPORTUNITY' ? opportunity.find((c) => c.productId === impact.productId) : undefined;
+          if (candidate === undefined) {
+            pending.push(n);
+            continue;
+          }
+          // 넣을 자리 (0콜). 못 잡았으면 그 까닭을 남긴다 — 모르는 것과 없는 것이 다르다
+          const picked = pickSlot(content, candidate, dwell);
+          if (typeof picked === 'string') {
+            pending.push({ ...n, body: { ...n.body, slotMissing: picked } });
+            continue;
+          }
+          const withSlot = { ...n, body: { ...n.body, slot: picked.slot } };
+          slotted.set(withSlot, { picked, candidate, content });
+          pending.push(withSlot);
+        }
       }
 
       // 기회 알림은 상품마다 상한까지만 넣는다. 바뀐 정보는 자르지 않는다
@@ -547,7 +585,8 @@ export class SyncBatchJob {
           .map((n) => ({ productId: n.productId, condition: n.condition as 4 | 5 | 6, contentId: n.ktoContentId ?? '', notification: n })),
       );
       if (dropped > 0) this.logger.log(`기회 알림 ${dropped}건은 상품당 상한을 넘어 넣지 않았다`);
-      const notified = await this.notifications.insertMany([...risks, ...chancesKept.map((c) => c.notification)]);
+      const checked = await this.precheck(chancesKept.map((c) => c.notification), slotted);
+      const notified = await this.notifications.insertMany([...risks, ...checked]);
       this.logger.log(
         `영향 ${allImpacts.length}건 · 새 알림 ${notified}건`
         + (unchanged > 0 ? ` · 판정 필드가 그대로라 넘긴 것 ${unchanged}건` : ''),
@@ -559,6 +598,32 @@ export class SyncBatchJob {
       this.logger.error(`영향 탐색에 실패했다. 1단계 결과는 그대로다: ${(e as Error).message}`);
       return { impacts: [], notified: 0 };
     }
+  }
+
+  /**
+   * 넣을 자리를 길찾기로 미리 본다 (UI-S7-008 · FR-MO-052). 상한 안에 든 새 소식만, 한 배치에
+   * `PRECHECK_LIMIT_PER_RUN` 건까지다. 대중교통이거나 이동수단을 모르면 부르지 않는다 (EI-KM-007).
+   * 못 본 알림은 사전 확인 없이 들어간다 — 화면이 「넣은 뒤 다시 검수에서 확인」으로 적는다.
+   */
+  private async precheck(
+    items: readonly NotificationToSave[],
+    slotted: ReadonlyMap<NotificationToSave, Slotted>,
+  ): Promise<NotificationToSave[]> {
+    const travel = this.travel;
+    if (travel === undefined) return [...items];
+    const out: NotificationToSave[] = [];
+    let checked = 0;
+    for (const n of items) {
+      const found = slotted.get(n);
+      const transport = found?.candidate.transport;
+      if (found === undefined || checked >= PRECHECK_LIMIT_PER_RUN || (transport !== 'CAR' && transport !== 'CHARTER_BUS')) {
+        out.push(n);
+        continue;
+      }
+      checked++;
+      out.push({ ...n, body: { ...n.body, precheck: precheckSlot(found.picked.slot, await measureLegs(found, travel)) } });
+    }
+    return out;
   }
 
   /**
@@ -681,6 +746,37 @@ export class SyncBatchJob {
       this.logger.error(`배치 상태를 남기지 못했다: ${(e as Error).message}`);
     }
   }
+}
+
+/**
+ * 넣을 자리의 앞뒤 이동을 잰다. 하나가 실패해도 나머지를 잰다 — 못 잰 구간은 null 이다.
+ * 나오는 이동은 들어가서 머문 뒤의 시각에 떠난다.
+ */
+async function measureLegs(
+  found: Slotted,
+  travel: NonNullable<SyncBatchOptions['travel']>,
+): Promise<{ in: Leg | null; out: Leg | null; direct: Leg | null }> {
+  const { picked, candidate, content } = found;
+  const { slot, before, after } = picked;
+  const at = (point: { mapX: number | null; mapY: number | null }): { x: number; y: number } | null =>
+    point.mapX === null || point.mapY === null ? null : { x: point.mapX, y: point.mapY };
+  const via = at(content);
+  const from = at(before);
+  const to = after === null ? null : at(after);
+  const leg = async (a: { x: number; y: number } | null, b: { x: number; y: number } | null, time: string | null): Promise<Leg | null> => {
+    if (a === null || b === null || time === null) return null;
+    try {
+      return await travel(a, b, departureOf(candidate.startDate, slot.dayNo, time));
+    } catch {
+      return null;
+    }
+  };
+
+  const inLeg = await leg(from, via, slot.from);
+  const leaveAt = addClock(slot.from, (inLeg?.minutes ?? 0) + slot.dwellMinutes);
+  const outLeg = after === null ? null : await leg(via, to, leaveAt);
+  const direct = after === null ? null : await leg(from, to, slot.from);
+  return { in: inLeg, out: outLeg, direct };
 }
 
 /**

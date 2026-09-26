@@ -307,7 +307,7 @@ export const RADAR: readonly Endpoint[] = [
     route: 'GET /api/v1/notifications',
     tag: '레이더',
     summary: '알림 목록',
-    description: '바뀐 정보 · 새 소식 알림을 최신순으로 돌려줍니다. 문장(`what` · `impact`)은 저장하지 않고 볼 때 사실로 만듭니다 — `schedule`(일정에 든 줄) · `changes`(알림 직전 검수와 알림 뒤 첫 검수의 판독 결과 차이) · `current`(비교할 이전 검수가 없을 때의 지금 값) · `modifiedOn`(관광정보 수정일) · `eventPeriod` · `overlapDays`(겹치는 여행 일차). `placeName` 은 사용자가 일정에 적은 이름이 먼저이고, 일정에 없는 곳만 볼 때 읽습니다. 표출이 중단된 곳과 못 읽은 곳은 `null` 입니다.',
+    description: '바뀐 정보 · 새 소식 알림을 최신순으로 돌려줍니다. 문장(`what` · `impact`)은 저장하지 않고 볼 때 사실로 만듭니다 — `schedule`(일정에 든 줄) · `changes`(알림 직전 검수와 알림 뒤 첫 검수의 판독 결과 차이) · `current`(비교할 이전 검수가 없을 때의 지금 값) · `modifiedOn`(관광정보 수정일) · `eventPeriod` · `overlapDays`(겹치는 여행 일차). `placeName` 은 사용자가 일정에 적은 이름이 먼저이고, 일정에 없는 곳만 볼 때 읽습니다. 표출이 중단된 곳과 못 읽은 곳은 `null` 입니다. 새 소식은 `opportunity` 에 알림을 만들 때 잡은 넣을 자리(`slot` — 몇 일차 몇 시 ~ 몇 시, 알림 때 일정 기준) · 자리를 못 잡은 까닭(`slotMissing`) · 사전 확인(`precheck` — 길찾기로 잰 앞뒤 이동과 빈 시간 안에 드는지)을 싣고, 바뀐 정보는 `verdictDiff` 에 알림 직전 검수와 알림 뒤 첫 검수에서 그 곳 판정의 차이(새로 생김 · 사라짐 · 등급 변화)를 싣습니다. 견줄 검수가 없으면 `null` 입니다.',
     params: {
       kind: {
         description: '`RISK` 바뀐 정보 · `OPPORTUNITY` 새 소식. 없으면 둘 다',
@@ -344,6 +344,8 @@ export const RADAR: readonly Endpoint[] = [
               impact: '1일차 12:00 일정입니다.',
               action: '다시 검수해 판정을 갱신하세요.',
               hidden: false,
+              opportunity: null,
+              verdictDiff: { added: [], removed: [], changed: [{ ruleCode: 'R01', from: 'WARNING', to: 'ERROR' }] },
               fingerprint: FINGERPRINT,
               dismissable: true,
               readAt: null,

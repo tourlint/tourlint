@@ -16,9 +16,9 @@ import type { MatchCondition, NotificationKind } from '../batch/impact-finder';
  *
  * ## 지어내지 않는 것
  *
- * 거리 · 이동시간을 적지 않는다. 조건 6 이 직선 우회거리로 거르지만 그건 「볼 만한가」를
- * 가리는 값이지 판정이 아니다 — 실제 이동시간은 제안 단계에서 R08 이 다시 본다
- * (`opportunity.ts` 주석 · FR-MO-052).
+ * 직선거리를 적지 않는다. 조건 6 이 직선 우회거리로 거르지만 그건 「볼 만한가」를 가리는 값이지
+ * 판정이 아니다. 새 소식의 넣을 자리 · 이동시간은 배치가 남긴 사실이 있을 때만 `notification-detail`
+ * 이 적는다 — 이동시간은 길찾기로 잰 값뿐이다 (UI-S7-008 · FR-MO-052).
  */
 
 export interface NotificationCopy {

@@ -8,9 +8,11 @@ import {
   type NotificationFilter,
   type StoredNotification,
 } from '../persistence/notification.repository';
+import { KAKAO_SOURCE } from '../engine/rules/r08-travel';
 import { diffNormalized, readNormalized } from './change-diff';
 import { isDismissable } from './notification-copy';
-import { describeNotification, modifiedOn, overlapDays } from './notification-detail';
+import { describeNotification, modifiedOn, opportunityFactsOf, overlapDays } from './notification-detail';
+import { verdictDiff, type VerdictDiff, type VerdictLine } from './verdict-diff';
 
 /**
  * 위험 · 기회 알림 조회 (F13 · FR-MO-033 ~ 037).
@@ -57,9 +59,9 @@ export class NotificationService {
 
   async list(accountId: number, filter: NotificationFilter): Promise<Record<string, unknown>> {
     const page = await this.repo.listFor(accountId, filter);
-    const names = await this.placeNames(page.rows);
+    const [names, verdicts] = await Promise.all([this.placeNames(page.rows), this.verdicts(page.rows)]);
     return {
-      content: page.rows.map((n) => toResponse(n, names)),
+      content: page.rows.map((n) => toResponse(n, names, verdicts)),
       page: filter.page,
       size: filter.size,
       totalElements: page.total,
@@ -126,6 +128,13 @@ export class NotificationService {
     return new Map(found);
   }
 
+  /** 알림 직전 · 뒤 첫 검수의 판정 (FR-RU-061). 둘 다 있는 바뀐 정보 알림만 읽는다 */
+  private async verdicts(rows: readonly StoredNotification[]): Promise<ReadonlyMap<number, readonly VerdictLine[]>> {
+    const runIds = rows.flatMap((n) =>
+      n.runBeforeId !== null && n.runAfterId !== null && n.contentItemIds.length > 0 ? [n.runBeforeId, n.runAfterId] : []);
+    return this.repo.verdictsOfRuns(runIds);
+  }
+
   async markRead(id: number, accountId: number): Promise<Record<string, unknown>> {
     const readAt = await this.repo.markRead(id, accountId);
     if (readAt === null) throw notFound();
@@ -167,16 +176,21 @@ function hiddenOf(n: StoredNotification): boolean {
  * 관광지명을 담지 않는다 — 공사 원문이라 저장하지도 내보내지도 않는다 (FR-MO-002).
  * 화면은 `ktoContentId` 로 자기 일정의 `placeLabel` 을 찾아 붙인다.
  */
-function toResponse(n: StoredNotification, names: ReadonlyMap<string, string>): Record<string, unknown> {
+function toResponse(
+  n: StoredNotification,
+  names: ReadonlyMap<string, string>,
+  verdicts: ReadonlyMap<number, readonly VerdictLine[]> = new Map(),
+): Record<string, unknown> {
   const hidden = hiddenOf(n);
   const eventPeriod = eventPeriodOf(n.body);
   const hasBefore = n.normalizedBefore !== null;
   const hasAfter = n.normalizedAfter !== null;
   const changes = hasBefore && hasAfter ? diffNormalized(n.normalizedBefore, n.normalizedAfter) : [];
   const overlap = overlapDays(n.startDate, n.nights, eventPeriod);
+  const opportunity = n.kind === 'OPPORTUNITY' ? opportunityFactsOf(n.body) : null;
   const copy = describeNotification({
     condition: n.condition, hidden, schedule: n.schedule, changes, hasBefore, hasAfter,
-    eventPeriod, overlapDays: overlap,
+    eventPeriod, overlapDays: overlap, opportunity,
   });
   const resolved = n.ktoContentId === null ? null : (names.get(n.ktoContentId) ?? null);
   return {
@@ -203,6 +217,13 @@ function toResponse(n: StoredNotification, names: ReadonlyMap<string, string>): 
     impact: copy.impact,
     action: copy.action,
     hidden,
+    // 새 소식의 넣을 자리 · 사전 확인 (UI-S7-008). 이동시간은 길찾기 값이라 출처를 함께 준다 (UI-CM-011)
+    opportunity: opportunity === null ? null : {
+      ...opportunity,
+      travelSource: opportunity.precheck !== null && opportunity.precheck.travel !== 'UNKNOWN' ? KAKAO_SOURCE : null,
+    },
+    // 알림 뒤 첫 재검수에서 그 곳의 판정이 어떻게 달라졌는지 (FR-RU-061). 견줄 두 검수가 없으면 null
+    verdictDiff: verdictDiffOf(n, verdicts),
     // FR-MO-058 — 지문 비교값. 조건 2·3 은 지문 이력이 없어 둘 다 null 이다
     fingerprint: { from: n.hashFrom, to: n.hashTo },
     dismissable: isDismissable(hidden),
@@ -210,6 +231,11 @@ function toResponse(n: StoredNotification, names: ReadonlyMap<string, string>): 
     dismissedAt: n.dismissedAt === null ? null : kstIso(n.dismissedAt),
     createdAt: kstIso(n.createdAt),
   };
+}
+
+function verdictDiffOf(n: StoredNotification, verdicts: ReadonlyMap<number, readonly VerdictLine[]>): VerdictDiff | null {
+  if (n.kind !== 'RISK' || n.runBeforeId === null || n.runAfterId === null || n.contentItemIds.length === 0) return null;
+  return verdictDiff(verdicts.get(n.runBeforeId) ?? [], verdicts.get(n.runAfterId) ?? [], new Set(n.contentItemIds));
 }
 
 /** `body.eventPeriod`. 배치가 #703 뒤로 남긴다 — 그 전 알림에는 없다 */

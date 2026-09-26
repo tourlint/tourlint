@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeNotification, koreanDay, modifiedOn, overlapDays, type NotificationFacts } from './notification-detail';
+import { describeNotification, koreanDay, modifiedOn, opportunityFactsOf, overlapDays, type NotificationFacts } from './notification-detail';
 
 const facts = (over: Partial<NotificationFacts> = {}): NotificationFacts => ({
   condition: 1, hidden: false, schedule: null, changes: [], hasBefore: true, hasAfter: true,
@@ -103,5 +103,32 @@ describe('날짜', () => {
     expect(modifiedOn('')).toBeNull();
     expect(modifiedOn(undefined)).toBeNull();
     expect(koreanDay('2026-09-08')).toBe('9월 8일');
+  });
+});
+
+describe('새 소식의 넣을 자리 · 사전 확인 (UI-S7-008 · FR-MO-052)', () => {
+  const news = (body: Record<string, unknown>) =>
+    describeNotification(facts({ condition: 5, opportunity: opportunityFactsOf(body) }));
+  const slot = { dayNo: 1, from: '11:00', to: '13:00', minutes: 120, dwellMinutes: 60 };
+
+  it('🔴 이동을 넣으면 모자라면 그 분을 말한다', () => {
+    const copy = news({ slot, precheck: { travel: 'SHORT', inMinutes: 40, outMinutes: 35, addedMinutes: 50, shortMinutes: 15, currentTimeBased: true } });
+    expect(copy.impact).toBe('1일차 11:00 ~ 13:00 빈 시간(120분)에 넣을 수 있어요. 머무는 시간은 약 60분으로 봤어요(알림 때 일정 기준).');
+    expect(copy.action).toBe('다른 일정과 겹치지 않지만 앞뒤 이동(약 40분 · 35분)을 넣으면 15분이 모자라요. 앞뒤 일정을 옮겨야 해요. 현재 시각 기준으로 잰 이동시간이에요.');
+  });
+
+  it('🔴 이동을 못 쟀으면 넣은 뒤 다시 검수에서 본다고 한다 — 들어간다고 하지 않는다', () => {
+    expect(news({ slot }).action).toBe('다른 일정과 겹치지 않아요. 이동시간은 넣은 뒤 다시 검수에서 확인해요.');
+    expect(news({ slot, precheck: { travel: 'UNKNOWN', inMinutes: null } }).action).toContain('넣은 뒤 다시 검수');
+  });
+
+  it('🔴 빈 시간이 없거나 체류시간을 모르면 그렇게 말한다', () => {
+    expect(news({ slotMissing: 'NO_GAP' }).impact).toBe('일정에 넣을 만큼 빈 시간이 없어요. 넣으려면 다른 일정을 옮겨야 해요.');
+    expect(news({ slotMissing: 'DWELL_UNKNOWN' }).impact).toBe('얼마나 머무는 곳인지 몰라 넣을 자리를 정하지 못했어요.');
+  });
+
+  it('모양이 아닌 값은 없는 것으로 읽는다 — 배치가 남기기 전 알림은 조건 문장 그대로다', () => {
+    expect(opportunityFactsOf({ slot: { dayNo: 1, from: '11시', to: null, minutes: 1, dwellMinutes: 1 } })).toBeNull();
+    expect(news({}).impact).toBe('비어 있던 구간을 채울 수 있습니다.');
   });
 });

@@ -10,7 +10,8 @@ import { buildContentFingerprint, type FingerprintSnapshot } from '../engine/fin
 import type { ImpactCandidate } from './impact-finder';
 import { OPPORTUNITY_CAP_PER_PRODUCT, type OpportunityCandidate } from './opportunity';
 import {
-  DEFAULT_BATCH_WATCH_LIMIT, SYNC_PAGE_LIMIT, SyncBatchJob, changeKeyOf, readWatchLimit, toEventPeriod, toSyncedContent,
+  DEFAULT_BATCH_WATCH_LIMIT, PRECHECK_LIMIT_PER_RUN, SYNC_PAGE_LIMIT, SyncBatchJob, changeKeyOf, readWatchLimit, toEventPeriod, toSyncedContent,
+  type SyncBatchOptions,
 } from './sync-batch.job';
 
 /** 한국 시간 문자열을 Date 로 */
@@ -73,6 +74,7 @@ const job = (
     fetchDetail?: (contentId: string, contentTypeId: number) => Promise<Record<string, unknown>>;
     previousFingerprints?: (productId: number) => Promise<ReadonlyMap<string, FingerprintSnapshot>>;
     requestAudit?: (productId: number) => Promise<void>;
+    travel?: SyncBatchOptions['travel'];
   } = {},
 ): SyncBatchJob =>
   new SyncBatchJob({
@@ -83,6 +85,7 @@ const job = (
     fetchDetail: over.fetchDetail,
     previousFingerprints: over.previousFingerprints,
     requestAudit: over.requestAudit,
+    travel: over.travel,
   });
 
 /** `detailIntro2` 응답. 유형 12 의 지문 입력은 restdate · usetime 이다 */
@@ -874,6 +877,70 @@ describe('2단계 — 새 소식 (조건 4 ~ 6 · FR-MO-030 ④⑤⑥ · #616)',
     const { run, saved } = setup([fresh('seoul', 'VE01', { lDongRegnCd: '11' })]);
     await run();
     expect(saved).toEqual([]);
+  });
+
+  describe('넣을 자리 · 사전 확인 (UI-S7-008 · FR-MO-052)', () => {
+    /** 09:00 ~ 11:00 · 14:00 ~ 15:00 사이가 빈 강릉 상품 */
+    const twoItems = (transport?: OpportunityCandidate['transport']) => product9({
+      items: [
+        { dayNo: 1, seq: 1, startTime: '09:00', endTime: '11:00', mapX: 128.8961, mapY: 37.7955 },
+        { dayNo: 1, seq: 2, startTime: '14:00', endTime: '15:00', mapX: 128.9000, mapY: 37.7900 },
+      ],
+      ...(transport === undefined ? {} : { transport }),
+    });
+    const runWith = async (opportunity: OpportunityCandidate[], travel?: SyncBatchOptions['travel'], contents = [fresh('n1', 'VE01')]) => {
+      const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+      const { kto } = stubKto({ '20260826': contents });
+      const notif = stubNotifications({ watched: opportunity, opportunity });
+      await job(kto, state, { notifications: notif.repo, travel }).run();
+      return notif.saved;
+    };
+
+    it('🔴 알림에 넣을 자리(몇 일차 몇 시 ~ 몇 시)를 남긴다 — 이름 · 좌표는 남기지 않는다', async () => {
+      const [saved] = await runWith([twoItems()]);
+      expect(saved?.body.slot).toEqual({ dayNo: 1, from: '11:00', to: '14:00', minutes: 180, dwellMinutes: 60 });
+      expect(JSON.stringify(saved?.body)).not.toMatch(/128\.|mapx|title/i);
+    });
+
+    it('🔴 길찾기로 앞뒤 이동을 재 이동을 넣어도 들어가는지 남긴다 — 출발 시각은 여행 그 일차', async () => {
+      const asked: (string | null)[] = [];
+      const [saved] = await runWith([twoItems('CAR')], async (_from, _to, departureAt) => {
+        asked.push(departureAt);
+        return { minutes: 20, futureBased: true };
+      });
+      expect(saved?.body.precheck).toEqual({
+        travel: 'FITS', inMinutes: 20, outMinutes: 20, addedMinutes: 20, shortMinutes: null, currentTimeBased: false,
+      });
+      // 들어가는 이동 11:00 · 나오는 이동 11:00 + 20분 + 머무는 60분 · 원래 앞 → 뒤 11:00
+      expect(asked).toEqual(['202611171100', '202611171220', '202611171100']);
+    });
+
+    it('🔴 길찾기가 실패하면 모른다고 남긴다 — 알림은 그대로 만든다', async () => {
+      const [saved] = await runWith([twoItems('CAR')], async () => { throw new Error('down'); });
+      expect(saved?.body.precheck).toMatchObject({ travel: 'UNKNOWN' });
+      expect(saved?.body.slot).toBeDefined();
+    });
+
+    it('🔴 대중교통 상품은 길찾기를 부르지 않는다 (EI-KM-007)', async () => {
+      let calls = 0;
+      const [saved] = await runWith([twoItems('PUBLIC_TRANSIT')], async () => { calls++; return { minutes: 5, futureBased: true }; });
+      expect(calls).toBe(0);
+      expect(saved?.body.precheck).toBeUndefined();
+    });
+
+    it(`한 배치에 ${String(PRECHECK_LIMIT_PER_RUN)}건까지만 사전 확인한다`, async () => {
+      const products = Array.from({ length: PRECHECK_LIMIT_PER_RUN + 2 }, (_, i) => ({ ...twoItems('CAR'), productId: 100 + i }));
+      let calls = 0;
+      const saved = await runWith(products, async () => { calls++; return { minutes: 5, futureBased: true }; });
+      expect(saved.filter((n) => n.body.precheck !== undefined)).toHaveLength(PRECHECK_LIMIT_PER_RUN);
+      expect(calls).toBe(PRECHECK_LIMIT_PER_RUN * 3);
+    });
+
+    it('🔴 빈 시간이 없으면 없다고 남긴다', async () => {
+      const full = product9({ items: [{ dayNo: 1, seq: 1, startTime: '09:00', endTime: '20:50', mapX: 128.8961, mapY: 37.7955 }] });
+      const [saved] = await runWith([full]);
+      expect(saved).toMatchObject({ condition: 4, body: { slotMissing: 'NO_GAP' } });
+    });
   });
 });
 

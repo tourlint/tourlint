@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MAX_DETOUR_METERS, OPPORTUNITY_CAP_PER_PRODUCT, capOpportunities, detourMeters, dwellOf, freeSlots,
-  isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType,
-  type OpportunityCandidate, type OpportunityItem,
+  MAX_DETOUR_METERS, OPPORTUNITY_CAP_PER_PRODUCT, addClock, capOpportunities, departureOf, detourMeters, dwellOf, freeSlots,
+  isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType, pickSlot, precheckSlot,
+  type OpportunityCandidate, type OpportunityItem, type OpportunitySlot,
 } from './opportunity';
 import { straightMeters } from '../engine/geo';
 import { toSyncedContent } from './sync-batch.job';
@@ -262,5 +262,70 @@ describe('상품당 상한 (#616)', () => {
   it('같은 입력이면 들어온 순서와 상관없이 같은 것이 남는다 (NF-MT-001)', () => {
     const items = [chance(1, 5, 'c'), chance(1, 5, 'a'), chance(1, 5, 'b'), chance(1, 5, 'd')];
     expect(capOpportunities(items).kept).toEqual(capOpportunities([...items].reverse()).kept);
+  });
+});
+
+describe('넣을 자리 (UI-S7-008 · FR-MO-052)', () => {
+  it('🔴 빈 시간 중 우회가 가장 작은 자리를 고른다 — 몇 일차 몇 시 ~ 몇 시', () => {
+    const far = { mapX: SEOUL.x, mapY: SEOUL.y };
+    const picked = pickSlot(content(), candidate({
+      items: [
+        item({ dayNo: 1, seq: 1, startTime: '09:00', endTime: '10:00', ...far }),
+        item({ dayNo: 1, seq: 2, startTime: '13:00', endTime: '14:00', ...far }),
+        item({ dayNo: 2, seq: 1, startTime: '09:00', endTime: '10:00' }),
+        item({ dayNo: 2, seq: 2, startTime: '12:30', endTime: '13:00' }),
+      ],
+    }), 90);
+    expect(typeof picked).toBe('object');
+    if (typeof picked === 'string') return;
+    expect(picked.slot).toEqual({ dayNo: 2, from: '10:00', to: '12:30', minutes: 150, dwellMinutes: 90 });
+  });
+
+  it('그날 마지막 일정 뒤면 끝 시각이 없다', () => {
+    const picked = pickSlot(content({ mapx: '', mapy: '' }), candidate({ items: [item({ endTime: '17:00' })] }), 60);
+    if (typeof picked === 'string') throw new Error(picked);
+    expect(picked.slot).toMatchObject({ dayNo: 1, from: '17:00', to: null, minutes: 240 });
+    expect(picked.after).toBeNull();
+  });
+
+  it('🔴 빈 시간이 없으면 없다고, 체류시간을 모르면 모른다고 남긴다 — 둘을 섞지 않는다', () => {
+    const full = candidate({ items: [item({ startTime: '09:00', endTime: '20:30' })] });
+    expect(pickSlot(content(), full, 60)).toBe('NO_GAP');
+    expect(pickSlot(content(), candidate(), null)).toBe('DWELL_UNKNOWN');
+  });
+});
+
+describe('사전 확인 — 겹침 · 이동 (UI-S7-008 · FR-MO-052)', () => {
+  const slot = (over: Partial<OpportunitySlot> = {}): OpportunitySlot =>
+    ({ dayNo: 2, from: '12:00', to: '14:30', minutes: 150, dwellMinutes: 60, ...over });
+  const leg = (minutes: number, futureBased = true) => ({ minutes, futureBased });
+
+  it('🔴 들어가는 이동 + 머무는 시간 + 나오는 이동이 빈 시간 안이면 든다 — 늘어나는 이동도 준다', () => {
+    expect(precheckSlot(slot(), { in: leg(20), out: leg(25), direct: leg(30) })).toEqual({
+      travel: 'FITS', inMinutes: 20, outMinutes: 25, addedMinutes: 15, shortMinutes: null, currentTimeBased: false,
+    });
+  });
+
+  it('🔴 넘치면 모자라는 분을 준다', () => {
+    expect(precheckSlot(slot({ minutes: 90 }), { in: leg(20), out: leg(25), direct: leg(30) }))
+      .toMatchObject({ travel: 'SHORT', shortMinutes: 15 });
+  });
+
+  it('🔴 한 구간이라도 못 쟀으면 모른다 — 들어간다고 치지 않는다 (FR-RU-051)', () => {
+    expect(precheckSlot(slot(), { in: leg(20), out: null, direct: leg(30) })).toMatchObject({ travel: 'UNKNOWN', addedMinutes: null });
+    expect(precheckSlot(slot(), { in: null, out: leg(20), direct: leg(30) })).toMatchObject({ travel: 'UNKNOWN' });
+  });
+
+  it('뒤 일정이 없으면 들어가는 이동만 본다. 현재 시각 기준 구간이 섞이면 그렇게 적는다', () => {
+    expect(precheckSlot(slot({ to: null, minutes: 240 }), { in: leg(15, false), out: null, direct: null }))
+      .toEqual({ travel: 'FITS', inMinutes: 15, outMinutes: null, addedMinutes: 15, shortMinutes: null, currentTimeBased: true });
+  });
+
+  it('길찾기 출발 시각은 여행 그 일차의 시각이다', () => {
+    expect(departureOf('2026-11-17', 2, '12:00')).toBe('202611181200');
+    expect(departureOf('2026-11-30', 2, '09:05')).toBe('202612010905');
+    expect(departureOf('', 1, '12:00')).toBeNull();
+    expect(addClock('12:00', 80)).toBe('13:20');
+    expect(addClock('23:30', 60)).toBeNull();
   });
 });

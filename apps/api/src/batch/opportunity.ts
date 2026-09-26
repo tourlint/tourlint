@@ -1,4 +1,5 @@
-import { DWELL_MINUTES_SEED } from '@tourlint/shared';
+import { DWELL_MINUTES_SEED, type Transport } from '@tourlint/shared';
+import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import { straightMeters } from '../engine/geo';
 import { sameDistrict, type Impact, type ImpactCandidate } from './impact-finder';
 import type { SyncedContent } from './sync-batch.job';
@@ -31,8 +32,13 @@ import type { SyncedContent } from './sync-batch.job';
  * ## 예측하지 않는다
  *
  * 조건 6 은 **직선 우회거리**로 거른다. 지어낸 이동시간으로 판정하지 않기 위해서다 —
- * 여기서 하는 일은 판정이 아니라 「볼 만한가」를 거르는 것이고, 실제 이동시간은 제안
- * 단계에서 R08 이 다시 본다 (FR-MO-052). 알림 본문에 거리를 적지 않는다.
+ * 여기서 하는 일은 판정이 아니라 「볼 만한가」를 거르는 것이다. 알림 본문에 거리를 적지 않는다.
+ *
+ * ## 넣을 자리와 사전 확인 (UI-S7-008 · FR-MO-052)
+ *
+ * 알림에는 넣을 자리(몇 일차 몇 시 ~ 몇 시)를 남긴다(`pickSlot` · 0콜). 상품당 상한 안에 든 알림만
+ * 길찾기로 앞뒤 이동시간을 재 겹침(R03) · 이동(R08)을 미리 본다(`precheckSlot`). 잰 값이 없으면
+ * 「모른다」로 남긴다 — 직선거리로 이동시간을 짓지 않는다. 판정은 넣은 뒤 재검수가 한다.
  *
  * 순수 함수다. 후보를 모으는 일만 저장소가 한다.
  */
@@ -115,6 +121,8 @@ export interface OpportunityCandidate extends ImpactCandidate {
   readonly missingLcls2: readonly string[];
   /** 확정된 일정 항목. 일차 · 순서대로 정렬돼 있다 */
   readonly items: readonly OpportunityItem[];
+  /** 이동수단. 대중교통이면 길찾기를 부르지 않는다 (EI-KM-007). 모르면 부르지 않는다 */
+  readonly transport?: Transport;
 }
 
 /** 조건 5 가 찾은 빈 시간대 */
@@ -264,4 +272,135 @@ function minutesOf(time: string | null): number | null {
 /** 같은 시군구인가 — 시도 코드까지 함께 본다 (`sameDistrict`) */
 function sameRegion(candidate: ImpactCandidate, content: SyncedContent): boolean {
   return sameDistrict(candidate, content);
+}
+
+/**
+ * 알림에 남기는 넣을 자리 (UI-S7-008 · FR-MO-052). **알림을 만들 때의 일정 기준**이다 — 사용자가 뒤에
+ * 일정을 고치면 달라질 수 있어 화면이 그렇게 적는다. 시각과 분만 담는다(이름 · 좌표 없음).
+ */
+export interface OpportunitySlot {
+  readonly dayNo: number;
+  /** 빈 시간의 시작 — 앞 일정의 끝 `HH:MM` */
+  readonly from: string;
+  /** 빈 시간의 끝 — 뒤 일정의 시작. 그날 마지막 일정 뒤면 null */
+  readonly to: string | null;
+  readonly minutes: number;
+  /** 그 곳에 머무는 시간으로 본 값 — 중분류 기본 체류시간 (FR-IN-011) */
+  readonly dwellMinutes: number;
+}
+
+/** 자리를 못 잡은 까닭. 모르는 것과 없는 것을 가른다 */
+export type SlotMissing = 'NO_GAP' | 'DWELL_UNKNOWN';
+
+export interface PickedSlot {
+  readonly slot: OpportunitySlot;
+  readonly before: OpportunityItem;
+  readonly after: OpportunityItem | null;
+}
+
+/**
+ * 넣을 자리 하나를 고른다 (0콜 · 순수 함수).
+ *
+ * 우회(직선)가 임계치 안인 자리 중 가장 작은 것이 먼저고, 좌표를 몰라 우회를 못 재는 자리는 뒤다.
+ * 같으면 앞선 일차 · 순서다 — 같은 입력이면 늘 같은 자리다 (NF-MT-001). 체류시간을 모르면 자리를
+ * 잡지 않는다 — 얼마나 걸리는지 모르는 것을 「들어간다」고 할 수 없다.
+ */
+export function pickSlot(
+  content: SyncedContent,
+  candidate: OpportunityCandidate,
+  dwellMinutes: number | null,
+  maxDetour: number = MAX_DETOUR_METERS,
+): PickedSlot | SlotMissing {
+  if (dwellMinutes === null || dwellMinutes <= 0) return 'DWELL_UNKNOWN';
+  const slots = freeSlots(candidate.items, dwellMinutes);
+  if (slots.length === 0) return 'NO_GAP';
+
+  const via = content.mapX === null || content.mapY === null ? null : { x: content.mapX, y: content.mapY };
+  const ranked = slots
+    .map((s, order) => {
+      const detour = via === null ? null : detourMeters(s.before, s.after, via);
+      return { s, order, near: detour !== null && detour <= maxDetour, detour: detour ?? 0 };
+    })
+    .sort((a, b) => Number(b.near) - Number(a.near) || (a.near ? a.detour - b.detour : 0) || a.order - b.order);
+  const best = ranked[0]?.s;
+  if (best === undefined) return 'NO_GAP';
+  return {
+    slot: {
+      dayNo: best.dayNo,
+      from: best.before.endTime as string,
+      to: best.after === null ? null : best.after.startTime,
+      minutes: best.minutes,
+      dwellMinutes,
+    },
+    before: best.before,
+    after: best.after,
+  };
+}
+
+/** 사전 확인의 이동 결과. 모르면 UNKNOWN 이다 — 「들어간다」로 치지 않는다 (FR-RU-051) */
+export type TravelFit = 'FITS' | 'SHORT' | 'UNKNOWN';
+
+export interface SlotPrecheck {
+  /** 이동을 넣어도 빈 시간 안에 드는가 (R08 사전 확인) */
+  readonly travel: TravelFit;
+  /** 앞 일정 → 그 곳 · 그 곳 → 뒤 일정 (분). 못 쟀으면 null */
+  readonly inMinutes: number | null;
+  readonly outMinutes: number | null;
+  /** 원래 앞 → 뒤 이동보다 늘어나는 시간. 뒤 일정이 없으면 들어가는 이동이 곧 늘어나는 시간이다 */
+  readonly addedMinutes: number | null;
+  /** 모자라는 분. SHORT 일 때만 */
+  readonly shortMinutes: number | null;
+  /** 현재 시각 기준으로 잰 구간이 섞였는가 (EI-KM-002) */
+  readonly currentTimeBased: boolean;
+}
+
+export interface Leg {
+  readonly minutes: number;
+  readonly futureBased: boolean;
+}
+
+/**
+ * 잰 이동으로 그 자리를 미리 본다 (순수 함수). 겹침(R03)은 빈 시간 안에 잡은 자리라 없다 — 자리를
+ * 못 잡았으면 여기 오지 않는다. 이동(R08)은 들어가는 이동 + 머무는 시간 + 나오는 이동이 빈 시간 안이면 든다.
+ */
+export function precheckSlot(
+  slot: OpportunitySlot,
+  legs: { readonly in: Leg | null; readonly out: Leg | null; readonly direct: Leg | null },
+): SlotPrecheck {
+  const hasAfter = slot.to !== null;
+  const inMin = legs.in?.minutes ?? null;
+  const outMin = hasAfter ? (legs.out?.minutes ?? null) : null;
+  const used = [legs.in, hasAfter ? legs.out : null, hasAfter ? legs.direct : null].filter((l): l is Leg => l !== null);
+  const currentTimeBased = used.some((l) => !l.futureBased);
+
+  if (inMin === null || (hasAfter && outMin === null)) {
+    return { travel: 'UNKNOWN', inMinutes: inMin, outMinutes: outMin, addedMinutes: null, shortMinutes: null, currentTimeBased };
+  }
+  const needed = inMin + slot.dwellMinutes + (outMin ?? 0);
+  const added = !hasAfter ? inMin : legs.direct === null ? null : Math.max(0, inMin + (outMin ?? 0) - legs.direct.minutes);
+  const short = needed - slot.minutes;
+  return {
+    travel: short > 0 ? 'SHORT' : 'FITS',
+    inMinutes: inMin,
+    outMinutes: outMin,
+    addedMinutes: added,
+    shortMinutes: short > 0 ? short : null,
+    currentTimeBased,
+  };
+}
+
+/** 길찾기 출발 시각 `YYYYMMDDHHmm` — 여행 몇 일차의 그 시각. 날짜를 못 읽으면 null */
+export function departureOf(startDate: string, dayNo: number, time: string): string | null {
+  const start = parseIsoDate(startDate);
+  if (start === null || !/^\d{2}:\d{2}$/.test(time)) return null;
+  return `${formatIsoDate(addDays(start, dayNo - 1))}${time}`.replace(/\D/g, '');
+}
+
+/** `HH:MM` 에 분을 더한다. 자정을 넘기면 null — 그 날 안의 자리가 아니다 */
+export function addClock(time: string, minutes: number): string | null {
+  const base = minutesOf(time);
+  if (base === null) return null;
+  const total = base + minutes;
+  if (total >= 24 * 60) return null;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
