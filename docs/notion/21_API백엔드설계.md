@@ -469,7 +469,7 @@ POST /api/v1/products                추가 "planOrigin": { "startedBy": "MANUAL
 POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED · RATE_LIMIT_EXCEEDED(3-4)   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
 PATCH /api/v1/products/{id}          "startDate" 변경 = 출발일 옮기기. 항목 시각은 바꾸지 않는다
 GET /api/v1/products/{id}            추가 "plannedAt", "planOrigin", "composition": { "manual": 5, "picker": 2, "excluded": 1 }
-                                     days[].items[] 마다 "lcls2", "endTimeSource": "INPUT|DWELL_DEFAULT|DWELL_FALLBACK" (끝 시간 미리보기 · 「기본값 적용」 표시용, 판정에 쓰지 않는다 · FR-IN-011)
+                                     days[].items[] 마다 "lcls2", "endTimeSource": "INPUT|DWELL_DEFAULT|DWELL_FALLBACK" (끝 시간 미리보기 · 「기본값 적용」 표시용, 판정에 쓰지 않는다 · FR-IN-011), "walkId" (걷기 길 식별자 · 아니면 null. 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 · UI-S2-048)
 GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" (보드 분류용 — 차단 건수 · 안 읽은 알림은 기존 `latestAudit.counts.blocker` · `unreadNotifications` 를 쓴다)
 ```
 ## 4-3. 일정 항목 (F01)

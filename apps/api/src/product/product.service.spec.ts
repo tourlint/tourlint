@@ -203,6 +203,16 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
       ['FD05', 'DWELL_DEFAULT', '11:30', '12:30'],
     ]);
   });
+
+  it('🔴 상세의 항목에 걷기 길 식별자가 실린다 — 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 (UI-S2-048)', async () => {
+    const { productId } = await makeProduct();
+    await service.addItem(accountId, productId, { dayNo: 1, itemType: 'SIGHT', excluded: { walkId: 'T_TEST_WALK' }, startTime: '14:00', endTime: '16:00' });
+    const days = (await service.detail(accountId, productId)).days as { items: Record<string, unknown>[] }[];
+    expect(days[0]?.items.map((i) => [i.walkId, i.matchStatus])).toEqual([
+      [null, 'CONFIRMED'],
+      ['T_TEST_WALK', 'EXCLUDED'],
+    ]);
+  });
 });
 
 /**

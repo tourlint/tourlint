@@ -93,6 +93,8 @@ export interface ProductItem {
   /** 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
   mapx: number | null;
   mapy: number | null;
+  /** 걷기 길 식별자 (UI-S2-048). 편집 화면이 이 줄을 고칠 수 없는 걷기 길로 연다. 옛 응답에는 없다 */
+  walkId?: string | null;
   /**
    * 중분류 · 끝 시각 출처 (FR-IN-011). 끝 시간을 비운 줄에 채워질 시각과 「기본값 적용 · N분」 을
    * 엔진과 같은 표로 보이는 데만 쓴다. 옛 응답에는 없다 — 없으면 짓지 않는다

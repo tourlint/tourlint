@@ -419,6 +419,9 @@ function toSchedule(d: ProductDetail): Schedule {
       end: it.end ?? "",
       place: it.place,
       itemType: it.itemType as ItemType,
+      // 걷기 길은 코스 이름만 보이고 고치지 않는다 — 이름을 저장하지 않는 줄이다 (UI-S2-048 · DR-MD-005).
+      // 직접 정한 곳은 그 표시를 단다 (UI-S2-021)
+      ...(it.walkId ? { walk: { walkId: it.walkId } } : it.matchStatus === "EXCLUDED" ? { excluded: true } : {}),
       saved: { end: it.end ?? "", endTimeSource: it.endTimeSource, lcls2: it.lcls2, matchStatus: it.matchStatus },
     }));
   }

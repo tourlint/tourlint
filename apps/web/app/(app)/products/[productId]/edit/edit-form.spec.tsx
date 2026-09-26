@@ -112,3 +112,97 @@ describe("편집 화면 — 장소 담기의 걷기 길 (UI-S2-048)", () => {
     expect(reorder).toHaveBeenCalledWith(70, [{ itemId: 11, dayNo: 1, seq: 1 }, { itemId: 13, dayNo: 1, seq: 2 }]);
   });
 });
+
+/** 가이드 1 ~ 8단계를 마친 상품 — 1일차 5개 · 2일차 6개 · 3일차 4개 (docs/judge-guide 9단계) */
+function guideProduct(): ProductDetail {
+  const at = (itemId: number, seq: number, place: string, start: string, end: string | null, itemType: string, over: Partial<ProductItem> = {}) =>
+    row({ itemId, seq, place, start, end, itemType, matchStatus: "CONFIRMED", ktoContentId: String(itemId * 10), ...over });
+  return {
+    ...product([]), productId: 38, name: "강릉 감성 2박 3일", nights: 2, dayCount: 3,
+    days: [
+      { day: 1, items: [
+        at(101, 1, "강릉 경포대", "10:00", "11:30", "SIGHT"), at(102, 2, "강릉 오죽헌·시립박물관", "11:00", "12:30", "SIGHT"),
+        at(103, 3, "가람집옹심이", "13:00", "14:00", "MEAL"), at(104, 4, "강릉 경포벚꽃축제", "15:00", "16:00", "SIGHT"),
+        at(105, 5, "하이오션 경포", "16:04", null, "LODGING"),
+      ] },
+      { day: 2, items: [
+        at(201, 1, "경포해변", "09:00", "10:00", "SIGHT"), at(202, 2, "안목해변", "10:00", "11:00", "SIGHT"),
+        at(203, 3, "정동진해변", "11:00", "12:00", "SIGHT"), at(204, 4, "하슬라아트월드", "12:05", "13:35", "SIGHT", { endTimeSource: "DWELL_DEFAULT" }),
+        at(205, 5, "주문진해변", "16:00", "17:00", "SIGHT"), at(206, 6, "세인트존스 호텔", "18:00", null, "LODGING"),
+      ] },
+      { day: 3, items: [
+        at(301, 1, "강릉역", "09:00", "09:30", "MOVE", { matchStatus: "EXCLUDED", ktoContentId: null }),
+        at(302, 2, "초당할머니순두부", "12:30", "13:30", "MEAL"),
+        at(303, 3, "주문진 등대", "14:30", null, "SIGHT", { endTimeSource: "DWELL_DEFAULT" }),
+        at(304, 4, "해파랑길 35코스 바우길 09구간", "14:30", "15:30", "SIGHT",
+          { matchStatus: "EXCLUDED", ktoContentId: null, walkId: "T_CRS_MNG0000000402", endTimeSource: "DWELL_DEFAULT" }),
+      ] },
+    ],
+  } as ProductDetail;
+}
+
+const rows = () => [...host.querySelectorAll<HTMLButtonElement>('button[aria-label="위로"]')].map((b) => b.parentElement!.parentElement!);
+const rowOf = (name: string) => rows().find((r) =>
+  r.querySelector<HTMLInputElement>('input[aria-label="장소명"]')?.value === name || r.textContent?.includes(name))!;
+const times = (r: HTMLElement) => [...r.querySelectorAll<HTMLInputElement>('input[type="time"]')];
+async function type(el: HTMLInputElement, v: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, v);
+  await act(async () => el.dispatchEvent(new Event("input", { bubbles: true })));
+}
+const tab = (n: number) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent?.startsWith(`${n}일차`))!;
+
+describe("편집 화면 — 가이드 9단계 · 불러온 걷기 길과 직접 정한 곳 (UI-S2-048 · UI-S2-021)", () => {
+  it("🔴 하이오션 18:00 · 걷기 길 09:30 – 12:00 · ↑ 두 번 · 저장 — 걷기 길은 고칠 수 없는 줄로 열리고 코스 이름은 보내지 않는다", async () => {
+    vi.spyOn(productApi, "detail").mockResolvedValue(guideProduct());
+    const patch = vi.spyOn(itemApi, "patch").mockResolvedValue({} as ProductItem);
+    const reorder = vi.spyOn(itemApi, "reorder").mockResolvedValue(undefined);
+    const adds = [vi.spyOn(itemApi, "add"), vi.spyOn(itemApi, "addPicked"), vi.spyOn(itemApi, "addWalk")];
+    const match = vi.spyOn(matchApi, "match");
+    await act(async () => root.render(<EditForm productId={38} />));
+    await settle(350);
+    expect([1, 2, 3].map((n) => tab(n).textContent)).toEqual(["1일차(5)", "2일차(6)", "3일차(4)"]);
+
+    // 1일차 — 하이오션 경포 시작을 18:00 으로
+    await type(times(rowOf("하이오션 경포"))[0]!, "18:00");
+
+    // 3일차 — 걷기 길 · 직접 정한 곳은 「직접 정한 곳」 으로 열린다. 이름 칸이 없고 기준으로 쓸 수 없다
+    await act(async () => tab(3).click());
+    await settle(350);
+    const walk = rowOf("해파랑길 35코스 바우길 09구간");
+    const station = rowOf("강릉역");
+    for (const r of [walk, station]) {
+      expect(r.textContent).toContain("직접 정한 곳");
+      expect(r.querySelector('input[aria-label="장소명"]')).toBeNull();
+      expect(r.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
+      expect([...r.querySelectorAll("button")].some((b) => b.textContent === "다시 고르기")).toBe(false);
+    }
+    // 코스 이름 · 직접 정한 곳 이름으로 장소를 찾지 않는다
+    const keywords = vi.mocked(matchApi.search).mock.calls.map((c) => c[0]);
+    expect(keywords).not.toContain("해파랑길 35코스 바우길 09구간");
+    expect(keywords).not.toContain("강릉역");
+
+    // 걷기 길을 09:30 – 12:00 으로 바꾸고 ↑ 를 두 번 눌러 강릉역 다음으로
+    await type(times(walk)[0]!, "09:30");
+    await type(times(walk)[1]!, "12:00");
+    await act(async () => rowOf("해파랑길 35코스 바우길 09구간").querySelector<HTMLButtonElement>('button[aria-label="위로"]')!.click());
+    await act(async () => rowOf("해파랑길 35코스 바우길 09구간").querySelector<HTMLButtonElement>('button[aria-label="위로"]')!.click());
+    expect(rows().map((r) => r.querySelector<HTMLInputElement>('input[aria-label="장소명"]')?.value ?? r.querySelector("span.truncate")?.textContent))
+      .toEqual(["강릉역", "해파랑길 35코스 바우길 09구간", "초당할머니순두부", "주문진 등대"]);
+
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(patch.mock.calls).toEqual([
+      [105, { startTime: "18:00" }],
+      [304, { startTime: "09:30", endTime: "12:00" }],
+    ]);
+    expect(reorder).toHaveBeenCalledWith(38, [
+      ...[101, 102, 103, 104, 105].map((itemId, i) => ({ itemId, dayNo: 1, seq: i + 1 })),
+      ...[201, 202, 203, 204, 205, 206].map((itemId, i) => ({ itemId, dayNo: 2, seq: i + 1 })),
+      ...[301, 304, 302, 303].map((itemId, i) => ({ itemId, dayNo: 3, seq: i + 1 })),
+    ]);
+    for (const add of adds) expect(add).not.toHaveBeenCalled();
+    expect(match).not.toHaveBeenCalled();
+    expect(matchApi.exclude).not.toHaveBeenCalled();
+    expect(router.push).toHaveBeenCalledWith("/products/38/plan");
+  });
+});

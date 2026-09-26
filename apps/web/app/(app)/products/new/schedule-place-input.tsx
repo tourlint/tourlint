@@ -27,6 +27,7 @@ export function SchedulePlaceInput({
   regionLabel,
   excluded = false,
   canExclude = true,
+  canReselect = true,
   walk = false,
   onChange,
 }: {
@@ -44,7 +45,12 @@ export function SchedulePlaceInput({
    * 두지 않는다 — 누르고 저장해도 바뀌지 않으면 거짓 표시다
    */
   canExclude?: boolean;
-  /** 장소 담기에서 넣은 걷기 길 — 코스 이름만 보이고 고치지 않는다 (UI-S2-048) */
+  /**
+   * 직접 정한 곳에 [다시 고르기]를 줄 수 있는가. 편집 화면에서 불러온 직접 정한 곳은 고르는 중으로
+   * 되돌릴 길이 없어 두지 않는다 — 기획 화면도 직접 정한 곳은 다시 고르지 않는다
+   */
+  canReselect?: boolean;
+  /** 걷기 길 — 코스 이름만 보이고 고치지 않는다. 편집 화면에서 불러온 걷기 길도 같다 (UI-S2-048) */
   walk?: boolean;
   onChange: (patch: { place?: string; content?: MatchedContent | null; excluded?: boolean }) => void;
 }) {
@@ -174,7 +180,7 @@ export function SchedulePlaceInput({
   }
 
   // 직접 정한 곳으로 둔 줄 — 이름은 그대로 두고 표시만 붙인다. [다시 고르기]로 목록을 다시 연다 (UI-S2-021).
-  // 걷기 길도 직접 정한 곳이다 — 다시 고를 곳이 없어 빼려면 줄을 지운다
+  // 걷기 길도 직접 정한 곳이다 — 다시 고를 곳이 없어 빼려면 줄을 지운다. 불러온 직접 정한 곳도 다시 고르지 않는다
   if (excluded || walk) {
     return (
       <div className="flex min-w-[10rem] flex-1 flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
@@ -182,7 +188,7 @@ export function SchedulePlaceInput({
         <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-900/40">
           <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">직접 정한 곳</span>
           <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100">{value}</span>
-          {!walk && (
+          {!walk && canReselect && (
             <button
               type="button"
               onClick={() => onChange({ excluded: false })}

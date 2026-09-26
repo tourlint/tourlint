@@ -437,6 +437,8 @@ function toDays(items: ProductDetailRow['items']): { day: number; items: unknown
       matchStatus: it.matchStatus,
       mapx: it.mapx,
       mapy: it.mapy,
+      // 편집 화면이 걷기 길 줄을 고칠 수 없는 줄로 연다 (UI-S2-048)
+      walkId: it.walkId,
       // 끝 시간 미리보기 · 「기본값 적용」 표시용 (FR-IN-011 · UI-S2-009). 판정에는 쓰지 않는다
       lcls2: it.lcls2,
       endTimeSource: it.endTimeSource,
