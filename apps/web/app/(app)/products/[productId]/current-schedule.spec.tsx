@@ -16,7 +16,7 @@ let host: HTMLDivElement; let root: Root;
 const select = vi.fn();
 function Harness({ detail = product, findings = [finding] }: { detail?: ProductDetail; findings?: Finding[] }) {
   const [selected, setSelected] = useState<Record<number, string>>({});
-  return <FindingsSection product={detail} findings={findings} itemLabel={id => `일정 ${id}`} contentOf={() => null} selected={selected}
+  return <FindingsSection product={detail} findings={findings} checkedCount={3} fetchedAt="2026-09-18T10:00:00+09:00" itemLabel={id => `일정 ${id}`} contentOf={() => null} selected={selected}
     onSelectPatch={(id, patch) => { select(id, patch); setSelected(patch ? { [id]: patch } : {}); }} onChanged={async () => {}} busy={false} />;
 }
 const schedule = () => host.querySelector('aside[aria-label="현재 일정표"]')!;
@@ -64,7 +64,7 @@ describe('검수 중 현재 일정 참조 (#570)', () => {
     expect(schedule().querySelectorAll('[data-related="true"]')).toHaveLength(0); expect(schedule().textContent).toContain('상품 전체를 함께');
   });
   it('문제가 없거나 저장된 일정이 없어도 상태를 명확히 표시한다', async () => {
-    await render(product, []); expect(schedule().querySelectorAll('li')).toHaveLength(3); expect(host.textContent).toContain('발견된 문제가 없습니다');
+    await render(product, []); expect(schedule().querySelectorAll('li')).toHaveLength(3); expect(host.textContent).toContain('검수한 3곳에서 발견된 문제 0건 · 조회 2026-09-18 10:00');
     await render({ ...product, days: [] }, []); expect(schedule().textContent).toContain('저장된 일정이 없어요');
   });
 });

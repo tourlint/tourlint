@@ -56,6 +56,17 @@
 .finding-filters button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .finding-filters span { margin-left: 8px; font-size: 12px; opacity: .75; }
 .finding-result-count { font-size: 12px; color: var(--muted); margin-top: 15px; }
+.finding-list-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 15px; }
+.finding-list-bar .finding-result-count { margin-top: 0; }
+.finding-sort { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.finding-sort button { padding: 6px 11px; font-size: 12px; color: var(--muted); background: var(--surface); }
+.finding-sort button + button { border-left: 1px solid var(--line); }
+.finding-sort button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.finding-fold-note { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.finding-group-toggle { display: flex; width: 100%; align-items: center; gap: 10px; padding: 14px 18px; border: 1px dashed var(--line); border-radius: 12px; background: var(--surface); font-size: 13px; color: var(--muted); }
+.finding-group-toggle:hover { border-color: var(--accent); color: var(--accent); }
+/* 무시한 카드는 한 줄로 접는다 (UI-S3-023) */
+.finding-card.is-dismissed { padding: 12px 18px; background: var(--surface-soft); box-shadow: none; }
 .finding-card { background: var(--surface); padding: 24px; box-shadow: 0 3px 14px #183e2c03; }
 .finding-card > div > div > p:first-of-type { font-size: 16px; line-height: 1.8; font-weight: 550; }
 .finding-card fieldset { margin-top: 20px; padding-top: 12px; }

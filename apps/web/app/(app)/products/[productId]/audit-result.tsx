@@ -35,7 +35,9 @@ import { contactText, readNormalized, readVerdict, ruleLine } from "../../../lib
 import { ruleName } from "../../../lib/rule-names";
 import { scoreSentence } from "../../../lib/score-sentence";
 import { WorkspaceIcon } from "../../../components/workspace-icon";
-import { FINDING_FILTERS, filterFindings, type FindingFilter } from "./finding-filter";
+import {
+  COLLAPSE_OVER, COLLAPSIBLE, FINDING_FILTERS, FINDING_SORTS, filterFindings, type FindingFilter, type FindingSort,
+} from "./finding-filter";
 import { ReviewPlaceDrawer } from "./review-place-drawer";
 import { ScheduleComparison } from "./schedule-compare";
 import { placeAction, reviewPlaceContext } from "./review-place-context";
@@ -408,6 +410,8 @@ export function AuditResult({ productId }: { productId: number }) {
           )}
           <FindingsSection key={data.run.auditRunId}
             findings={data.findings}
+            checkedCount={data.run.targetCount}
+            fetchedAt={data.run.evidence.fetchedAt}
             product={product}
             itemLabel={labelOf}
             contentOf={contentOf}
@@ -673,9 +677,43 @@ export function SummaryCard({ run, confirmationCount }: { run: RunSummary; confi
   );
 }
 
+/** 발견 0건 — 검수가 실제로 돌았음을 곳 수와 조회 시각으로 말한다 (UI-ST-011) */
+export function noFindingsText(checkedCount: number, fetchedAt: string): string {
+  return `검수한 ${checkedCount}곳에서 발견된 문제 0건 · 조회 ${formatStamp(fetchedAt)}`;
+}
+
+type FindingRow =
+  | { kind: "card"; finding: Finding }
+  | { kind: "group"; severity: Severity; count: number; open: boolean };
+
+/**
+ * 목록 줄. 「전체」를 등급 순으로 볼 때 20건을 넘으면 주의 · 확인 불가를 펼치기 버튼 뒤에 둔다
+ * (FR-AU-067 · UI-S3-021). 무시한 카드는 등급과 상관없이 맨 뒤에 한 줄로 남는다.
+ */
+function findingRows(sorted: Finding[], folding: boolean, opened: readonly Severity[]): FindingRow[] {
+  if (!folding) return sorted.map((finding) => ({ kind: "card", finding }));
+  const rows: FindingRow[] = [];
+  for (const finding of sorted) {
+    const grouped = finding.dismissedAt === null && COLLAPSIBLE.includes(finding.severity);
+    if (!grouped) {
+      rows.push({ kind: "card", finding });
+      continue;
+    }
+    const open = opened.includes(finding.severity);
+    if (!rows.some((r) => r.kind === "group" && r.severity === finding.severity)) {
+      const count = sorted.filter((f) => f.dismissedAt === null && f.severity === finding.severity).length;
+      rows.push({ kind: "group", severity: finding.severity, count, open });
+    }
+    if (open) rows.push({ kind: "card", finding });
+  }
+  return rows;
+}
+
 export function FindingsSection({
   product,
   findings,
+  checkedCount,
+  fetchedAt,
   itemLabel,
   contentOf,
   selected,
@@ -685,6 +723,9 @@ export function FindingsSection({
   onOpenPlaces,
 }: {
   findings: Finding[];
+  /** 0건 문구의 「검수한 N곳」 · 조회 시각 (UI-ST-011) */
+  checkedCount: number;
+  fetchedAt: string;
   product: ProductDetail | null;
   itemLabel: (itemId: number | null) => string;
   contentOf: (itemId: number | null) => string | null;
@@ -695,11 +736,17 @@ export function FindingsSection({
   onOpenPlaces?: (finding: Finding) => void;
 }) {
   const [filter, setFilter] = useState<FindingFilter>("ALL");
+  const [sort, setSort] = useState<FindingSort>("SEVERITY");
+  const [opened, setOpened] = useState<Severity[]>([]);
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [scheduleExpanded, setScheduleExpanded] = useState(true);
   const focused = findings.find(f => f.findingId === focusedId) ?? null;
   const focusedPatch = focused?.patches.find(p => p.patchId === selected[focused.findingId]);
-  const sorted = filterFindings(findings, filter);
+  const sorted = filterFindings(findings, filter, sort);
+  const folding = filter === "ALL" && sort === "SEVERITY" && findings.length > COLLAPSE_OVER;
+  const rows = findingRows(sorted, folding, opened);
+  const toggleGroup = (severity: Severity) =>
+    setOpened((prev) => (prev.includes(severity) ? prev.filter((s) => s !== severity) : [...prev, severity]));
   return (
     <section id="audit-findings" className="audit-findings audit-anchor">
       <div className="audit-section-title"><span className="audit-step">01</span><div>
@@ -713,21 +760,36 @@ export function FindingsSection({
         {FINDING_FILTERS.map(({ value, label }) => <button key={value} type="button" aria-pressed={filter === value}
           onClick={() => setFilter(value)}>{label}<span>{filterFindings(findings, value).length}</span></button>)}
       </div>
-      <p className="finding-result-count" role="status">{sorted.length}건 표시 · 수정안 {Object.keys(selected).length}개 선택됨</p>
+      <div className="finding-list-bar">
+        <p className="finding-result-count" role="status">{sorted.length}건 표시 · 수정안 {Object.keys(selected).length}개 선택됨</p>
+        {/* 등급 순이 기본, 일정 순서로 바꿔 볼 수 있다 (FR-AU-066 · UI-S3-020) */}
+        <div className="finding-sort" role="group" aria-label="정렬">
+          {FINDING_SORTS.map(({ value, label }) => <button key={value} type="button" aria-pressed={sort === value}
+            onClick={() => setSort(value)}>{label}</button>)}
+        </div>
+      </div>
+      {folding && <p className="finding-fold-note">발견 항목이 {COLLAPSE_OVER}건을 넘어 주의 · 확인 불가는 접어 두었어요. 눌러서 펼칠 수 있어요.</p>}
       {sorted.length === 0 ? (
-        <p className="audit-empty">{filter === "ALL" ? "발견된 문제가 없습니다." : "이 분류에 해당하는 항목이 없습니다. 다른 분류도 확인해 주세요."}</p>
+        <p className="audit-empty">{filter === "ALL" ? noFindingsText(checkedCount, fetchedAt) : "이 분류에 해당하는 항목이 없습니다. 다른 분류도 확인해 주세요."}</p>
       ) : (
         <ul className="mt-3 space-y-3">
-          {sorted.map((f) => (
+          {rows.map((row) => row.kind === "group" ? (
+            <li key={`group-${row.severity}`}>
+              <button type="button" className="finding-group-toggle" aria-expanded={row.open} onClick={() => toggleGroup(row.severity)}>
+                <GradeBadge grade={row.severity} />
+                <span>{row.count}건 {row.open ? "접기" : "펼치기"}</span>
+              </button>
+            </li>
+          ) : (
             <FindingCard
-              key={f.findingId}
-              finding={f}
+              key={row.finding.findingId}
+              finding={row.finding}
               product={product}
               itemLabel={itemLabel}
-              contentId={contentOf(f.target.itemId)}
-              selectedPatchId={selected[f.findingId] ?? null}
+              contentId={contentOf(row.finding.target.itemId)}
+              selectedPatchId={selected[row.finding.findingId] ?? null}
               onOpenPlaces={onOpenPlaces}
-              onFocusFinding={() => setFocusedId(f.findingId)}
+              onFocusFinding={() => setFocusedId(row.finding.findingId)}
               onSelectPatch={(findingId, patchId) => { setFocusedId(findingId); onSelectPatch(findingId, patchId); }}
               onChanged={onChanged}
               busy={busy}
@@ -770,6 +832,8 @@ function FindingCard({
   const [dismissOpen, setDismissOpen] = useState(false);
   const [reasonChoice, setReasonChoice] = useState<string | null>(null);
   const [customReason, setCustomReason] = useState("");
+  // 무시한 카드는 한 줄로 접혀 있다가 누르면 본문을 편다 (UI-S3-023)
+  const [expanded, setExpanded] = useState(false);
   const meta = SEVERITY_META[finding.severity];
   // 차단은 무시할 수 없다 — 서버가 판단해 `dismissible` 로 준다 (API 설계 5-6)
   const canDismiss = finding.dismissible;
@@ -809,12 +873,63 @@ function FindingCard({
     }
   }
 
+  const body = (
+    <>
+      <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{finding.message}</p>
+      <p className="mt-1 text-xs text-slate-400">
+        대상: {itemLabel(finding.target.itemId)}
+        {finding.targetSecondary && ` ↔ ${itemLabel(finding.targetSecondary.itemId)}`}
+      </p>
+      {finding.requiresExternal && finding.externalSource && (
+        <p className="mt-1 text-xs text-slate-400">외부 참고: {finding.externalSource}</p>
+      )}
+      <EvidencePanel contentId={contentId} view={finding.evidenceView} ruleCode={finding.ruleCode} ruleVersion={finding.ruleVersion} />
+    </>
+  );
+
+  /*
+   * 무시한 카드는 한 줄로 접는다 — 등급 · 규칙 이름 · 무시됨 · 사유와 [무시 해제]만 보이고,
+   * 누르면 문장과 근거가 펼쳐진다 (UI-S3-023 · FR-AU-069). 목록에서 감추지는 않는다.
+   */
+  if (dismissed) {
+    return (
+      <li onFocusCapture={onFocusFinding} data-dismissed="true"
+        className={`finding-card is-dismissed rounded-xl border border-l-4 border-slate-200 p-4 dark:border-slate-800 ${meta.bar}`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <GradeBadge grade={finding.severity} />
+          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{ruleName(finding.ruleCode)}</span>
+          <SourceBadge source={finding.sourceBadge} externalName={finding.externalSource} />
+          <StatusBadge status="DISMISSED" />
+          {finding.dismissReason && (
+            <span className="text-xs text-slate-500 dark:text-slate-400">사유: {finding.dismissReason}</span>
+          )}
+          <span className="ml-auto flex shrink-0 gap-2">
+            <button type="button" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}
+              className="rounded-md px-2 py-1 text-xs text-slate-500 underline-offset-2 hover:underline dark:text-slate-400">
+              {expanded ? "내용 접기" : "내용 보기"}
+            </button>
+            {canDismiss && (
+              <button
+                type="button"
+                onClick={undismiss}
+                disabled={dismissBusy}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                무시 해제
+              </button>
+            )}
+          </span>
+        </div>
+        {expanded && <div className="min-w-0">{body}</div>}
+        {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
+      </li>
+    );
+  }
+
   return (
     <li
       onFocusCapture={onFocusFinding}
-      className={`finding-card rounded-xl border border-l-4 border-slate-200 p-4 dark:border-slate-800 ${meta.bar} ${
-        dismissed ? "opacity-60" : ""
-      }`}
+      className={`finding-card rounded-xl border border-l-4 border-slate-200 p-4 dark:border-slate-800 ${meta.bar}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -823,46 +938,22 @@ function FindingCard({
             <GradeBadge grade={finding.severity} />
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{ruleName(finding.ruleCode)}</span>
             <SourceBadge source={finding.sourceBadge} externalName={finding.externalSource} />
-            {dismissed && <StatusBadge status="DISMISSED" />}
           </div>
-          <p className="mt-2 text-sm text-slate-800 dark:text-slate-200">{finding.message}</p>
-          <p className="mt-1 text-xs text-slate-400">
-            대상: {itemLabel(finding.target.itemId)}
-            {finding.targetSecondary && ` ↔ ${itemLabel(finding.targetSecondary.itemId)}`}
-          </p>
-          {finding.requiresExternal && finding.externalSource && (
-            <p className="mt-1 text-xs text-slate-400">외부 참고: {finding.externalSource}</p>
-          )}
-          {dismissed && finding.dismissReason && (
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">무시 사유: {finding.dismissReason}</p>
-          )}
-          <EvidencePanel contentId={contentId} view={finding.evidenceView} ruleCode={finding.ruleCode} ruleVersion={finding.ruleVersion} />
-          {!dismissed && finding.severity !== "UNVERIFIED" && onOpenPlaces && placeAction(finding.ruleCode) && <button type="button" className="button-secondary mt-3"
+          {body}
+          {finding.severity !== "UNVERIFIED" && onOpenPlaces && placeAction(finding.ruleCode) && <button type="button" className="button-secondary mt-3"
             onClick={() => onOpenPlaces(finding)}>{placeAction(finding.ruleCode)}</button>}
           {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
         </div>
-        {canDismiss &&
-          (dismissed ? (
-            <button
-              type="button"
-              onClick={undismiss}
-              disabled={dismissBusy}
-              className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              무시 해제
-            </button>
-          ) : (
-            !dismissOpen && (
-              <button
-                type="button"
-                onClick={() => setDismissOpen(true)}
-                disabled={dismissBusy}
-                className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-              >
-                무시
-              </button>
-            )
-          ))}
+        {canDismiss && !dismissOpen && (
+          <button
+            type="button"
+            onClick={() => setDismissOpen(true)}
+            disabled={dismissBusy}
+            className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            무시
+          </button>
+        )}
       </div>
 
       {canDismiss && !dismissed && dismissOpen && (
