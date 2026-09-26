@@ -124,6 +124,8 @@ export class ReportService {
         releasedAt: productRow.releasedAt,
       },
       items,
+      // 1절 기획 출처 한 줄 (FR-PL-020)
+      planOrigin: productRow.planOrigin,
       patches: await this.toPatchHistory(patchRows, (item) => {
         // 3절 일정표와 같은 이름을 쓴다. 지금 일정에 없는 곳(되돌린 추가)은 읽어 둔 명칭이 없다
         const walk = item.walkId ?? null;

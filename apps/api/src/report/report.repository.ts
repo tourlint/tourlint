@@ -25,6 +25,8 @@ export interface ProductRow {
   readonly headCount: number | null;
   readonly transport: string;
   readonly releasedAt: string | null;
+  /** 기획 출처 (FR-PL-020 · DR-PR-009). 시작 방식 · 신호 종류 · 기간 · contentid 만 */
+  readonly planOrigin: unknown | null;
 }
 
 export interface ItemRow {
@@ -40,6 +42,9 @@ export interface ItemRow {
   readonly matchStatus: string;
   /** 걷기 길 코스 식별자 (D9). 이름은 저장하지 않으므로 표시할 때 이것으로 찾는다 */
   readonly walkId: string | null;
+  /** 들어온 경로 · 고른 방식 (FR-PL-020). 1절 기획 출처 요약에만 쓴다 */
+  readonly origin: string | null;
+  readonly matchedBy: string | null;
 }
 
 export interface FingerprintRow {
@@ -97,10 +102,10 @@ export class ReportRepository {
     const { rows } = await this.pool.query<{
       name: string; ldong_regn_cd: string; ldong_signgu_cd: string | null;
       start_date: Date | string; nights: number; head_count: number | null;
-      transport: string; released_at: Date | null;
+      transport: string; released_at: Date | null; plan_origin: unknown | null;
     }>(
       `SELECT name, ldong_regn_cd, ldong_signgu_cd, start_date, nights,
-              head_count, transport, released_at
+              head_count, transport, released_at, plan_origin
          FROM product WHERE id = $1`,
       [productId],
     );
@@ -115,6 +120,7 @@ export class ReportRepository {
       headCount: row.head_count === null ? null : Number(row.head_count),
       transport: row.transport,
       releasedAt: row.released_at === null ? null : kstIso(row.released_at),
+      planOrigin: row.plan_origin ?? null,
     };
   }
 
@@ -124,9 +130,10 @@ export class ReportRepository {
       id: string; day_no: number; seq: number; start_time: string; end_time: string | null;
       place_label: string | null; item_type: string; kto_content_id: string | null;
       content_type_id: number | null; match_status: string; walk_id: string | null;
+      origin: string | null; matched_by: string | null;
     }>(
       `SELECT id, day_no, seq, start_time, end_time, place_label, item_type,
-              kto_content_id, content_type_id, match_status, walk_id
+              kto_content_id, content_type_id, match_status, walk_id, origin, matched_by
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -142,6 +149,8 @@ export class ReportRepository {
       contentTypeId: r.content_type_id === null ? null : Number(r.content_type_id),
       matchStatus: r.match_status,
       walkId: r.walk_id,
+      origin: r.origin,
+      matchedBy: r.matched_by,
     }));
   }
 

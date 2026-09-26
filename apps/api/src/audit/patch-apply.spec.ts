@@ -120,6 +120,14 @@ describe('반영', () => {
     expect(added?.ktoContentId).toBeNull();
   });
 
+  it('🔴 수정안이 넣은 줄은 들어온 경로가 수정안(PATCH)이다 (FR-PL-020)', () => {
+    const day = [item({ id: 1, seq: 1, origin: 'TEXT' }), item({ id: 2, seq: 2, startTime: '14:00', endTime: '15:00', origin: 'PICKER' })];
+    const out = applyPatches(day, [insert('p-1', 1, '12:00', '13:00')]).items;
+    expect(out.find((i) => i.id < 0)?.origin).toBe('PATCH');
+    // 원래 있던 줄의 경로는 건드리지 않는다
+    expect(out.filter((i) => i.id > 0).map((i) => [i.id, i.origin])).toEqual([[1, 'TEXT'], [2, 'PICKER']]);
+  });
+
   it('넣은 항목의 임시 id 가 반영 순서에 흔들리지 않는다', () => {
     const patches = [insert('p-1', 1, '12:00', '12:30'), insert('p-2', 1, '16:00', '16:30')];
     const forward = applyPatches(DAY, patches, { preserveOrder: true }).items.filter((i) => i.id < 0);

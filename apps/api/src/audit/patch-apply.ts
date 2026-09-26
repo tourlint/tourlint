@@ -204,6 +204,8 @@ export function applyPatches(
            * 매칭된 항목만 세므로(`confirmedItems`) 그래야 R10 결손이 재검수에서 풀린다.
            */
           matchStatus: p.content === undefined ? 'EXCLUDED' : 'CONFIRMED',
+          // 수정안으로 들어온 줄이다 (FR-PL-020). 판정에는 쓰지 않는다
+          origin: 'PATCH',
         };
         working.push(inserted);
         break;

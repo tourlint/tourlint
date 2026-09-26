@@ -157,6 +157,18 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     const days = (await service.detail(accountId, productId)).days as { items: { seq: number }[] }[];
     expect(days[0]?.items.map((i) => i.seq)).toEqual([1, 2]);
   });
+
+  it('🔴 상세의 항목에 중분류와 끝 시각 출처가 실린다 — 화면이 「기본값 적용 · N분」 을 보인다 (FR-IN-011)', async () => {
+    const { productId } = await makeProduct();
+    const cafe = picked(REPLACEMENT);
+    // 장소 담기는 끝 시각을 표준 체류시간(카페 FD05 60분)으로 채운다
+    await service.addItem(accountId, productId, { ...cafe, itemType: 'REST', content: { ...cafe.content, lcls1: 'FD', lcls2: 'FD05' } });
+    const days = (await service.detail(accountId, productId)).days as { items: Record<string, unknown>[] }[];
+    expect(days[0]?.items.map((i) => [i.lcls2, i.endTimeSource, i.start, i.end])).toEqual([
+      [null, 'INPUT', '10:00', '11:30'],
+      ['FD05', 'DWELL_DEFAULT', '11:30', '12:30'],
+    ]);
+  });
 });
 
 /**

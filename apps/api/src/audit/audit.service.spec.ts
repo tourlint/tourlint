@@ -684,12 +684,14 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       ]);
       const applied = await confirmAndSettle([{ findingId, patchId: 'p-1' }]);
 
-      const { rows } = await pool.query<{ match_status: string; kto_content_id: string | null }>(
-        `SELECT match_status, kto_content_id FROM itinerary_item
+      const { rows } = await pool.query<{ match_status: string; kto_content_id: string | null; origin: string | null }>(
+        `SELECT match_status, kto_content_id, origin FROM itinerary_item
           WHERE product_id = $1 AND item_type = 'MEAL' AND start_time = '18:00'::time`, [productId],
       );
       expect(rows[0]?.match_status).toBe('EXCLUDED');
       expect(rows[0]?.kto_content_id).toBeNull();
+      // 수정안으로 들어온 줄로 남는다 (FR-PL-020)
+      expect(rows[0]?.origin).toBe('PATCH');
 
       // ① 넣은 항목이 확인 불가로 세어지지 않는다
       const application = await service.getPatchApplication(applied.patchApplicationId);

@@ -93,6 +93,12 @@ export interface ProductItem {
   /** 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
   mapx: number | null;
   mapy: number | null;
+  /**
+   * 중분류 · 끝 시각 출처 (FR-IN-011). 끝 시간을 비운 줄에 채워질 시각과 「기본값 적용 · N분」 을
+   * 엔진과 같은 표로 보이는 데만 쓴다. 옛 응답에는 없다 — 없으면 짓지 않는다
+   */
+  lcls2?: string | null;
+  endTimeSource?: "INPUT" | "DWELL_DEFAULT" | "DWELL_FALLBACK";
 }
 
 export interface ProductDetail {
@@ -151,6 +157,8 @@ export interface ItemInput {
   endTime: string;
   placeLabel: string;
   itemType: string;
+  /** 들어온 경로 — MANUAL · UPLOAD · TEXT (FR-PL-020). 없으면 서버가 MANUAL 로 둔다 */
+  origin?: string;
 }
 
 export interface ContentCandidate {
@@ -381,7 +389,7 @@ export const productApi = {
 export const itemApi = {
   add: (productId: number, item: ItemInput) =>
     request<ProductItem>(`/products/${productId}/items`, { method: "POST", body: JSON.stringify(item) }),
-  patch: (itemId: number, patch: Partial<Omit<ItemInput, "dayNo">>) =>
+  patch: (itemId: number, patch: Partial<Omit<ItemInput, "dayNo" | "origin">>) =>
     request<ProductItem>(`/items/${itemId}`, { method: "PATCH", body: JSON.stringify(patch) }),
   remove: (itemId: number) => request<void>(`/items/${itemId}`, { method: "DELETE" }),
   reorder: (productId: number, items: readonly { itemId: number; dayNo: number; seq: number }[]) =>

@@ -8,6 +8,8 @@
 .plan-stop-heading h3 { font-size: 1rem; font-weight: 700; color: #243c34; overflow-wrap: anywhere; }
 .plan-stop-time { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; font-size: .8rem; font-weight: 600; color: #2c7766; margin-bottom: .25rem; font-variant-numeric: tabular-nums; }
 .plan-stop-time span { font-size: .7rem; font-weight: 400; color: #76877f; }
+/* 끝 시간을 비운 줄에 검수가 채울 시각 — 회색 미리보기 (UI-S2-032) */
+.plan-stop-time .plan-stop-end-preview { font-size: inherit; font-weight: 600; color: #a3b3ab; }
 .plan-place-meta { display: flex; flex-wrap: wrap; gap: .4rem; margin: .9rem 0 .65rem; font-size: .7rem; color: #647b71; }
 .plan-place-meta span { background: #f2f6f4; padding: .2rem .5rem; border-radius: 5px; }
 .plan-facts-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: .65rem; }
@@ -34,5 +36,6 @@
   .plan-stop-number, .plan-place-meta span { background: #213c31; color: #a7d5c0; }
   .plan-facts-grid > div { background: #1a2b22; }
   .plan-stop-time { color: #91ccb5; }
+  .plan-stop-time .plan-stop-end-preview { color: #5f7a6d; }
   .plan-transfer, .plan-day > p { color: #a4bcb0; }
 }

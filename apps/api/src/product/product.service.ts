@@ -432,6 +432,9 @@ function toDays(items: ProductDetailRow['items']): { day: number; items: unknown
       matchStatus: it.matchStatus,
       mapx: it.mapx,
       mapy: it.mapy,
+      // 끝 시간 미리보기 · 「기본값 적용」 표시용 (FR-IN-011 · UI-S2-009). 판정에는 쓰지 않는다
+      lcls2: it.lcls2,
+      endTimeSource: it.endTimeSource,
     });
     byDay.set(it.dayNo, list);
   }

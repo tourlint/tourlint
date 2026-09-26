@@ -4,6 +4,7 @@
 // 항목은 갈 곳이 없다. 조용히 흘리면 저장한 뒤에야 없어진 걸 알게 되므로 버린 수를 함께
 // 돌려주고 화면이 말하게 한다.
 
+import type { InputItemOrigin } from "@tourlint/shared";
 import type { ItemType, Schedule } from "./types";
 
 export interface ParsedItem {
@@ -22,7 +23,10 @@ export interface ImportedSchedule {
   dropped: number;
 }
 
-export function importedSchedule(items: readonly ParsedItem[], dayCount: number, seq: number): ImportedSchedule {
+/** `origin` — 엑셀이면 UPLOAD, 자연어면 TEXT. 줄마다 들어온 경로로 저장된다 (FR-PL-020) */
+export function importedSchedule(
+  items: readonly ParsedItem[], dayCount: number, seq: number, origin: InputItemOrigin = "UPLOAD",
+): ImportedSchedule {
   const days = Math.max(1, dayCount);
   const schedule: Schedule = Array.from({ length: days }, () => []);
   let put = 0;
@@ -40,6 +44,7 @@ export function importedSchedule(items: readonly ParsedItem[], dayCount: number,
       end: it.end ?? "",
       place: it.place,
       itemType: it.itemType,
+      origin,
     });
   }
   return { schedule, put, dropped };

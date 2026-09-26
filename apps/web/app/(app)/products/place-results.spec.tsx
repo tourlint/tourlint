@@ -78,4 +78,29 @@ describe("장소 목록 탐색 (#564)", () => {
     expect(host.textContent).toContain("이 조건에 맞는 장소가 없어요");
     expect(host.querySelectorAll("nav")).toHaveLength(0);
   });
+
+  it("🔴 목록 아래에도 전체 수와 지금 범위를 적는다 (UI-S2-036)", async () => {
+    vi.spyOn(planApi, "places").mockImplementation(async q => response(q.page));
+    await render();
+    expect(host.textContent?.match(/전체 34곳 중 1–20곳/g)).toHaveLength(2);
+    const last = [...host.querySelectorAll("p")].at(-1);
+    expect(last?.textContent).toBe("전체 34곳 중 1–20곳");
+  });
+
+  it("🔴 필터가 켜진 채 0곳이면 빈 상태에 「필터 모두 끄기」 를 둔다 — 저절로 풀지 않는다 (UI-S2-038 · EX-PL-001)", async () => {
+    vi.spyOn(planApi, "places").mockResolvedValue(response(1, 0));
+    const clear = vi.fn();
+    await act(async () => root.render(<PlaceResults query={{ ...query, wheelchair: true }} onClearFilters={clear}>{card}</PlaceResults>));
+    await click("필터 모두 끄기");
+    expect(clear).toHaveBeenCalledTimes(1);
+    await render();
+    expect([...host.querySelectorAll("button")].some(b => b.textContent === "필터 모두 끄기")).toBe(false);
+  });
+
+  it("받은 목록의 전체 수를 알려 준다 — 누른 근처 칩의 개수 (UI-S2-037)", async () => {
+    vi.spyOn(planApi, "places").mockResolvedValue(response(1, 7));
+    const loaded = vi.fn();
+    await act(async () => root.render(<PlaceResults query={query} onLoaded={loaded}>{card}</PlaceResults>));
+    expect(loaded).toHaveBeenCalledWith(expect.objectContaining({ totalCount: 7 }));
+  });
 });

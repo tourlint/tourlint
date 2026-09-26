@@ -1,4 +1,6 @@
-import { ITEM_TYPE, TRANSPORT, isConceptKey, isTargetKey, type ItemType, type Transport } from '@tourlint/shared';
+import {
+  INPUT_ITEM_ORIGIN, ITEM_TYPE, TRANSPORT, isConceptKey, isTargetKey, type InputItemOrigin, type ItemType, type Transport,
+} from '@tourlint/shared';
 
 /**
  * 상품 등록·편집 요청 계약과 검증 (F01 · API 설계 5-1).
@@ -17,6 +19,8 @@ export interface CreateItemDto {
   readonly itemType?: unknown;
   // 입력하는 순간 목록에서 고른 관광지 (UI-S2-020). 있으면 CONFIRMED 로 저장한다 — 이름은 담지 않는다
   readonly content?: unknown;
+  // 그 줄이 들어온 경로 (FR-PL-020). MANUAL · UPLOAD · TEXT · PICKER, 없으면 MANUAL
+  readonly origin?: unknown;
 }
 
 /** 등록 시 인라인으로 고른 관광지 (UI-S2-020 · D8). 코드·좌표·분류만 담는다 (DR-PR-001) */
@@ -80,6 +84,8 @@ export interface ValidItem {
   readonly itemType: ItemType;
   // 등록 시 고른 관광지. null = 아직 안 고름(PENDING), 있으면 CONFIRMED (UI-S2-020)
   readonly content: MatchedContent | null;
+  /** 들어온 경로 (FR-PL-020). 장소 담기(PICKER)로 넣은 줄은 고른 방식(matched_by)을 비운다 */
+  readonly origin: InputItemOrigin;
 }
 
 export interface ValidProduct {
@@ -101,6 +107,15 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
+}
+
+/**
+ * 줄이 들어온 경로 (FR-PL-020). 기록일 뿐이라 저장을 막지 않는다 — 없거나 목록에 없는 값이면
+ * 직접 입력(MANUAL)으로 둔다. 화면을 거치지 않고 API 로 넣은 줄도 사람이 친 줄이다.
+ */
+function readOrigin(v: unknown): InputItemOrigin {
+  const s = str(v);
+  return (INPUT_ITEM_ORIGIN as readonly string[]).includes(s) ? (s as InputItemOrigin) : 'MANUAL';
 }
 
 /**
@@ -339,6 +354,7 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
         placeLabel: place,
         itemType: itemType as ItemType,
         content,
+        origin: readOrigin(item.origin),
       });
     });
   });
@@ -355,6 +371,8 @@ export interface ValidItemInput {
   endTimeSource: 'INPUT' | 'DWELL_DEFAULT';
   placeLabel: string;
   itemType: ItemType;
+  /** 편집 화면에서 친 줄은 MANUAL, 엑셀 · 메모로 채운 줄은 UPLOAD · TEXT (FR-PL-020) */
+  origin: InputItemOrigin;
 }
 
 /** 장소 담기로 넣는 항목 — 이미 고른 공사 콘텐츠라 CONFIRMED 로 들어간다 (D8 · FR-PL-013) */
@@ -381,6 +399,7 @@ interface RawItem {
   endTime?: unknown;
   placeLabel?: unknown;
   itemType?: unknown;
+  origin?: unknown;
 }
 
 /**
@@ -484,6 +503,7 @@ export function validateAddItem(body: RawItem | undefined, dayCount: number): { 
       endTimeSource: endRaw === '' ? 'DWELL_DEFAULT' : 'INPUT',
       placeLabel: place,
       itemType: itemType as ItemType,
+      origin: readOrigin(b.origin),
     },
   };
 }

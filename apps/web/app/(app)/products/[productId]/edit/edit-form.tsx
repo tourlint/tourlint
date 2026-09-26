@@ -90,10 +90,11 @@ export function EditForm({ productId }: { productId: number }) {
    * 저장한 뒤에야 없어진 걸 안다.
    */
   const importSeq = useRef(0);
-  function applyImport(_nights: number, items: ParsedItemDTO[]) {
+  function applyImport(items: ParsedItemDTO[], origin: "UPLOAD" | "TEXT") {
     if (loaded === null) return;
     importSeq.current += 1;
-    const { schedule: next, put, dropped } = importedSchedule(items, loaded.dayCount, importSeq.current);
+    // 엑셀이면 UPLOAD, 자연어면 TEXT 로 저장된다 (FR-PL-020)
+    const { schedule: next, put, dropped } = importedSchedule(items, loaded.dayCount, importSeq.current, origin);
     setAnchorId(null);
     setSchedule(next);
     setImportNote(
@@ -114,6 +115,7 @@ export function EditForm({ productId }: { productId: number }) {
       place: p.title,
       itemType,
       content: { contentId: p.contentId, contentTypeId: p.contentTypeId, mapx: p.mapx, mapy: p.mapy, lcls1: p.lcls1, lcls2: p.lcls2, lcls3: null },
+      origin: "PICKER",
     };
     setSchedule((prev) =>
       prev.map((items, i) => {
@@ -162,6 +164,8 @@ export function EditForm({ productId }: { productId: number }) {
             : await itemApi.add(productId, {
                 dayNo: add.dayNo, startTime: add.startTime, endTime: add.endTime,
                 placeLabel: add.placeLabel, itemType: add.itemType,
+                // 편집 화면에서 친 줄은 직접 입력, 엑셀 · 메모로 채운 줄은 그 경로 (FR-PL-020)
+                origin: add.origin ?? "MANUAL",
               });
           newIds.set(i, created.itemId);
         }
@@ -314,8 +318,8 @@ export function EditForm({ productId }: { productId: number }) {
             onAnchorChange={setAnchorId}
           />
         )}
-        {method === "upload" && <UploadPanel onApplied={applyImport} onEdit={() => setMethod("direct")} />}
-        {method === "nl" && <NlPanel onApplied={applyImport} onEdit={() => setMethod("direct")} />}
+        {method === "upload" && <UploadPanel onApplied={(_n, items) => applyImport(items, "UPLOAD")} onEdit={() => setMethod("direct")} />}
+        {method === "nl" && <NlPanel onApplied={(_n, items) => applyImport(items, "TEXT")} onEdit={() => setMethod("direct")} />}
 
         {err !== null && <p className="text-sm text-rose-600 dark:text-rose-400">{err}</p>}
 
@@ -384,6 +388,7 @@ function toSchedule(d: ProductDetail): Schedule {
       end: it.end ?? "",
       place: it.place,
       itemType: it.itemType as ItemType,
+      saved: { end: it.end ?? "", endTimeSource: it.endTimeSource, lcls2: it.lcls2, matchStatus: it.matchStatus },
     }));
   }
   return days;
@@ -402,6 +407,7 @@ function toEdited(schedule: Schedule): EditedItem[] {
         placeLabel: it.place,
         itemType: it.itemType,
         ...(it.content ? { content: it.content } : {}),
+        ...(it.origin ? { origin: it.origin } : {}),
       });
     });
   });

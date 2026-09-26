@@ -689,5 +689,12 @@ export type ItemMatchedBy = (typeof ITEM_MATCHED_BY)[number];
 export const ITEM_ORIGIN = ['MANUAL', 'UPLOAD', 'TEXT', 'PICKER', 'SIGNAL', 'PATCH'] as const;
 export type ItemOrigin = (typeof ITEM_ORIGIN)[number];
 
+/**
+ * 등록 · 편집 화면이 줄마다 보내는 경로 (FR-PL-020). 직접 입력 · 엑셀 · 메모 붙여넣기 · 장소 담기.
+ * 수정안이 넣은 줄(PATCH)은 서버가 붙이고, 레이더 소식(SIGNAL)으로 줄을 넣는 화면은 아직 없다.
+ */
+export const INPUT_ITEM_ORIGIN = ['MANUAL', 'UPLOAD', 'TEXT', 'PICKER'] as const;
+export type InputItemOrigin = (typeof INPUT_ITEM_ORIGIN)[number];
+
 /** 기획 조회의 메모리 캐시 — 지역 · 중분류별 수와 목록, 무장애 · 반려동물 contentid 집합, 걷기 길 목록. DB · 로그 금지 (DB 명세서 6-4) */
 export const PLAN_LIST_CACHE_TTL_MS = 10 * 60 * 1000;
