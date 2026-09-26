@@ -72,3 +72,11 @@ it("🔴 기획 화면 — 못 받으면 다시 불러오기를 준다", async (
   expect(host.textContent).toContain("랜드마크관광");
   expect(host.textContent).not.toContain("종류를 불러오지 못했어요.");
 });
+
+it("🔴 등록 화면 — 예산 안내는 「공사 데이터 조회량」이 아니라 「관광정보 조회」다 (UI-CM-040 · FR-CM-012)", async () => {
+  vi.spyOn(planApi, "briefing").mockResolvedValue({ ...briefing, budget: "PAUSED" });
+  await act(async () => root.render(register("2026-11-17")));
+  await settle();
+  expect(host.textContent).toContain("오늘 쓸 수 있는 관광정보 조회를 다 써서 장소를 새로 불러올 수 없어요.");
+  expect(host.textContent).not.toContain("공사 데이터");
+});
