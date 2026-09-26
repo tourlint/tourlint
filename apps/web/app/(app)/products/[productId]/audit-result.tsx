@@ -29,7 +29,7 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
-import { DISMISS_REASON_PRESET, SETTING_DEFAULTS, ktoFieldLabel } from "@tourlint/shared";
+import { DISMISS_REASON_PRESET, SETTING_DEFAULTS, ktoFieldLabel, ktoRawText, unavailableText } from "@tourlint/shared";
 import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
 import { contactText, readNormalized, readVerdict, ruleLine } from "../../../lib/evidence";
@@ -551,8 +551,9 @@ function ApplyResultBanner({
     <section className={`rounded-2xl border p-5 ${box}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-50">
             {warn ? "재검수 결과 확인" : "수정안을 반영했습니다"}
+            <SourceBadge source="TOURLINT_VERDICT" />
           </p>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
             {warn ?? "일정에 수정안을 반영하고 다시 검수했습니다."}
@@ -689,9 +690,13 @@ export function SummaryCard({ run, confirmationCount, rechecking = false }: {
           <span>검수 대상 {run.targetCount}곳</span>
         </div>
         <div className="audit-verdict">
-          <span className={`audit-verdict-label ${run.isPartial ? "is-partial" : run.releasable ? "is-ready" : "needs-work"}`}>
-            {run.isPartial ? "부분 검수" : run.releasable ? "출시 가능" : "출시 불가"}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`audit-verdict-label ${run.isPartial ? "is-partial" : run.releasable ? "is-ready" : "needs-work"}`}>
+              {run.isPartial ? "부분 검수" : run.releasable ? "출시 가능" : "출시 불가"}
+            </span>
+            {/* 점수 · 등급 건수 · 출시 가능 여부는 규칙엔진의 판정이다 (FR-CM-010) */}
+            <SourceBadge source="TOURLINT_VERDICT" />
+          </div>
           <h2>{status}</h2>
           <p>{run.isPartial ? `조회하지 못한 콘텐츠 ${run.failedCount}곳이 있어요. 다시 검수해 주세요.`
             : run.releasable ? "남은 주의 사항과 직접 확인할 곳도 함께 살펴보세요."
@@ -1256,6 +1261,8 @@ function UnverifiedRow({
   return (
     <li className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
       <div className="min-w-0">
+        {/* 확인 불가 · 확인 필요는 규칙엔진의 판정이다 (FR-CM-010) */}
+        <SourceBadge source="TOURLINT_VERDICT" className="mb-1" />
         <p className="text-sm text-slate-800 dark:text-slate-200">{item.reason}</p>
         <p className="mt-1 text-xs text-slate-400">
           대상: {item.placeLabel ?? itemLabel(item.targetItemId)}
@@ -1332,6 +1339,8 @@ function EvidencePanel({
 
   const ai = readNormalized(view?.aiNormalized);
   const verdict = readVerdict(view?.verdict);
+  // 제3유형(Type3) 콘텐츠면 공사 원문 배지에 「변경금지」 (FR-CM-011 · EI-KT-017). 값이 없으면 생략
+  const restricted = content?.cpyrhtDivCd === "Type3";
 
   async function toggle() {
     const next = !open;
@@ -1364,7 +1373,7 @@ function EvidencePanel({
       {open && (
         <div className="mt-2 space-y-3 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900/60">
           {ruleCode !== undefined && <p className="text-slate-400">{ruleLine(ruleCode, ruleVersion)}</p>}
-          <EvidenceBlock label="공사 원문" badge="KTO_ORIGINAL">
+          <EvidenceBlock label="공사 원문" badge="KTO_ORIGINAL" restricted={restricted}>
             {busy && <p className="text-slate-400">불러오는 중…</p>}
             {err !== null && <p className="text-slate-500 dark:text-slate-400">{err}</p>}
             {!busy && err === null && content === null && (
@@ -1380,12 +1389,13 @@ function EvidencePanel({
                 {Object.entries(content.ktoRaw).map(([name, value]) => (
                   <div key={name} className="flex gap-2">
                     <dt className="shrink-0 text-slate-400">{ktoFieldLabel(name)}</dt>
-                    {/* 원문 그대로 — 다듬지 않는다 */}
-                    <dd className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{value || "—"}</dd>
+                    {/* 원문 그대로 — 다듬지 않는다. 섞여 오는 <br> 만 줄바꿈으로 되돌린다 (UI-S3-012) */}
+                    <dd className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{value ? ktoRawText(value) : "—"}</dd>
                   </div>
                 ))}
+                {/* 사유코드를 찍지 않는다 — 조회 실패 / 정보 없음 (FR-CM-012 · UI-ST-005) */}
                 {content.unavailableReason !== null && (
-                  <p className="text-slate-400">조회하지 못했습니다 ({content.unavailableReason})</p>
+                  <p className="text-slate-400">{unavailableText(content.unavailableReason)}</p>
                 )}
               </dl>
             )}
@@ -1405,7 +1415,7 @@ function EvidencePanel({
           )}
 
           {extra === true && (
-            <EvidenceBlock label="확인처" badge="KTO_ORIGINAL">
+            <EvidenceBlock label="확인처" badge="KTO_ORIGINAL" restricted={restricted}>
               <div className="grid gap-1">
                 <div className="flex gap-2">
                   <span className="shrink-0 text-slate-400">문의처</span>
@@ -1444,17 +1454,19 @@ function EvidencePanel({
 function EvidenceBlock({
   label,
   badge,
+  restricted = false,
   children,
 }: {
   label: string;
   badge: SourceKind;
+  restricted?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <section>
       <div className="mb-1 flex items-center gap-2">
         <span className="font-medium text-slate-600 dark:text-slate-300">{label}</span>
-        <SourceBadge source={badge} externalName={null} />
+        <SourceBadge source={badge} externalName={null} restricted={restricted} />
       </div>
       {children}
     </section>

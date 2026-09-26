@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { agentApi, isApiError, type CheckQuestionPlace } from "../../../lib/api";
+import { SourceBadge } from "../../../components/badges";
 
 export function CheckQuestionsCard({
   runId,
@@ -49,6 +50,8 @@ export function CheckQuestionsCard({
       {err && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
       {places !== null && (
         <div className="mt-3 space-y-3">
+          {/* 질문은 AI 가 정리한 것이다 — 판정이 아니다 (FR-CM-010 · FR-AG-022) */}
+          <SourceBadge source="AI_NORMALIZED" />
           {places.length === 0 ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">전화로 확인할 곳이 없어요.</p>
           ) : (

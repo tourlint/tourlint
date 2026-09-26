@@ -86,7 +86,8 @@ export const MATCHING: readonly Endpoint[] = [
             cpyrhtDivCd: 'Type1',
           },
           fetchedAt: '2026-09-20T01:23:45.678Z',
-          sourceBadge: { type: 'KTO_RAW', note: '변경금지' },
+          // Type3 이면 note 가 '변경금지', 그 밖에는 null
+          sourceBadge: { type: 'KTO_RAW', note: null },
         },
       },
     },
@@ -229,6 +230,7 @@ export const MATCHING: readonly Endpoint[] = [
           lclsSystm1: 'VE',
           lclsSystm2: 'VE07',
           lclsSystm3: 'VE070100',
+          cpyrhtDivCd: 'Type1',
           accessible: {
             route: '출입구까지 경사로가 설치되어 있음',
             wheelchair: '대여 가능(5대/매표소 발권 후 우측에 보관함)',

@@ -942,6 +942,8 @@ export interface ContentDetail {
   lclsSystm1: string | null;
   lclsSystm2: string | null;
   lclsSystm3: string | null;
+  /** 저작권 유형 `Type1` · `Type3`. Type3 이면 공사 원문 배지에 「변경금지」 (FR-CM-011). 없으면 표기 생략 */
+  cpyrhtDivCd?: string | null;
 }
 
 export const contentApi = {

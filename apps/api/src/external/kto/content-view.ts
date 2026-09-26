@@ -40,6 +40,11 @@ export interface ContentView {
   readonly lclsSystm1: string | null;
   readonly lclsSystm2: string | null;
   readonly lclsSystm3: string | null;
+  /**
+   * 저작권 유형 (`detailCommon2` 원문 `Type1` · `Type3`). 화면이 공사 원문 배지에 Type3 이면
+   * 「변경금지」를 붙인다 (FR-CM-011 · EI-KT-017). 비었거나 못 읽으면 `null` — 표기를 생략한다
+   */
+  readonly cpyrhtDivCd: string | null;
 }
 
 export interface ContentViewInput {
@@ -79,6 +84,7 @@ export async function fetchContentView(input: ContentViewInput): Promise<Content
     lclsSystm1: null,
     lclsSystm2: null,
     lclsSystm3: null,
+    cpyrhtDivCd: null,
   };
   const modifiedTime = input.ktoModifiedTime ?? null;
 
@@ -139,6 +145,7 @@ export async function fetchContentView(input: ContentViewInput): Promise<Content
     lclsSystm1: blankToNull(text(c.lclsSystm1)),
     lclsSystm2: blankToNull(text(c.lclsSystm2)),
     lclsSystm3: blankToNull(text(c.lclsSystm3)),
+    cpyrhtDivCd: blankToNull(text(c.cpyrhtDivCd)),
   };
 }
 

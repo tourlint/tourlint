@@ -576,7 +576,7 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 <tr>
 <td>GET</td>
 <td>`/api/v1/contents/{contentId}`</td>
-<td>관광지 상세 실시간 조회. **DB에서 읽지 않는다**. `with=accessible,pet` 을 주면 요청한 조건 축(무장애 · 반려동물)을 각 1콜로 붙인다 — 서비스를 못 부르면 그 필드만 `null`</td>
+<td>관광지 상세 실시간 조회. **DB에서 읽지 않는다**. `with=accessible,pet` 을 주면 요청한 조건 축(무장애 · 반려동물)을 각 1콜로 붙인다 — 서비스를 못 부르면 그 필드만 `null`. `cpyrhtDivCd`(`Type1` · `Type3` · 없으면 `null`)를 실어 화면이 Type3 공사 원문 배지에 "변경금지"를 붙인다 (FR-CM-011)</td>
 <td>DR-PR-004 · FR-IN-030 · FR-PL-012</td>
 </tr>
 <tr>
@@ -1201,7 +1201,7 @@ POST /api/v1/radar/today
 ```
 <callout icon="©️" color="blue_bg">
 	**`sourceBadge`****는 모든 정보에 붙습니다** (FR-CM-010). 4종 — `KTO_RAW` 공사 원문(무가공) · `TOURLINT_VERDICT` 판정 · `AI_NORMALIZED` AI 정규화(원문 병기 필수) · `EXTERNAL_REF` 외부 참고(제공자명 표기).
-	실측상 콘텐츠 대부분이 `cpyrhtDivCd = Type3`(변경금지)이므로 **예외가 아니라 기본값으로 가정**하고 배지에 "변경금지"를 병기합니다 (FR-CM-011 · EI-KT-017).
+	실측상 콘텐츠 대부분이 `cpyrhtDivCd = Type3`(변경금지)입니다. 확정 응답의 `sourceBadge.note` 는 받은 값이 `Type3` 이면 "변경금지", 아니면(`Type1` · 값 없음) `null` 입니다 (FR-CM-011 · EI-KT-017).
 </callout>
 ## 5-4. 검수 요청 · 폴링
 ```json

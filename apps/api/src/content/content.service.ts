@@ -51,6 +51,8 @@ export class ContentService {
       lclsSystm1: view.lclsSystm1,
       lclsSystm2: view.lclsSystm2,
       lclsSystm3: view.lclsSystm3,
+      // Type3 이면 화면이 공사 원문 배지에 「변경금지」를 붙인다 (FR-CM-011 · EI-KT-017)
+      cpyrhtDivCd: view.cpyrhtDivCd,
       ...(await this.conditionsOf(contentId, want)),
     };
   }

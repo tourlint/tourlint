@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { RULE_NAMES, SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
 import { calculateReadiness } from '../engine/score';
 import type { StoredFinding } from '../persistence/audit-result.repository';
-import { assembleReport, type AssembleInput } from './report-model';
-import { FONT_BOLD, FONT_REGULAR, fontsAvailable, missingGlyphs, renderReport } from './report-render';
+import { assembleReport, type AssembleInput, type ContentEvidence } from './report-model';
+import { FONT_BOLD, FONT_REGULAR, evidenceRows, fontsAvailable, missingGlyphs, renderReport, unavailableLine } from './report-render';
 
 function model(over: Partial<AssembleInput> = {}): ReturnType<typeof assembleReport> {
   const findings = [
@@ -64,7 +64,7 @@ function model(over: Partial<AssembleInput> = {}): ReturnType<typeof assembleRep
       homepageUrl: 'https://oj.kr', contact: { tel: '033-640-4457' },
       fields: [{ name: 'restdate', value: '매주 월요일 휴관' }, { name: 'usetime', value: '09:00~18:00' }],
       ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null,
-      contentTypeId: 14, mapx: null, mapy: null, lclsSystm1: null, lclsSystm2: null, lclsSystm3: null,
+      contentTypeId: 14, mapx: null, mapy: null, lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, cpyrhtDivCd: null,
     }]]),
     walkNames: new Map(),
     dataFingerprint: 'ab12cd34',
@@ -125,6 +125,30 @@ describe('리포트 렌더', () => {
     const names = Object.values(RULE_NAMES).join(' ');
     expect(missingGlyphs(names)).toEqual([]);
     expect(missingGlyphs(names, FONT_BOLD)).toEqual([]);
+  });
+
+  it('🔴 근거 표의 원문은 <br> 만 줄바꿈으로 되돌린다 — 태그가 글자로 찍히지 않는다 (UI-S3-012)', () => {
+    // 실측: 강릉 동부시장 · 감자적본부
+    const market: ContentEvidence = {
+      ktoContentId: '132215', officialName: '동부시장', imageUrl: null, homepageUrl: null, contact: { tel: null },
+      fields: [
+        { name: 'opentime', value: '06:00~23:00<br>※ 점포별 상이함' },
+        { name: 'restdate', value: '' },
+      ],
+      ktoModifiedTime: null, hidden: false, unavailableReason: null,
+      contentTypeId: 38, mapx: null, mapy: null, lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, cpyrhtDivCd: null,
+    };
+    const rows = evidenceRows(market);
+    expect(rows[0]).toEqual(['운영시간', '06:00~23:00\n※ 점포별 상이함']);
+    expect(rows[1]?.[1]).toBe('(값 없음)');
+    expect(JSON.stringify(rows)).not.toContain('<br>');
+  });
+
+  it('🔴 원문을 못 읽은 까닭은 사유코드 대신 사용자 말로 적는다 (FR-CM-012 · UI-ST-005)', () => {
+    expect(unavailableLine('KTO_FETCH_FAILED')).toBe('공사 원문 조회 실패 — 관광정보를 불러오지 못했습니다.');
+    expect(unavailableLine('CONTENT_NOT_FOUND')).toBe('공사 원문 정보 없음 — 관광정보에 이 곳의 정보가 없습니다.');
+    expect(unavailableLine('KTO_QUOTA_EXCEEDED')).not.toMatch(/[A-Z]{3,}/);
+    expect(missingGlyphs(unavailableLine('KTO_FETCH_FAILED') + unavailableLine('CONTENT_NOT_FOUND'))).toEqual([]);
   });
 
   it('A4 세로 PDF 가 나온다 (UI-S6-008)', async () => {
