@@ -183,7 +183,8 @@ export function PlacePicker({ product, onInserted, openType = null, initialDay =
             onChange={(e) => dispatch({ type: "SET_ANCHOR", anchorItemId: e.target.value === "" ? null : Number(e.target.value) })}
             className="rounded-md border border-slate-300 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-900"
           >
-            <option value="">고른 장소 다음</option>
+            {/* 비워 두면 그 일차 맨 뒤에 붙는다 — 이름을 동작대로 (UI-S2-039) */}
+            <option value="">맨 뒤</option>
             {confirmedItems.map((it) => (
               <option key={it.itemId} value={it.itemId}>{it.place} 다음</option>
             ))}
@@ -232,7 +233,7 @@ export function PlacePicker({ product, onInserted, openType = null, initialDay =
             onClearFilters={hasFilter(applied) ? () => dispatch({ type: "CLEAR_FILTERS" }) : undefined}
             onLoaded={(d) => setNearTotal({ key: queryKey, total: d.totalCount })}>
             {(p) => (
-                <PlaceCard key={p.contentId} place={p} expanded={state.expandedId === p.contentId} inserted={isInserted(state, p.contentId) || product.days.some(d => d.items.some(it => it.ktoContentId === p.contentId))}
+                <PlaceCard key={p.contentId} place={p} target={product.targetKey} expanded={state.expandedId === p.contentId} inserted={isInserted(state, p.contentId) || product.days.some(d => d.items.some(it => it.ktoContentId === p.contentId))}
                   onToggle={() => dispatch({ type: "TOGGLE_EXPAND", contentId: p.contentId })} onInsert={() => void insert(p, nearItemType)} />
             )}
           </PlaceResults>
@@ -261,7 +262,7 @@ function Chip({ active, disabled, onClick, children }: { active: boolean; disabl
   );
 }
 
-function PlaceCard({ place: p, expanded, inserted, onToggle, onInsert }: { place: PlanPlace; expanded: boolean; inserted: boolean; onToggle: () => void; onInsert: () => void }) {
+function PlaceCard({ place: p, target, expanded, inserted, onToggle, onInsert }: { place: PlanPlace; target: string | null; expanded: boolean; inserted: boolean; onToggle: () => void; onInsert: () => void }) {
   return (
     <li className="rounded-xl border border-slate-200 p-3 dark:border-slate-800">
       <div className="flex items-start justify-between gap-3">
@@ -288,7 +289,8 @@ function PlaceCard({ place: p, expanded, inserted, onToggle, onInsert }: { place
           <button type="button" onClick={onToggle} className="text-xs text-slate-400 hover:text-slate-600">{expanded ? "접기" : "자세히"}</button>
         </div>
       </div>
-      {expanded && <PlaceDetailView place={p} />}
+      {/* 상품 타깃에 따라 앞에 오는 정보가 다르다 (UI-S2-040) */}
+      {expanded && <PlaceDetailView place={p} target={target} />}
     </li>
   );
 }

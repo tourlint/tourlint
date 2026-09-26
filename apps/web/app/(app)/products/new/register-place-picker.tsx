@@ -41,6 +41,7 @@ export function RegisterPlacePicker({
   nights,
   regionLabel,
   openType = null,
+  target = null,
   anchor,
   schedule,
   onInsert,
@@ -51,6 +52,8 @@ export function RegisterPlacePicker({
   nights: Nights;
   regionLabel: string;
   openType?: string | null;
+  /** 폼의 타깃(`targetKey`) — 「자세히」에서 앞에 오는 정보를 정한다 (UI-S2-040) */
+  target?: string | null;
   anchor: RegisterAnchor | null;
   schedule: Schedule;
   onInsert: (place: PlanPlace, dayIdx: number, insertAt: number, itemType: ScheduleItem["itemType"]) => void;
@@ -236,6 +239,7 @@ export function RegisterPlacePicker({
                 <PlaceCard
                   key={p.contentId}
                   place={p}
+                  target={target}
                   nights={nights}
                   schedule={schedule}
                   expanded={expandedId === p.contentId}
@@ -271,6 +275,7 @@ function Chip({ active, disabled, onClick, children }: { active: boolean; disabl
 
 function PlaceCard({
   place: p,
+  target,
   nights,
   schedule,
   expanded,
@@ -280,6 +285,7 @@ function PlaceCard({
   onInsert,
 }: {
   place: PlanPlace;
+  target: string | null;
   nights: Nights;
   schedule: Schedule;
   expanded: boolean;
@@ -313,7 +319,7 @@ function PlaceCard({
           <button type="button" onClick={onToggle} className="text-xs text-slate-400 hover:text-slate-600">{expanded ? "접기" : "자세히"}</button>
         </div>
       </div>
-      {expanded && <PlaceDetailView place={p} />}
+      {expanded && <PlaceDetailView place={p} target={target} />}
       {inserting && <InsertForm nights={nights} schedule={schedule} onConfirm={onInsert} />}
     </li>
   );

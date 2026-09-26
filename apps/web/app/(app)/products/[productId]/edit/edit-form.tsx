@@ -365,6 +365,7 @@ export function EditForm({ productId }: { productId: number }) {
             nights={loaded.nights as Nights}
             regionLabel={loaded.region.signguName || loaded.region.regnName || "이 지역"}
             openType={null}
+            target={basic.targetKey || null}
             anchor={anchor}
             schedule={schedule}
             onInsert={handleInsert}

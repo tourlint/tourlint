@@ -437,6 +437,7 @@ export default function ProductNewPage() {
             nights={nights}
             regionLabel={region.signguName || region.regnName || "이 지역"}
             openType={openType}
+            target={target || null}
             anchor={anchor}
             schedule={schedule}
             onInsert={handleInsert}

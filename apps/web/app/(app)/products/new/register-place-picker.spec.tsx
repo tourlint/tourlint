@@ -64,4 +64,21 @@ describe("등록 화면 장소 담기 (UI-S2-036 · 037 · 038 · 043)", () => {
     await act(async () => btn("필터 끄기")!.click());
     expect(label("실내만").querySelector("input")!.checked).toBe(false);
   });
+
+  it("🔴 「자세히」에 폼의 타깃을 넘긴다 — 시니어는 무장애 편의가 앞 (UI-S2-040)", async () => {
+    vi.spyOn(planApi, "briefing").mockResolvedValue(briefing());
+    vi.spyOn(planApi, "placeDetail").mockResolvedValue({ contentId: "1", hours: "08:00~20:00", restDays: null, fee: null, parking: null, eventPeriod: null, contact: null, accessible: { wheelchair: "대여 가능" } });
+    vi.spyOn(planApi, "places").mockResolvedValue({ ...cafes, items: [{ ...cafes.items[0]!, wheelchair: true }] });
+    await act(async () => root.render(
+      <RegisterPlacePicker regnCd="51" signguCd="150" startDate="2026-11-17" nights={2} regionLabel="강릉시" target="SENIOR" anchor={anchor} schedule={[[], [], []]} onInsert={() => {}} />,
+    ));
+    await settle();
+    await act(async () => btn("카페")!.click());
+    await settle();
+    await act(async () => btn("자세히")!.click());
+    await settle();
+    const t = host.textContent ?? "";
+    expect(t.indexOf("무장애 편의")).toBeGreaterThan(-1);
+    expect(t.indexOf("무장애 편의")).toBeLessThan(t.indexOf("이용시간"));
+  });
 });
