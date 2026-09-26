@@ -264,8 +264,8 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>201 Created</td>
-<td>상품 · 일정 항목 · 리포트 생성</td>
-<td>–</td>
+<td>상품 · 일정 항목 · 리포트 생성. 업로드 · 메모 읽기(`POST /api/v1/uploads/*`)도 저장 없이 201 로 결과를 돌려주며, 파일 · 글 전체 거부도 201 의 `rejected` 로 싣는다(4-3)</td>
+<td>`rejected.code` — `UPLOAD_FORMAT_INVALID` `UPLOAD_LIMIT_EXCEEDED` `DAY_COUNT_MISMATCH` `NL_STRUCTURE_FAILED`</td>
 </tr>
 <tr>
 <td>202 Accepted</td>
@@ -280,7 +280,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>400 Bad Request</td>
 <td>입력 형식 오류 · 상한 초과</td>
-<td>`UPLOAD_FORMAT_INVALID` `UPLOAD_LIMIT_EXCEEDED` `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED` `INPUT_INVALID`(전용 코드가 없는 입력 형식 오류 · 깨진 JSON 본문)</td>
+<td>`UPLOAD_FORMAT_INVALID`(확장자 · 내용 · MIME · 파서 실패) `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED` `INPUT_INVALID`(전용 코드가 없는 입력 형식 오류 · 깨진 JSON 본문)</td>
 </tr>
 <tr>
 <td>401 Unauthorized</td>
@@ -301,6 +301,11 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <td>409 Conflict</td>
 <td>수정안 충돌 · 스냅샷 불일치 · 되돌리기 불가</td>
 <td>`PATCH_CONFLICT` `PATCH_STALE` `UNDO_UNAVAILABLE`</td>
+</tr>
+<tr>
+<td>413 Payload Too Large</td>
+<td>업로드 안전망(20MB) 초과 — 받기 전에 막는다. 5MB 에서 20MB 사이는 201 의 `rejected`</td>
+<td>`UPLOAD_LIMIT_EXCEEDED`</td>
 </tr>
 <tr>
 <td>422 Unprocessable</td>
@@ -505,26 +510,20 @@ GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" 
 </tr>
 <tr>
 <td>POST</td>
-<td>`/api/v1/products/{productId}/items/import`</td>
-<td>엑셀·CSV 업로드 → **미리보기 반환**. 사용자 확정 전에는 저장하지 않음</td>
+<td>`/api/v1/uploads/schedule`</td>
+<td>엑셀 · CSV 파일(multipart `file`)을 읽어 **편집용 결과**(`nights` · `items` · `errors` · `rejected`)를 201 로 돌려준다. 저장하지 않는다 — 화면이 편집한 뒤 상품 저장(`POST /api/v1/products` 의 `days[].items[]`)으로 저장한다. 상품에 딸리지 않는 경로라 등록 전에도 부른다</td>
 <td>FR-IN-002·015</td>
 </tr>
 <tr>
 <td>POST</td>
-<td>`/api/v1/products/{productId}/items/parse-text`</td>
-<td>자연어 텍스트 → LLM 구조화 → **미리보기 반환**</td>
+<td>`/api/v1/uploads/schedule-text`</td>
+<td>메모(자연어) `{ text }` → LLM 구조화 → 같은 모양의 **편집용 결과**를 201 로 돌려준다. 저장하지 않는다</td>
 <td>FR-IN-003·013</td>
 </tr>
 <tr>
-<td>POST</td>
-<td>`/api/v1/products/{productId}/items/commit`</td>
-<td>미리보기 확정 저장</td>
-<td>FR-IN-013</td>
-</tr>
-<tr>
 <td>GET</td>
-<td>`/api/v1/templates/itinerary-form.xlsx`</td>
-<td>지정 양식 파일 내려받기</td>
+<td>`/api/v1/uploads/template`</td>
+<td>지정 양식 파일(.xlsx) 내려받기</td>
 <td>FR-IN-002</td>
 </tr>
 </table>
@@ -540,12 +539,16 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 ```
 <callout icon="📥" color="yellow_bg">
 	**업로드 상한과 거부 규칙**
-	파일 5MB · 500행 초과 → 파싱 전에 400 `UPLOAD_LIMIT_EXCEEDED`
-	유효 일정 항목 45건 초과 → 400 `UPLOAD_LIMIT_EXCEEDED` + 상품 분할 안내 (NF-CP-003)
-	자연어 입력 4,000자 초과 → `UPLOAD_LIMIT_EXCEEDED` 로 거부 (화면은 글자 수를 보이고 넘으면 보내지 않는다 · NF-CP-006)
-	일부 행 형식 오류 → **200 + 정상 행 유지 + 실패 행 번호·사유 반환** (전체 거부 아님)
-	박수와 일자별 일정 수 불일치 → 업로드 · 저장은 막지 않는다. 검수 시작이 422 `DAY_COUNT_MISMATCH` 로 거부한다 (EX-IN-005). 파일에 4일차 이상이 있으면 같은 코드로 파일 전체를 거부한다
+	업로드 · 메모 붙여넣기는 저장하지 않고 편집용 결과를 201 로 돌려준다. **파일 · 글 전체를 거부할 때도 201 이고** 사유는 결과의 `rejected`(`code` · `message`)에 담는다 — 화면은 `message` 만 보인다
+	파일 5MB · 500행 초과 → 파싱 전에 `rejected` `UPLOAD_LIMIT_EXCEEDED`
+	유효 일정 항목 45건 초과 → `rejected` `UPLOAD_LIMIT_EXCEEDED` + 상품 분할 안내 (NF-CP-003)
+	자연어 입력 4,000자 초과 → `rejected` `UPLOAD_LIMIT_EXCEEDED` (화면은 글자 수를 보이고 넘으면 보내지 않는다 · NF-CP-006)
+	양식 헤더를 못 찾음 · 필수 컬럼 누락 → `rejected` `UPLOAD_FORMAT_INVALID` (없는 컬럼을 짚는다)
+	일부 행 형식 오류 → **201 + 정상 행 유지 + 실패 행 번호 · 사유 반환**(`errors[]` · 사유코드는 싣지 않는다 · 전체 거부 아님)
+	박수와 일자별 일정 수 불일치 → 업로드 · 저장은 막지 않는다. 검수 시작이 422 `DAY_COUNT_MISMATCH` 로 거부한다 (EX-IN-005). 파일에 4일차 이상이 있으면 `rejected` `DAY_COUNT_MISMATCH` 로 파일 전체를 거부한다
+	메모에서 항목을 하나도 못 만듦 · LLM 을 쓸 수 없음 · 빈 글 → `rejected` `NL_STRUCTURE_FAILED`
 	확장자가 .xlsx · .csv 가 아님 · 내용이 형식과 다름(xlsx 는 `PK` 로 시작, CSV 는 NUL 없는 글자) · MIME 이 이미지 · PDF 처럼 명백히 다름 · 파서가 못 읽음 → 400 `UPLOAD_FORMAT_INVALID`
+	파일이 없음 · 메모 본문 `text` 가 문자열이 아님 → 400 `INPUT_INVALID`
 	20MB 초과(업로드 안전망) → 413 `UPLOAD_LIMIT_EXCEEDED`
 	업로드 파일은 파싱 후 폐기하며 서버에 영구 저장하지 않습니다 (NF-SC-006).
 </callout>
@@ -863,7 +866,7 @@ POST /api/v1/radar/region-signals/refresh   배치가 꺼진 기간에만(켜져
 	지문 비교값(FR-MO-058)은 알림에 저장돼 있어 항상 실리되, 조건 2 · 3 은 지문 이력이 없어 둘 다 `null` 입니다.
 </callout>
 <callout icon="🔁" color="blue_bg">
-	**"다시 검수"(옛 "지금 재검수")는 별도 엔드포인트가 아닙니다.** `POST /products/{id}/audit-jobs` 에 `triggerType: "MANUAL"` 로 요청하며, 사용자가 누른 요청이라 **예산 100%까지 허용**됩니다 (자동 배치는 80%에서 중지, FR-OP-003 · FR-MO-017).
+	**검수 결과 화면의 "지금 재검수"는 별도 엔드포인트가 아닙니다.** `POST /products/{id}/audit-jobs` 에 `triggerType: "MANUAL"` 로 요청하며, 사용자가 누른 요청이라 **예산 100%까지 허용**됩니다 (자동 배치는 80%에서 중지, FR-OP-003 · FR-MO-017). 레이더 바뀐 정보 카드 · 오늘 할 일의 "다시 검수"는 그 결과 화면으로 보내는 링크입니다.
 </callout>
 ## 4-9. 운영 — 예산 · 검수 기준 · 헬스 (F15 · F16)
 <table fit-page-width="true" header-row="true">
@@ -2415,32 +2418,32 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <tr>
 <td>`UPLOAD_FORMAT_INVALID`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부. 누락 컬럼 명시 + 양식 링크</td>
+<td>400 · 201</td>
+<td>거부. 확장자 · 내용 · MIME · 파서 실패는 400. 양식 헤더를 못 찾거나 필수 컬럼이 빠지면 201 의 `rejected`(없는 컬럼을 짚는다). 양식 내려받기 링크는 업로드 칸에 늘 있다</td>
 </tr>
 <tr>
 <td>`UPLOAD_ROW_INVALID`</td>
 <td>REQUEST</td>
-<td>200</td>
-<td>부분 수용. 실패 행 번호·사유 반환</td>
+<td>201</td>
+<td>부분 수용. 정상 행은 `items`, 실패 행은 `errors[]`(행 번호 · 사유)로 돌려준다 — 응답에 이 코드를 싣지는 않는다</td>
 </tr>
 <tr>
 <td>`UPLOAD_LIMIT_EXCEEDED`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부. 상한값 안내</td>
+<td>201 · 413</td>
+<td>거부. 상한값 안내. 5MB · 500행 · 유효 항목 45건 · 메모 4,000자 초과는 201 의 `rejected`, 20MB 안전망 초과는 413</td>
 </tr>
 <tr>
 <td>`DAY_COUNT_MISMATCH`</td>
 <td>PRODUCT</td>
 <td>422</td>
-<td>검수 시작 거부. 비어 있는 일차 표시(`missingDays`). 업로드 파일의 4일차 이상도 같은 코드로 파일 전체를 거부한다(파싱 결과의 거부 사유)</td>
+<td>검수 시작 거부. 비어 있는 일차 표시(`missingDays`). 업로드 파일의 4일차 이상도 같은 코드로 파일 전체를 거부한다(201 의 `rejected`)</td>
 </tr>
 <tr>
 <td>`NL_STRUCTURE_FAILED`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부 + 직접 입력 유도. 빈 상품 생성 금지</td>
+<td>201</td>
+<td>거부 + 직접 입력 유도(201 의 `rejected`). 빈 상품 생성 금지</td>
 </tr>
 <tr>
 <td>`PLACE_NOT_FOUND`</td>
