@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { KOREAN_HOLIDAYS } from '../engine/calendar/holidays';
 import { parseOperatingInfo } from '../engine/normalize/parse';
+import { R01OperatingRule } from '../engine/rules/r01-operating';
 import { DEFAULT_AUDIT_SETTINGS } from '../engine/rules/types';
 import type { AuditItem, Finding } from '../engine/rules/types';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
@@ -151,6 +152,50 @@ describe('R01 — 숙박 입실 판정에는 수정안이 없다 (#875)', () => 
       items: [hotel, other], holidays: KOREAN_HOLIDAYS,
     });
     expect(patches).toEqual([]);
+  });
+});
+
+describe('R01 — 확인 불가는 옮긴 자리에서 풀릴 때만 옮긴다 (#888)', () => {
+  // item() 의 날짜: 1일차 10/22(목) · 2일차 10/23(금) · 3일차 10/24(토). 판정은 R01 을 실제로 돌려 얻는다
+  const r01Of = (items: readonly AuditItem[], id: number): Finding => {
+    const found = new R01OperatingRule()
+      .evaluate({ productId: 0, items, holidays: KOREAN_HOLIDAYS, settings: DEFAULT_AUDIT_SETTINGS })
+      .find((f) => f.targetItemId === id);
+    if (found === undefined) throw new Error('R01 이 판정을 내지 않았다');
+    return found;
+  };
+
+  it('🔴 운영시간이 두 가지로 안내된 곳을 운영시간을 모르는 다른 날 · 다른 시각으로 옮기지 않는다', () => {
+    // 운영 #885 검수 206 의 주문진 등대 원문. 어느 날로 옮겨도 PARSE_CONDITIONAL 이다
+    const use = '- 야외공간 개방시간 09:00~18:00 - 실내시설 개방시간 09:00~17:00 ※ 야간출입 금지';
+    const target = item({ day: 3, start: '14:30', end: '15:30', rest: '연중무휴', use });
+    const sameDay = item({ day: 3, start: '10:00', end: '11:00', rest: '연중무휴', use: '09:00~18:00' });
+    const day2 = item({ day: 2, start: '09:00', end: '10:00', rest: '연중무휴', use: '09:00~18:00' });
+    const items = [target, sameDay, day2];
+    const f = r01Of(items, target.id);
+    expect([f.severity, f.reasonCode]).toEqual(['UNVERIFIED', 'PARSE_CONDITIONAL']);
+    expect(proposeLocalPatches({ finding: f, items, holidays: KOREAN_HOLIDAYS })).toEqual([]);
+  });
+
+  it('운영시간을 아는 날로 옮기면 풀리는 확인 불가는 옮긴다', () => {
+    // 평일 운영시간만 있어 토요일(3일차)은 모른다. 목요일(1일차)로 옮기면 R01 이 아무것도 내지 않는다
+    const target = item({ day: 3, start: '10:00', end: '11:00', rest: '연중무휴', use: '평일 09:00~18:00' });
+    const day1 = item({ day: 1, start: '09:00', end: '10:00' });
+    const items = [target, day1];
+    const f = r01Of(items, target.id);
+    expect([f.severity, f.reasonCode]).toEqual(['UNVERIFIED', 'PARSE_MISSING']);
+    const shift = proposeLocalPatches({ finding: f, items, holidays: KOREAN_HOLIDAYS }).find((p) => p.type === 'TIME_SHIFT');
+    expect(shift?.payload).toMatchObject({ newDayNo: 1 });
+  });
+
+  it('차단은 지금처럼 운영시간을 모르는 날로도 옮긴다 — 차단이 확인 불가로 내려가는 것도 개선이다', () => {
+    const target = item({ day: 1, start: '10:00', end: '11:00', rest: '매주 목요일', use: '전화 문의' });
+    const day2 = item({ day: 2, start: '09:00', end: '10:00' });
+    const items = [target, day2];
+    const f = r01Of(items, target.id);
+    expect([f.severity, f.reasonCode]).toEqual(['BLOCKER', 'REST_DAY_CONFLICT']);
+    const shift = proposeLocalPatches({ finding: f, items, holidays: KOREAN_HOLIDAYS }).find((p) => p.type === 'TIME_SHIFT');
+    expect(shift?.payload).toMatchObject({ newDayNo: 2 });
   });
 });
 
