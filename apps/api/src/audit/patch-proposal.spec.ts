@@ -7,7 +7,8 @@ import type { AuditItem, Finding } from '../engine/rules/types';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
 import { MIN_TRANSFER_MINUTES, lastRepeated, planInsertion, planNightInsertion, proposeLocalPatches } from './patch-local';
-import { proposeInsertions, proposeReplacements, rankCandidates } from './patch-remote';
+import { proposeEventReplacements, proposeInsertions, proposeReplacements, rankCandidates } from './patch-remote';
+import { rainyOutdoorTarget } from './audit-runner';
 import { MAX_PATCHES_PER_FINDING, type ReplaceContentPayload } from './patch-types';
 import { opensDuring } from './patch-verify';
 
@@ -1056,5 +1057,76 @@ describe('R03 수정안의 이동 여유 (#554)', () => {
     const patches = proposals(a,b,300);
     expect(patches).toHaveLength(1);
     expect(patches[0]?.payload).toEqual({newEndTime:'22:55'});
+  });
+});
+
+describe('R02 — 여행일에 열리는 같은 지역 행사로 교체 (FR-RU-022 ① · #880)', () => {
+  // item() 1일차 = 2026-10-22
+  const festival = (id: string, start: string, end: string, x = 128.90, y = 37.80) =>
+    ({ contentid: id, contenttypeid: '15', eventstartdate: start, eventenddate: end, mapx: String(x), mapy: String(y), lclsSystm2: 'EV01' });
+  const stub = (items: Record<string, unknown>[]) => {
+    const calls: Record<string, unknown>[] = [];
+    return {
+      calls,
+      kto: { searchFestival: async (p: Record<string, unknown>) => { calls.push(p); return { items, totalCount: items.length }; } } as never,
+    };
+  };
+
+  it('🔴 여행일이 기간 안인 행사만, 가까운 순으로 낸다 — 끝났거나 아직 안 한 행사는 빼고', async () => {
+    const target = item({ day: 1, contentId: 'old-fest', mapX: 128.90, mapY: 37.80 });
+    const { kto, calls } = stub([
+      festival('far', '20261020', '20261025', 129.10, 37.90),
+      festival('near', '20261022', '20261022', 128.901, 37.801),
+      festival('ended', '20261001', '20261021'),
+      festival('later', '20261023', '20261030'),
+    ]);
+    const { patches } = await proposeEventReplacements(target, { kto, region: { regnCd: '51', signguCd: '150' }, exclude: new Set() });
+    expect(patches.map((p) => (p.payload as ReplaceContentPayload).ktoContentId)).toEqual(['near', 'far']);
+    expect(patches.every((p) => p.type === 'REPLACE_CONTENT' && (p.payload as ReplaceContentPayload).contentTypeId === 15)).toBe(true);
+    expect(calls[0]).toMatchObject({ eventStartDate: '20261022', lDongRegnCd: '51', lDongSignguCd: '150' });
+  });
+
+  it('일정에 이미 있는 행사 · 좌표 없는 행사는 빼고, 대상 좌표나 지역을 모르면 부르지 않는다', async () => {
+    const target = item({ day: 1, mapX: 128.90, mapY: 37.80 });
+    const { kto } = stub([festival('dup', '20261020', '20261025'), { ...festival('nocoord', '20261020', '20261025'), mapx: '' }]);
+    expect((await proposeEventReplacements(target, { kto, region: { regnCd: '51', signguCd: null }, exclude: new Set(['dup']) })).patches).toEqual([]);
+
+    const none = stub([]);
+    const noCoord = item({ day: 1, mapX: null, mapY: null });
+    expect(await proposeEventReplacements(noCoord, { kto: none.kto, region: { regnCd: '51', signguCd: null }, exclude: new Set() }))
+      .toEqual({ patches: [], called: false });
+    expect(await proposeEventReplacements(target, { kto: none.kto, region: { regnCd: null, signguCd: null }, exclude: new Set() }))
+      .toEqual({ patches: [], called: false });
+    expect(none.calls).toEqual([]);
+  });
+});
+
+describe('R09 ③ — 실내 관광지로 바꾸기 (FR-RU-094 · #880)', () => {
+  it('🔴 실내 중분류의 관광 유형만 후보가 된다 — 유형은 대상과 맞추지 않는다', async () => {
+    const target = item({ day: 1, mapX: 128.9, mapY: 37.8 });
+    const asked: Record<string, unknown>[] = [];
+    const kto = {
+      locationBasedList: async (p: Record<string, unknown>) => {
+        asked.push(p);
+        return { items: [
+          { contentid: 'beach', contenttypeid: '12', lclsSystm2: 'NA02', mapx: '128.9', mapy: '37.8', dist: '100' },
+          { contentid: 'museum', contenttypeid: '14', lclsSystm2: 'VE07', mapx: '128.9', mapy: '37.8', dist: '300' },
+          { contentid: 'mart', contenttypeid: '38', lclsSystm2: 'SH01', mapx: '128.9', mapy: '37.8', dist: '50' },
+        ], totalCount: 3 };
+      },
+    } as never;
+    const patches = await proposeReplacements(target, { kto, indoorLcls2: new Set(['VE07', 'SH01']), limit: 1 });
+    expect(patches.map((p) => (p.payload as ReplaceContentPayload).ktoContentId)).toEqual(['museum']);
+    expect(asked[0]).not.toHaveProperty('contentTypeId');
+  });
+
+  it('비 오는 날의 가장 이른 야외 일정을 바꿀 대상으로 고른다', () => {
+    const settings = { r09IndoorOutdoor: { NA02: 'OUTDOOR', VE07: 'INDOOR' } } as never;
+    const morning = { ...item({ day: 1, start: '09:00' }), lclsSystm2: 'NA02' };
+    const noon = { ...item({ day: 1, start: '12:00' }), lclsSystm2: 'NA02' };
+    const museum = { ...item({ day: 1, start: '08:00' }), lclsSystm2: 'VE07' };
+    const other = { ...item({ day: 2, start: '08:00' }), lclsSystm2: 'NA02' };
+    const got = rainyOutdoorTarget({ evidence: { date: morning.date } }, { items: [noon, museum, other, morning], settings });
+    expect(got?.id).toBe(morning.id);
   });
 });

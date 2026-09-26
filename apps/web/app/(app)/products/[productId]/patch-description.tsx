@@ -1,4 +1,5 @@
-import type { Patch, ProductDetail, ProductItem } from "../../../lib/api";
+import { useEffect, useState } from "react";
+import { planApi, type Patch, type PlanPlaceDetail, type ProductDetail, type ProductItem } from "../../../lib/api";
 
 type ScheduleItem = ProductItem & { day: number };
 interface Change { place: string; context?: string; before: string; after: string }
@@ -79,7 +80,12 @@ export function describePatch(patch: Patch, product: Pick<ProductDetail, "days">
   }
 }
 
-export function PatchDescription({ patch, product }: { patch: Patch; product: Pick<ProductDetail, "days"> | null }) {
+export function PatchDescription({ patch, product, selected = false }: {
+  patch: Patch;
+  product: Pick<ProductDetail, "days"> | null;
+  /** 고른 대체 장소만 운영 조건을 부른다 — 후보마다 부르면 조회가 곱절이 된다 (UI-S3-016 · #880) */
+  selected?: boolean;
+}) {
   const description = describePatch(patch, product);
   return <span className="min-w-0 flex-1 text-slate-700 dark:text-slate-300">
     <span className="block text-xs font-semibold text-emerald-700 dark:text-emerald-300">{description.action}</span>
@@ -93,5 +99,42 @@ export function PatchDescription({ patch, product }: { patch: Patch; product: Pi
       </span>
     </span>)}
     {description.note && <span className="mt-2 block text-xs text-slate-500">{description.note}</span>}
+    {selected && patch.type === "REPLACE_CONTENT" && <ReplacementConditions patch={patch} />}
+  </span>;
+}
+
+/**
+ * 고른 대체 장소의 운영 조건 — 쉬는 날 · 이용시간(행사면 기간) (UI-S3-016 · #880).
+ *
+ * 수정안에는 공사 원문을 담지 않는다(DR-PR-001). 고를 때 장소 「자세히」 와 같은 조회로 그곳 하나만
+ * 부르고 저장하지 않는다. 못 받으면 그렇다고 적는다 — 고르는 데는 지장이 없다.
+ */
+function ReplacementConditions({ patch }: { patch: Patch }) {
+  const id = patch.payload.ktoContentId;
+  const type = patch.payload.contentTypeId;
+  const [detail, setDetail] = useState<PlanPlaceDetail | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (id === undefined || type === undefined) return;
+    let alive = true;
+    planApi.placeDetail(id, type)
+      .then((d) => { if (alive) setDetail(d); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, [id, type]);
+
+  if (id === undefined || type === undefined) return null;
+  const rows: [string, string | null][] = detail === null ? [] : [
+    ["쉬는 날", detail.restDays],
+    ["이용시간", detail.hours],
+    ["행사 기간", detail.eventPeriod],
+  ];
+  const shown = rows.filter(([, v]) => v !== null && v.trim() !== "");
+  return <span className="mt-2 block rounded bg-slate-50 px-2 py-1.5 text-xs text-slate-600 dark:bg-slate-900/60 dark:text-slate-300" data-replacement-conditions>
+    {failed ? "운영 정보를 불러오지 못했어요."
+      : detail === null ? "운영 정보를 불러오는 중…"
+        : shown.length === 0 ? "관광정보에 올라 있는 이용 정보가 없어요."
+          : shown.map(([label, value]) => <span key={label} className="block"><span className="text-slate-400">{label}</span> <span className="whitespace-pre-line">{value}</span></span>)}
   </span>;
 }
