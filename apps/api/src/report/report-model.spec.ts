@@ -3,7 +3,7 @@ import { SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
 import { calculateReadiness } from '../engine/score';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 import {
-  UNNAMED_PLACE, assembleReport, comparisonRows, describeItineraryChanges, labelOnly,
+  UNNAMED_PLACE, assembleReport, comparisonRows, describeItineraryChanges, externalSourcesOf, labelOnly,
   type AssembleInput, type ContentEvidence, type DiffableItem,
 } from './report-model';
 
@@ -169,6 +169,41 @@ describe('리포트 모델 조립', () => {
       run: run([finding()], { isPartial: true, targetCount: 4, failedCount: 3 }),
     }));
     expect(m.summary.score).toBeNull();
+  });
+});
+
+describe('데이터 출처의 외부 자료 (NF-CO-023 · #849)', () => {
+  it('🔴 평년 근거를 쓴 판정이 있으면 기상청 평년값 출처를 기준 평년과 함께 적는다', () => {
+    const lines = externalSourcesOf([finding({
+      ruleCode: 'R09', externalSource: '기상청',
+      evidence: { rainSource: 'CLIMATE', normalPeriod: '1991~2020', normalSource: '기상청 기상자료개방포털 · 대표지점 제주' },
+    })]);
+    expect(lines).toEqual(['출처: 기상청 기상자료개방포털 · 대표지점 제주 (평년값 1991~2020)']);
+  });
+
+  it('값을 남기기 전의 평년 판정은 표에 넣는 상수로 채운다', () => {
+    const lines = externalSourcesOf([finding({ ruleCode: 'R09', externalSource: '기상청', evidence: { rainSource: 'CLIMATE' } })]);
+    expect(lines).toEqual(['출처: 기상청 기상자료개방포털 (평년값 1991~2020)']);
+  });
+
+  it('예보 · 길찾기를 쓴 판정은 그 출처를 적는다', () => {
+    const lines = externalSourcesOf([
+      finding({ ruleCode: 'R09', externalSource: '기상청', evidence: { rainSource: 'MID' } }),
+      finding({ ruleCode: 'R09', externalSource: '기상청', evidence: { rainSource: 'SHORT' } }),
+      finding({ ruleCode: 'R08', externalSource: '카카오모빌리티' }),
+    ]);
+    expect(lines).toEqual(['출처: 기상청 (단기예보 · 중기예보)', '외부 참고: 카카오모빌리티 (이동시간)']);
+  });
+
+  it('외부 자료를 쓴 판정이 없으면 비운다', () => {
+    expect(externalSourcesOf([finding()])).toEqual([]);
+  });
+
+  it('리포트 모델의 데이터 출처에 실린다', () => {
+    const m = assembleReport(input({
+      run: run([finding({ ruleCode: 'R08', externalSource: '카카오모빌리티' })]),
+    }));
+    expect(m.provenance.externalSources).toEqual(['외부 참고: 카카오모빌리티 (이동시간)']);
   });
 });
 

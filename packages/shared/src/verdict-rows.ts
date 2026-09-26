@@ -162,6 +162,9 @@ function toRow(key: string, raw: unknown): VerdictRow | null {
     // 평년 경로에서만 담긴다. 조건부 스프레드로 들어가 #480 에서 빠졌다 (#502)
     case 'rainDays': return { label: '평년 강수일수', value: `${text(raw)}일` };
     case 'normalMonth': return { label: '평년 기준 달', value: `${text(raw)}월` };
+    // 기준 평년 · 평년값 출처 — 기능설명서 「기준 평년(1991~2020)과 출처를 화면에 함께 표기」 (EI-WX-004 · #849)
+    case 'normalPeriod': return { label: '기준 평년', value: text(raw) };
+    case 'normalSource': return { label: '평년값 출처', value: text(raw) };
     // 예보를 못 받아 평년표로 내려온 날만 담긴다 (EI-WX-006 · #797)
     case 'forecastDowngradedFrom': return { label: '받지 못한 예보', value: RAIN_SOURCE[text(raw)] ?? text(raw) };
     // 출발 1일 이내에만 담긴다 (R05 · FR-AU-085 · #808)
@@ -259,5 +262,5 @@ const HANDLED_CASES = new Set([
   'distanceMeters', 'hasNight', 'expectsNight', 'dayNo', 'hours', 'visit',
   'first', 'second', 'span', 'thresholds', 'missingLcls2', 'expectedLcls2',
   'rainSource', 'rainDays', 'normalMonth', 'forecastDowngradedFrom', 'showFlagTurnedOff', 'fieldNamesChanged', 'on',
-  'daysToDeparture',
+  'daysToDeparture', 'normalPeriod', 'normalSource',
 ]);

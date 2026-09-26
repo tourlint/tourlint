@@ -572,7 +572,7 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
      * 필요 없는 것이 없다는 이유로 판정을 포기하면 안 된다.
      */
     const climate: ClimateNormalLookup = {
-      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉', normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉' }),
     };
     const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
     // kma 를 안 넘긴다
@@ -586,7 +586,7 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
   it('🔴 좌표가 없어도 평년값으로는 판정한다', async () => {
     // 격자는 단기예보만 쓴다. 좌표가 없다고 두 달 뒤 일정까지 못 볼 이유가 없다
     const climate: ClimateNormalLookup = {
-      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉', normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉' }),
     };
     const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
     const noCoords = { ...outdoor(1, 1), mapX: null, mapY: null };
@@ -603,20 +603,20 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
    */
   it('🔴 기상청이 없으면 가까운 날도 평년으로 판정하고, 예보를 받지 못했다고 적는다 (#797)', async () => {
     const climate: ClimateNormalLookup = {
-      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉', normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉' }),
     };
     const nearWithRegion: ProductRow = { ...soon, ldongRegnCd: '51', ldongSignguCd: '150' };
     const result = await runner({ climate }).run(nearWithRegion, [outdoor(1, 1)]);
 
     const f = result.findings.find((x) => x.ruleCode === 'R09');
     expect(f?.severity).toBe('WARNING');
-    expect(f?.message).toContain('예보를 받지 못해 평년 기준 — 10월 강릉 강수일수 9.2일 (31%)');
+    expect(f?.message).toContain('예보를 받지 못해 평년(1991~2020) 기준 — 10월 강릉 강수일수 9.2일 (31%)');
     expect(f?.evidence).toMatchObject({ rainSource: 'CLIMATE', forecastDowngradedFrom: 'SHORT' });
   });
 
   it('🔴 기상청이 재시도까지 실패한 중기 날짜도 평년으로 판정한다 (#797)', async () => {
     const climate: ClimateNormalLookup = {
-      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉', normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉' }),
     };
     let calls = 0;
     const down = new KmaClient({
@@ -635,14 +635,16 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
 
   it('평년 테이블이 있으면 그것으로 판정한다', async () => {
     const climate: ClimateNormalLookup = {
-      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉', normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉' }),
     };
     const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
     const result = await runner({ kma: kmaClient(), climate }).run(withRegion, [outdoor(1, 1)]);
 
     const f = result.findings.find((x) => x.ruleCode === 'R09');
     expect(f?.severity).toBe('WARNING');
-    expect(f?.message).toContain('평년 기준 — 10월 강릉 강수일수 9.2일 (31%)');
+    expect(f?.message).toContain('예보가 아직 없는 날이라 평년(1991~2020) 기준 — 10월 강릉 강수일수 9.2일 (31%)');
+    // 표에 저장된 기준 평년 · 출처가 근거까지 온다 — 기능설명서 「기준 평년과 출처를 화면에 함께 표기」 (#849)
+    expect(f?.evidence).toMatchObject({ normalPeriod: '1991~2020', normalSource: '기상청 기상자료개방포털 · 대표지점 강릉' });
   });
 
   /**
@@ -697,7 +699,7 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
 
   it('일차마다 날짜가 다르므로 근거도 따로 잡힌다', async () => {
     const climate: ClimateNormalLookup = {
-      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉' }),
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉', normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉' }),
     };
     const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
     const result = await runner({ kma: kmaClient(), climate }).run(withRegion, [outdoor(1, 1), outdoor(2, 2)]);
