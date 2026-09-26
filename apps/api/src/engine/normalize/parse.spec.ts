@@ -231,3 +231,54 @@ describe('결정론성 (NF-MT-001)', () => {
     );
   });
 });
+
+describe('연중무휴 뒤 괄호 (FR-AU-012 · DR-NM-011 · #855)', () => {
+  const read = (restdate: string) => parseOperatingInfo({ contentTypeId: 12, raw: { restdate, usetime: '09:00~18:00' } });
+
+  it('🔴 괄호 안 날짜 휴관은 시설 전체 휴무다 — 일부 휴관(대상 「1월 1일」)으로 읽지 않는다', () => {
+    const out = read('연중무휴(1월 1일 휴관)');
+    expect(out.partialClosed).toEqual([]);
+    expect(out.alwaysOpen).toBe(false);
+    expect(out.fixedClosed).toEqual(['01-01']);
+    expect(out.confidence.byPath.fixedClosed).toBe('ESTIMATED');
+  });
+
+  it('🔴 괄호 안 명절 휴무도 시설 전체 휴무다', () => {
+    const out = read('연중무휴(설날, 추석 당일 휴무)');
+    expect(out.partialClosed).toEqual([]);
+    expect([...out.holidayRule].sort()).toEqual(['CHUSEOK', 'LUNAR_NEW_YEAR']);
+    expect(out.confidence.byPath.holidayRule).toBe('ESTIMATED');
+  });
+
+  it('시설 이름이 섞이면 전처럼 일부 휴관이다 — 오죽헌', () => {
+    const out = read('연중무휴(1월 1일/설날/추석 당일은 오죽헌만 개방, 실내 전시실 휴관)');
+    expect(out.alwaysOpen).toBe(true);
+    expect(out.partialClosed).toEqual([{ scope: '실내 전시실', on: ['01-01', 'LUNAR_NEW_YEAR', 'CHUSEOK'] }]);
+  });
+
+  it('🔴 괄호를 못 읽으면 연중무휴를 확정으로 두지 않는다 — 추정', () => {
+    const out = read('연중무휴(시설 사정에 따라 변동)');
+    expect(out.alwaysOpen).toBe(true);
+    expect(out.confidence.byPath.alwaysOpen).toBe('ESTIMATED');
+  });
+
+  it('괄호가 없으면 연중무휴는 확정이다', () => {
+    expect(read('연중무휴').confidence.byPath.alwaysOpen).toBe('CONFIRMED');
+  });
+});
+
+describe('원문 조각 길이 (DR-PR-003 · #855)', () => {
+  it('🔴 숙박 입실 시각을 못 읽어도 조각은 200자에서 자른다 — 병합을 안 거치는 길이다', () => {
+    const long = '입실은 '.repeat(80);
+    const out = parseOperatingInfo({ contentTypeId: 32, raw: { checkintime: long, checkouttime: '11:00' } });
+    const frag = out.unparsed.find((u) => u.affects.includes('checkIn'));
+    expect(frag?.fragment.length).toBeLessThanOrEqual(200);
+  });
+
+  it('🔴 계절 라벨은 30자에서 자른다', () => {
+    const label = '가'.repeat(60);
+    const out = parseOperatingInfo({ contentTypeId: 12, raw: { restdate: '매주 월요일', usetime: `[${label}(3월~10월)] 09:00~18:00` } });
+    expect(out.seasonalHours.length).toBeGreaterThan(0);
+    for (const s of out.seasonalHours) expect((s.label ?? '').length).toBeLessThanOrEqual(30);
+  });
+});

@@ -120,12 +120,24 @@ export function mergeFallback(
   const takeWeekly = base.weeklyClosed.length === 0 && parsed.weeklyClosed.length > 0;
   const takeHoliday = base.holidayRule.length === 0 && parsed.holidayRule.length > 0;
   const takeFixed = base.fixedClosed.length === 0 && parsed.fixedClosed.length > 0;
-  const takeHours = base.openHours === null && parsed.openHours !== null;
+  /*
+   * 파서가 운영시간 후보를 둘 이상 보고 고르지 않은 조각이면 AI 가 하나를 돌려줘도 받지 않는다
+   * (FR-AU-014 · EX-PS-007 · #855). `야외공간 09:00~18:00 / 실내시설 09:00~17:00` 을 AI 에 주면
+   * 앞 시각을 운영시간으로 답하고, 받아들이면 캐시에 굳어 확인 불가가 사라진다 — 첫 범위 단정이다.
+   */
+  const hoursContested = openRangeCount(fragment.fragment) > 1
+    || base.unparsed.filter((u) => u.affects.includes('openHours')).length > 1;
+  const takeHours = base.openHours === null && parsed.openHours !== null && !hoursContested;
 
-  if (takeWeekly) { byPath.weeklyClosed = confidence; filled.push('weeklyClosed'); }
-  if (takeHoliday) { byPath.holidayRule = confidence; filled.push('holidayRule'); }
-  if (takeFixed) { byPath.fixedClosed = confidence; filled.push('fixedClosed'); }
+  // DR-NM-011 — 연중무휴 위에 휴무를 채우면 둘이 충돌한다. 채운 휴무와 연중무휴를 추정으로 둔다 (#855)
+  const againstAlwaysOpen = base.alwaysOpen && (takeWeekly || takeHoliday || takeFixed);
+  const closedConfidence: ParseConfidence = againstAlwaysOpen ? 'ESTIMATED' : confidence;
+
+  if (takeWeekly) { byPath.weeklyClosed = closedConfidence; filled.push('weeklyClosed'); }
+  if (takeHoliday) { byPath.holidayRule = closedConfidence; filled.push('holidayRule'); }
+  if (takeFixed) { byPath.fixedClosed = closedConfidence; filled.push('fixedClosed'); }
   if (takeHours) { byPath.openHours = confidence; filled.push('openHours'); }
+  if (againstAlwaysOpen) byPath.alwaysOpen = 'ESTIMATED';
 
   // 아무 축도 못 채웠으면 조각은 여전히 미해석이다. 지우면 「해결됐다」로 읽힌다
   if (filled.length === 0) return base;
@@ -142,6 +154,16 @@ export function mergeFallback(
     unparsed,
     confidence: { overall: lowest(byPath, unparsed.length > 0), byPath },
   };
+}
+
+/**
+ * 조각 안의 운영시간 범위(`HH:mm~HH:mm`) 개수.
+ *
+ * 물결만 센다. 병합이 남기는 조각은 운영시간을 `~`, 휴게를 `-` 로 적는다(`TUE 08:00~19:00|16:00-17:00|`)
+ * — 휴게까지 세면 운영시간이 하나뿐인 조각도 막힌다.
+ */
+export function openRangeCount(fragment: string): number {
+  return fragment.match(/\d{1,2}\s*:\s*\d{2}\s*[~∼〜]\s*\d{1,2}\s*:\s*\d{2}/g)?.length ?? 0;
 }
 
 /** `byPath` 의 최솟값. 미해석 조각이 남아 있으면 전체는 그보다 좋을 수 없다 */

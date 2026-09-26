@@ -207,7 +207,9 @@ describe('픽스처 리플레이 — 기대값 표와 대조 (이슈 #438)', () 
     const got = r.findings.map((f) => `${f.ruleCode}:${f.reasonCode}`).sort();
     expect(got).toEqual([
       'R01:REST_DAY_CONFLICT',      // 가람집옹심이 — 매주 화요일 · 1일차가 화요일
-      'R01:REST_DAY_UNCERTAIN',     // 갈골한과체험전시관 — 휴무 · 운영 모두 `예약시 운영`
+      // 갈골한과체험전시관 — 휴무 · 운영 모두 `예약시 운영`. 기대값 표 §4 는 처음부터 PARSE_REFERENCE 였는데
+      // 코드가 REST_DAY_UNCERTAIN 을 냈고 이 목록이 코드를 따라 적혀 있었다 (EX-PS-002 · #855)
+      'R01:PARSE_REFERENCE',
       'R02:EVENT_ENDED',            // 경포벚꽃축제 — 행사 2026-04-04~04-11, 방문은 10월
       'R03:TIME_OVERLAP',           // 가람집 12:00~13:00 과 오죽헌 12:30~14:00 이 30분 겹침
       'R07:MEAL_TIME_SHORT',        // 감천골 30분 < 최소 60분

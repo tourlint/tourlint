@@ -176,3 +176,41 @@ describe('원문 절이 정규화 결과에 남지 않는다 (DR-NM-014)', () =>
     }
   });
 });
+
+/**
+ * 데이터 명세 5-7 사례 2 · 3 (DR-TD-002 · #855). 사례 1(오죽헌)은 위 ② 다.
+ */
+describe('데이터 명세 5-7 사례 2 · 3', () => {
+  it('사례 2 소나무집초당순두부(134338) — 요일별 운영시간 · 요일별 마감 · 준비시간 · 명절', () => {
+    const out = parseOperatingInfo({
+      contentTypeId: 39,
+      raw: {
+        restdatefood: '매주 화요일 / 설·추석 당일',
+        opentimefood: '[월요일]- 07:40~16:00- 마지막 주문 15:45[수요일~일요일]- 07:40~19:30- 준비시간 15:30~17:00- 마지막 주문 19:15',
+      },
+    });
+    expect(out.weeklyClosed).toEqual(['TUE']);
+    expect([...out.holidayRule].sort()).toEqual(['CHUSEOK', 'LUNAR_NEW_YEAR']);
+    expect(out.openHours).toBeNull();
+    expect(out.dayOfWeekHours).toEqual([
+      { days: ['MON'], open: '07:40', close: '16:00', breaks: [], admissionCutoff: '15:45' },
+      { days: ['WED', 'THU', 'FRI', 'SAT', 'SUN'], open: '07:40', close: '19:30', breaks: [{ from: '15:30', to: '17:00' }], admissionCutoff: '19:15' },
+    ].map((e) => expect.objectContaining(e)));
+    expect(out.confidence.overall).toBe('CONFIRMED');
+    expect(out.unparsed).toEqual([]);
+  });
+
+  it('🔴 사례 3 강릉 중앙시장(132771) — 두 필드 모두 「※ 점포별 상이함」 이면 아무 값도 만들지 않는다', () => {
+    const out = parseOperatingInfo({
+      contentTypeId: 38,
+      raw: { restdateshopping: '※ 점포별 상이함', opentime: '※ 점포별 상이함' },
+    });
+    expect(out.alwaysOpen).toBe(false);
+    expect(out.weeklyClosed).toEqual([]);
+    expect(out.openHours).toBeNull();
+    expect(out.confidence.overall).toBe('UNPARSED');
+    expect(out.confidence.byPath.weeklyClosed).toBe('UNPARSED');
+    expect(out.confidence.byPath.openHours).toBe('UNPARSED');
+    expect(out.unparsed.map((u) => u.reason)).toEqual(['TARGET_VARIES', 'TARGET_VARIES']);
+  });
+});

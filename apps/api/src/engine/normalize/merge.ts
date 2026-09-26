@@ -36,6 +36,8 @@ export interface MergeInput {
   readonly hoursGroups: readonly HoursGroup[];
   /** 조각 원문 · 사유 · **영향 경로**. `affects` 가 비면 어떤 경로도 강등하지 않는다 */
   readonly unparsed: readonly UnparsedFragment[];
+  /** 연중무휴와 함께 못 읽은 괄호 · 주석이 있다 — 연중무휴를 추정으로 둔다 (FR-AU-012 · #855) */
+  readonly alwaysOpenExceptionsUnread?: boolean;
 }
 
 export function mergeNormalized(input: MergeInput): NormalizedOperatingInfo {
@@ -48,6 +50,10 @@ export function mergeNormalized(input: MergeInput): NormalizedOperatingInfo {
   }));
 
   const closed = mergeClosed(input.closedHits, byPath);
+  // 판정은 그대로 「연다」 다(5단계 게이트는 UNPARSED 만 본다). 해석 칸의 신뢰도가 확정이 아니게 된다
+  if (closed.alwaysOpen === true && input.alwaysOpenExceptionsUnread === true && byPath.alwaysOpen === 'CONFIRMED') {
+    byPath.alwaysOpen = 'ESTIMATED';
+  }
   const hours = mergeHours(input.hoursGroups, byPath, unparsed);
 
   // DR-NM-033 — `affects` 에 담긴 경로는 UNPARSED 로 기록한다.

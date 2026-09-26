@@ -75,7 +75,9 @@ function r01(
   holidays: HolidayCalendar,
 ): readonly Patch[] {
   const out: Patch[] = [];
-  const isRestDay = finding.reasonCode === 'REST_DAY_CONFLICT' || finding.reasonCode === 'REST_DAY_UNCERTAIN';
+  // 휴무를 몰라서 낸 확인 불가(1-7)는 사유가 PARSE_* 여도 휴무 쪽이다 — 날짜를 바꾸는 수정안이 맞다 (#855)
+  const isRestDay = finding.reasonCode === 'REST_DAY_CONFLICT' || finding.reasonCode === 'REST_DAY_UNCERTAIN'
+    || String(finding.evidence.step ?? '').startsWith('1-');
 
   if (isRestDay) {
     const slot = openSlotFor(target, items, holidays);
