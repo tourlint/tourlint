@@ -29,6 +29,7 @@ export function SchedulePlaceInput({
   canExclude = true,
   canReselect = true,
   walk = false,
+  keepName = false,
   onChange,
 }: {
   ref?: Ref<PlaceInputHandle>;
@@ -52,6 +53,11 @@ export function SchedulePlaceInput({
   canReselect?: boolean;
   /** 걷기 길 — 코스 이름만 보이고 고치지 않는다. 편집 화면에서 불러온 걷기 길도 같다 (UI-S2-048) */
   walk?: boolean;
+  /**
+   * 골라도 줄 이름을 고른 곳의 공식 명칭으로 바꾸지 않는다. 편집 화면에서 불러온 줄은 이름이 그대로
+   * `place_label` 로 저장되므로 사용자가 친 글을 둔다 (UI-S2-025 · DR-PR-001)
+   */
+  keepName?: boolean;
   onChange: (patch: { place?: string; content?: MatchedContent | null; excluded?: boolean }) => void;
 }) {
   const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
@@ -144,7 +150,7 @@ export function SchedulePlaceInput({
       if (typeId === null) { setError("장소 유형을 확인하지 못했습니다. 다시 선택해 주세요."); return; }
       const matched: MatchedContent = { contentId: c.contentid, contentTypeId: typeId,
         mapx: d.mapx, mapy: d.mapy, lcls1: d.lclsSystm1, lcls2: d.lclsSystm2, lcls3: d.lclsSystm3 };
-      onChange({ place: c.title ?? value, content: matched });
+      onChange(keepName ? { content: matched } : { place: c.title ?? value, content: matched });
       setOpen(false);
       if (!canAnchor(matched)) setError("이 장소는 좌표가 없어 근처 검색의 기준으로 사용할 수 없어요. 다른 장소를 골라 주세요.");
       else if (shouldAnchor) onAnchorReady?.();
@@ -269,8 +275,10 @@ export function SchedulePlaceInput({
           {canExclude && (
             <button
               type="button"
+              // 고른 후보를 확인하는 동안은 막는다 — 둘 다 걸리면 고른 곳과 직접 정한 곳이 겹친다
+              disabled={busy}
               onClick={() => { anchorIntent.current = false; setOpen(false); onChange({ excluded: true }); }}
-              className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100 disabled:opacity-60 dark:text-slate-400 dark:hover:bg-slate-800"
             >
               찾는 곳이 없나요? 직접 정한 곳으로 두기
             </button>

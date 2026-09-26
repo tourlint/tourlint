@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { itemApi, matchApi, planApi, productApi, type ContentSearchResult, type ProductDetail, type ProductItem } from "../../../../lib/api";
+import { contentApi, itemApi, matchApi, planApi, productApi, type ContentDetail, type ContentSearchResult, type ProductDetail, type ProductItem } from "../../../../lib/api";
 import { EditForm } from "./edit-form";
 
 const router = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
@@ -204,5 +204,51 @@ describe("편집 화면 — 가이드 9단계 · 불러온 걷기 길과 직접 
     expect(match).not.toHaveBeenCalled();
     expect(matchApi.exclude).not.toHaveBeenCalled();
     expect(router.push).toHaveBeenCalledWith("/products/38/plan");
+  });
+});
+
+describe("편집 화면 — 불러온 줄에서 후보 고르기 (FR-IN-029 · UI-S2-025 · DR-PR-001)", () => {
+  const found: ContentSearchResult = {
+    regionFilterApplied: true, fetchedAt: "", totalCount: 1, source: "",
+    candidates: [{ contentid: "2733968", title: "경포해수욕장", addr1: null, contenttypeid: 12, cpyrhtDivCd: null }],
+  };
+  async function open(name: string) {
+    vi.spyOn(productApi, "detail").mockResolvedValue(product([row({ place: name, itemType: "SIGHT" })]));
+    vi.spyOn(matchApi, "search").mockResolvedValue(found);
+    vi.spyOn(contentApi, "detail").mockResolvedValue({ contentTypeId: 12, mapx: 128.9, mapy: 37.8, lclsSystm1: "NA", lclsSystm2: "NA04", lclsSystm3: null } as ContentDetail);
+    await act(async () => root.render(<EditForm productId={70} />));
+    await settle();
+    await act(async () => rowOf(name).querySelector<HTMLInputElement>('input[aria-label="장소명"]')!.focus());
+    await settle(350);
+  }
+  const pick = async (name: string) => { await act(async () => rowOf(name).querySelector<HTMLButtonElement>("li button")!.click()); await settle(); };
+
+  it("🔴 고르는 중이던 줄에 후보를 고르면 저장할 때 확정한다 — 이름은 친 글 그대로다", async () => {
+    await open("경포해변");
+    const match = vi.spyOn(matchApi, "match").mockResolvedValue({} as Awaited<ReturnType<typeof matchApi.match>>);
+    const patch = vi.spyOn(itemApi, "patch");
+    await pick("경포해변");
+    expect(rows()[0]!.textContent).toContain("✓");
+    expect(rows()[0]!.textContent).toContain("경포해변");
+    expect(host.textContent).not.toContain("경포해수욕장");
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(match).toHaveBeenCalledWith(11, "2733968", "USER");
+    expect(patch).not.toHaveBeenCalled();
+    expect(matchApi.exclude).not.toHaveBeenCalled();
+    expect(router.push).toHaveBeenCalledWith("/products/70/plan");
+  });
+
+  it("🔴 다른 이름으로 찾아 고르면 그 이름으로 바꾸고 확정한다 — 공식 명칭은 보내지 않는다", async () => {
+    await open("경포해변");
+    const match = vi.spyOn(matchApi, "match").mockResolvedValue({} as Awaited<ReturnType<typeof matchApi.match>>);
+    const patch = vi.spyOn(itemApi, "patch").mockResolvedValue({} as ProductItem);
+    await type(rowOf("경포해변").querySelector<HTMLInputElement>('input[aria-label="장소명"]')!, "경포 해수욕장");
+    await settle(350);
+    await pick("경포 해수욕장");
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(patch.mock.calls).toEqual([[11, { placeLabel: "경포 해수욕장" }]]);
+    expect(match).toHaveBeenCalledWith(11, "2733968", "USER");
   });
 });

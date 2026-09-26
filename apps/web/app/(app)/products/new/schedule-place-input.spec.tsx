@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { matchApi, type ContentSearchResult } from "../../../lib/api";
+import { contentApi, matchApi, type ContentDetail, type ContentSearchResult } from "../../../lib/api";
 import { SchedulePlaceInput } from "./schedule-place-input";
 import type { MatchedContent } from "./types";
 
@@ -94,6 +94,20 @@ describe("「찾는 곳이 없나요? 직접 정한 곳으로 두기」 (UI-S2-0
     expect(search).not.toHaveBeenCalled();
     await act(async () => button("다시 고르기")!.click());
     expect(change).toHaveBeenCalledWith({ excluded: false });
+  });
+
+  it("🔴 고른 후보를 확인하는 동안에는 누를 수 없다 — 고른 곳과 직접 정한 곳이 겹치지 않는다", async () => {
+    vi.spyOn(matchApi, "search").mockResolvedValue(result(["강릉역"]));
+    vi.spyOn(contentApi, "detail").mockReturnValue(new Promise<ContentDetail>(() => {}));
+    const change = vi.fn();
+    await act(async () => root.render(<SchedulePlaceInput value="강릉역" content={null} regnCd="51" signguCd="150" regionLabel="강릉시" onChange={change} />));
+    await act(async () => host.querySelector("input")!.focus());
+    await settle();
+    await act(async () => host.querySelector<HTMLButtonElement>("li button")!.click());
+    const exclude = button("찾는 곳이 없나요? 직접 정한 곳으로 두기")!;
+    expect(exclude.disabled).toBe(true);
+    await act(async () => exclude.click());
+    expect(change).not.toHaveBeenCalled();
   });
 
   it("줄 수 없는 줄(편집 화면의 저장된 고른 곳)에는 그 선택지를 두지 않는다", async () => {

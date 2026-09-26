@@ -6,14 +6,14 @@
  */
 
 import type { InputItemOrigin } from '@tourlint/shared';
-import type { MatchedContent } from '../(app)/products/new/types';
+import type { MatchedContent, ScheduleItem } from '../(app)/products/new/types';
 
 export interface EditedItem {
   /** 서버 항목 id. 새로 추가한 항목은 없다 */
   readonly itemId?: number;
   /**
-   * 장소 담기에서 고른 관광지 (#665). 새 항목에만 있다 — 이게 있으면 확정 상태로 넣어야
-   * 하므로 저장할 때 다른 호출로 나간다. 견주기(`changedFields`)는 이 값을 보지 않는다.
+   * 고른 관광지 (#665). 새 항목이면 확정 상태로 넣어야 하므로 저장할 때 다른 호출로 나간다.
+   * 불러온 줄에서 고른 곳은 `placeCalls` 가 다룬다. 견주기(`changedFields`)는 이 값을 보지 않는다.
    */
   readonly content?: MatchedContent | null;
   /** 새 항목이 들어온 경로 (FR-PL-020). 견주기는 이 값을 보지 않는다 */
@@ -92,4 +92,33 @@ export function planSchedule(before: readonly EditedItem[], after: readonly Edit
 export function isEmptyPlan(plan: SchedulePlan): boolean {
   return plan.removed.length === 0 && plan.added.length === 0
     && plan.patched.length === 0 && !plan.needsOrder;
+}
+
+/** 불러온 줄의 장소 상태를 바꾸는 호출. 순서 · 시각 비교(`planSchedule`)와 따로 낸다 */
+export interface PlaceCalls {
+  /** 고르는 중이던 줄을 직접 정한 곳으로 (UI-S2-021) */
+  readonly exclude: readonly number[];
+  /** 새로 고른 곳으로 확정한다 — 사람이 고른 것이다 (FR-IN-029) */
+  readonly match: readonly { readonly itemId: number; readonly contentId: string }[];
+}
+
+/**
+ * 불러온 줄에서 바꾼 장소 상태를 호출로 옮긴다. 장소만 바꿨으면 비교는 빈 계획이라 따로 센다.
+ *
+ * 줄 이름은 여기서 다루지 않는다 — 불러온 줄은 골라도 이름이 친 글 그대로라(`keepName`) 바꿔 쳤을
+ * 때만 비교가 `PATCH` 를 낸다 (DR-PR-001). 저장된 곳과 같은 곳을 다시 고른 줄(기준으로 쓰려고
+ * 확인한 줄)은 부르지 않는다. 걷기 길은 확정할 수 없는 줄이다.
+ */
+export function placeCalls(items: readonly ScheduleItem[]): PlaceCalls {
+  const exclude: number[] = [];
+  const match: { itemId: number; contentId: string }[] = [];
+  for (const it of items) {
+    if (it.itemId === undefined || it.saved === undefined || it.walk !== undefined) continue;
+    // 고른 곳이 있으면 직접 정한 곳으로 보내지 않는다 — 후보를 확인하는 사이 둘 다 걸릴 수 있다
+    if (it.excluded === true && !it.content && it.saved.matchStatus === 'PENDING') exclude.push(it.itemId);
+    if (it.content && it.content.contentId !== it.saved.contentId) {
+      match.push({ itemId: it.itemId, contentId: it.content.contentId });
+    }
+  }
+  return { exclude, match };
 }
