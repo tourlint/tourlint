@@ -144,6 +144,28 @@ describe('리포트 모델 조립', () => {
     expect(JSON.stringify(m)).not.toContain('오죽헌');
   });
 
+  it('🔴 이름을 저장하지 않은 곳인데 명칭도 못 읽었으면(비표출) 빈칸 대신 그렇다고 적는다 (#908)', () => {
+    const m = assembleReport(input({
+      items: [item({ place: '' })],
+      evidence: new Map([['126508', evidence({ hidden: true, officialName: null, imageUrl: null })]]),
+    }));
+    expect(m.itinerary[0]?.items[0]?.place).toBe(UNNAMED_PLACE);
+    expect(m.findings[0]?.targetPlace).toBe(UNNAMED_PLACE);
+    expect(JSON.stringify(m)).not.toContain('오죽헌');
+  });
+
+  it('🔴 겹침 · 이동 문장의 빈 이름을 읽어 둔 공식 명칭으로 채운다 (#908)', () => {
+    const m = assembleReport(input({
+      run: run([finding({
+        ruleCode: 'R08', reasonCode: 'TRAVEL_TIME_SHORT', targetItemId: 11, targetItemId2: 12,
+        message: ' →  이동에 약 25분이 걸리는데 배정된 시간은 10분입니다. 15분이 모자랍니다.',
+      })]),
+      items: [item({ place: '' }), item({ itemId: 12, seq: 2, place: '', ktoContentId: '129784' })],
+      evidence: new Map([['126508', evidence()], ['129784', evidence({ ktoContentId: '129784', officialName: '강릉 오죽헌·시립박물관' })]]),
+    }));
+    expect(m.findings[0]?.message).toBe('오죽헌 → 강릉 오죽헌·시립박물관 이동에 약 25분이 걸리는데 배정된 시간은 10분입니다. 15분이 모자랍니다.');
+  });
+
   it('확인 필요는 ⑥ 으로, 감점 판정은 ④ 로 갈린다', () => {
     const m = assembleReport(input({
       run: run([

@@ -386,7 +386,8 @@ export function assembleReport(input: AssembleInput): ReportModel {
       seq: it.seq,
       start: it.start,
       end: it.end,
-      place: nameOf(it.ktoContentId, it.place, it.walkId),
+      // 이름을 저장하지 않은 곳인데 명칭도 못 읽었으면(비표출 · 조회 실패) 빈칸 대신 그렇다고 적는다 (#908)
+      place: nameOf(it.ktoContentId, it.place, it.walkId) || UNNAMED_PLACE,
       itemType: it.itemType,
       matchStatus: it.matchStatus,
       excluded,
@@ -405,12 +406,13 @@ export function assembleReport(input: AssembleInput): ReportModel {
       severity: f.severity,
       // 이름 없이 저장된 문장은 여기서 채운다 — 리포트는 공사 명칭을 이미 읽어 뒀다 (#606)
       message: findingMessage(f.ruleCode, f.message, f.evidence, placeOf,
-        f.targetItemId === null ? null : placeOf.get(f.targetItemId) ?? null),
+        f.targetItemId === null ? null : placeOf.get(f.targetItemId) ?? null,
+        f.targetItemId2 === null ? null : placeOf.get(f.targetItemId2) ?? null),
       dismissed: f.dismissed,
       dismissReason: f.dismissed ? f.dismissReason : null,
       confirmed: f.confirmed,
       excludedFromScore: f.reasonCode === 'PRE_DEPARTURE_CHECK',
-      targetPlace: f.targetItemId === null ? null : placeOf.get(f.targetItemId) ?? null,
+      targetPlace: f.targetItemId === null || !placeOf.has(f.targetItemId) ? null : placeOf.get(f.targetItemId) || UNNAMED_PLACE,
       evidence: contentId === null ? null : evidence.get(contentId) ?? null,
     };
   };

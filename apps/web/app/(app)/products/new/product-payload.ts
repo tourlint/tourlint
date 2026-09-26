@@ -43,7 +43,9 @@ export function buildPayload(f: PayloadInput) {
       } : {
         start: it.start,
         end: it.end || null,
-        place: it.place.trim(),
+        // 관광지를 고른 줄은 칸에 보이는 이름이 공식 명칭이다 — 보내지 않는다. 서버는 저장하지 않고 표시할 때
+        // 찾는다 (DR-PR-001 · DR-IN-013)
+        place: it.content ? "" : it.place.trim(),
         itemType: it.itemType,
         // 입력하는 순간 고른 관광지가 있으면 저장 시 CONFIRMED 로 (UI-S2-020 · create content 계약)
         ...(it.content ? { content: it.content } : {}),

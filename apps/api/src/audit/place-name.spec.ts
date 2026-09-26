@@ -63,6 +63,18 @@ describe('대체 관광지 이름 (DR-PR-001)', () => {
     expect(calls).toEqual(['1', '1']);
   });
 
+  it('🔴 캐시만 보는 조회는 공사를 부르지 않는다 — 읽어 둔 것만, 수명 안에서만 준다 (#908)', async () => {
+    let now = 0;
+    const { kto, calls } = stubKto();
+    const r = new PlaceNameResolver({ kto, clock: () => now });
+    expect(r.peek(['1'])).toEqual(new Map());
+    await r.resolve(['1']);
+    expect(r.peek(['1', '2'])).toEqual(new Map([['1', '이름-1']]));
+    now += NAME_TTL_MS;
+    expect(r.peek(['1'])).toEqual(new Map());
+    expect(calls).toEqual(['1']);
+  });
+
   it('🔴 못 읽은 것은 넣지 않는다 — 지어내지 않는다', async () => {
     const { kto } = stubKto({
       '2': new KtoFetchError('detailCommon2', '없는 콘텐츠'),

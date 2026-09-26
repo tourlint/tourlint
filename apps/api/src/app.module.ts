@@ -399,7 +399,7 @@ import { SettingsRepository } from './settings/settings.repository';
       /*
        * 검수 에이전트 — 전화로 물어볼 내용 (F18 · FR-AG-020 ~ 022).
        *
-       * `AuditService` 의 읽기 메서드 넷만 쓴다. 판정 · 무시 · 확인은 사람이 누르는 기존 API 다.
+       * `AuditService` 의 읽기 메서드만 쓴다(표시 이름 포함). 판정 · 무시 · 확인은 사람이 누르는 기존 API 다.
        */
       provide: CheckQuestionService,
       useFactory: (pool: Pool, audit: AuditService, lock: AgentLock) => {
@@ -431,7 +431,7 @@ import { SettingsRepository } from './settings/settings.repository';
        * 모델은 이유 한 줄씩만 쓴다.
        */
       provide: TodayBriefService,
-      useFactory: (pool: Pool, radar: RadarService, lock: AgentLock) => {
+      useFactory: (pool: Pool, radar: RadarService, lock: AgentLock, notifications: NotificationService) => {
         const logs = new PgApiCallLogger(pool);
         const repository = new RadarRepository(pool);
         return new TodayBriefService({
@@ -447,9 +447,11 @@ import { SettingsRepository } from './settings/settings.repository';
             return new LlmClient({ provider: createProvider(config), config, logger: logs });
           },
           lock,
+          // 이름을 저장하지 않은 곳은 알림 목록이 읽어 둔 이름만 빌린다 — 공사 0콜 그대로 (#908)
+          names: (ids) => notifications.cachedPlaceNames(ids),
         });
       },
-      inject: [DB_POOL, RadarService, AgentLock],
+      inject: [DB_POOL, RadarService, AgentLock, NotificationService],
     },
     {
       provide: SyncBatchScheduler,

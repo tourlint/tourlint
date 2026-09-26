@@ -89,6 +89,20 @@ export class PlaceNameResolver {
     return out;
   }
 
+  /**
+   * 캐시에 있는 이름만 준다 — 공사를 부르지 않는다. 오늘 할 일처럼 0콜이어야 하는 곳이 다른 화면이
+   * 방금 읽어 둔 이름을 빌려 쓴다 (#908). 없거나 오래된 것은 넣지 않는다
+   */
+  peek(contentIds: readonly string[]): ReadonlyMap<string, string> {
+    const out = new Map<string, string>();
+    const now = this.clock();
+    for (const id of new Set(contentIds)) {
+      const hit = this.cache.get(id);
+      if (hit !== undefined && now - hit.at < NAME_TTL_MS) out.set(id, hit.name);
+    }
+    return out;
+  }
+
   private remember(id: string, name: string, at: number): void {
     if (this.cache.size >= NAME_CACHE_MAX) {
       // 삽입 순서가 곧 오래된 순이다 (Map 의 성질)

@@ -220,6 +220,31 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     ]);
   });
 
+  it('🔴 등록 저장은 고른 관광지 줄의 이름을 저장하지 않고, 상세는 공식 명칭을 찾아 채운다 (DR-PR-001 · DR-IN-013)', async () => {
+    const { product } = validateCreate({
+      name: '등록 이름 스펙', ldongRegnCd: '51', ldongSignguCd: '150', startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        // 장소 칸에서 고른 줄 — 화면은 칸 이름을 고른 곳의 공식 명칭으로 바꿔 둔다
+        { start: '10:00', end: '11:30', place: '강릉 경포대', itemType: 'SIGHT', content: { contentId: ORIGINAL, contentTypeId: 12 } },
+        // 장소 담기로 넣은 줄
+        { start: '12:00', end: '', place: '강릉 오죽헌·시립박물관', itemType: 'SIGHT', origin: 'PICKER', content: { contentId: REPLACEMENT, contentTypeId: 14 } },
+        { start: '14:00', end: '15:00', place: '초당순두부', itemType: 'MEAL' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await new ProductRepository(pool).create(accountId, product);
+    const { rows } = await pool.query<{ place_label: string | null }>(
+      `SELECT place_label FROM itinerary_item WHERE product_id = $1 ORDER BY seq`, [productId]);
+    expect(rows.map((r) => r.place_label)).toEqual([null, null, '초당순두부']);
+    // 보이는 이름은 그대로다 — 공사 명칭을 표시할 때 찾는다
+    const days = (await service.detail(accountId, productId)).days as { items: Record<string, unknown>[] }[];
+    expect(days[0]?.items.map((i) => [i.place, i.contentTypeId])).toEqual([
+      ['강릉 경포대', 12],
+      ['강릉 오죽헌·시립박물관', 14],
+      ['초당순두부', null],
+    ]);
+  });
+
   it('🔴 상세의 항목에 걷기 길 식별자가 실린다 — 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 (UI-S2-048)', async () => {
     const { productId } = await makeProduct();
     await service.addItem(accountId, productId, { dayNo: 1, itemType: 'SIGHT', excluded: { walkId: 'T_TEST_WALK' }, startTime: '14:00', endTime: '16:00' });

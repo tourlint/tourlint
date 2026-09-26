@@ -74,6 +74,27 @@ describe('validateCreate', () => {
     expect(product?.items[1]?.content).toBeNull();
   });
 
+  it('🔴 고른 관광지 줄은 장소명이 없어도 받고, 보내 온 이름은 버린다 — 공식 명칭이다 (DR-PR-001 · DR-IN-013)', () => {
+    const content = { contentId: '142785', contentTypeId: 32, mapx: 128.9, mapy: 37.8, lcls1: 'AC', lcls2: 'AC01', lcls3: null };
+    const { errors, product } = validateCreate(base({
+      days: [{ day: 1, items: [
+        { start: '18:00', end: '', place: '', itemType: 'LODGING', content },
+        { start: '14:30', end: '', place: '주문진 등대', itemType: 'SIGHT', origin: 'PICKER', content: { ...content, contentId: '126175' } },
+        { start: '12:30', end: '13:30', place: '', itemType: 'MEAL' },
+      ] }, { day: 2, items: [] }, { day: 3, items: [] }],
+    }));
+    // 안 고른 줄만 이름을 요구한다
+    expect(errors).toEqual(['1일차 3번 장소명을 입력하세요.']);
+    const ok = validateCreate(base({
+      days: [{ day: 1, items: [
+        { start: '18:00', end: '', place: '', itemType: 'LODGING', content },
+        { start: '14:30', end: '', place: '주문진 등대', itemType: 'SIGHT', origin: 'PICKER', content: { ...content, contentId: '126175' } },
+      ] }, { day: 2, items: [] }, { day: 3, items: [] }],
+    })).product;
+    expect(ok?.items.map((i) => i.placeLabel)).toEqual(['', '']);
+    expect(product).toBeNull();
+  });
+
   it('🔴 고른 장소 정보가 깨졌으면(contentId 없음) 거부한다', () => {
     const { errors, product } = validateCreate(base({
       days: [

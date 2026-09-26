@@ -1,7 +1,7 @@
 import { HttpStatus, Inject, Injectable, Logger, Optional, type OnApplicationBootstrap } from '@nestjs/common';
 import type { Pool } from 'pg';
 import {
-  findingMessage, ITEM_CAP_MESSAGE, kstIso, MAX_ITEMS_PER_PRODUCT, SEVERITY, withPlaceName, type Severity,
+  findingMessage, ITEM_CAP_MESSAGE, kstIso, MAX_ITEMS_PER_PRODUCT, SEVERITY, withPairNames, withPlaceName, type Severity,
 } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { AuditOwnershipRepository } from '../persistence/audit-ownership.repository';
@@ -1154,9 +1154,10 @@ export function toFindingsResponse(
       ruleVersion: f.ruleVersion,
       severity: f.severity,
       reasonCode: f.reasonCode,
-      // 이름이 빈 항목은 표시할 때 채운다 — 저장된 문장은 앞이 비어 있다 (#606)
+      // 이름이 빈 항목은 표시할 때 채운다 — 저장된 문장은 앞이 비어 있다 (#606). 겹침 · 이동은 두 곳 다 (#908)
       message: findingMessage(f.ruleCode, f.message, f.evidence, placeLabels,
-        f.targetItemId === null ? null : placeLabels.get(f.targetItemId) ?? null),
+        f.targetItemId === null ? null : placeLabels.get(f.targetItemId) ?? null,
+        f.targetItemId2 === null ? null : placeLabels.get(f.targetItemId2) ?? null),
       target: targetOf(f.targetItemId, targets, f.reasonCode === 'CONTENT_HIDDEN'),
       targetSecondary: f.targetItemId2 === null ? null : targetOf(f.targetItemId2, targets),
       /*
@@ -1329,12 +1330,14 @@ export function toUnverifiedResponse(
       const excluded = f.reasonCode === 'PRE_DEPARTURE_CHECK';
       // 사용자가 적은 이름이 먼저다. 이름 없이 들어온 항목만 조회한 값을 쓴다 (#606)
       const label = item === undefined ? null : labels.get(item.id) ?? (item.placeLabel || null);
+      const second = f.targetItemId2 === null ? undefined : byId.get(f.targetItemId2);
+      const secondLabel = second === undefined ? null : labels.get(second.id) ?? (second.placeLabel || null);
       return {
         findingId: f.id,
         contentid: item?.ktoContentId ?? null,
         placeLabel: label,
-        // 저장된 문장은 이름이 없으면 앞이 비어 있다. 표시할 때 채운다 (#606)
-        reason: withPlaceName(f.message, label),
+        // 저장된 문장은 이름이 없으면 앞이 비어 있다. 표시할 때 채운다 (#606). 겹침 · 이동은 두 곳 다 (#908)
+        reason: withPlaceName(withPairNames(f.ruleCode, f.message, f.evidence, label, secondLabel), label),
         reasonCode: f.reasonCode,
         location: item === undefined
           ? null
