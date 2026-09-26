@@ -115,8 +115,9 @@ describe("편집 화면 — 장소 담기의 걷기 길 (UI-S2-048)", () => {
 
 /** 가이드 1 ~ 8단계를 마친 상품 — 1일차 5개 · 2일차 6개 · 3일차 4개 (docs/judge-guide 9단계) */
 function guideProduct(): ProductDetail {
+  // 고른 곳은 저장된 코드 · 좌표와 함께 온다. 장소 담기 · 등록 화면에서 고른 줄은 이름을 저장하지 않아 place 가 표시 이름이다
   const at = (itemId: number, seq: number, place: string, start: string, end: string | null, itemType: string, over: Partial<ProductItem> = {}) =>
-    row({ itemId, seq, place, start, end, itemType, matchStatus: "CONFIRMED", ktoContentId: String(itemId * 10), ...over });
+    row({ itemId, seq, place, start, end, itemType, matchStatus: "CONFIRMED", ktoContentId: String(itemId * 10), contentTypeId: 12, mapx: 128.9, mapy: 37.8, ...over });
   return {
     ...product([]), productId: 38, name: "강릉 감성 2박 3일", nights: 2, dayCount: 3,
     days: [
@@ -131,11 +132,11 @@ function guideProduct(): ProductDetail {
         at(205, 5, "주문진해변", "16:00", "17:00", "SIGHT"), at(206, 6, "세인트존스 호텔", "18:00", null, "LODGING"),
       ] },
       { day: 3, items: [
-        at(301, 1, "강릉역", "09:00", "09:30", "MOVE", { matchStatus: "EXCLUDED", ktoContentId: null }),
+        at(301, 1, "강릉역", "09:00", "09:30", "MOVE", { matchStatus: "EXCLUDED", ktoContentId: null, contentTypeId: null, mapx: null, mapy: null }),
         at(302, 2, "초당할머니순두부", "12:30", "13:30", "MEAL"),
         at(303, 3, "주문진 등대", "14:30", null, "SIGHT", { endTimeSource: "DWELL_DEFAULT" }),
         at(304, 4, "해파랑길 35코스 바우길 09구간", "14:30", "15:30", "SIGHT",
-          { matchStatus: "EXCLUDED", ktoContentId: null, walkId: "T_CRS_MNG0000000402", endTimeSource: "DWELL_DEFAULT" }),
+          { matchStatus: "EXCLUDED", ktoContentId: null, contentTypeId: null, mapx: null, mapy: null, walkId: "T_CRS_MNG0000000402", endTimeSource: "DWELL_DEFAULT" }),
       ] },
     ],
   } as ProductDetail;
@@ -180,6 +181,8 @@ describe("편집 화면 — 가이드 9단계 · 불러온 걷기 길과 직접 
     const keywords = vi.mocked(matchApi.search).mock.calls.map((c) => c[0]);
     expect(keywords).not.toContain("해파랑길 35코스 바우길 09구간");
     expect(keywords).not.toContain("강릉역");
+    // 고른 곳도 불러올 때 찾지 않는다 — 다시 고르기를 눌러야 찾는다 (UI-S2-025)
+    expect(keywords).toEqual([]);
 
     // 걷기 길을 09:30 – 12:00 으로 바꾸고 ↑ 를 두 번 눌러 강릉역 다음으로
     await type(times(walk)[0]!, "09:30");
@@ -296,5 +299,101 @@ describe("편집 화면 — 고른 곳으로 넣은 새 줄의 시각 (FR-IN-014
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+/** 가이드 11 · 12단계를 마친 2일차 — 가람집옹심이가 수정안으로 옮겨 와 있다 (docs/judge-guide 13단계) */
+function guideDay2(): ProductDetail {
+  const at = (itemId: number, seq: number, place: string, start: string, end: string | null, itemType: string, over: Partial<ProductItem> = {}) =>
+    row({ itemId, seq, place, start, end, itemType, matchStatus: "CONFIRMED", ktoContentId: String(itemId * 10), contentTypeId: 12, mapx: 128.9, mapy: 37.8, ...over });
+  return {
+    ...product([]), productId: 38, name: "강릉 감성 2박 3일", nights: 2, dayCount: 3,
+    days: [
+      { day: 1, items: [at(101, 1, "강릉 경포대", "10:00", "11:30", "SIGHT")] },
+      { day: 2, items: [
+        at(201, 1, "경포해변", "09:00", "10:00", "SIGHT"), at(202, 2, "안목해변", "10:00", "11:00", "SIGHT"),
+        at(203, 3, "정동진해변", "11:00", "12:00", "SIGHT"),
+        // 장소 담기 · 등록 화면에서 고른 줄 — 이름을 저장하지 않아 표시 이름이 온다
+        at(204, 4, "하슬라아트월드", "12:05", "13:35", "SIGHT", { endTimeSource: "DWELL_DEFAULT" }),
+        at(205, 5, "가람집옹심이", "14:05", "15:05", "MEAL"),
+        at(206, 6, "주문진해변", "16:00", "17:00", "SIGHT"),
+        at(207, 7, "세인트존스 호텔", "18:00", null, "LODGING", { contentTypeId: 32 }),
+      ] },
+      { day: 3, items: [at(301, 1, "초당할머니순두부", "12:30", "13:30", "MEAL")] },
+    ],
+  } as ProductDetail;
+}
+
+describe("편집 화면 — 가이드 13단계 · 저장된 고른 곳 (UI-S2-025 · DR-PR-001)", () => {
+  it("🔴 2일차 시각만 고쳐 저장하면 시각만 보낸다 — 고른 곳은 ✓ 로 열리고 찾지 않으며, 표시 이름을 이름 칸에 다시 쓰지 않는다", async () => {
+    vi.spyOn(productApi, "detail").mockResolvedValue(guideDay2());
+    const patch = vi.spyOn(itemApi, "patch").mockResolvedValue({} as ProductItem);
+    const reorder = vi.spyOn(itemApi, "reorder");
+    const match = vi.spyOn(matchApi, "match");
+    await act(async () => root.render(<EditForm productId={38} />));
+    await settle(350);
+    await act(async () => tab(2).click());
+    await settle(350);
+    for (const r of rows()) {
+      expect(r.textContent).toContain("✓");
+      expect(r.textContent).toContain("다시 고르기");
+      expect(r.querySelector('input[aria-label="장소명"]')).toBeNull();
+    }
+    expect(matchApi.search).not.toHaveBeenCalled();
+
+    const table: [string, string, string][] = [
+      ["경포해변", "09:00", "10:00"], ["안목해변", "10:20", "11:00"], ["정동진해변", "11:40", "12:20"],
+      ["하슬라아트월드", "12:30", "13:45"], ["가람집옹심이", "14:30", "15:30"], ["주문진해변", "16:15", "17:00"],
+      ["세인트존스 호텔", "18:00", ""],
+    ];
+    for (const [name, start, end] of table) {
+      const [s, e] = times(rowOf(name));
+      if (s!.value !== start) await type(s!, start);
+      if (e!.value !== end) await type(e!, end);
+    }
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(patch.mock.calls).toEqual([
+      [202, { startTime: "10:20" }],
+      [203, { startTime: "11:40", endTime: "12:20" }],
+      [204, { startTime: "12:30", endTime: "13:45" }],
+      [205, { startTime: "14:30", endTime: "15:30" }],
+      [206, { startTime: "16:15" }],
+    ]);
+    expect(reorder).not.toHaveBeenCalled();
+    expect(match).not.toHaveBeenCalled();
+    expect(router.push).toHaveBeenCalledWith("/products/38/plan");
+  });
+
+  it("🔴 다시 고르기를 눌러야 찾고 [취소]로 돌아간다 — 다른 곳을 고르면 저장할 때 확정하고 이름은 그대로다", async () => {
+    vi.spyOn(productApi, "detail").mockResolvedValue(product([row({ matchStatus: "CONFIRMED", ktoContentId: "125790", contentTypeId: 12, mapx: 128.9, mapy: 37.8, place: "경포대", itemType: "SIGHT" })]));
+    vi.spyOn(matchApi, "search").mockResolvedValue({
+      regionFilterApplied: true, fetchedAt: "", totalCount: 1, source: "",
+      candidates: [{ contentid: "2733968", title: "경포해수욕장", addr1: null, contenttypeid: 12, cpyrhtDivCd: null }],
+    });
+    vi.spyOn(contentApi, "detail").mockResolvedValue({ contentTypeId: 12, mapx: 128.9, mapy: 37.8, lclsSystm1: "NA", lclsSystm2: "NA04", lclsSystm3: null } as ContentDetail);
+    const match = vi.spyOn(matchApi, "match").mockResolvedValue({} as Awaited<ReturnType<typeof matchApi.match>>);
+    const patch = vi.spyOn(itemApi, "patch");
+    await act(async () => root.render(<EditForm productId={70} />));
+    await settle(350);
+    expect(matchApi.search).not.toHaveBeenCalled();
+
+    // [취소] — 고른 곳으로 돌아간다
+    await act(async () => button("다시 고르기")!.click());
+    await settle(350);
+    expect(matchApi.search).toHaveBeenCalledWith("경포대", "51", "150");
+    expect(host.textContent).toContain("고르지 않으면 지금 고른 곳을 그대로 둬요");
+    await act(async () => button("취소")!.click());
+    expect(rows()[0]!.textContent).toContain("✓");
+
+    // 다른 곳을 고르면 이름은 그대로 두고 확정한다
+    await act(async () => button("다시 고르기")!.click());
+    await settle(350);
+    await act(async () => rows()[0]!.querySelector<HTMLButtonElement>("li button")!.click());
+    await settle();
+    await act(async () => button("저장")!.click());
+    await settle();
+    expect(match.mock.calls).toEqual([[11, "2733968", "USER"]]);
+    expect(patch).not.toHaveBeenCalled();
   });
 });

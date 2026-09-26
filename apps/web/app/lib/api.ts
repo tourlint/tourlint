@@ -89,6 +89,8 @@ export interface ProductItem {
   place: string;
   itemType: string;
   ktoContentId: string | null;
+  /** 고른 곳의 유형 코드. 편집 화면이 저장된 고른 곳을 ✓ 로 연다 (UI-S2-025). 옛 응답 · 항목 추가 응답에는 없다 */
+  contentTypeId?: number | null;
   matchStatus: string;
   /** 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
   mapx: number | null;

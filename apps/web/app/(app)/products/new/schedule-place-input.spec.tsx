@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -116,5 +116,41 @@ describe("「찾는 곳이 없나요? 직접 정한 곳으로 두기」 (UI-S2-0
     await act(async () => host.querySelector("input")!.focus());
     await settle();
     expect(button("찾는 곳이 없나요? 직접 정한 곳으로 두기")).toBeUndefined();
+  });
+});
+
+describe("고른 줄 [다시 고르기] · [취소] (UI-S2-025)", () => {
+  const button = (label: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
+  function Row({ onPatch, savedPick = false }: { onPatch: (p: unknown) => void; savedPick?: boolean }) {
+    const [row, setRow] = useState<{ place: string; content: MatchedContent | null }>({ place: "경포대", content });
+    return (
+      <SchedulePlaceInput value={row.place} content={row.content} regnCd="51" signguCd="150" regionLabel="강릉시" savedPick={savedPick}
+        onChange={(p) => { onPatch(p); setRow((r) => ({ ...r, ...p })); }} />
+    );
+  }
+
+  it("🔴 다시 고르기를 눌러야 찾고, [취소]로 고른 곳에 돌아간다", async () => {
+    const search = vi.spyOn(matchApi, "search").mockResolvedValue(result(["경포대"]));
+    const patches: unknown[] = [];
+    await act(async () => root.render(<Row onPatch={(p) => patches.push(p)} />));
+    await settle();
+    expect(search).not.toHaveBeenCalled();
+    await act(async () => button("다시 고르기")!.click());
+    await settle();
+    // 찾는 칸에 초점이 가고 목록이 열린다
+    expect(document.activeElement).toBe(host.querySelector("input"));
+    expect(search).toHaveBeenCalledWith("경포대", "51", "150");
+    expect(host.textContent).toContain("강릉시에서 찾은 곳 1곳");
+    await act(async () => button("취소")!.click());
+    expect(host.textContent).toContain("✓");
+    expect(host.querySelector("input")).toBeNull();
+    expect(patches.at(-1)).toEqual({ place: "경포대", content });
+  });
+
+  it("편집 화면의 저장된 고른 곳이면 고르지 않아도 그대로 남는다고 적는다", async () => {
+    vi.spyOn(matchApi, "search").mockResolvedValue(result([]));
+    await act(async () => root.render(<Row onPatch={() => {}} savedPick />));
+    await act(async () => button("다시 고르기")!.click());
+    expect(host.textContent).toContain("고르지 않으면 지금 고른 곳을 그대로 둬요");
   });
 });

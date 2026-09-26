@@ -193,6 +193,8 @@ export function ScheduleEditor({
               canReselect={it.saved === undefined || it.saved.matchStatus !== "EXCLUDED"}
               // 불러온 줄은 이름이 그대로 저장된다 — 골라도 공식 명칭으로 바꾸지 않는다 (DR-PR-001)
               keepName={it.saved !== undefined}
+              // 저장된 고른 곳은 다시 고르다 말아도 고른 곳이 남는다 (UI-S2-025)
+              savedPick={it.saved?.matchStatus === "CONFIRMED"}
               regnCd={regnCd}
               signguCd={signguCd}
               regionLabel={regionLabel}

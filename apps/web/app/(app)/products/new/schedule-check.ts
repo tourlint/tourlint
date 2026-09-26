@@ -31,7 +31,8 @@ export function scheduleErrors(schedule: Schedule): string[] {
   schedule.forEach((items, dayIdx) => {
     items.forEach((it, i) => {
       const at = `${dayIdx + 1}일차 ${i + 1}번`;
-      if (it.place.trim() === "") errors.push(`${at} 장소명을 입력하세요.`);
+      // 고른 관광지가 있는 줄은 이름이 없어도 된다 — 서버가 저장하지 않고 표시할 때 찾는다 (DR-PR-001)
+      if (it.place.trim() === "" && !it.content) errors.push(`${at} 장소명을 입력하세요.`);
       if (it.start === "") errors.push(`${at} 시작 시각을 입력하세요.`);
       if (it.itemType === "") errors.push(`${at} 유형을 고르세요.`);
     });

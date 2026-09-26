@@ -117,6 +117,7 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     const matched = byLabel.get('경포대');
     expect(matched?.matchStatus).toBe('CONFIRMED');
     expect(matched?.ktoContentId).toBe('125790');
+    expect(matched?.contentTypeId).toBe(12);
     // 안 고른 줄은 그대로 PENDING 으로 남아 /plan 에서 이어 고른다
     expect(byLabel.get('초당순두부')?.matchStatus).toBe('PENDING');
 

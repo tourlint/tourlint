@@ -80,6 +80,8 @@ export interface ItemDetail {
   readonly place: string;
   readonly itemType: ItemType;
   readonly ktoContentId: string | null;
+  /** 고른 곳의 유형 코드. 편집 화면이 저장된 고른 곳을 고른 모양(✓)으로 연다 (UI-S2-025). 조회에서만 채운다 */
+  readonly contentTypeId: number | null;
   readonly matchStatus: MatchStatus;
   /** 좌표 — 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
   readonly mapx: number | null;
@@ -257,8 +259,8 @@ export class ProductRepository {
     if (row === undefined) return null;
 
     const items = await this.pool.query<ItemRaw>(
-      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy, walk_id,
-              lcls_systm2, end_time_source
+      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, content_type_id, match_status, origin,
+              mapx, mapy, walk_id, lcls_systm2, end_time_source
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -895,6 +897,7 @@ interface ItemRaw {
   place_label: string | null;
   item_type: ItemType;
   kto_content_id: string | null;
+  content_type_id?: number | string | null;
   match_status: MatchStatus;
   origin: string | null;
   mapx?: number | string | null;
@@ -914,6 +917,7 @@ function toItemDetail(r: ItemRaw): ItemDetail {
     place: r.place_label ?? '',
     itemType: r.item_type,
     ktoContentId: r.kto_content_id,
+    contentTypeId: r.content_type_id == null ? null : Number(r.content_type_id),
     matchStatus: r.match_status,
     mapx: r.mapx == null ? null : Number(r.mapx),
     mapy: r.mapy == null ? null : Number(r.mapy),
