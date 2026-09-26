@@ -6,6 +6,7 @@ import type { BudgetDecision } from '../external/budget-guard';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { FixtureKtoTransport, KtoClient, KtoFetchError, type KtoParams, type KtoTransport, type KtoTransportResult } from '../external/kto';
 import { PlanCache } from './plan-cache';
+import { readPlaceDetailQuery } from './plan.dto';
 import { PlanService, facilitiesLast, relatedBaseYm, type BriefingQuery, type PlacesQuery } from './plan.service';
 
 const FIXTURES = join(__dirname, '../../../../fixtures/kto');
@@ -434,7 +435,76 @@ describe('카드 자세히 (placeDetail · FR-PL-012)', () => {
   it('소개정보를 못 받으면 값은 다 null 이고 카드는 열린다 (EX-PL-004)', async () => {
     const transport = new RecordingTransport({ detailIntro2: new KtoFetchError('detailIntro2', 'HTTP 503') });
     const d = await service(transport).placeDetail({ contentId: '1', contentTypeId: 12 });
-    expect(d).toEqual({ contentId: '1', hours: null, restDays: null, fee: null, parking: null, eventPeriod: null });
+    expect(d).toEqual({ contentId: '1', hours: null, restDays: null, fee: null, parking: null, eventPeriod: null, contact: null });
+  });
+
+  it('🔴 문의처를 유형에 맞는 소개정보 필드에서 채운다 (UI-S2-040 · #850)', async () => {
+    const transport = new RecordingTransport({
+      detailIntro2: listBody([{ usetimeculture: '09:00~18:00', infocenterculture: '033-660-3301' }]),
+    });
+    const d = await service(transport).placeDetail({ contentId: '1', contentTypeId: 14 });
+    expect(d.contact).toBe('033-660-3301');
+  });
+
+  it('🔴 표시된 축은 상세를 1콜씩 불러 싣는다 — 전에는 상세를 한 번도 안 불렀다 (#850)', async () => {
+    const transport = new RecordingTransport({
+      detailIntro2: listBody([{ usetime: '09:00~18:00' }]),
+      detailWithTour2: listBody([{ contentid: '1', wheelchair: '대여 가능', elevator: '있음' }]),
+      detailPetTour2: listBody([{ contentid: '1', acmpyTypeCd: '전구역 동반가능' }]),
+    });
+    const d = await service(transport).placeDetail({ contentId: '1', contentTypeId: 12, want: { accessible: true, pet: true } });
+    expect(d.accessible).toMatchObject({ wheelchair: '대여 가능', elevator: '있음' });
+    expect(d.pet).toMatchObject({ acmpyTypeCd: '전구역 동반가능' });
+    expect(transport.paramsOf('detailWithTour2')).toHaveLength(1);
+    expect(transport.paramsOf('detailPetTour2')).toHaveLength(1);
+  });
+
+  it('요청하지 않은 축은 부르지도 싣지도 않는다', async () => {
+    const transport = new RecordingTransport({
+      detailIntro2: listBody([{ usetime: '09:00~18:00' }]),
+      detailWithTour2: listBody([{ contentid: '1', wheelchair: '대여 가능' }]),
+    });
+    const d = await service(transport).placeDetail({ contentId: '1', contentTypeId: 12, want: { accessible: true, pet: false } });
+    expect(d).not.toHaveProperty('pet');
+    expect(transport.paramsOf('detailPetTour2')).toEqual([]);
+
+    const plain = await service(transport).placeDetail({ contentId: '1', contentTypeId: 12 });
+    expect(plain).not.toHaveProperty('accessible');
+    expect(transport.paramsOf('detailWithTour2')).toHaveLength(1);
+  });
+
+  it('🔴 그 축을 못 받으면 null — 이용시간 등 나머지는 그대로다 (EX-PL-004)', async () => {
+    const transport = new RecordingTransport({
+      detailIntro2: listBody([{ usetime: '09:00~18:00' }]),
+      detailWithTour2: new KtoFetchError('detailWithTour2', 'HTTP 503'),
+    });
+    const d = await service(transport).placeDetail({ contentId: '1', contentTypeId: 12, want: { accessible: true, pet: false } });
+    expect(d.accessible).toBeNull();
+    expect(d.hours).toBe('09:00~18:00');
+  });
+
+  it('무장애 예산이 다 찼으면 그 축만 null 이고 부르지 않는다', async () => {
+    const transport = new RecordingTransport({
+      detailIntro2: listBody([{ usetime: '09:00~18:00' }]),
+      detailWithTour2: listBody([{ contentid: '1', wheelchair: '대여 가능' }]),
+    });
+    const d = await service(transport, { WITH: blocked }).placeDetail({
+      contentId: '1', contentTypeId: 12, want: { accessible: true, pet: false },
+    });
+    expect(d.accessible).toBeNull();
+    expect(transport.paramsOf('detailWithTour2')).toEqual([]);
+  });
+});
+
+describe('카드 자세히 질의 읽기 (#850)', () => {
+  it('with 로 축을 받는다', () => {
+    expect(readPlaceDetailQuery({ contentId: '1', contentTypeId: '12', with: 'accessible,pet' }))
+      .toEqual({ contentId: '1', contentTypeId: 12, want: { accessible: true, pet: true } });
+    expect(readPlaceDetailQuery({ contentId: '1', contentTypeId: '12' })).toEqual({ contentId: '1', contentTypeId: 12 });
+  });
+
+  it('🔴 모르는 축은 튕긴다', () => {
+    expect(() => readPlaceDetailQuery({ contentId: '1', contentTypeId: '12', with: 'accessible,parking' })).toThrow();
   });
 });
 

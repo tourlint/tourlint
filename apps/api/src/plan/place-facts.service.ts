@@ -208,6 +208,13 @@ export function factFields(
   };
 }
 
+/** 문의처 — 유형마다 소개정보 필드 이름이 다르다(`INTRO_FIELDS` 의 `contact`) (UI-S2-040 · #850) */
+export function contactField(contentTypeId: number | null, intro: Record<string, unknown>): string | null {
+  const type = contentTypeId as ContentTypeId | null;
+  const known = type !== null && (CONTENT_TYPE_ID as readonly number[]).includes(type);
+  return known ? text(intro[INTRO_FIELDS[type].contact]) : null;
+}
+
 /** 행사 기간 — 축제 · 공연 소개정보에만 있다 */
 function eventPeriod(intro: Record<string, unknown>): string | null {
   const from = day(intro.eventstartdate);

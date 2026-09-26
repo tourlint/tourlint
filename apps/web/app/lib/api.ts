@@ -542,6 +542,11 @@ export interface PlanPlaceDetail {
   fee: string | null;
   parking: string | null;
   eventPeriod: string | null;
+  /** 소개정보의 문의처 */
+  contact?: string | null;
+  /** 요청한 축만 온다. 못 받았으면 null (EX-PL-004) */
+  accessible?: Record<string, unknown> | null;
+  pet?: Record<string, unknown> | null;
 }
 
 export interface PlanEvent {
@@ -628,8 +633,12 @@ export const planApi = {
       body: JSON.stringify(itemIds ? { itemIds } : {}),
     }),
   // 카드 「자세히」 — 이용시간 · 쉬는 날 · 요금 · 주차 (detailIntro2 실호출 · 캐시 없음)
-  placeDetail: (contentId: string, contentTypeId: number) =>
-    request<PlanPlaceDetail>(`/plan/place-detail?contentId=${encodeURIComponent(contentId)}&contentTypeId=${contentTypeId}`),
+  // 목록에서 무장애 · 반려동물로 표시된 축만 상세를 함께 부른다 (UI-S2-040 · #850)
+  placeDetail: (contentId: string, contentTypeId: number, want: { accessible: boolean; pet: boolean } = { accessible: false, pet: false }) => {
+    const axes = [want.accessible ? "accessible" : "", want.pet ? "pet" : ""].filter((a) => a !== "");
+    const withAxes = axes.length === 0 ? "" : `&with=${axes.join(",")}`;
+    return request<PlanPlaceDetail>(`/plan/place-detail?contentId=${encodeURIComponent(contentId)}&contentTypeId=${contentTypeId}${withAxes}`);
+  },
 };
 
 export const patchApi = {
