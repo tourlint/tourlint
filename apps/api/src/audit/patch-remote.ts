@@ -2,6 +2,7 @@ import { LCLS_SYSTM2, LOCATION_RADIUS_MAX_METERS, type ContentTypeId } from '@to
 import { isSupportedContentTypeId } from '../engine/fingerprint';
 import { addMinutes } from '../engine/itinerary/dwell';
 import { toMinutes } from '../engine/normalize/primitives';
+import { pointOf, straightMeters } from '../engine/geo';
 import type { AuditItem } from '../engine/rules/types';
 import { isKtoError, type KtoClient } from '../external/kto';
 import { patchId, type Patch, type ReplaceContentPayload } from './patch-types';
@@ -50,6 +51,13 @@ export interface ReplacementOptions {
    * 받아 다른 관광 유형만 남긴다.
    */
   readonly avoid?: { readonly axis: 'contentTypeId' | 'lclsSystm3'; readonly key: string };
+  /**
+   * 실내 중분류만 받는다 — R09 ③ 우천 대체 (FR-RU-094 · #880). 실내 관광지는 문화시설(14)이 많아
+   * 유형을 대상과 맞추지 않고 관광 유형(12 · 14 · 28) 안에서 고른다.
+   */
+  readonly indoorLcls2?: ReadonlySet<string>;
+  /** 제시할 후보 수. 기본 `MAX_CANDIDATES` */
+  readonly limit?: number;
 }
 
 /**
@@ -82,7 +90,8 @@ export async function proposeReplacements(
 
   const radius = Math.min(options.radiusMeters ?? LOCATION_RADIUS_MAX_METERS, LOCATION_RADIUS_MAX_METERS);
   const avoid = options.avoid;
-  const anyType = avoid?.axis === 'contentTypeId';
+  const indoor = options.indoorLcls2;
+  const anyType = avoid?.axis === 'contentTypeId' || indoor !== undefined;
   let items: readonly Record<string, unknown>[];
   try {
     const page = await options.kto.locationBasedList({
@@ -101,16 +110,90 @@ export async function proposeReplacements(
   const usable = items
     .filter((raw) => !isConvenienceFacility(raw))
     .filter((raw) => fitsMeal(raw, target))
-    .filter((raw) => avoid === undefined || breaksRepeat(raw, avoid));
+    .filter((raw) => avoid === undefined || breaksRepeat(raw, avoid))
+    .filter((raw) => indoor === undefined || isIndoorSight(raw, indoor));
 
   return rankCandidates(usable, target, options.knownConfidence ?? new Map())
-    .slice(0, MAX_CANDIDATES)
+    .slice(0, options.limit ?? MAX_CANDIDATES)
     .map((c, i) => ({
       patchId: patchId(startIndex + i),
       type: 'REPLACE_CONTENT' as const,
       targetItemId: target.id,
       payload: options.centerItemId === undefined ? c : { ...c, fromItemId: options.centerItemId },
     }));
+}
+
+/** 실내로 분류된 관광 유형(12 · 14 · 28)인가. 중분류를 모르면 실내라고 말할 수 없다 */
+function isIndoorSight(raw: Record<string, unknown>, indoor: ReadonlySet<string>): boolean {
+  const code = typeof raw.lclsSystm2 === 'string' ? raw.lclsSystm2 : '';
+  return SIGHT_TYPES.has(Number(raw.contenttypeid)) && indoor.has(code);
+}
+
+/**
+ * R02 — 여행일에 열리는 **같은 지역 행사**로 교체 (FR-RU-022 ① · #880).
+ *
+ * 상품 지역의 행사를 여행일 기준으로 한 번 조회해(`searchFestival2` — 그날 아직 끝나지 않은 행사가
+ * 온다) 여행일이 기간 안에 드는 것만 남긴다. 가까운 순으로 두 곳. 좌표가 없는 행사는 거리를 말할 수
+ * 없어 뺀다 — 대상의 좌표가 없으면 부르지 않는다(대체 관광지와 같다).
+ * 명칭은 담지 않는다(DR-PR-001). 표시할 때 조회한다.
+ */
+export async function proposeEventReplacements(
+  target: AuditItem,
+  options: {
+    readonly kto: KtoClient;
+    readonly region: { readonly regnCd: string | null; readonly signguCd: string | null };
+    readonly exclude: ReadonlySet<string>;
+    readonly limit?: number;
+  },
+  startIndex = 0,
+): Promise<{ readonly patches: readonly Patch[]; readonly called: boolean }> {
+  const from = pointOf(target);
+  const regnCd = options.region.regnCd;
+  if (from === null || regnCd === null || regnCd === '') return { patches: [], called: false };
+  const visit = target.date.replace(/-/g, '');
+
+  let items: readonly Record<string, unknown>[];
+  try {
+    const page = await options.kto.searchFestival({
+      eventStartDate: visit,
+      lDongRegnCd: regnCd,
+      ...(options.region.signguCd === null || options.region.signguCd === '' ? {} : { lDongSignguCd: options.region.signguCd }),
+      numOfRows: 50,
+    });
+    items = page.items;
+  } catch (e) {
+    if (isKtoError(e)) return { patches: [], called: true };
+    throw e;
+  }
+
+  const rows: ReplaceContentPayload[] = [];
+  for (const raw of items) {
+    const id = String(raw.contentid ?? '');
+    const start = String(raw.eventstartdate ?? '');
+    const end = String(raw.eventenddate ?? '');
+    if (id === '' || options.exclude.has(id) || id === target.content?.ktoContentId) continue;
+    if (!/^\d{8}$/.test(start) || !/^\d{8}$/.test(end) || start > visit || visit > end) continue;
+    const x = toNumber(raw.mapx);
+    const y = toNumber(raw.mapy);
+    if (x === null || y === null) continue;
+    rows.push({
+      ktoContentId: id,
+      contentTypeId: 15,
+      lclsSystm2: typeof raw.lclsSystm2 === 'string' && raw.lclsSystm2 !== '' ? raw.lclsSystm2 : null,
+      mapx: x,
+      mapy: y,
+      distanceMeters: Math.round(straightMeters(from, { x, y })),
+      parseConfidence: null,
+    });
+  }
+
+  const patches = rows
+    .sort((a, b) => a.distanceMeters - b.distanceMeters || a.ktoContentId.localeCompare(b.ktoContentId))
+    .slice(0, options.limit ?? MAX_CANDIDATES)
+    .map((payload, i): Patch => ({
+      patchId: patchId(startIndex + i), type: 'REPLACE_CONTENT', targetItemId: target.id, payload,
+    }));
+  return { patches, called: true };
 }
 
 /** 식사 항목의 대체는 식사가 되는 곳이어야 한다. 중분류를 모르는 후보는 막지 않는다 */

@@ -280,6 +280,9 @@ export interface Patch {
     distanceMeters?: number;
     /** 거리를 잰 기준 일정. 없으면 바꿀 장소 자리에서 잰 것이다 (#728) */
     fromItemId?: number;
+    /** 대체 관광지 — 고르면 그곳의 운영 조건을 부른다 (UI-S3-016 · #880) */
+    ktoContentId?: string;
+    contentTypeId?: number;
   };
 }
 

@@ -28,7 +28,7 @@ import {
   representativePoint, toGrid, type KmaClient,
 } from '../external/kma';
 import { lastRepeated, planInsertion, planNightInsertion, proposeLocalPatches } from './patch-local';
-import { proposeInsertions, proposeReplacements } from './patch-remote';
+import { proposeEventReplacements, proposeInsertions, proposeReplacements } from './patch-remote';
 import { MAX_PATCHES_PER_FINDING, type Patch } from './patch-types';
 import { opensDuring } from './patch-verify';
 import { RULES, RULESET_VERSION, evaluateAll } from './rule-registry';
@@ -114,6 +114,22 @@ export type TargetProfileLookup = (targetKey: string, conceptKey: string) => Tar
  * 파일로 배포되는 통계라 고정 테이블이 정상 구현이다. **테이블이 비어 있으면 `null` 이고
  * 그 날짜는 확인 불가가 된다** — 정보가 없다는 이유로 정상 판정을 하지 않는다 (FR-RU-051).
  */
+/**
+ * R09 우천 대체의 대상 — 판정한 날의 야외 일정 가운데 가장 이른 것. 좌표가 있어야 근처를 찾는다.
+ * 실내 · 야외는 규칙과 같은 표(`r09IndoorOutdoor`)로 가른다 (FR-RU-094 · #880).
+ */
+export function rainyOutdoorTarget(
+  finding: Pick<Finding, 'evidence'>,
+  ctx: Pick<ItineraryContext, 'items' | 'settings'>,
+): AuditItem | null {
+  const date = String(finding.evidence.date ?? '');
+  const outdoor = ctx.items
+    .filter((i) => i.date === date && i.matchStatus === 'CONFIRMED' && i.mapX !== null && i.mapY !== null)
+    .filter((i) => i.lclsSystm2 !== null && ctx.settings.r09IndoorOutdoor[i.lclsSystm2] === 'OUTDOOR')
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.id - b.id);
+  return outdoor[0] ?? null;
+}
+
 /**
  * 대체 관광지를 찾는 판정인가 — R01 · R06-b · R08 이동 부족 · R04 (FR-RU-013③ · 067 · 083③ · 043).
  *
@@ -378,7 +394,9 @@ export class AuditRunner {
 
     // ── 8) 수정안 생성 (판정 이후 별도 단계) ──
     // 공사가 멈추라고 했으면 수정안용 조회(대체 관광지 · 넣을 곳)도 하지 않는다 (#793)
-    const patched = await this.attachPatches([...findings, ...isolated], ctx, fetched, halted !== null);
+    const patched = await this.attachPatches([...findings, ...isolated], ctx, fetched, halted !== null, {
+      regnCd: product.ldongRegnCd ?? null, signguCd: product.ldongSignguCd ?? null,
+    });
     // 예외로 끝난 규칙은 확인 불가로 남긴다 — 0건과 같아 보이면 안 된다 (EX-AU-006 · #774)
     const all = [...patched, ...failedRuleFindings(failedRules)];
 
@@ -535,6 +553,8 @@ export class AuditRunner {
     fetched: ReadonlyMap<string, FetchedContent>,
     /** 공사가 인증 오류 · 한도 초과를 답했다. 공사를 부르는 수정안은 건너뛴다 (#793) */
     ktoHalted = false,
+    /** 상품 지역 — R02 행사 교체가 같은 지역 행사를 찾는다 (FR-RU-022 ① · #880) */
+    region: { readonly regnCd: string | null; readonly signguCd: string | null } = { regnCd: null, signguCd: null },
   ): Promise<readonly Finding[]> {
     const knownConfidence = new Map(
       [...fetched].map(([id, c]) => [id, c.normalized.confidence.overall] as const),
@@ -582,9 +602,9 @@ export class AuditRunner {
       const draft = drafts[index];
       if (draft === undefined || draft.patches.length >= MAX_PATCHES_PER_FINDING) continue;
       const external = await this.externalPatches(
-        draft.finding, ctx, knownConfidence, draft.patches.length, this.maxReplacementCalls - calls,
+        draft.finding, ctx, knownConfidence, draft.patches.length, this.maxReplacementCalls - calls, region,
       );
-      if (external.spent === 0) continue;
+      // 행사 교체(R02)는 위치기반 목록이 아니라 상한에 넣지 않는다 — 그래서 콜 없이 수정안이 올 수 있다
       calls += external.spent;
       draft.patches.push(...external.patches);
     }
@@ -605,7 +625,23 @@ export class AuditRunner {
     startIndex: number,
     /** 이 finding 이 쓸 수 있는 위치기반 조회 수. 상한에서 앞선 finding 들이 쓴 만큼 뺀 값이다 */
     listBudget: number,
+    region: { readonly regnCd: string | null; readonly signguCd: string | null } = { regnCd: null, signguCd: null },
   ): Promise<{ patches: readonly Patch[]; spent: number }> {
+    /*
+     * R02 ① 여행일에 열리는 같은 지역 행사로 교체 (FR-RU-022 · #880). 행사 조회 1콜이고 위치기반
+     * 목록이 아니라 대체 관광지 상한(#602)을 쓰지 않는다 — 쓰면 뒤의 오류 · 확인 불가가 굶는다.
+     */
+    if (finding.ruleCode === 'R02' && (finding.reasonCode === 'EVENT_ENDED' || finding.reasonCode === 'EVENT_NOT_STARTED')) {
+      const event = ctx.items.find((i) => i.id === finding.targetItemId);
+      if (event === undefined) return { patches: [], spent: 0 };
+      const found = await proposeEventReplacements(event, {
+        kto: this.kto, region,
+        exclude: new Set(ctx.items.map((i) => i.content?.ktoContentId ?? '')),
+        limit: Math.min(MAX_PATCHES_PER_FINDING - startIndex, 2),
+      }, startIndex);
+      return { patches: found.patches, spent: 0 };
+    }
+
     /*
      * 대체 관광지는 R01 · R06-b · R08 · R04 가 낸다 (FR-RU-013③ · 067 · 083③ · 043).
      *
@@ -703,6 +739,23 @@ export class AuditRunner {
         if (content === undefined) continue;
         exclude.add(content.ktoContentId);
         if (content.lclsSystm2 !== null) covered.add(content.lclsSystm2);
+      }
+    }
+    /*
+     * R09 ③ 우천 대체 — 그날 야외 일정 하나를 가까운 실내 관광지로 바꾼다 (FR-RU-094 · #880).
+     * ① 실내 추가 다음이다. 위치기반 목록 1콜이라 상한 안에서만.
+     */
+    if (finding.ruleCode === 'R09' && finding.severity === 'WARNING') {
+      const room = MAX_PATCHES_PER_FINDING - startIndex - patches.length;
+      const outdoor = rainyOutdoorTarget(finding, ctx);
+      if (room > 0 && listBudget - spent > 0 && outdoor !== null) {
+        const indoorLcls2 = new Set(Object.entries(ctx.settings.r09IndoorOutdoor)
+          .filter(([, v]) => v === 'INDOOR').map(([k]) => k));
+        const replaced = await proposeReplacements(outdoor, {
+          kto: this.kto, knownConfidence, indoorLcls2, limit: 1,
+        }, startIndex + patches.length);
+        spent += 1;
+        patches.push(...replaced.filter((p) => !exclude.has(String((p.payload as { ktoContentId?: string }).ktoContentId ?? ''))));
       }
     }
     return { patches, spent };

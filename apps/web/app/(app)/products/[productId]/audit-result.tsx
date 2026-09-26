@@ -1089,7 +1089,7 @@ function FindingCard({
                   checked={selectedPatchId === p.patchId}
                   onChange={() => onSelectPatch(finding.findingId, p.patchId)}
                 />
-                <PatchDescription patch={p} product={product} />
+                <PatchDescription patch={p} product={product} selected={selectedPatchId === p.patchId} />
               </label>
             ))}
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-400">
