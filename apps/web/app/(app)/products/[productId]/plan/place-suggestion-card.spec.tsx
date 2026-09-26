@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { matchApi, type PlaceSuggestions, type ProductItem } from "../../../../lib/api";
 import { findForbidden } from "../../../../lib/screen-words";
 import { PlaceSuggestionCard, cardItemIds } from "./place-suggestion-card";
+import { lineLabel } from "./line-label";
 
 const row = (itemId: number, place: string, over: Partial<ProductItem> = {}): ProductItem => ({
   itemId, seq: itemId, start: "09:00", end: "10:00", place, itemType: "SIGHT", ktoContentId: null,
@@ -37,6 +38,39 @@ const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 35
 const buttons = (label: string) => [...host.querySelectorAll("button")].filter((b) => b.textContent === label);
 const render = (s: PlaceSuggestions, items = [beach, station, lunch], onResolved = async () => {}) =>
   act(async () => root.render(<PlaceSuggestionCard suggestions={s} items={items} regnCd="51" signguCd="150" regionLabel="강릉시" onResolved={onResolved} />));
+
+describe("기획 에이전트 카드 — 어느 일정 줄인지 (#887 리뷰 · 가이드 7-2 · 7-3)", () => {
+  // 기획 화면은 일차를 붙여 넘긴다 (withDays)
+  const days = [{ ...beach, day: 2 }, { ...station, day: 3, start: "09:00" }, { ...lunch, day: 3, start: "12:30" }];
+  const rowOf = (text: string) => [...host.querySelectorAll("li")].find((li) => li.textContent?.includes(text))!;
+  const buttonsOf = (li: Element) => [...li.querySelectorAll("button")].map((b) => b.textContent);
+
+  it("🔴 카드 줄마다 일차 · 시각 · 입력한 이름을 적는다 — AI 가 쓴 이유 문장에 기대지 않는다", async () => {
+    await render(suggestions(), days);
+    expect(rowOf("2일차 09:00 · 경포해변").textContent).toContain("경포해수욕장");
+    expect(rowOf("3일차 09:00 · 강릉역").textContent).toContain("찾지 못했어요");
+    expect(rowOf("3일차 12:30 · 점심").textContent).toContain("장소 이름이 없어요");
+  });
+
+  it("🔴 찾지 못한 줄에도 [장소 찾기]가 있다 — [직접 정한 곳으로 두기]와 함께 (UI-S2-044)", async () => {
+    await render(suggestions(), days);
+    expect(buttonsOf(rowOf("3일차 09:00 · 강릉역"))).toEqual(["직접 정한 곳으로 두기", "장소 찾기"]);
+    expect(buttonsOf(rowOf("2일차 09:00 · 경포해변"))).toEqual(["이곳으로 선택", "장소 찾기"]);
+    expect(buttonsOf(rowOf("3일차 12:30 · 점심"))).toEqual(["장소 찾기"]);
+  });
+
+  it("[장소 찾기]로 칸을 연 동안에도 어느 줄인지 남긴다", async () => {
+    await render(suggestions(), days);
+    const find = [...rowOf("강릉역").querySelectorAll("button")].find((b) => b.textContent === "장소 찾기")!;
+    await act(async () => find.click());
+    expect(rowOf("3일차 09:00 · 강릉역").querySelector("input")).not.toBeNull();
+  });
+
+  it("일차를 모르면 시각 · 이름만, 이름이 없으면 「이름 없는 줄」", () => {
+    expect(lineLabel({ start: "09:00", place: "강릉역" })).toBe("09:00 · 강릉역");
+    expect(lineLabel({ day: 1, start: "18:00", place: "  " })).toBe("1일차 18:00 · 이름 없는 줄");
+  });
+});
 
 describe("기획 에이전트 카드 — 편집기 줄에서 숨긴 버튼을 카드에 둔다 (UI-S2-034 · UI-S2-044)", () => {
   it("🔴 찾지 못한 줄은 [직접 정한 곳으로 두기]로 바로 둔다", async () => {

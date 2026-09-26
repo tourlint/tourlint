@@ -5,8 +5,9 @@
 // 찾기를 부르므로(UI-S2-023) 결과는 기획 화면이 들고 있다 — `usePlaceFinder`.
 
 import { useCallback, useState } from "react";
-import { agentApi, isApiError, type PlaceSuggestions, type ProductItem } from "../../../../lib/api";
+import { agentApi, isApiError, type PlaceSuggestions } from "../../../../lib/api";
 import { PlaceSuggestionCard } from "./place-suggestion-card";
+import type { LineItem } from "./line-label";
 
 /** AI 로 찾지 못했을 때 보일 말. `unavailable` 이면 「지금은 AI로 정리할 수 없어요」 를 머리에 둔다 */
 export interface FinderFailure {
@@ -61,7 +62,8 @@ export function PendingBar({
 }: {
   pendingCount: number;
   finder: PlaceFinder;
-  items?: ProductItem[];
+  /** 일정 줄 — 일차가 붙어 있으면 카드 줄마다 「1일차 09:00 · 강릉역」 으로 적는다 */
+  items?: readonly LineItem[];
   regnCd?: string;
   signguCd?: string | null;
   regionLabel?: string;

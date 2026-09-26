@@ -14,6 +14,7 @@ import { DaySummary } from "./day-summary";
 import { PendingBar, usePlaceFinder } from "./pending-bar";
 import { StartAuditSheet } from "./start-audit-sheet";
 import { cardItemIds } from "./place-suggestion-card";
+import { withDays } from "./line-label";
 import { PlacePicker } from "./place-picker";
 import { hhmm, savedLabel } from "../../../../lib/save-status";
 import { dwellDefaultOf } from "../../../../lib/dwell-preview";
@@ -91,13 +92,14 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
   if (product === null) return <p className="mt-8 text-sm text-slate-400">불러오는 중…</p>;
 
   const regionLabel = [product.region.regnName, product.region.signguName].filter(Boolean).join(" ") || "이 지역";
-  const allItems = product.days.flatMap((d) => d.items);
+  // 일차를 붙여 둔다 — 검수 시작 창과 AI 카드가 「1일차 09:00 · 강릉역」 으로 줄을 가리킨다
+  const allItems = withDays(product.days);
   const pending = allItems.filter((it) => it.matchStatus === "PENDING").length;
   const empty = allItems.length === 0;
   // 검수 시작 창에 적는 고르지 않은 줄 (UI-S2-023)
-  const pendingLines = product.days.flatMap((d) => d.items
+  const pendingLines = allItems
     .filter((it) => it.matchStatus === "PENDING")
-    .map((it) => ({ itemId: it.itemId, day: d.day, start: it.start, place: it.place })));
+    .map((it) => ({ itemId: it.itemId, day: it.day, start: it.start, place: it.place }));
   // 에이전트 카드가 다루는 줄 — 그 줄의 [장소 찾기] · [직접 정한 곳으로 두기]를 숨긴다 (UI-S2-034)
   const inCard = cardItemIds(finder.suggestions, allItems);
 

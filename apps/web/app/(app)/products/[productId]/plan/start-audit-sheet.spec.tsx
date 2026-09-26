@@ -68,8 +68,9 @@ describe("검수 시작 창 — 고르지 않은 곳 (UI-S2-023 · UI-S2-042 · 
   it("🔴 고르지 않은 곳이 남았으면 그 목록과 세 버튼을 준다", async () => {
     await act(async () => root.render(<StartAuditSheet productId={70} pendingCount={2} pendingItems={lines} onFindAll={() => {}} />));
     await click("검수 시작 →");
-    expect(host.textContent).toContain("2일차 · 09:00 · 경포해변");
-    expect(host.textContent).toContain("3일차 · 09:00 · 이름 없는 줄");
+    // AI 카드 줄과 같은 말로 가리킨다
+    expect(host.textContent).toContain("2일차 09:00 · 경포해변");
+    expect(host.textContent).toContain("3일차 09:00 · 이름 없는 줄");
     expect(labels()).toEqual(expect.arrayContaining(["돌아가기", "AI로 한 번에 찾기", "이대로 검수 시작"]));
     // 기획 화면에는 판정 말을 두지 않는다 (FR-PL-021)
     expect(findForbidden(host.innerHTML, true)).toEqual([]);

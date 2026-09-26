@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { isApiError, productApi } from "../../../../lib/api";
 import { AuditBudgetNotice, budgetBlockedText, useAuditAvailability } from "../../../../lib/audit-availability";
+import { lineLabel } from "./line-label";
 
 /** 창에 적는 고르지 않은 줄 — 일차 · 시각 · 이름 */
 export interface PendingLine {
@@ -90,9 +91,8 @@ export function StartAuditSheet({
                 {pendingItems.length > 0 && (
                   <ul aria-label="아직 고르지 않은 곳" className="mt-2 max-h-40 space-y-0.5 overflow-y-auto text-xs">
                     {pendingItems.map((p) => (
-                      <li key={p.itemId}>
-                        {p.day}일차 · {p.start} · {p.place.trim() || "이름 없는 줄"}
-                      </li>
+                      // AI 카드 줄과 같은 말로 가리킨다 — 「1일차 09:00 · 강릉역」
+                      <li key={p.itemId}>{lineLabel(p)}</li>
                     ))}
                   </ul>
                 )}

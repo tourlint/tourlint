@@ -3,11 +3,12 @@
 // 기획 에이전트 카드 (FR-AG-010~012 · UI-S2-044~046). 아직 고르지 않은 줄의 장소를 한 번에
 // 찾아 준 결과를 보여 준다. 판정하지 않는다 — 고르는 것은 사람이 [이곳으로 선택]을 누른다.
 // 카드가 다루는 줄은 편집기 줄의 [장소 찾기] · [직접 정한 곳으로 두기]를 숨기므로(UI-S2-034)
-// 같은 동작을 카드 버튼으로 모두 둔다.
+// 같은 동작을 카드 버튼으로 모두 두고, 줄마다 어느 일정 줄인지(「1일차 09:00 · 강릉역」) 적는다.
 
 import { useEffect, useRef, useState } from "react";
 import { isApiError, matchApi, type PlaceSuggestions, type ProductItem } from "../../../../lib/api";
 import { PlaceAutocomplete } from "./place-autocomplete";
+import { lineLabel, type LineItem } from "./line-label";
 
 /** 끝나지 않은 까닭을 사람 말로 (FR-AG-005 · EX-AG-001). 내부 코드는 적지 않는다 */
 export function unfinishedReason(reasonCode: string): string {
@@ -35,7 +36,8 @@ export function PlaceSuggestionCard({
   onResolved,
 }: {
   suggestions: PlaceSuggestions;
-  items?: ProductItem[];
+  /** 일정 줄. `day` 가 있으면 카드 줄 머리에 일차까지 적는다 */
+  items?: readonly LineItem[];
   regnCd?: string;
   signguCd?: string | null;
   regionLabel?: string;
@@ -45,7 +47,7 @@ export function PlaceSuggestionCard({
   const [err, setErr] = useState<string | null>(null);
   // [장소 찾기]로 연 줄 — 그 줄 칸에서 직접 찾는다. 목록 밖을 누르면 카드로 돌아온다 (UI-CM-042)
   const [searchItemId, setSearchItemId] = useState<number | null>(null);
-  const itemOf = (itemId: number): ProductItem | undefined => items.find((it) => it.itemId === itemId);
+  const itemOf = (itemId: number): LineItem | undefined => items.find((it) => it.itemId === itemId);
 
   // 고른 줄(고른 곳 · 직접 정한 곳)은 카드에서 뺀다. 응답 시점의 목록을 그대로 두면 위 안내가 「1곳」 인데
   // 카드는 「2곳은 못 찾았어요」 로 남는다 (#763). 항목 목록이 없으면(목록 밖) 응답 그대로 그린다.
@@ -155,6 +157,10 @@ export function PlaceSuggestionCard({
             const item = itemOf(s.itemId);
             return (
               <li key={s.itemId} className="rounded-lg border border-slate-200 bg-white p-2.5 text-sm dark:border-slate-800 dark:bg-slate-900">
+                {/* 어느 일정 줄인지 — 카드가 떠 있으면 편집기 줄은 「아직 고르지 않음」 만 남는다 */}
+                {item !== undefined && (
+                  <p className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">{lineLabel(item)}</p>
+                )}
                 {searchItemId === s.itemId && item !== undefined ? (
                   // 그 줄 칸에서 직접 찾는다. 글자를 전체 선택한 채 연다. 밖을 누르면 카드로 돌아온다 (UI-S2-045)
                   <InlineSearch onClose={() => setSearchItemId(null)}>

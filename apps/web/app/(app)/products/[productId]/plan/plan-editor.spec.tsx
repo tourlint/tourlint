@@ -105,10 +105,13 @@ describe("고르지 않은 줄 (UI-S2-034 · UI-S2-023)", () => {
     });
     await open([beach, station]);
     await click("검수 시작 →");
-    expect(host.textContent).toContain("1일차 · 10:00 · 경포해변");
+    expect(host.textContent).toContain("1일차 10:00 · 경포해변");
     await click("AI로 한 번에 찾기");
     expect(suggest).toHaveBeenCalledWith(70);
     expect(host.textContent).not.toContain("검수를 시작할까요?");
     expect(host.textContent).toContain("1곳은 못 찾았어요");
+    // 카드 줄이 어느 일정 줄인지 — 편집기 줄은 「아직 고르지 않음」 만 남는다 (가이드 7-2)
+    const cardRow = [...host.querySelectorAll("li")].find((li) => !li.classList.contains("plan-timeline-item") && li.textContent?.includes("찾지 못했어요"));
+    expect(cardRow?.textContent).toContain("1일차 10:00 · 경포해변");
   });
 });
