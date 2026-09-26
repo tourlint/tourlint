@@ -46,15 +46,20 @@ export function describePatch(patch: Patch, product: Pick<ProductDetail, "days">
       return {
         action: p.newDayNo !== undefined ? "방문 일차·시간 변경" : "방문 시간 변경",
         changes: [{ ...base, before: current(target), after: when(p.newDayNo ?? target?.day, p.newStartTime ?? target?.start, p.newEndTime ?? target?.end) }],
-        note: target ? undefined : "대상 일정을 확인한 뒤 미리보기에서 변경 내용을 확인해 주세요.",
+        // 이동시간을 몰라 겹침만 푼 안이다 — 반영 뒤 재검수가 이동을 다시 본다 (FR-RU-033 · #877)
+        note: !target
+          ? "대상 일정을 확인한 뒤 미리보기에서 변경 내용을 확인해 주세요."
+          : p.travelUnchecked ? "이동시간을 확인하지 못해 겹침만 풀었어요. 반영 후 다시 검수해 확인해요." : undefined,
       };
     case "REORDER": {
       const other = items.find(it => it.itemId === p.swapWithItemId);
+      // 다른 날 일정과 맞바꾸면 일차도 바뀐다 — R01 휴무 충돌의 순서 교체 (FR-RU-013 ② · #877)
+      const crossDay = target !== undefined && other !== undefined && target.day !== other.day;
       return {
-        action: "두 장소의 방문 순서·시간 교환",
+        action: crossDay ? "두 장소의 방문 일차·시간 교환" : "두 장소의 방문 순서·시간 교환",
         changes: [
-          { ...base, before: current(target), after: other ? when(target?.day, other.start, other.end) : "상대 일정 확인 불가" },
-          { ...identity(other, p.swapWithItemId ?? patch.targetItemId), before: current(other), after: target ? when(other?.day, target.start, target.end) : "상대 일정 확인 불가" },
+          { ...base, before: current(target), after: other ? when(other.day, other.start, other.end) : "상대 일정 확인 불가" },
+          { ...identity(other, p.swapWithItemId ?? patch.targetItemId), before: current(other), after: target ? when(target.day, target.start, target.end) : "상대 일정 확인 불가" },
         ],
       };
     }
