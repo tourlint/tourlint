@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { Field, TextInput } from "../products/new/controls";
 import { isApiError, settingsApi, type CompanyView, type SettingsView, type StandardView } from "../../lib/api";
-import { hasCompanyErrors, validateCompanyDraft } from "./company-settings";
+import { hasCompanyErrors, strictnessLabel, validateCompanyDraft } from "./company-settings";
 
 const FIELD_LABEL: Record<CompanyView["history"][number]["field"], string> = {
   r07SpanHours: "연속 일정 기준 시간",
@@ -71,6 +71,7 @@ export function CompanyForm({
           {fieldErrors.r07SpanHours && (
             <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{fieldErrors.r07SpanHours}</p>
           )}
+          <StrictnessTag label={strictnessLabel(spanHours, standard.r07SpanHours, fieldErrors.r07SpanHours)} />
         </Field>
 
         <Field label="최소 식사 시간" hint={`표준 ${standard.r07MealMinutes}분`}>
@@ -89,8 +90,14 @@ export function CompanyForm({
           {fieldErrors.r07MealMinutes && (
             <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{fieldErrors.r07MealMinutes}</p>
           )}
+          <StrictnessTag label={strictnessLabel(mealMinutes, standard.r07MealMinutes, fieldErrors.r07MealMinutes)} />
         </Field>
       </div>
+
+      {/* 느슨하게 보는 길은 건별 무시뿐이다 (UI-S8-006 · FR-OP-022 · 기능설명서 차별성 5) */}
+      <p className="mt-3 text-xs text-slate-500 dark:text-slate-400" data-loosen-guide>
+        표준보다 느슨하게는 정할 수 없어요. 어떤 상품에서 기준을 느슨하게 봐야 하면 그 상품의 검수 결과에서 해당 항목에 사유를 달아 무시해 주세요. 차단은 무시할 수 없어요.
+      </p>
 
       <div className="mt-3 flex items-center justify-end gap-3">
         {serverError && <span className="mr-auto text-sm text-rose-600 dark:text-rose-400">{serverError}</span>}
@@ -125,4 +132,14 @@ export function CompanyForm({
 
 function formatStamp(iso: string): string {
   return iso.replace("T", " ").slice(0, 16);
+}
+
+/** 칸 아래 「표준과 같음 / 표준보다 엄격」 (UI-S8-006) */
+function StrictnessTag({ label }: { label: string | null }) {
+  if (label === null) return null;
+  return (
+    <span className={`mt-1 block text-xs font-medium ${label === "표준보다 엄격" ? "text-indigo-600 dark:text-indigo-300" : "text-slate-500 dark:text-slate-400"}`} data-strictness>
+      {label}
+    </span>
+  );
 }
