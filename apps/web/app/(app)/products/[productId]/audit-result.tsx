@@ -44,7 +44,7 @@ import { ScheduleComparison } from "./schedule-compare";
 import { placeAction, reviewPlaceContext } from "./review-place-context";
 import type { PickerContext } from "./plan/place-picker";
 import { CurrentSchedule, hiddenItemIdsOf } from "./current-schedule";
-import { PatchDescription } from "./patch-description";
+import { PatchDescription, describePatch } from "./patch-description";
 import { CheckQuestionsCard } from "./check-questions-card";
 import { AuditBudgetNotice, useAuditAvailability } from "../../../lib/audit-availability";
 
@@ -250,21 +250,37 @@ export function AuditResult({ productId }: { productId: number }) {
     });
   }
 
-  function selections(): PatchSelection[] {
-    return Object.entries(selected).map(([findingId, patchId]) => ({ findingId: Number(findingId), patchId }));
+  function selections(from: Record<number, string> = selected): PatchSelection[] {
+    return Object.entries(from).map(([findingId, patchId]) => ({ findingId: Number(findingId), patchId }));
   }
 
-  async function doPreview() {
+  async function doPreview(from: Record<number, string> = selected) {
     setPatchBusy("preview");
     setPatchMsg(null);
     try {
-      const p = await patchApi.preview(productId, selections());
+      const p = await patchApi.preview(productId, selections(from));
       if (alive.current) setPreview(p);
     } catch (err) {
       setPatchMsg(isApiError(err) ? err.message : "미리보기에 실패했습니다.");
     } finally {
       if (alive.current) setPatchBusy(null);
     }
+  }
+
+  /**
+   * 미리보기에서 수정안 하나를 뺀다 (UI-S4-003). 남은 선택으로 다시 미리보고, 남은 것이 없으면
+   * 미리보기를 닫는다. 충돌을 시스템이 풀지 않는다 — 무엇을 뺄지는 사람이 누른다 (FR-PA-006)
+   */
+  async function releasePatch(findingId: number) {
+    const next = { ...selected };
+    delete next[findingId];
+    setSelected(next);
+    setPatchMsg(null);
+    if (Object.keys(next).length === 0) {
+      setPreview(null);
+      return;
+    }
+    await doPreview(next);
   }
 
   async function doApply() {
@@ -427,8 +443,9 @@ export function AuditResult({ productId }: { productId: number }) {
           {running && <p role="status" className="audit-progress">{progress ?? "최신 정보로 다시 검수하고 있습니다…"}</p>}
           {preview && (
             <div ref={previewRegion} tabIndex={-1} className="audit-anchor" aria-label="수정안 미리보기">
-              <PatchPreviewPanel preview={preview} applying={patchBusy === "apply"} progress={progress}
+              <PatchPreviewPanel preview={preview} applying={patchBusy === "apply"} refreshing={patchBusy === "preview"} progress={progress}
                 budgetBlocked={budget.blocked} resumesAt={budget.resumesAt}
+                chosen={chosenPatches(selected, data.findings, product)} onRelease={(findingId) => void releasePatch(findingId)}
                 onApply={doApply} onClose={() => setPreview(null)} />
             </div>
           )}
@@ -474,7 +491,7 @@ export function AuditResult({ productId }: { productId: number }) {
           busy={patchBusy}
           message={patchMsg}
           hasPreview={preview !== null}
-          onPreview={doPreview}
+          onPreview={() => void doPreview()}
           onClear={() => resetPatchState()}
         />
       )}
@@ -1137,25 +1154,77 @@ function PatchBar({
   );
 }
 
+/** 고른 수정안 한 줄 (UI-S4-003) */
+export interface ChosenPatch {
+  findingId: number;
+  patchId: string;
+  /** 규칙 이름 */
+  rule: string;
+  /** 수정안 설명 — 「방문 시간 변경 · 강릉 오죽헌·시립박물관 → 1일차 · 12:00 – 13:30」 */
+  text: string;
+  /** 충돌 쌍을 지목할 때 쓰는 짧은 이름 — 「일정 시간 겹침: 방문 시간 변경(강릉 오죽헌·시립박물관)」 */
+  short: string;
+}
+
+/**
+ * 고른 수정안을 규칙 이름 · 수정안 설명으로 (UI-S4-003 · 005). 설명은 카드의 선택지와 같은
+ * `describePatch` 를 쓴다 — 같은 수정안을 두 자리에서 다르게 부르지 않는다.
+ */
+export function chosenPatches(
+  selected: Record<number, string>,
+  findings: readonly Finding[],
+  product: Pick<ProductDetail, "days"> | null,
+): ChosenPatch[] {
+  return Object.entries(selected).map(([id, patchId]) => {
+    const findingId = Number(id);
+    const finding = findings.find((f) => f.findingId === findingId);
+    const patch = finding?.patches.find((p) => p.patchId === patchId);
+    if (finding === undefined || patch === undefined) {
+      return { findingId, patchId, rule: "수정안", text: "고른 수정안", short: "고른 수정안" };
+    }
+    const d = describePatch(patch, product);
+    const [first, second] = d.changes;
+    const detail = first === undefined ? ""
+      : patch.type === "REORDER" && second !== undefined ? `${first.place} ↔ ${second.place}`
+        : patch.type === "REMOVE_ITEM" ? first.place
+          : `${first.place} → ${first.after}`;
+    const rule = ruleName(finding.ruleCode);
+    return {
+      findingId, patchId, rule,
+      text: detail === "" ? d.action : `${d.action} · ${detail}`,
+      short: `${rule}: ${d.action}${first === undefined ? "" : `(${first.place})`}`,
+    };
+  });
+}
+
 function PatchPreviewPanel({
   preview,
   applying,
+  refreshing,
   progress,
   budgetBlocked,
   resumesAt,
+  chosen,
+  onRelease,
   onApply,
   onClose,
 }: {
   preview: PatchPreview;
   applying: boolean;
+  /** 하나를 빼고 다시 미리보는 중 — 옛 미리보기로 확정하지 않는다 */
+  refreshing: boolean;
   progress: string | null;
   /** 확정하면 재검수가 돈다 — 예산이 다 되면 막는다 (#838) */
   budgetBlocked: boolean;
   resumesAt: string | null;
+  chosen: ChosenPatch[];
+  onRelease: (findingId: number) => void;
   onApply: () => void;
   onClose: () => void;
 }) {
   const blocked = preview.conflict.hasConflict;
+  const nameOf = (ref: { findingId: number; patchId: string }) =>
+    chosen.find((c) => c.findingId === ref.findingId && c.patchId === ref.patchId)?.short ?? "고른 수정안";
   return (
     <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-6 dark:border-indigo-900 dark:bg-indigo-950/20">
       <div className="flex items-center justify-between">
@@ -1165,15 +1234,37 @@ function PatchPreviewPanel({
         </button>
       </div>
 
-      {blocked && (
-        <div className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
+      {/* 무엇을 골랐는지와 줄마다 해제 — 남은 선택으로 다시 미리본다 (UI-S4-003) */}
+      <div className="mt-3 rounded-lg border border-indigo-100 bg-white/70 px-4 py-3 dark:border-indigo-900 dark:bg-slate-900/40" data-chosen-patches>
+        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">고른 수정안 {chosen.length}개</p>
+        <ul className="mt-2 space-y-2">
+          {chosen.map((c) => (
+            <li key={c.findingId} className="flex items-start justify-between gap-3 text-sm text-slate-700 dark:text-slate-200">
+              <span className="min-w-0"><strong className="mr-2 font-semibold text-slate-900 dark:text-slate-50">{c.rule}</strong>{c.text}</span>
+              <button type="button" onClick={() => onRelease(c.findingId)} disabled={applying || refreshing}
+                className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+                해제
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* 충돌 검사 결과는 늘 적는다 — 있으면 어느 두 수정안인지, 없으면 「충돌 없음」 (UI-S4-004 · 005 · FR-PA-006 · 007) */}
+      {blocked ? (
+        <div className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" data-conflict>
           <p className="font-medium">선택한 수정안 사이에 충돌이 있습니다. 하나를 해제해 주세요.</p>
-          <ul className="mt-1 list-disc pl-5">
+          <ul className="mt-1 list-disc space-y-1 pl-5">
             {preview.conflict.pairs.map((c, i) => (
-              <li key={i}>{c.message}</li>
+              <li key={i}>
+                <span className="font-medium">{nameOf(c.a)} ↔ {nameOf(c.b)}</span>
+                <span className="block text-xs">{c.message}</span>
+              </li>
             ))}
           </ul>
         </div>
+      ) : (
+        <p role="status" className="mt-3 text-sm text-emerald-700 dark:text-emerald-300" data-conflict-free>수정안 간 충돌 검사: 충돌 없음</p>
       )}
 
       <ScheduleComparison
@@ -1196,7 +1287,7 @@ function PatchPreviewPanel({
         <button
           type="button"
           onClick={onApply}
-          disabled={blocked || applying || budgetBlocked}
+          disabled={blocked || applying || refreshing || budgetBlocked}
           className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60"
         >
           {applying ? "확정 중…" : "확정하고 재검수"}
