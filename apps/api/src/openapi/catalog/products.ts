@@ -203,6 +203,8 @@ export const PRODUCTS: readonly Endpoint[] = [
                   matchStatus: 'CONFIRMED',
                   mapx: 128.89648397,
                   mapy: 37.79551368,
+                  lcls2: 'HS01',
+                  endTimeSource: 'INPUT',
                 },
                 {
                   itemId: 338,
@@ -215,6 +217,8 @@ export const PRODUCTS: readonly Endpoint[] = [
                   matchStatus: 'CONFIRMED',
                   mapx: 128.8796621,
                   mapy: 37.77913887,
+                  lcls2: 'VE07',
+                  endTimeSource: 'INPUT',
                 },
               ],
             },

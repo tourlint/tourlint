@@ -15,6 +15,8 @@ import { PendingBar } from "./pending-bar";
 import { StartAuditSheet } from "./start-audit-sheet";
 import { PlacePicker } from "./place-picker";
 import { hhmm, savedLabel } from "../../../../lib/save-status";
+import { dwellDefaultOf } from "../../../../lib/dwell-preview";
+import { StatusBadge } from "../../../../components/badges";
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   SIGHT: "관광", MEAL: "식사", LODGING: "숙박", REST: "휴식", MOVE: "이동", FREE: "자유",
@@ -202,6 +204,9 @@ function ItemRow({
 }) {
   // 숙박은 끝 시간이 없다. 그 밖에 끝 시간을 비운 항목은 검수가 보통 머무는 시간으로 채운다.
   const endHint = item.matchStatus !== "EXCLUDED" && item.end === null && item.itemType !== "LODGING";
+  // 끝 시각이 기본 체류시간에서 오는 줄 — 채워질 시각(회색)과 「기본값 적용 · N분」 (FR-IN-011 · UI-S2-009 · 032).
+  // 고르는 중인 줄은 분류가 아직 없어 시각을 짓지 않는다. 직접 정한 곳은 이용시간 안내만 적는다 (UI-S2-035)
+  const dwell = item.matchStatus === "EXCLUDED" ? null : dwellDefaultOf(item);
   // 고른 뒤에도 그 줄 안에서 다시 찾는다 (FR-IN-029 · #802)
   const [reselecting, setReselecting] = useState(false);
   const canReselect = item.matchStatus === "CONFIRMED";
@@ -220,7 +225,13 @@ function ItemRow({
       <header className="plan-stop-header">
         <span className="plan-stop-number" aria-label={`${position}번째 장소`}>{String(position).padStart(2, "0")}</span>
         <div className="plan-stop-heading">
-          <p className="plan-stop-time">{item.start}{item.end !== null ? ` – ${item.end}` : ""}<span>{ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}</span></p>
+          <p className="plan-stop-time">
+            <time>
+              {item.start}
+              {item.end !== null ? ` – ${item.end}` : dwell?.preview ? <> – <span className="plan-stop-end-preview">{dwell.end}</span></> : ""}
+            </time>
+            <span>{ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}</span>
+          </p>
           <h3>{item.place || "장소를 골라 주세요"}</h3>
         </div>
         <StatusTag status={item.matchStatus} />
@@ -229,7 +240,12 @@ function ItemRow({
       {item.matchStatus === "EXCLUDED" && (
         <p className="mt-1 text-xs text-slate-400">이용시간 정보는 표시되지 않아요.</p>
       )}
-      {endHint && <p className="mt-1 text-xs text-slate-400">끝 시간을 비우면 보통 머무는 시간으로 채워요.</p>}
+      {(endHint || dwell !== null) && (
+        <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          {dwell !== null && <StatusBadge status="DEFAULT_APPLIED" detail={`${dwell.minutes}분`} />}
+          {endHint && "끝 시간을 비우면 보통 머무는 시간으로 채워요."}
+        </p>
+      )}
       {item.matchStatus === "PENDING" && (
         <PlaceAutocomplete item={item} regnCd={regnCd} signguCd={signguCd} regionLabel={regionLabel} onResolved={onResolved} />
       )}

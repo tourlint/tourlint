@@ -1,14 +1,35 @@
 "use client";
 
 // 일정 입력 (UI-S2-007·008). 일차별 섹션 · 항목별 시작/종료/장소명/유형 · 추가·삭제·순서변경.
-// 유형은 lcls-codes(관광정보 분류)로 채운다. 종료시간을 비우면 저장 시 중분류별 기본
-// 체류시간이 보완되고 `기본값 적용` 배지가 붙는다 (FR-IN-011) — 보완은 뒷단 몫이라 후속.
+// 유형은 lcls-codes(관광정보 분류)로 채운다. 종료시간을 비우면 검수가 중분류별 기본 체류시간으로
+// 채운다 (FR-IN-011). 분류를 아는 줄은 채워질 시각과 「기본값 적용 · N분」 을 미리 보인다 (UI-S2-009).
 
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Section, SelectInput, TextInput } from "./controls";
 import { SchedulePlaceInput, type PlaceInputHandle } from "./schedule-place-input";
 import { canAnchor } from "./schedule-place-search";
 import { ITEM_TYPE_OPTIONS, dayCount, type ItemType, type Nights, type Schedule, type ScheduleItem } from "./types";
+import { dwellDefault, type DwellDefault } from "../../../lib/dwell-preview";
+import { StatusBadge } from "../../../components/badges";
+
+/**
+ * 그 줄의 끝 시각이 기본 체류시간에서 오는가 (FR-IN-011 · UI-S2-009). 분류는 불러온 줄이면 저장된
+ * 분류(고르는 중이면 모름), 이 화면에서 고른 줄이면 고른 곳의 분류다. 모르면 시각을 짓지 않는다.
+ */
+export function dwellOfRow(it: ScheduleItem): DwellDefault | null {
+  const lcls2 = it.saved !== undefined
+    ? (it.saved.matchStatus === "PENDING" ? undefined : it.saved.lcls2)
+    : it.content ? (it.content.lcls2 ?? null) : undefined;
+  return dwellDefault({
+    start: it.start,
+    end: it.end === "" ? null : it.end,
+    itemType: it.itemType,
+    lcls2,
+    // 불러온 끝 시각이 체류시간으로 채운 값이고 아직 손대지 않았다
+    endFromDwell: it.saved !== undefined && it.saved.endTimeSource !== undefined
+      && it.saved.endTimeSource !== "INPUT" && it.end === it.saved.end,
+  });
+}
 
 export function ScheduleEditor({
   nights,
@@ -105,7 +126,9 @@ export function ScheduleEditor({
             {activeIdx + 1}일차 일정이 비어 있습니다. 항목을 추가하세요.
           </p>
         )}
-        {items.map((it, index) => (
+        {items.map((it, index) => {
+          const dwell = dwellOfRow(it);
+          return (
           <div
             key={it.id}
             className={`flex flex-wrap items-end gap-2 rounded-lg border p-3 ${
@@ -208,8 +231,15 @@ export function ScheduleEditor({
                 삭제
               </button>
             </div>
+            {dwell !== null && (
+              <p className="flex basis-full flex-wrap items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
+                {dwell.preview && <span>끝 시간을 비우면 {dwell.end}까지로 채워요</span>}
+                <StatusBadge status="DEFAULT_APPLIED" detail={`${dwell.minutes}분`} />
+              </p>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <button

@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Severity, type Transport, kstIso } from '@tourlint/shared';
+import { SETTING_DEFAULTS, type EndTimeSource, type ItemType, type MatchStatus, type Severity, type Transport, kstIso } from '@tourlint/shared';
 import { calculateReadiness, type ScorableFinding, type ScoreResult } from '../engine/score';
 import { CURRENT_RUN_LATERAL, currentRunOf, toCurrentRun, type CurrentRun } from '../persistence/current-run';
 import { withTransaction } from '../persistence/db';
@@ -84,6 +84,12 @@ export interface ItemDetail {
   readonly mapy: number | null;
   /** 걷기 길 식별자 (D9). 이름은 표시할 때 두루누비에서 찾는다 */
   readonly walkId: string | null;
+  /**
+   * 중분류 · 끝 시각 출처 (FR-IN-011). 화면이 끝 시간을 비운 줄에 채워질 시각을, 기본 체류시간으로
+   * 채운 줄에 「기본값 적용 · N분」 을 엔진과 같은 표로 보인다 — 판정에는 쓰지 않는다
+   */
+  readonly lcls2: string | null;
+  readonly endTimeSource: EndTimeSource;
 }
 
 export interface CreatedProduct {
@@ -249,7 +255,8 @@ export class ProductRepository {
     if (row === undefined) return null;
 
     const items = await this.pool.query<ItemRaw>(
-      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy, walk_id
+      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy, walk_id,
+              lcls_systm2, end_time_source
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -554,7 +561,8 @@ export class ProductRepository {
            (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
             match_status, origin, kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy)
          VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, 'CONFIRMED', $8, $9, $10, $11, $12, $13, $14, $15)
-         RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin`,
+         RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin,
+                   lcls_systm2, end_time_source`,
         [
           productId, picked.dayNo, seq, placement.start, placement.end,
           placement.end === null ? 'INPUT' : 'DWELL_DEFAULT', picked.itemType, picked.origin,
@@ -596,7 +604,8 @@ export class ProductRepository {
        VALUES ($1, $2,
                (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
                $3, $4, 'DWELL_DEFAULT', NULL, $5, 'EXCLUDED', $6, $7)
-       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin`,
+       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin,
+                   lcls_systm2, end_time_source`,
       [productId, walk.dayNo, start, end, walk.itemType, walk.origin, walk.walkId],
     );
     const row = rows[0];
@@ -611,7 +620,8 @@ export class ProductRepository {
        VALUES ($1, $2,
                (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
                $3, $4, $5, $6, $7, 'PENDING', $8)
-       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status`,
+       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status,
+                 lcls_systm2, end_time_source`,
       [productId, item.dayNo, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType, item.origin],
     );
     const row = rows[0];
@@ -640,7 +650,8 @@ export class ProductRepository {
       `UPDATE itinerary_item i SET ${sets.join(', ')}, updated_at = now()
          FROM product p
         WHERE i.id = $${params.length - 1} AND i.product_id = p.id AND p.account_id = $${params.length}
-       RETURNING i.id, i.day_no, i.seq, i.start_time, i.end_time, i.place_label, i.item_type, i.kto_content_id, i.match_status`,
+       RETURNING i.id, i.day_no, i.seq, i.start_time, i.end_time, i.place_label, i.item_type, i.kto_content_id, i.match_status,
+                 i.lcls_systm2, i.end_time_source`,
       params,
     );
     const row = rows[0];
@@ -851,6 +862,8 @@ interface ItemRaw {
   mapx?: number | string | null;
   mapy?: number | string | null;
   walk_id?: string | null;
+  lcls_systm2?: string | null;
+  end_time_source?: EndTimeSource;
 }
 
 function toItemDetail(r: ItemRaw): ItemDetail {
@@ -867,5 +880,7 @@ function toItemDetail(r: ItemRaw): ItemDetail {
     mapx: r.mapx == null ? null : Number(r.mapx),
     mapy: r.mapy == null ? null : Number(r.mapy),
     walkId: r.walk_id ?? null,
+    lcls2: r.lcls_systm2 ?? null,
+    endTimeSource: r.end_time_source ?? 'INPUT',
   };
 }

@@ -388,6 +388,7 @@ function toSchedule(d: ProductDetail): Schedule {
       end: it.end ?? "",
       place: it.place,
       itemType: it.itemType as ItemType,
+      saved: { end: it.end ?? "", endTimeSource: it.endTimeSource, lcls2: it.lcls2, matchStatus: it.matchStatus },
     }));
   }
   return days;
