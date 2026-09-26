@@ -1,5 +1,6 @@
 import {
-  CLIMATE_NORMAL_PERIOD, CLIMATE_SOURCE_NOTE, findingMessage, SETTING_DEFAULTS, STANDARD_VERSION, type Severity, kstIso,
+  CLIMATE_NORMAL_PERIOD, CLIMATE_SOURCE_NOTE, findingMessage, SETTING_DEFAULTS, STANDARD_VERSION, STARTED_BY_LABEL,
+  type Severity, kstIso,
 } from '@tourlint/shared';
 import type { ContentView } from '../external/kto';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
@@ -270,14 +271,6 @@ export function describeAppliedBasis(run: StoredAuditRun, dismissedCount: number
   }
   return basis;
 }
-
-const STARTED_BY_LABEL: Readonly<Record<string, string>> = {
-  MANUAL: '직접 입력으로 시작',
-  UPLOAD: '엑셀로 시작',
-  TEXT: '메모 붙여넣기로 시작',
-  CLONE: '복제로 시작',
-  SIGNAL: '레이더 소식으로 시작',
-};
 
 const ORIGIN_LABEL: readonly (readonly [string, string])[] = [
   ['MANUAL', '직접 입력'], ['UPLOAD', '엑셀'], ['TEXT', '메모'], ['PICKER', '장소 담기'],

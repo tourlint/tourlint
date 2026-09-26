@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import type { ImpactCandidate, MatchCondition, NotificationKind } from '../batch/impact-finder';
+import type { Severity, Transport } from '@tourlint/shared';
+import type { VerdictLine } from '../radar/verdict-diff';
 import type { OpportunityCandidate, OpportunityItem } from '../batch/opportunity';
 import { CURRENT_RUN_LATERAL } from './current-run';
 import type { IsoDate } from '../engine/calendar/dates';
@@ -233,11 +235,25 @@ export class NotificationRepository {
       itemsOf.set(Number(row.product_id), list);
     }
 
-    return watched.map((c) => ({
-      ...c,
-      missingLcls2: [...new Set(missingOf.get(c.productId) ?? [])],
-      items: itemsOf.get(c.productId) ?? [],
-    }));
+    /*
+     * 이동수단 · 계정 — 넣을 자리의 사전 확인이 대중교통이면 길찾기를 부르지 않고(EI-KM-007), 한 배치의
+     * 사전 확인을 계정마다 돌아가며 나눈다 (UI-S7-008 · #690 과 같은 까닭)
+     */
+    const owners = await this.pool.query<{ id: string; transport: Transport; account_id: string }>(
+      `SELECT id, transport, account_id FROM product WHERE id = ANY($1::bigint[])`,
+      [ids],
+    );
+    const ownerOf = new Map(owners.rows.map((r) => [Number(r.id), { transport: r.transport, accountId: Number(r.account_id) }]));
+
+    return watched.map((c) => {
+      const owner = ownerOf.get(c.productId);
+      return {
+        ...c,
+        missingLcls2: [...new Set(missingOf.get(c.productId) ?? [])],
+        items: itemsOf.get(c.productId) ?? [],
+        ...(owner === undefined ? {} : { transport: owner.transport, accountId: owner.accountId }),
+      };
+    });
   }
 
   /**
@@ -284,7 +300,10 @@ export class NotificationRepository {
               n.created_at, p.name AS product_name, p.start_date, p.nights,
               it.day_no, it.start_time, it.place_label,
               fb.normalized_json AS normalized_before,
-              fa.normalized_json AS normalized_after
+              fa.normalized_json AS normalized_after,
+              CASE WHEN rb.saw THEN rb.id END AS run_before_id,
+              CASE WHEN ra.saw THEN ra.id END AS run_after_id,
+              ci.ids AS content_item_ids
          FROM notification n
          JOIN product p ON p.id = n.product_id
          LEFT JOIN LATERAL (
@@ -306,12 +325,60 @@ export class NotificationRepository {
               AND f.fetched_at >= n.created_at
             ORDER BY f.fetched_at ASC LIMIT 1
          ) fa ON TRUE
+         -- 바뀐 정보 알림 직전 검수와 알림 뒤 첫 검수 — 그 곳의 판정 차이를 말한다 (FR-RU-061).
+         -- 두 검수가 다 그 곳을 봤을 때(지문이 있을 때)만 견준다. 검수한 뒤에 담은 곳은 직전 판정이 없다
+         LEFT JOIN LATERAL (
+           SELECT r.id, EXISTS (SELECT 1 FROM content_fingerprint f
+                                 WHERE f.audit_run_id = r.id AND f.kto_content_id = n.kto_content_id) AS saw
+             FROM audit_run r
+            WHERE n.kind = 'RISK' AND r.product_id = n.product_id AND r.executed_at < n.created_at
+            ORDER BY r.executed_at DESC, r.id DESC LIMIT 1
+         ) rb ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT r.id, EXISTS (SELECT 1 FROM content_fingerprint f
+                                 WHERE f.audit_run_id = r.id AND f.kto_content_id = n.kto_content_id) AS saw
+             FROM audit_run r
+            WHERE n.kind = 'RISK' AND r.product_id = n.product_id AND r.executed_at >= n.created_at
+            ORDER BY r.executed_at ASC, r.id ASC LIMIT 1
+         ) ra ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT array_agg(i.id ORDER BY i.id) AS ids FROM itinerary_item i
+            WHERE n.kind = 'RISK' AND i.product_id = n.product_id AND i.kto_content_id = n.kto_content_id
+         ) ci ON TRUE
         WHERE ${clause}
         ORDER BY n.created_at DESC, n.id DESC
         LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
     return { total: Number(total.rows[0]?.n ?? 0), rows: rows.map(toStored) };
+  }
+
+  /**
+   * 검수 실행들의 판정 (FR-RU-061). 알림 카드의 판정 차이를 가를 때만 쓴다 — 문장 · 근거는 읽지 않는다.
+   */
+  async verdictsOfRuns(runIds: readonly number[]): Promise<ReadonlyMap<number, readonly VerdictLine[]>> {
+    const out = new Map<number, VerdictLine[]>();
+    if (runIds.length === 0) return out;
+    const { rows } = await this.pool.query<{
+      audit_run_id: string; rule_code: string; severity: Severity; target_item_id: string | null; target_item_id2: string | null;
+    }>(
+      `SELECT audit_run_id, rule_code, severity, target_item_id, target_item_id2
+         FROM finding WHERE audit_run_id = ANY($1::bigint[])
+        ORDER BY audit_run_id, id`,
+      [[...new Set(runIds)]],
+    );
+    for (const row of rows) {
+      const runId = Number(row.audit_run_id);
+      const list = out.get(runId) ?? [];
+      list.push({
+        ruleCode: row.rule_code,
+        severity: row.severity,
+        targetItemId: row.target_item_id === null ? null : Number(row.target_item_id),
+        targetItemId2: row.target_item_id2 === null ? null : Number(row.target_item_id2),
+      });
+      out.set(runId, list);
+    }
+    return out;
   }
 
   /** 한 건. 소유자가 아니면 `null` 이고 호출자가 404 를 만든다 (EX-SY-003) */
@@ -426,6 +493,11 @@ export interface StoredNotification {
   /** 알림 직전 검수 · 알림 뒤 첫 검수의 판독 결과. 없으면 null — 지어내지 않는다 */
   readonly normalizedBefore: unknown;
   readonly normalizedAfter: unknown;
+  /** 바뀐 정보 알림 직전 검수 · 알림 뒤 첫 검수 (FR-RU-061). 그 검수가 그 곳을 안 봤으면 null. 목록 조회에서만 채운다 */
+  readonly runBeforeId: number | null;
+  readonly runAfterId: number | null;
+  /** 그 곳을 담은 일정 항목들. 일정에 없는 곳이면 빈 배열 */
+  readonly contentItemIds: readonly number[];
 }
 
 export interface NotificationPage {
@@ -454,6 +526,9 @@ interface NotificationRow {
   place_label?: string | null;
   normalized_before?: unknown;
   normalized_after?: unknown;
+  run_before_id?: string | null;
+  run_after_id?: string | null;
+  content_item_ids?: (string | number)[] | null;
 }
 
 function toStored(row: NotificationRow): StoredNotification {
@@ -482,6 +557,9 @@ function toStored(row: NotificationRow): StoredNotification {
       },
     normalizedBefore: row.normalized_before ?? null,
     normalizedAfter: row.normalized_after ?? null,
+    runBeforeId: row.run_before_id == null ? null : Number(row.run_before_id),
+    runAfterId: row.run_after_id == null ? null : Number(row.run_after_id),
+    contentItemIds: (row.content_item_ids ?? []).map(Number),
   };
 }
 

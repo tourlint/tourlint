@@ -37,3 +37,12 @@ export function validateCompanyDraft(d: CompanyDraft): CompanyFieldErrors {
 export function hasCompanyErrors(e: CompanyFieldErrors): boolean {
   return e.r07SpanHours !== undefined || e.r07MealMinutes !== undefined;
 }
+
+/**
+ * 칸 아래 표시 (UI-S8-006 · FR-OP-022). 저장할 수 있는 값은 표준과 같거나 더 엄격하다 — 막힌 값이면
+ * 오류 문장이 그 자리를 쓰므로 표시하지 않는다.
+ */
+export function strictnessLabel(value: number, standardValue: number, error: string | undefined): "표준과 같음" | "표준보다 엄격" | null {
+  if (error !== undefined) return null;
+  return value === standardValue ? "표준과 같음" : "표준보다 엄격";
+}

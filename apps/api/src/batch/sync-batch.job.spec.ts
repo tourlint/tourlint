@@ -10,7 +10,8 @@ import { buildContentFingerprint, type FingerprintSnapshot } from '../engine/fin
 import type { ImpactCandidate } from './impact-finder';
 import { OPPORTUNITY_CAP_PER_PRODUCT, type OpportunityCandidate } from './opportunity';
 import {
-  DEFAULT_BATCH_WATCH_LIMIT, SYNC_PAGE_LIMIT, SyncBatchJob, changeKeyOf, readWatchLimit, toEventPeriod, toSyncedContent,
+  DEFAULT_BATCH_WATCH_LIMIT, PRECHECK_LIMIT_PER_RUN, SYNC_PAGE_LIMIT, SyncBatchJob, changeKeyOf, readWatchLimit, toEventPeriod, toSyncedContent,
+  type SyncBatchOptions,
 } from './sync-batch.job';
 
 /** 한국 시간 문자열을 Date 로 */
@@ -73,6 +74,8 @@ const job = (
     fetchDetail?: (contentId: string, contentTypeId: number) => Promise<Record<string, unknown>>;
     previousFingerprints?: (productId: number) => Promise<ReadonlyMap<string, FingerprintSnapshot>>;
     requestAudit?: (productId: number) => Promise<void>;
+    travel?: SyncBatchOptions['travel'];
+    precheckBudgetMs?: number;
   } = {},
 ): SyncBatchJob =>
   new SyncBatchJob({
@@ -83,6 +86,8 @@ const job = (
     fetchDetail: over.fetchDetail,
     previousFingerprints: over.previousFingerprints,
     requestAudit: over.requestAudit,
+    travel: over.travel,
+    ...(over.precheckBudgetMs === undefined ? {} : { precheckBudgetMs: over.precheckBudgetMs }),
   });
 
 /** `detailIntro2` 응답. 유형 12 의 지문 입력은 restdate · usetime 이다 */
@@ -874,6 +879,120 @@ describe('2단계 — 새 소식 (조건 4 ~ 6 · FR-MO-030 ④⑤⑥ · #616)',
     const { run, saved } = setup([fresh('seoul', 'VE01', { lDongRegnCd: '11' })]);
     await run();
     expect(saved).toEqual([]);
+  });
+
+  describe('넣을 자리 · 사전 확인 (UI-S7-008 · FR-MO-052)', () => {
+    /** 09:00 ~ 11:00 · 14:00 ~ 15:00 사이가 빈 강릉 상품 */
+    const twoItems = (transport?: OpportunityCandidate['transport']) => product9({
+      items: [
+        { dayNo: 1, seq: 1, startTime: '09:00', endTime: '11:00', mapX: 128.8961, mapY: 37.7955 },
+        { dayNo: 1, seq: 2, startTime: '14:00', endTime: '15:00', mapX: 128.9000, mapY: 37.7900 },
+      ],
+      ...(transport === undefined ? {} : { transport }),
+    });
+    const runWith = async (
+      opportunity: OpportunityCandidate[], travel?: SyncBatchOptions['travel'], contents = [fresh('n1', 'VE01')], precheckBudgetMs?: number,
+    ) => {
+      const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+      const { kto } = stubKto({ '20260826': contents });
+      const notif = stubNotifications({ watched: opportunity, opportunity });
+      await job(kto, state, { notifications: notif.repo, travel, ...(precheckBudgetMs === undefined ? {} : { precheckBudgetMs }) }).run();
+      return notif.saved;
+    };
+
+    it('🔴 알림에 넣을 자리(몇 일차 몇 시 ~ 몇 시)를 남긴다 — 이름 · 좌표는 남기지 않는다', async () => {
+      const [saved] = await runWith([twoItems()]);
+      expect(saved?.body.slot).toEqual({ dayNo: 1, from: '11:00', to: '14:00', minutes: 180, dwellMinutes: 60 });
+      expect(JSON.stringify(saved?.body)).not.toMatch(/128\.|mapx|title/i);
+    });
+
+    it('🔴 길찾기로 앞뒤 이동을 재 이동을 넣어도 들어가는지 남긴다 — 출발 시각은 여행 그 일차', async () => {
+      const asked: (string | null)[] = [];
+      const [saved] = await runWith([twoItems('CAR')], async (_from, _to, departureAt) => {
+        asked.push(departureAt);
+        return { minutes: 20, futureBased: true };
+      });
+      expect(saved?.body.precheck).toEqual({
+        travel: 'FITS', inMinutes: 20, outMinutes: 20, addedMinutes: 20, shortMinutes: null, currentTimeBased: false,
+      });
+      // 들어가는 이동 11:00 · 나오는 이동 11:00 + 20분 + 머무는 60분 · 원래 앞 → 뒤 11:00
+      expect(asked).toEqual(['202611171100', '202611171220', '202611171100']);
+    });
+
+    it('🔴 그 구간만 못 재면(경로 없음) 모른다고 남긴다 — 들어가는 구간을 못 재면 뒤 구간은 부르지 않는다', async () => {
+      let calls = 0;
+      const [saved] = await runWith([twoItems('CAR')], async () => { calls++; return null; });
+      expect(saved?.body.precheck).toMatchObject({ travel: 'UNKNOWN', inMinutes: null });
+      expect(saved?.body.slot).toBeDefined();
+      expect(calls).toBe(1);
+    });
+
+    it('🔴 제공자가 응답하지 않으면 첫 실패에서 멈추고 남은 새 소식은 사전 확인 없이 넣는다 (EX-EI-022)', async () => {
+      let calls = 0;
+      const saved = await runWith(
+        [twoItems('CAR'), { ...twoItems('CAR'), productId: 10 }, { ...twoItems('CAR'), productId: 11 }],
+        async () => { calls++; throw new Error('HTTP 503'); },
+      );
+      expect(calls).toBe(1);
+      expect(saved).toHaveLength(3);
+      expect(saved.every((n) => n.body.precheck === undefined && n.body.slot !== undefined)).toBe(true);
+    });
+
+    it('🔴 사전 확인 전체에 시간 상한이 있다 — 길찾기가 끝나지 않아도 새 소식은 들어간다', async () => {
+      const started = Date.now();
+      const saved = await runWith([twoItems('CAR'), { ...twoItems('CAR'), productId: 10 }], () => new Promise(() => undefined), undefined, 30);
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(saved).toHaveLength(2);
+      expect(saved.every((n) => n.body.precheck === undefined)).toBe(true);
+    });
+
+    it('🔴 바뀐 정보는 사전 확인 전에 넣고 재검수도 먼저 건다 — 길찾기가 막혀도 기다리지 않는다', async () => {
+      const events: string[] = [];
+      const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+      const { kto } = stubKto({ '20260826': [item({ contentid: 'r1', contenttypeid: '12' }), fresh('n1', 'VE01')] });
+      const notif = stubNotifications({ withContent: { r1: [candidate({ productId: 7 })] }, watched: [twoItems('CAR')], opportunity: [twoItems('CAR')] });
+      const insert = notif.repo.insertMany.bind(notif.repo);
+      (notif.repo as { insertMany: typeof insert }).insertMany = async (items) => {
+        events.push(`insert:${[...new Set(items.map((n) => n.kind))].join(',')}`);
+        return insert(items);
+      };
+      await job(kto, state, {
+        notifications: notif.repo,
+        requestAudit: async (productId) => { events.push(`reaudit:${String(productId)}`); },
+        travel: async () => { events.push('travel'); return { minutes: 10, futureBased: true }; },
+      }).run();
+      expect(events).toEqual(['insert:RISK', 'reaudit:7', 'travel', 'travel', 'travel', 'insert:OPPORTUNITY']);
+    });
+
+    it('🔴 사전 확인을 계정마다 돌아가며 나눈다 — 번호가 작은 상품을 가진 계정이 다 쓰지 않는다 (#690 과 같은 까닭)', async () => {
+      const busy = Array.from({ length: PRECHECK_LIMIT_PER_RUN + 5 }, (_, i) => ({ ...twoItems('CAR'), productId: 1 + i, accountId: 1 }));
+      const others = [{ ...twoItems('CAR'), productId: 900, accountId: 2 }, { ...twoItems('CAR'), productId: 950, accountId: 3 }];
+      const saved = await runWith([...busy, ...others], async () => ({ minutes: 5, futureBased: true }));
+      const checked = saved.filter((n) => n.body.precheck !== undefined).map((n) => n.productId);
+      expect(checked).toHaveLength(PRECHECK_LIMIT_PER_RUN);
+      expect(checked).toEqual(expect.arrayContaining([900, 950]));
+    });
+
+    it('🔴 대중교통 상품은 길찾기를 부르지 않는다 (EI-KM-007)', async () => {
+      let calls = 0;
+      const [saved] = await runWith([twoItems('PUBLIC_TRANSIT')], async () => { calls++; return { minutes: 5, futureBased: true }; });
+      expect(calls).toBe(0);
+      expect(saved?.body.precheck).toBeUndefined();
+    });
+
+    it(`한 배치에 ${String(PRECHECK_LIMIT_PER_RUN)}건까지만 사전 확인한다`, async () => {
+      const products = Array.from({ length: PRECHECK_LIMIT_PER_RUN + 2 }, (_, i) => ({ ...twoItems('CAR'), productId: 100 + i }));
+      let calls = 0;
+      const saved = await runWith(products, async () => { calls++; return { minutes: 5, futureBased: true }; });
+      expect(saved.filter((n) => n.body.precheck !== undefined)).toHaveLength(PRECHECK_LIMIT_PER_RUN);
+      expect(calls).toBe(PRECHECK_LIMIT_PER_RUN * 3);
+    });
+
+    it('🔴 빈 시간이 없으면 없다고 남긴다', async () => {
+      const full = product9({ items: [{ dayNo: 1, seq: 1, startTime: '09:00', endTime: '20:50', mapX: 128.8961, mapY: 37.7955 }] });
+      const [saved] = await runWith([full]);
+      expect(saved).toMatchObject({ condition: 4, body: { slotMissing: 'NO_GAP' } });
+    });
   });
 });
 

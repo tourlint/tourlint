@@ -27,8 +27,9 @@ export function AuditBasis({
   notice?: string | null;
   source?: string;
 }) {
+  // 근거 영역이다 — 조회 시각 · 지문 · 규칙셋이 여기 있어도 된다. 접지 않고 펼쳐 두되 화면 낱말 검사에서는 뺀다 (UI-CM-031 · NF-US-008)
   return (
-    <dl className="mt-4 grid gap-1 border-t border-slate-100 pt-4 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+    <dl className="mt-4 grid gap-1 border-t border-slate-100 pt-4 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400" data-evidence>
       <div className="flex flex-wrap gap-x-3 gap-y-1">
         {rows.map((r) => (
           <BasisItem key={r.label} row={r} />

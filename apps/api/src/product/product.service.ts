@@ -70,6 +70,7 @@ export class ProductService {
         pendingMatches: r.pendingMatches,
         plannedAt: r.plannedAt,
         releasedAt: r.releasedAt,
+        startedBy: r.startedBy,
       })),
       page,
       size,

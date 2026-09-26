@@ -1,3 +1,4 @@
+import { STARTED_BY_LABEL } from "@tourlint/shared";
 import { stageOf, type Stage } from "./stage-of";
 
 export interface LatestAudit {
@@ -28,6 +29,8 @@ export interface WorkspaceProduct {
   activeNotifications?: number;
   /** 알림 뒤에 다시 검수하지 않은 바뀐 정보 */
   risksSinceAudit?: number;
+  /** 기획을 시작한 방법 (`plan_origin.startedBy`). 기록이 없는 상품은 null */
+  startedBy?: string | null;
 }
 
 export type Workspace = "home" | "planning" | "review";
@@ -108,10 +111,14 @@ export function sortProducts(
 export function productHint(p: WorkspaceProduct): string {
   const a = p.latestAudit;
   switch (productStage(p)) {
-    case "PLANNING":
-      return (p.pendingMatches ?? 0) > 0
+    case "PLANNING": {
+      // 기획 중 카드는 시작 방식과 고를 장소 수만 말한다 — 점수 · 차단은 붙이지 않는다 (UI-S1-010)
+      const started = p.startedBy == null ? null : (STARTED_BY_LABEL[p.startedBy] ?? null);
+      const next = (p.pendingMatches ?? 0) > 0
         ? `아직 고르지 않은 장소 ${p.pendingMatches}곳`
         : "일정을 이어서 완성해 보세요";
+      return started === null ? next : `${started} · ${next}`;
+    }
     case "REVIEW":
       return !a
         ? "첫 검수를 기다리고 있어요"
@@ -132,6 +139,17 @@ export function productHint(p: WorkspaceProduct): string {
           ? `${p.releasedAt.slice(0, 10)} 출시`
           : "출시함";
   }
+}
+
+/**
+ * 「출시 불가」 배지를 붙이는가 (UI-S1-002). 목록 표와 보드 카드가 같은 기준을 쓴다 — 점수가 나온 최신
+ * 검수가 출시 판정을 통과하지 못했을 때다. 차단이 남았거나 검수 뒤에 일정을 고쳐 다시 검수해야 하는 상품이다.
+ * 부분 검수는 「부분 검수」로 따로 말하고, 기획 중 카드에는 판정을 붙이지 않는다.
+ */
+export function isNotReleasable(p: WorkspaceProduct): boolean {
+  const a = p.latestAudit;
+  if (productStage(p) === "PLANNING" || a == null || a.isPartial || a.readinessScore == null) return false;
+  return !a.releasable;
 }
 
 /**

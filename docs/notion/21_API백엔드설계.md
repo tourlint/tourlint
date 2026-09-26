@@ -422,7 +422,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>GET</td>
 <td>`/api/v1/products`</td>
-<td>상품 목록. 홈(내 상품) 보드용 — 출시 준비도 · 등급별 건수 · 알림 수 포함. 행마다 `plannedAt` · `releasedAt` 으로 칸(기획 중 · 검수 중 · 출시할 수 있음 · 출시함)을 나눈다. 알림 수는 셋이다 — `unreadNotifications`(확인하지 않은 알림) · `activeNotifications`(무시하지 않은 알림) · `risksSinceAudit`(알림 뒤에 다시 검수하지 않은 바뀐 정보, 목록의 `latestAudit.executedAt` 과 견준다). 무시한 알림은 세지 않고 여행이 끝난 상품은 셋 다 0 이다(FR-MO-018)</td>
+<td>상품 목록. 홈(내 상품) 보드용 — 출시 준비도 · 등급별 건수 · 알림 수 포함. 행마다 `plannedAt` · `releasedAt` 으로 칸(기획 중 · 검수 중 · 출시할 수 있음 · 출시함)을 나눈다. 알림 수는 셋이다 — `unreadNotifications`(확인하지 않은 알림) · `activeNotifications`(무시하지 않은 알림) · `risksSinceAudit`(알림 뒤에 다시 검수하지 않은 바뀐 정보, 목록의 `latestAudit.executedAt` 과 견준다). 무시한 알림은 세지 않고 여행이 끝난 상품은 셋 다 0 이다(FR-MO-018). `startedBy` 는 기획을 시작한 방법(`plan_origin.startedBy` — MANUAL · UPLOAD · TEXT · SIGNAL)이고 기록이 없는 상품은 `null` 이다 — 보드의 기획 중 카드가 쓴다(UI-S1-010)</td>
 <td>FR-CM-005 · FR-PL-001</td>
 </tr>
 <tr>
@@ -828,7 +828,7 @@ R07 finding.message 예: "12:00 점심 60분은 회사 기준 90분보다 짧습
 <tr>
 <td>GET</td>
 <td>`/api/v1/notifications`</td>
-<td>알림 목록. `kind=RISK|OPPORTUNITY` · `unread=true`. **문장은 저장하지 않고 볼 때 사실로 만듭니다**(DB 명세서 4-5) — `schedule`(그 곳이 일정에 든 일차 · 시각) · `changes`(알림 **직전** 검수와 알림 **뒤 첫** 검수의 판독 결과 차이, 예 `운영시간 09:00~18:00 → 09:00~17:00`) · `current`(비교할 이전 검수가 없을 때의 지금 판독값) · `modifiedOn`(관광정보 수정일) · `eventPeriod` · `overlapDays`(행사와 겹치는 여행 일차). `what` · `impact` 는 이 사실로 조립하며, 없는 사실은 없다고 말합니다. 행마다 `placeName` — 사용자가 일정에 적은 이름이 먼저이고, 일정에 없는 곳만 **표시 시점에 읽어** 붙입니다(저장하지 않음 · 메모리 10분 캐시 · 한 쪽의 서로 다른 콘텐츠 수만큼 공통정보 1콜). 표출이 중단된 곳(FR-AU-071)과 못 읽은 곳은 `null` 이고, 이름은 최대 6곳씩 동시에 읽고, 실패하거나 2.5초 안에 안 끝난 곳만 `null` 로 둔 채 목록을 내보냅니다(읽은 이름은 그대로 붙고, 남은 조회는 뒤에서 끝나 캐시를 채웁니다)</td>
+<td>알림 목록. `kind=RISK|OPPORTUNITY` · `unread=true`. **문장은 저장하지 않고 볼 때 사실로 만듭니다**(DB 명세서 4-5) — `schedule`(그 곳이 일정에 든 일차 · 시각) · `changes`(알림 **직전** 검수와 알림 **뒤 첫** 검수의 판독 결과 차이, 예 `운영시간 09:00~18:00 → 09:00~17:00`) · `current`(비교할 이전 검수가 없을 때의 지금 판독값) · `modifiedOn`(관광정보 수정일) · `eventPeriod` · `overlapDays`(행사와 겹치는 여행 일차). `what` · `impact` 는 이 사실로 조립하며, 없는 사실은 없다고 말합니다. 새 소식은 `opportunity`(`slot` · `slotMissing` · `precheck` · 이동시간을 잰 곳 `travelSource`)로 넣을 자리와 사전 확인을, 바뀐 정보는 `verdictDiff`(알림 직전 검수와 알림 뒤 첫 검수에서 그 곳 판정의 `added` · `removed` · `changed`, 두 검수 중 하나라도 그 곳을 안 봤으면 `null`)를 싣습니다(UI-S7-008 · FR-RU-061). 행마다 `placeName` — 사용자가 일정에 적은 이름이 먼저이고, 일정에 없는 곳만 **표시 시점에 읽어** 붙입니다(저장하지 않음 · 메모리 10분 캐시 · 한 쪽의 서로 다른 콘텐츠 수만큼 공통정보 1콜). 표출이 중단된 곳(FR-AU-071)과 못 읽은 곳은 `null` 이고, 이름은 최대 6곳씩 동시에 읽고, 실패하거나 2.5초 안에 안 끝난 곳만 `null` 로 둔 채 목록을 내보냅니다(읽은 이름은 그대로 붙고, 남은 조회는 뒤에서 끝나 캐시를 채웁니다)</td>
 <td>FR-MO-033·035</td>
 </tr>
 <tr>
@@ -1151,7 +1151,8 @@ POST /api/v1/radar/today
       "unreadNotifications": 3,
       "activeNotifications": 4,
       "risksSinceAudit": 1,
-      "pendingMatches": 0
+      "pendingMatches": 0,
+      "startedBy": "MANUAL"
     }
   ],
   "page": 0, "size": 20, "totalElements": 1, "totalPages": 1
@@ -2308,6 +2309,10 @@ public interface AuditRule {
         조건 1 에서 「판정 필드 그대로」 로 넘긴 상품은 그 콘텐츠의 조건 2 · 3 후보에서 뺀다
         조건 3 — 같은 시군구의 행사만. 상품에 시군구가 없으면 같은 시도, 행사 지역을 모르면 걸지 않음. ±7일 창 없음
         기회(4 ~ 6) — 이번 배치가 본 첫 날짜 뒤에 등록된 표출 콘텐츠만
+                      넣을 자리(body.slot · 0콜)를 남기고, 상한 안에 든 것만 배치당 20건까지
+                      계정마다 돌아가며 길찾기로 앞뒤 이동을 재 body.precheck 에 남긴다
+                      (대중교통 제외 · 제공자 장애면 첫 실패에서 · 60초 상한 · UI-S7-008)
+                      바뀐 정보 알림은 사전 확인 전에 넣고 재검수도 먼저 건다
                       R10 결손 유형은 지금 일정의 검수 실행에서, 무시한 R10 은 제외
                       배치 한 번에 상품당 3건까지 (조건 4 먼저 · 같은 조건은 contentid 순)
                       같은 콘텐츠는 한 상품에 한 번만 (change_key NEW:{createdtime})

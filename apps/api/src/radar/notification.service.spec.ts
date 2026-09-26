@@ -345,6 +345,131 @@ describe.skipIf(URL === undefined)('NotificationService — 관통', () => {
     });
   });
 
+  describe('재검수 판정 차이 (FR-RU-061)', () => {
+    async function item(contentId: string, label: string, seq = 1): Promise<number> {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO itinerary_item
+           (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, kto_content_id, match_status)
+         VALUES ($1, 1, $2, '14:00', 'INPUT', $3, 'SIGHT', $4, 'CONFIRMED') RETURNING id`,
+        [productId, seq, label, contentId],
+      );
+      return Number(rows[0]?.id);
+    }
+
+    /**
+     * 알림 시각과의 앞뒤를 `at` 으로 가른 검수 실행과 그 판정들. `saw` 는 그 검수가 지문을 남긴 곳 —
+     * 기본은 알림의 곳(126508)이다.
+     */
+    async function runAt(
+      at: string,
+      findings: { rule: string; severity: string; target: number | null; target2?: number | null }[],
+      saw: readonly string[] = ['126508'],
+    ): Promise<void> {
+      const run = await pool.query<{ id: string }>(
+        `INSERT INTO audit_run (product_id, executed_at, ruleset_version, target_count, weight_snapshot)
+         VALUES ($1, now() + $2::interval, '1.2.9', 1, '{"BLOCKER":25,"ERROR":10,"WARNING":4,"UNVERIFIED":3}'::jsonb)
+         RETURNING id`, [productId, at]);
+      for (const contentId of saw) {
+        await pool.query(
+          `INSERT INTO content_fingerprint
+             (audit_run_id, kto_content_id, content_type_id, fetched_at, kto_modified_time, show_flag,
+              field_names, field_hash, parse_confidence)
+           VALUES ($1, $2, 12, now() + $3::interval, '20260918143012', 1, ARRAY['usetime'], $4, 'CONFIRMED')`,
+          [run.rows[0]?.id, contentId, at, 'c'.repeat(64)]);
+      }
+      for (const f of findings) {
+        await pool.query(
+          `INSERT INTO finding (audit_run_id, rule_code, rule_version, severity, reason_code, target_item_id, target_item_id2, message, evidence)
+           VALUES ($1, $2, '1.0.0', $3, 'X', $4, $5, '판정', '{}'::jsonb)`,
+          [run.rows[0]?.id, f.rule, f.severity, f.target, f.target2 ?? null]);
+      }
+    }
+
+    const first = async (): Promise<Record<string, unknown>> =>
+      ((await service.list(mine, LIST)).content as Record<string, unknown>[])[0] ?? {};
+
+    it('🔴 알림 직전 검수와 알림 뒤 첫 검수에서 그 곳의 판정이 어떻게 달라졌는지 준다', async () => {
+      const ojuk = await item('126508', '오죽헌', 1);
+      const other = await item('999001', '경포대', 2);
+      await runAt('-2 hours', [
+        { rule: 'R01', severity: 'WARNING', target: ojuk },
+        { rule: 'R02', severity: 'BLOCKER', target: ojuk },
+        { rule: 'R04', severity: 'WARNING', target: other },
+      ]);
+      await insert({ contentId: '126508' });
+      await runAt('2 hours', [
+        { rule: 'R01', severity: 'BLOCKER', target: ojuk },
+        { rule: 'R08', severity: 'ERROR', target: other, target2: ojuk },
+      ]);
+      // 그 뒤에 사람이 고쳐 다시 돈 검수는 이 변경의 영향이 아니다
+      await runAt('5 hours', []);
+
+      expect((await first()).verdictDiff).toEqual({
+        added: [{ ruleCode: 'R08', severity: 'ERROR' }],
+        removed: [{ ruleCode: 'R02', severity: 'BLOCKER' }],
+        changed: [{ ruleCode: 'R01', from: 'WARNING', to: 'BLOCKER' }],
+      });
+    });
+
+    it('판정이 그대로면 빈 차이를 준다 — 다시 검수했다는 사실은 남는다', async () => {
+      const ojuk = await item('126508', '오죽헌');
+      await runAt('-2 hours', [{ rule: 'R01', severity: 'BLOCKER', target: ojuk }]);
+      await insert({ contentId: '126508' });
+      await runAt('2 hours', [{ rule: 'R01', severity: 'BLOCKER', target: ojuk }]);
+      expect((await first()).verdictDiff).toEqual({ added: [], removed: [], changed: [] });
+    });
+
+    it('🔴 검수한 뒤에 담은 곳이면 null 이다 — 직전 검수가 그 곳을 안 봤으니 「새로 생김」이 아니다', async () => {
+      const ojuk = await item('126508', '오죽헌');
+      await runAt('-2 hours', [], []);
+      await insert({ contentId: '126508' });
+      await runAt('2 hours', [{ rule: 'R01', severity: 'BLOCKER', target: ojuk }]);
+      expect((await first()).verdictDiff).toBeNull();
+    });
+
+    it('아직 다시 검수 전이거나 일정에 없는 곳이면 null 이다 — 지어내지 않는다', async () => {
+      const ojuk = await item('126508', '오죽헌');
+      await runAt('-2 hours', [{ rule: 'R01', severity: 'BLOCKER', target: ojuk }]);
+      await insert({ contentId: '126508' });
+      expect((await first()).verdictDiff).toBeNull();
+
+      await pool.query('DELETE FROM notification WHERE product_id = $1', [productId]);
+      await insert({ contentId: '555555', condition: 2 });
+      await runAt('2 hours', []);
+      expect((await first()).verdictDiff).toBeNull();
+    });
+  });
+
+  describe('새 소식의 넣을 자리 · 사전 확인 (UI-S7-008 · FR-MO-052)', () => {
+    async function news(body: Record<string, unknown>): Promise<void> {
+      await pool.query(
+        `INSERT INTO notification (product_id, kind, match_condition, kto_content_id, change_key, body)
+         VALUES ($1, 'OPPORTUNITY', 5, '888001', $2, $3::jsonb)`,
+        [productId, `NEW:${String(counter++)}`, JSON.stringify({ condition: 5, contentTypeId: '12', hidden: false, ...body })]);
+    }
+    const first = async (): Promise<Record<string, unknown>> =>
+      ((await service.list(mine, { ...LIST, kind: 'OPPORTUNITY' as const })).content as Record<string, unknown>[])[0] ?? {};
+
+    it('🔴 배치가 남긴 자리와 사전 확인을 문장과 함께 준다 — 이동시간은 출처를 붙인다', async () => {
+      await news({
+        slot: { dayNo: 2, from: '12:00', to: '14:30', minutes: 150, dwellMinutes: 60 },
+        precheck: { travel: 'FITS', inMinutes: 8, outMinutes: 9, addedMinutes: 5, shortMinutes: null, currentTimeBased: false },
+      });
+      const row = await first();
+      expect(row.opportunity).toMatchObject({ slot: { dayNo: 2, from: '12:00', to: '14:30' }, travelSource: '카카오모빌리티' });
+      expect(row.impact).toBe('2일차 12:00 ~ 14:30 빈 시간(150분)에 넣을 수 있어요. 머무는 시간은 약 60분으로 봤어요(알림 때 일정 기준).');
+      expect(row.action).toBe('다른 일정과 겹치지 않고 앞뒤 이동(약 8분 · 9분)을 넣어도 빈 시간 안에 들어가요. 이동은 원래보다 약 5분 늘어요.');
+      expect(row.verdictDiff).toBeNull();
+    });
+
+    it('자리를 남기기 전 새 소식은 조건 문장 그대로다', async () => {
+      await news({});
+      const row = await first();
+      expect(row.opportunity).toBeNull();
+      expect(row.impact).toBe('비어 있던 구간을 채울 수 있습니다.');
+    });
+  });
+
   it('안 읽은 건수를 함께 준다 — 헤더 배지가 쓴다', async () => {
     await insert();
     await insert({ contentId: '777' });
