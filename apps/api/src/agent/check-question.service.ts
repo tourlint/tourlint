@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
 import type { AgentIncomplete, CheckQuestionPlace, ContentTypeId } from '@tourlint/shared';
-import { CONTENT_TYPE_ID, INTRO_FIELDS } from '@tourlint/shared';
+import { CONTENT_TYPE_ID, INTRO_FIELDS, findingMessage } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import type { ItineraryItemRow, ProductRow } from '../audit/audit-runner';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
@@ -81,6 +81,11 @@ export interface CheckQuestionSource {
   getRun(auditRunId: number): Promise<StoredAuditRun>;
   itemsOf(productId: number): Promise<readonly ItineraryItemRow[]>;
   productOf(productId: number): Promise<ProductRow | null>;
+  /**
+   * 항목의 표시 이름 — 결과 화면과 같은 값이다 (#606). 이름을 저장하지 않은 곳(장소 담기 · 등록 화면에서
+   * 고른 곳)은 여기서만 이름을 얻는다. 없으면 저장된 이름만 쓴다
+   */
+  displayLabels?(items: readonly ItineraryItemRow[]): Promise<ReadonlyMap<number, string>>;
 }
 
 export interface CheckQuestionOptions {
@@ -151,7 +156,13 @@ export class CheckQuestionService {
       throw new DomainException(HttpStatus.TOO_MANY_REQUESTS, 'BUDGET_EXHAUSTED', BUDGET_MESSAGE, 'REQUEST');
     }
 
-    return this.lock.runExclusive(accountId, 'CHECK_QUESTIONS', async () => this.run(places));
+    /*
+     * 이름을 저장하지 않은 곳도 모델이 이름과 온전한 이유 문장을 보게 한다 (#908). 결과 화면이 방금
+     * 읽은 이름이 10분 캐시에 있다 — 없으면 그 곳만 공통정보로 찾는다
+     */
+    const labels = this.audit.displayLabels === undefined ? new Map<number, string>() : await this.audit.displayLabels(items);
+    const named = labels.size === 0 ? places : unverifiedPlaces(run, items, product, labels);
+    return this.lock.runExclusive(accountId, 'CHECK_QUESTIONS', async () => this.run(named));
   }
 
   private async run(places: readonly UnverifiedPlace[]): Promise<CheckQuestionResult> {
@@ -267,8 +278,14 @@ export function unverifiedPlaces(
   run: StoredAuditRun,
   items: readonly ItineraryItemRow[],
   product: ProductRow | null,
+  /** 표시 이름 (`displayLabels`). 없으면 저장된 이름이다 */
+  labels: ReadonlyMap<number, string> = new Map(),
 ): readonly UnverifiedPlace[] {
   const byId = new Map(items.map((item) => [item.id, item]));
+  const nameOf = (id: number | null): string | null => {
+    if (id === null) return null;
+    return labels.get(id) ?? (byId.get(id)?.placeLabel || null);
+  };
   const start = product === null ? null : parseIsoDate(product.startDate);
   const places = new Map<number, UnverifiedPlace>();
 
@@ -282,7 +299,7 @@ export function unverifiedPlaces(
     const before = places.get(itemId);
     places.set(itemId, {
       itemId,
-      placeLabel: item.placeLabel,
+      placeLabel: nameOf(itemId) ?? '',
       contentId: item.ktoContentId,
       contentTypeId: item.contentTypeId,
       visit: {
@@ -291,7 +308,10 @@ export function unverifiedPlaces(
         start: item.startTime,
       },
       findingIds: [...(before?.findingIds ?? []), finding.id],
-      reasons: [...(before?.reasons ?? []), finding.message],
+      // 결과 화면과 같은 문장이다 — 저장된 문장은 이름을 저장하지 않은 곳의 자리가 비어 있다 (#606 · #908)
+      reasons: [...(before?.reasons ?? []), findingMessage(
+        finding.ruleCode, finding.message, finding.evidence, labels, nameOf(itemId), nameOf(finding.targetItemId2),
+      )],
     });
   }
   return [...places.values()].sort((a, b) => a.visit.dayNo - b.visit.dayNo || a.itemId - b.itemId);

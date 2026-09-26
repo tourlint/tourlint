@@ -256,6 +256,21 @@ describe('PlaceSuggestionService — 고르지 않은 줄의 장소 찾기 (FR-A
     expect(result.items[0]?.alternatives.map((a) => a.contentId)).toEqual(['2', '3', '4']);
   });
 
+  it('🔴 다른 후보에 같은 곳이 두 번 오면 한 번만 남긴다 — 셋 자리를 중복이 차지하지 않는다 (UI-S2-044)', async () => {
+    const many = [place(), place({ contentid: '2', title: '둘' }), place({ contentid: '3', title: '셋' }),
+      place({ contentid: '4', title: '넷' })];
+    const result = await service({
+      items: product([item({ id: 11, placeLabel: '오죽헌' })]),
+      turns: [
+        [search('t1', 11, '오죽헌')],
+        [submit([found(11, '125769', { alternativeContentIds: ['2', '2', '125769', '3', '3', '4'] })])],
+      ],
+      transport: new SearchTransport({ 오죽헌: many }),
+    }).suggest(1, 7, null);
+
+    expect(result.items[0]?.alternatives.map((a) => a.contentId)).toEqual(['2', '3', '4']);
+  });
+
   it('🔴 요청하지 않은 줄은 응답에 넣지 않는다 — 일정에 없는 장소를 권하지 않는다 (FR-AG-012)', async () => {
     const result = await service({
       items: product([item({ id: 11, placeLabel: '오죽헌' }), item({ id: 14, placeLabel: '경포대' })]),

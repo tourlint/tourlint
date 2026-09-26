@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isApiError, planApi, productApi, type PlaceFacts, type ProductDetail, type ProductItem } from "../../../../lib/api";
+import { shownPlace } from "../../../../lib/place-label";
 import { PlaceAutocomplete } from "./place-autocomplete";
 import { PlaceFactsLine } from "./place-facts-line";
 import { DaySummary } from "./day-summary";
@@ -249,7 +250,7 @@ function ItemRow({
             </time>
             <span>{ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}</span>
           </p>
-          <h3>{item.place || "장소를 골라 주세요"}</h3>
+          <h3>{shownPlace(item) ?? "장소를 골라 주세요"}</h3>
         </div>
         <StatusTag status={item.matchStatus} />
       </header>

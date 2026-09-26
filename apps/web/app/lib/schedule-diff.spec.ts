@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isEmptyPlan, planSchedule, type EditedItem } from "./schedule-diff";
+import { isEmptyPlan, placeCalls, planSchedule, type EditedItem } from "./schedule-diff";
+import type { ScheduleItem } from "../(app)/products/new/types";
 
 const item = (over: Partial<EditedItem> = {}): EditedItem => ({
   itemId: 1, dayNo: 1, seq: 1, startTime: "10:00", endTime: "11:30",
@@ -86,5 +87,38 @@ describe("장소 담기로 고른 줄 (#665)", () => {
   it("이미 저장된 줄은 고른 관광지를 견주지 않는다 — 바뀐 값만 보낸다", () => {
     const plan = planSchedule([item()], [item({ content: picked })]);
     expect(isEmptyPlan(plan)).toBe(true);
+  });
+});
+
+describe("불러온 줄의 장소 상태 바꾸기 (UI-S2-021 · FR-IN-029)", () => {
+  const picked = {
+    contentId: "2733968", contentTypeId: 12, mapx: 128.9, mapy: 37.8, lcls1: "NA", lcls2: "NA04", lcls3: null,
+  };
+  const loaded = (over: Partial<ScheduleItem> = {}, saved: Partial<NonNullable<ScheduleItem["saved"]>> = {}): ScheduleItem => ({
+    id: "srv-11", itemId: 11, start: "09:00", end: "10:00", place: "경포해변", itemType: "SIGHT",
+    saved: { end: "10:00", matchStatus: "PENDING", contentId: null, ...saved }, ...over,
+  });
+
+  it("🔴 고르는 중이던 줄에 새로 고른 곳은 확정한다", () => {
+    expect(placeCalls([loaded({ content: picked })])).toEqual({ exclude: [], match: [{ itemId: 11, contentId: "2733968" }] });
+  });
+
+  it("🔴 고른 곳이 함께 걸린 줄은 직접 정한 곳으로 보내지 않는다 — 후보를 확인하는 사이 둘 다 걸릴 수 있다", () => {
+    expect(placeCalls([loaded({ content: picked, excluded: true })]).exclude).toEqual([]);
+    expect(placeCalls([loaded({ excluded: true })]).exclude).toEqual([11]);
+  });
+
+  it("🔴 저장된 곳을 그대로 다시 고른 줄은 부르지 않는다 — 기준으로 쓰려고 확인한 줄이다", () => {
+    const confirmed = { matchStatus: "CONFIRMED", contentId: "2733968" };
+    expect(placeCalls([loaded({ content: picked }, confirmed)]).match).toEqual([]);
+    expect(placeCalls([loaded({ content: { ...picked, contentId: "126508" } }, confirmed)]).match)
+      .toEqual([{ itemId: 11, contentId: "126508" }]);
+  });
+
+  it("🔴 새 줄 · 걷기 길은 확정하지 않는다 — 새 줄은 추가가 넣고, 걷기 길은 확정할 수 없는 줄이다", () => {
+    expect(placeCalls([
+      loaded({ itemId: undefined, content: picked }),
+      loaded({ walk: { walkId: "T_CRS_MNG0000000402" }, content: picked }, { matchStatus: "EXCLUDED" }),
+    ])).toEqual({ exclude: [], match: [] });
   });
 });

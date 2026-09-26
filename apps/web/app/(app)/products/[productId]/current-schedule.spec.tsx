@@ -25,6 +25,15 @@ async function render(detail = product, findings = [finding]) { await act(async 
 beforeEach(() => { (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true; host = document.createElement('div'); document.body.append(host); root = createRoot(host); select.mockClear(); sessionStorage.clear(); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
+describe('이름을 불러오지 못한 고른 곳 (#911 리뷰)', () => {
+  it('🔴 현재 일정표에 「(이름 미입력)」 대신 이름을 불러오지 못했다고 적는다', async () => {
+    const nameless = { days: [{ day: 1, items: [{ ...item, place: '' }] }] } as ProductDetail;
+    await act(async () => root.render(<CurrentSchedule product={nameless} finding={null} expanded onToggle={() => {}} />));
+    expect(host.textContent).toContain('이름을 불러오지 못한 곳');
+    expect(host.textContent).not.toContain('이름 미입력');
+  });
+});
+
 describe('검수 중 현재 일정 참조 (#570)', () => {
   it('선택·미리보기 없이 모든 일차와 현재 시간을 표시한다', async () => {
     await render();

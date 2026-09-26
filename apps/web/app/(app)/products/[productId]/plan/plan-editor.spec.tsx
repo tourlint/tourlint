@@ -40,6 +40,14 @@ async function open(items: ProductItem[]) {
   await settle();
 }
 
+describe("이름을 불러오지 못한 고른 곳 (#911 리뷰)", () => {
+  it("🔴 고른 곳에 「장소를 골라 주세요」 를 붙이지 않는다 — 이름을 불러오지 못했다고 적는다", async () => {
+    await open([row({ itemId: 7, place: "" })]);
+    const title = host.querySelector("li.plan-timeline-item h3")?.textContent;
+    expect(title).toBe("이름을 불러오지 못한 곳");
+  });
+});
+
 describe("끝 시각 — 채워질 시각과 「기본값 적용」 (FR-IN-011 · UI-S2-009 · 032)", () => {
   it("🔴 끝 시간을 비운 고른 줄은 채워질 시각을 회색으로 보이고 분 수를 적는다", async () => {
     await open([row({ itemId: 5, place: "주문진 등대", start: "14:30", end: null, lcls2: "VE01", endTimeSource: "DWELL_DEFAULT" })]);

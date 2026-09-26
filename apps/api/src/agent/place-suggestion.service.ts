@@ -399,7 +399,8 @@ function toSuggestion(
   const place = answer.kind === 'FOUND' ? known(answer.contentId) : null;
   if (answer.kind === 'FOUND' && place === null) return null;
 
-  const alternatives = answer.alternativeContentIds
+  // 모델이 같은 곳을 두 번 낼 수 있다 — 한 번씩만 남기고 셋을 자른다. 겹치면 카드에 같은 곳이 두 번 나온다 (UI-S2-044)
+  const alternatives = [...new Set(answer.alternativeContentIds)]
     .filter((id) => id !== place?.contentId)
     .map((id) => known(id))
     .filter((p): p is FoundPlace => p !== null)

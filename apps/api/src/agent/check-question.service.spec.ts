@@ -90,8 +90,9 @@ const item = (over: Partial<ItineraryItemRow> = {}): ItineraryItemRow => ({
 
 const PRODUCT = { id: 31, startDate: '2026-10-23', nights: 1 } as ProductRow;
 
-function sourceOf(options: { run?: StoredAuditRun; items?: readonly ItineraryItemRow[]; owned?: boolean }): CheckQuestionSource {
+function sourceOf(options: { run?: StoredAuditRun; items?: readonly ItineraryItemRow[]; owned?: boolean; labels?: ReadonlyMap<number, string> }): CheckQuestionSource {
   return {
+    ...(options.labels === undefined ? {} : { displayLabels: async (): Promise<ReadonlyMap<number, string>> => options.labels ?? new Map() }),
     assertOwns: async (): Promise<void> => {
       if (options.owned === false) throw new DomainException(404, 'NOT_FOUND', '검수 결과를 찾을 수 없습니다.');
     },
@@ -105,6 +106,7 @@ function service(options: {
   run?: StoredAuditRun;
   items?: readonly ItineraryItemRow[];
   owned?: boolean;
+  labels?: ReadonlyMap<number, string>;
   turns?: readonly (readonly LlmAssistantBlock[] | Error)[];
   transport?: ContactTransport;
   budget?: BudgetDecision;
@@ -144,6 +146,21 @@ describe('확인 필요 목록을 곳마다 묶는다 (FR-AG-020)', () => {
     expect(unverifiedPlaces(run([finding({ targetItemId: 999 })]), [item()], PRODUCT)).toHaveLength(0);
   });
 
+  it('🔴 이름을 저장하지 않은 곳은 표시 이름과 온전한 이유 문장을 준다 — 빈 자리를 모델에 넘기지 않는다 (#908)', () => {
+    const places = unverifiedPlaces(
+      run([finding({
+        ruleCode: 'R08', reasonCode: 'ROUTE_PROVIDER_FAILED', targetItemId: 25, targetItemId2: 26,
+        message: ' →  이동시간을 조회하지 못했습니다. 직접 확인해 주세요.',
+      })]),
+      [item({ placeLabel: '' }), item({ id: 26, seq: 4, placeLabel: '' })],
+      PRODUCT,
+      new Map([[25, '세인트존스 호텔'], [26, '주문진 등대']]),
+    );
+    expect(places.map((p) => [p.placeLabel, p.reasons])).toEqual([
+      ['세인트존스 호텔', ['세인트존스 호텔 → 주문진 등대 이동시간을 조회하지 못했습니다. 직접 확인해 주세요.']],
+    ]);
+  });
+
   it('확인 필요가 아닌 판정은 넣지 않는다 — 여기는 직접 확인할 곳만이다', () => {
     expect(unverifiedPlaces(run([finding({ severity: 'ERROR' as Severity })]), [item()], PRODUCT)).toHaveLength(0);
     expect(unverifiedPlaces(
@@ -162,6 +179,17 @@ describe('CheckQuestionService — 전화로 물어볼 내용 (FR-AG-020 ~ 022)'
     expect(result).toEqual({ places: [], incomplete: null });
     expect(provider.requests).toHaveLength(0);
     expect(transport.calls).toHaveLength(0);
+  });
+
+  it('🔴 모델에게 주는 곳 목록에 표시 이름을 싣는다 — 결과 화면과 같은 이름이다 (#908)', async () => {
+    const provider = new ScriptedLlmProvider([[list('t1')], [submit([answer(25)])]]);
+    await service({
+      provider, items: [item({ placeLabel: '' })], labels: new Map([[25, '세인트존스 호텔']]),
+      run: run([finding({ message: ' — 운영시간을 확인할 수 없습니다' })]),
+    }).questions(7, 812);
+    const sent = JSON.stringify(provider.requests);
+    expect(sent).toContain('세인트존스 호텔 — 운영시간을 확인할 수 없습니다');
+    expect(sent).toContain('19:30 · 세인트존스 호텔');
   });
 
   it('🔴 방문 날짜 · 시각은 항목 값 그대로다 — 모델이 쓴 값을 쓰지 않는다', async () => {

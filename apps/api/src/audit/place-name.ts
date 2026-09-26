@@ -24,6 +24,13 @@ import { isKtoError, type KtoClient } from '../external/kto';
 export const NAME_TTL_MS = 10 * 60_000;
 /** 캐시 상한. 넘으면 오래된 것부터 버린다 */
 export const NAME_CACHE_MAX = 500;
+/**
+ * 한 번에 기다리는 한도. 넘으면 읽은 데까지만 준다 — 알림 목록의 한도(#694)와 같다. 늦은 조회는
+ * 버리지 않고 뒤에서 끝까지 돌아 캐시를 채운다. 공사가 느려도 화면이 곳마다 30초씩 서지 않는다
+ */
+export const NAME_WAIT_MS = 2_500;
+/** 동시에 부르는 수 상한 — 한 곳씩 차례로 부르면 느린 곳 하나가 나머지를 붙잡는다 */
+export const NAME_CONCURRENCY = 4;
 
 interface Entry {
   readonly name: string;
@@ -38,18 +45,42 @@ export interface PlaceNameOptions {
    */
   readonly kto: () => KtoClient;
   readonly clock?: () => number;
+  /**
+   * 국문 예산 문 (API 8-2). 다 썼으면 부르지 않고 읽어 둔 이름만 준다 — 화면은 이름 대신 대체 표시를
+   * 한다. 없으면 막지 않는다(테스트)
+   */
+  readonly budget?: () => Promise<{ readonly allowed: boolean }>;
+  /** 기다리는 한도(ms). 기본 `NAME_WAIT_MS` */
+  readonly waitMs?: number;
+  /** 동시에 부르는 수. 기본 `NAME_CONCURRENCY` */
+  readonly concurrency?: number;
 }
 
+/**
+ * 표시 이름 조회. **프로세스 하나에 하나만 둔다** — 상품 상세 · 판정 · 확인 필요 · 알림 · 장소 정보가
+ * 같은 캐시를 쓴다(app.module). 캐시가 따로면 결과 화면 한 번에 같은 곳을 세 번 불렀다 (#911 리뷰).
+ */
 export class PlaceNameResolver {
   private readonly cache = new Map<string, Entry>();
+  /** 지금 부르는 중인 곳 — 같은 곳을 동시에 묻는 요청은 이 조회 하나를 나눠 기다린다 */
+  private readonly pending = new Map<string, Promise<void>>();
   private readonly makeKto: () => KtoClient;
   private readonly clock: () => number;
+  private readonly budget: (() => Promise<{ readonly allowed: boolean }>) | undefined;
+  private readonly waitMs: number;
+  private readonly concurrency: number;
+  /** 지금 도는 조회 수와 자리를 기다리는 조회 */
+  private running = 0;
+  private readonly waiting: (() => void)[] = [];
   /** 첫 조회 때 만든다. 이후에는 같은 것을 쓴다 */
   private client: KtoClient | null = null;
 
   constructor(options: PlaceNameOptions) {
     this.makeKto = options.kto;
     this.clock = options.clock ?? ((): number => Date.now());
+    this.budget = options.budget;
+    this.waitMs = options.waitMs ?? NAME_WAIT_MS;
+    this.concurrency = Math.max(1, options.concurrency ?? NAME_CONCURRENCY);
   }
 
   private get kto(): KtoClient {
@@ -61,36 +92,93 @@ export class PlaceNameResolver {
    * 콘텐츠 이름을 모아 온다. **못 읽은 것은 넣지 않는다** — 지어낸 이름을 보여줄 수 없다.
    *
    * 한 건이 실패해도 나머지는 준다. 이름을 못 얻는 것은 표시 문제일 뿐 판정 문제가 아니다.
+   * 예산이 다 됐으면 부르지 않고, 한도(`waitMs`) 안에 못 읽은 곳은 이번에는 빼고 준다.
    */
   async resolve(contentIds: readonly string[]): Promise<ReadonlyMap<string, string>> {
-    const out = new Map<string, string>();
-    const now = this.clock();
     const wanted = [...new Set(contentIds.filter((id) => id !== ''))];
-
-    const misses: string[] = [];
-    for (const id of wanted) {
-      const hit = this.cache.get(id);
-      if (hit !== undefined && now - hit.at < NAME_TTL_MS) out.set(id, hit.name);
-      else misses.push(id);
-    }
-
-    for (const id of misses) {
+    const misses = wanted.filter((id) => this.fresh(id) === undefined);
+    if (misses.length > 0 && (this.budget === undefined || (await this.budget()).allowed)) {
+      const all = Promise.all(misses.map((id) => this.fetch(id)));
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<void>((done) => {
+        timer = setTimeout(done, this.waitMs);
+      });
       try {
-        const detail = await this.kto.detailCommon(id);
-        const title = String(detail.title ?? '').trim();
-        if (title === '') continue;
-        out.set(id, title);
-        this.remember(id, title, now);
-      } catch (e) {
-        // 못 읽으면 그 하나만 이름 없이 간다. 화면은 유형·거리로 표시한다
-        if (!isKtoError(e)) throw e;
+        await Promise.race([all, late]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
       }
+    }
+    const out = new Map<string, string>();
+    for (const id of wanted) {
+      const name = this.fresh(id);
+      if (name !== undefined) out.set(id, name);
     }
     return out;
   }
 
+  /**
+   * 캐시에 있는 이름만 준다 — 공사를 부르지 않는다. 오늘 할 일처럼 0콜이어야 하는 곳이 다른 화면이
+   * 방금 읽어 둔 이름을 빌려 쓴다 (#908). 없거나 오래된 것은 넣지 않는다
+   */
+  peek(contentIds: readonly string[]): ReadonlyMap<string, string> {
+    const out = new Map<string, string>();
+    for (const id of new Set(contentIds)) {
+      const name = this.fresh(id);
+      if (name !== undefined) out.set(id, name);
+    }
+    return out;
+  }
+
+  private fresh(id: string): string | undefined {
+    const hit = this.cache.get(id);
+    return hit !== undefined && this.clock() - hit.at < NAME_TTL_MS ? hit.name : undefined;
+  }
+
+  /**
+   * 한 곳을 읽어 캐시에 둔다. 이미 부르는 중이면 그 조회를 같이 기다린다. 공사 오류는 이름 없이
+   * 끝나고, 공사 오류가 아닌 예외는 삼키지 않는다 — 기다리는 쪽이 받는다
+   */
+  private fetch(id: string): Promise<void> {
+    const inFlight = this.pending.get(id);
+    if (inFlight !== undefined) return inFlight;
+    const job = (async (): Promise<void> => {
+      await this.slot();
+      try {
+        const detail = await this.kto.detailCommon(id);
+        const title = String(detail.title ?? '').trim();
+        if (title !== '') this.remember(id, title, this.clock());
+      } catch (e) {
+        // 못 읽으면 그 하나만 이름 없이 간다. 화면은 유형·거리로 표시한다
+        if (!isKtoError(e)) throw e;
+      } finally {
+        this.release();
+        this.pending.delete(id);
+      }
+    })();
+    // 한도 뒤에 끝나 아무도 기다리지 않는 조회의 예외가 처리 안 된 채 떠돌지 않게 한다
+    job.catch(() => undefined);
+    this.pending.set(id, job);
+    return job;
+  }
+
+  private async slot(): Promise<void> {
+    if (this.running < this.concurrency) {
+      this.running += 1;
+      return;
+    }
+    await new Promise<void>((ready) => this.waiting.push(ready));
+  }
+
+  private release(): void {
+    const next = this.waiting.shift();
+    // 자리를 기다리던 조회에 그대로 넘긴다 — 도는 수는 그대로다
+    if (next !== undefined) next();
+    else this.running -= 1;
+  }
+
   private remember(id: string, name: string, at: number): void {
-    if (this.cache.size >= NAME_CACHE_MAX) {
+    if (!this.cache.has(id) && this.cache.size >= NAME_CACHE_MAX) {
       // 삽입 순서가 곧 오래된 순이다 (Map 의 성질)
       const oldest = this.cache.keys().next();
       if (!(oldest.done ?? false)) this.cache.delete(oldest.value as string);

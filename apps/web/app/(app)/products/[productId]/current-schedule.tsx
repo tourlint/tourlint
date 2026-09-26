@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Finding, Patch, ProductDetail } from "../../../lib/api";
+import { shownPlace } from "../../../lib/place-label";
 import { ruleName } from "../../../lib/rule-names";
 import { StatusBadge } from "../../../components/badges";
 import { dwellDefaultOf } from "../../../lib/dwell-preview";
@@ -59,7 +60,7 @@ export function CurrentSchedule({ product, finding, patch, expanded, onToggle, h
             {/* 끝 시간을 비운 줄은 검수가 채운 시각(회색)과 「기본값 적용 · N분」 (FR-IN-011 · EX-IN-009) */}
             <div className="current-schedule-time">{it.start || "시작 미입력"} – {it.end || (dwell?.preview ? <span className="text-slate-400">{dwell.end}</span> : "종료 미입력")}
               {dwell !== null && <StatusBadge status="DEFAULT_APPLIED" detail={`${dwell.minutes}분`} className="ml-1.5 align-middle" />}</div>
-            <strong>{it.place.trim() || `${TYPES[it.itemType] ?? "장소"} (이름 미입력)`}</strong>
+            <strong>{shownPlace(it) ?? `${TYPES[it.itemType] ?? "장소"} (이름 미입력)`}</strong>
             {/* 표출이 중단된 곳 — 지우지 않고 흐리게 둔다 (FR-RU-066) */}
             {hiddenItemIds.has(it.itemId) && <StatusBadge status="DISPLAY_STOPPED" className="current-schedule-hidden-badge" />}
             <div className="current-schedule-meta"><span>{it.seq}번째 · {TYPES[it.itemType] ?? it.itemType}</span>{ids.includes(it.itemId) && <b>관련 일정</b>}</div>

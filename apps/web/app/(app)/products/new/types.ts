@@ -82,9 +82,13 @@ export interface ScheduleItem {
   origin?: InputItemOrigin;
   /**
    * 편집 화면에서 불러온 줄의 저장값. 끝 시간을 비웠을 때 채워질 시각과 「기본값 적용」 을 엔진과 같은
-   * 표로 보이는 데만 쓴다 (FR-IN-011). 저장할 때 보내지 않는다
+   * 표로 보이고(FR-IN-011), 저장할 때 장소 상태를 바꿀지(확정 · 직접 정한 곳) 가른다. 그대로 보내지 않는다
    */
-  saved?: { end: string; endTimeSource?: string; lcls2?: string | null; matchStatus: string };
+  saved?: {
+    end: string; endTimeSource?: string; lcls2?: string | null; matchStatus: string;
+    /** 저장된 고른 곳. 이 줄에서 다른 곳을 고르면 저장할 때 확정한다 (FR-IN-029) */
+    contentId?: string | null;
+  };
 }
 
 // 일차별 항목 배열. index 0 = 1일차.

@@ -2,6 +2,7 @@
 // 같은 줄(id)끼리 견줘 추가 · 제거 · 변경을 색과 글자로 가른다. 두 화면이 같은 기준을 쓴다.
 
 import type { PatchItem } from "../../../lib/api";
+import { UNNAMED_PICKED } from "../../../lib/place-label";
 
 export type ChangeStatus = "same" | "changed" | "added" | "removed";
 
@@ -128,7 +129,8 @@ function ScheduleColumn({
                         {it.startTime}
                         {it.endTime ? `~${it.endTime}` : ""}
                       </span>
-                      <span className="ml-2 text-slate-800 dark:text-slate-100">{it.placeLabel}</span>
+                      {/* 이름이 빈 줄은 이름을 불러오지 못한 고른 곳이다 — 고르는 중 · 직접 정한 곳은 이름이 있다 */}
+                      <span className="ml-2 text-slate-800 dark:text-slate-100">{it.placeLabel || UNNAMED_PICKED}</span>
                       <span className="ml-2 text-xs text-slate-400">{ITEM_TYPE_LABEL[it.itemType] ?? it.itemType}</span>
                     </span>
                     {status !== "same" && (

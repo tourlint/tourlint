@@ -82,6 +82,34 @@ describe.skipIf(URL === undefined)('PlaceMatchRepository', () => {
     expect(rows[0]?.kto_content_id).toBeNull();
     expect(rows[0]?.mapx).toBeNull();
   });
+
+  it('🔴 이름을 저장하지 않은 고른 곳은 준 이름으로 제외한다 — 이름이 있는 줄은 그 이름을 둔다 (ck_item_label_required)', async () => {
+    const { rows: [picked] } = await pool.query<{ id: string; product_id: string }>(
+      `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, match_status, kto_content_id, content_type_id)
+       SELECT product_id, 1, 2, '18:00', 'DWELL_DEFAULT', NULL, 'LODGING', 'CONFIRMED', '142785', 32 FROM itinerary_item WHERE id = $1
+       RETURNING id, product_id`,
+      [itemId],
+    );
+    const nameless = Number(picked?.id);
+    expect((await repo.findItem(accountA, nameless))?.placeLabel).toBeNull();
+    await repo.exclude(nameless, '세인트존스');
+    // 수정안을 거친 줄은 이름이 빈 글로 남는다 — 그 줄도 준 이름으로 채운다
+    const { rows: [blank] } = await pool.query<{ id: string }>(
+      `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, match_status, kto_content_id, content_type_id)
+       SELECT product_id, 1, 3, '20:00', 'DWELL_DEFAULT', '', 'SIGHT', 'CONFIRMED', '126175', 12 FROM itinerary_item WHERE id = $1
+       RETURNING id`,
+      [itemId],
+    );
+    await repo.exclude(Number(blank?.id), '등대 산책');
+    // 이름이 있는 줄(경포대)에 이름을 줘도 바꾸지 않는다
+    await repo.exclude(itemId, '다른 이름');
+    const { rows } = await pool.query<{ id: string; match_status: string; place_label: string | null }>(
+      `SELECT id, match_status, place_label FROM itinerary_item WHERE id = ANY($1) ORDER BY seq`, [[itemId, nameless, Number(blank?.id)]],
+    );
+    expect(rows.map((r) => [r.match_status, r.place_label])).toEqual([
+      ['EXCLUDED', '경포대'], ['EXCLUDED', '세인트존스'], ['EXCLUDED', '등대 산책'],
+    ]);
+  });
 });
 
 async function makeAccount(pool: Pool, email: string): Promise<number> {

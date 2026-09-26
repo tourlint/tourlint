@@ -80,6 +80,8 @@ export interface ItemDetail {
   readonly place: string;
   readonly itemType: ItemType;
   readonly ktoContentId: string | null;
+  /** 고른 곳의 유형 코드. 편집 화면이 저장된 고른 곳을 고른 모양(✓)으로 연다 (UI-S2-025). 조회에서만 채운다 */
+  readonly contentTypeId: number | null;
   readonly matchStatus: MatchStatus;
   /** 좌표 — 근처 3km 담기의 앵커로 쓴다. 확정 전이면 null */
   readonly mapx: number | null;
@@ -257,8 +259,8 @@ export class ProductRepository {
     if (row === undefined) return null;
 
     const items = await this.pool.query<ItemRaw>(
-      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy, walk_id,
-              lcls_systm2, end_time_source
+      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, content_type_id, match_status, origin,
+              mapx, mapy, walk_id, lcls_systm2, end_time_source
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -541,14 +543,15 @@ export class ProductRepository {
 
   /**
    * 장소 담기로 넣는 항목 (FR-PL-013 · 4-3). 고른 공사 콘텐츠라 CONFIRMED 로 넣는다.
-   * 시각(start · end)은 서비스가 이동시간·체류시간으로 계산해 넘긴다. `afterSeq` 가 있으면
+   * 시각(start · end)과 끝 시각 출처는 서비스가 정해 넘긴다(이동시간 · 체류시간 계산이거나 편집 화면이
+   * 정한 시각). `afterSeq` 가 있으면
    * 그 순번 **다음**에 끼우고 뒤 항목을 한 칸씩 민다(없으면 그 날 끝에 붙인다). 좌표 · 분류는
    * 응답으로 온 값을 저장하고 제목 · 주소(공사 원문)는 저장하지 않는다.
    */
   async insertPickedItem(
     productId: number,
     picked: PickedItemInput,
-    placement: { start: string; end: string | null; afterSeq: number | null },
+    placement: { start: string; end: string | null; endTimeSource: 'INPUT' | 'DWELL_DEFAULT'; afterSeq: number | null },
   ): Promise<ItemDetail> {
     return withTransaction(this.pool, async (client) => {
       let seq: number;
@@ -576,7 +579,7 @@ export class ProductRepository {
                    lcls_systm2, end_time_source`,
         [
           productId, picked.dayNo, seq, placement.start, placement.end,
-          placement.end === null ? 'INPUT' : 'DWELL_DEFAULT', picked.itemType, picked.origin,
+          placement.endTimeSource, picked.itemType, picked.origin,
           picked.content.contentId, picked.content.contentTypeId,
           picked.content.lcls1, picked.content.lcls2, picked.content.lcls3, picked.content.mapx, picked.content.mapy,
         ],
@@ -750,8 +753,9 @@ async function insertItem(
     );
     return;
   }
-  // 입력하는 순간 고른 관광지가 있으면 CONFIRMED 로 넣는다 (UI-S2-020 · D8). place_label 은 사용자가
-  // 친 이름 그대로 두고(공식 명칭은 표시할 때 읽는다 · DR-PR-001) 코드·좌표·분류만 채운다.
+  // 입력하는 순간 고른 관광지가 있으면 CONFIRMED 로 넣는다 (UI-S2-020 · D8). 코드·좌표·분류만 채우고
+  // place_label 은 비운다 — 등록 화면은 고른 줄 이름을 공식 명칭으로 바꿔 보내므로 그대로 두면 공사
+  // 원문을 저장한다. 이름은 표시할 때 찾는다 — 기획 화면 장소 담기와 같다 (DR-PR-001 · DR-IN-013).
   // 줄이 들어온 경로도 남긴다 (FR-PL-020). 장소 담기로 넣은 줄은 기획 화면 장소 담기와 같이 고른
   // 방식을 비운다 — 「장소 담기에서 넣음」 은 origin 으로 표시한다 (DR-MD-002 · 003).
   if (item.content !== null) {
@@ -760,9 +764,9 @@ async function insertItem(
          (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
           kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy,
           matched_by, match_status, origin)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'CONFIRMED',$17)`,
+       VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,$8,$9,$10,$11,$12,$13,$14,$15,'CONFIRMED',$16)`,
       [
-        productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType,
+        productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.itemType,
         item.content.contentId, item.content.contentTypeId,
         item.content.lcls1, item.content.lcls2, item.content.lcls3, item.content.mapx, item.content.mapy,
         item.origin === 'PICKER' ? null : 'USER', item.origin,
@@ -894,6 +898,7 @@ interface ItemRaw {
   place_label: string | null;
   item_type: ItemType;
   kto_content_id: string | null;
+  content_type_id?: number | string | null;
   match_status: MatchStatus;
   origin: string | null;
   mapx?: number | string | null;
@@ -913,6 +918,7 @@ function toItemDetail(r: ItemRaw): ItemDetail {
     place: r.place_label ?? '',
     itemType: r.item_type,
     ktoContentId: r.kto_content_id,
+    contentTypeId: r.content_type_id == null ? null : Number(r.content_type_id),
     matchStatus: r.match_status,
     mapx: r.mapx == null ? null : Number(r.mapx),
     mapy: r.mapy == null ? null : Number(r.mapy),

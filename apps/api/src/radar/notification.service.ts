@@ -29,6 +29,8 @@ import { verdictDiff, type VerdictDiff, type VerdictLine } from './verdict-diff'
  */
 export interface PlaceNameSource {
   resolve(contentIds: readonly string[]): Promise<ReadonlyMap<string, string>>;
+  /** 캐시에 있는 이름만 — 공사를 부르지 않는다 */
+  peek?(contentIds: readonly string[]): ReadonlyMap<string, string>;
 }
 
 /**
@@ -133,6 +135,14 @@ export class NotificationService {
     const runIds = rows.flatMap((n) =>
       n.runBeforeId !== null && n.runAfterId !== null && n.contentItemIds.length > 0 ? [n.runBeforeId, n.runAfterId] : []);
     return this.repo.verdictsOfRuns(runIds);
+  }
+
+  /**
+   * 알림 목록이 읽어 둔 이름 — 공사를 부르지 않는다(0콜). 오늘 할 일이 이름을 저장하지 않은 곳을
+   * 적을 때 빌려 쓴다 (#908). 표출이 중단된 곳은 부르는 쪽이 빼고 묻는다 (FR-AU-071)
+   */
+  cachedPlaceNames(contentIds: readonly string[]): ReadonlyMap<string, string> {
+    return this.names?.peek?.(contentIds) ?? new Map();
   }
 
   async markRead(id: number, accountId: number): Promise<Record<string, unknown>> {

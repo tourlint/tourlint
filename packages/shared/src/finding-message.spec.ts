@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findingMessage, withPlaceName } from './finding-message';
+import { findingMessage, withPairNames, withPlaceName } from './finding-message';
 
 describe('검수 표시 문구', () => {
   it('저장된 분류 코드 대신 실제 장소와 기준을 표시한다', () => {
@@ -77,5 +77,47 @@ describe('장소 이름은 표시할 때 채운다 (#606)', () => {
       expect(findingMessage('R07', named, { span: { minutes: 600 } }, new Map(), '다른 이름')).toContain('식사(가람집옹심이)가');
       expect(findingMessage('R07', '2일차 09:00~18:00 연속 9시간 중 휴식()가 20분으로 최소 60분보다 짧습니다.', {}, new Map(), '안목 카페')).toContain('휴식(안목 카페)가');
     });
+  });
+});
+
+/**
+ * 겹침 · 이동은 두 곳의 이름이 문장 안에 든다. 이름을 저장하지 않은 곳(장소 담기 · 등록 화면에서 고른
+ * 곳)은 그 자리가 비어 저장된다 (DR-PR-001 · DR-IN-013).
+ */
+describe('R03 · R08 두 곳 이름은 표시할 때 채운다', () => {
+  const overlap = {
+    first: { itemId: 1, start: '10:00', end: '11:30', endTimeSource: 'INPUT' },
+    second: { itemId: 2, start: '11:00', end: '12:00', endTimeSource: 'DWELL_DEFAULT' },
+  };
+
+  it('🔴 겹침 문장의 빈 이름과 기본 체류시간 괄호를 채운다', () => {
+    const stored = '(10:00~11:30) 와 (11:00~12:00) 가 30분 겹칩니다 ( 은 기본 체류시간을 적용한 값입니다)';
+    expect(findingMessage('R03', stored, overlap, new Map(), '세인트존스 호텔', '주문진 등대'))
+      .toBe('세인트존스 호텔(10:00~11:30) 와 주문진 등대(11:00~12:00) 가 30분 겹칩니다 (주문진 등대 은 기본 체류시간을 적용한 값입니다)');
+    // 한쪽만 비었으면 그쪽만 채운다 — 저장된 이름은 그대로다
+    expect(findingMessage('R03', '경포대(10:00~11:30) 와 (11:00~12:00) 가 30분 겹칩니다', {}, new Map(), '다른 이름', '오죽헌'))
+      .toBe('경포대(10:00~11:30) 와 오죽헌(11:00~12:00) 가 30분 겹칩니다');
+  });
+
+  it('🔴 이동 문장의 빈 출발 · 도착 이름을 채운다', () => {
+    expect(findingMessage('R08', ' →  이동에 약 25분이 걸리는데 배정된 시간은 10분입니다. 5분이 모자랍니다.', {}, new Map(), '정동진해변', '하슬라아트월드'))
+      .toBe('정동진해변 → 하슬라아트월드 이동에 약 25분이 걸리는데 배정된 시간은 10분입니다. 5분이 모자랍니다.');
+    expect(withPairNames('R08', '경포해변 →  이동시간을 조회하지 못했습니다. 직접 확인해 주세요.', {}, '다른 이름', '세인트존스 호텔'))
+      .toBe('경포해변 → 세인트존스 호텔 이동시간을 조회하지 못했습니다. 직접 확인해 주세요.');
+  });
+
+  it('🔴 이름에 `$&` · `$1` · `$\'` · `$$` 가 있어도 그대로 적는다 — 치환 문자열로 읽지 않는다', () => {
+    const stored = '(10:00~11:30) 와 (11:00~12:00) 가 30분 겹칩니다 ( 은 기본 체류시간을 적용한 값입니다)';
+    const odd = "카페 $& $1 $' $$";
+    expect(findingMessage('R03', stored, overlap, new Map(), '경포대', odd))
+      .toBe(`경포대(10:00~11:30) 와 ${odd}(11:00~12:00) 가 30분 겹칩니다 (${odd} 은 기본 체류시간을 적용한 값입니다)`);
+  });
+
+  it('이름이 다 든 문장과 모양이 다른 문장은 그대로다 — 이름을 못 얻으면 지어내지 않는다', () => {
+    const named = '경포대(10:00~11:30) 와 오죽헌(11:00~12:00) 가 30분 겹칩니다 (오죽헌 은 기본 체류시간을 적용한 값입니다)';
+    expect(findingMessage('R03', named, overlap, new Map(), '딴 이름', '딴 이름')).toBe(named);
+    expect(findingMessage('R03', '30분 겹칩니다.', {})).toBe('30분 겹칩니다.');
+    expect(withPairNames('R08', ' →  이동에 약 25분이 걸리는데', {})).toBe(' →  이동에 약 25분이 걸리는데');
+    expect(withPairNames('R01', ' — 휴무일', {}, '경포대', '오죽헌')).toBe(' — 휴무일');
   });
 });

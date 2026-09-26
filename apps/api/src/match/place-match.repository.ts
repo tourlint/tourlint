@@ -14,7 +14,9 @@ export interface ItemForMatch {
   readonly productId: number;
   readonly ldongRegnCd: string;
   readonly ldongSignguCd: string | null;
-  readonly placeLabel: string;
+  /** 장소 담기 · 등록 화면에서 고른 줄은 이름을 저장하지 않아 null 이다 (DR-PR-001 · DR-IN-013) */
+  readonly placeLabel: string | null;
+  readonly walkId: string | null;
 }
 
 export interface ConfirmInput {
@@ -39,9 +41,10 @@ export class PlaceMatchRepository {
       product_id: string;
       ldong_regn_cd: string;
       ldong_signgu_cd: string | null;
-      place_label: string;
+      place_label: string | null;
+      walk_id: string | null;
     }>(
-      `SELECT it.id, it.product_id, p.ldong_regn_cd, p.ldong_signgu_cd, it.place_label
+      `SELECT it.id, it.product_id, p.ldong_regn_cd, p.ldong_signgu_cd, it.place_label, it.walk_id
          FROM itinerary_item it
          JOIN product p ON p.id = it.product_id
         WHERE it.id = $1 AND p.account_id = $2`,
@@ -55,6 +58,7 @@ export class PlaceMatchRepository {
       ldongRegnCd: row.ldong_regn_cd,
       ldongSignguCd: row.ldong_signgu_cd,
       placeLabel: row.place_label,
+      walkId: row.walk_id,
     };
   }
 
@@ -75,16 +79,20 @@ export class PlaceMatchRepository {
     );
   }
 
-  /** 검수 제외 — EXCLUDED 는 contentid 가 NULL 이어야 한다. 붙어 있던 코드·좌표도 지운다 */
-  async exclude(itemId: number): Promise<void> {
+  /**
+   * 검수 제외 — EXCLUDED 는 contentid 가 NULL 이어야 한다. 붙어 있던 코드·좌표도 지운다.
+   * 이름이 없는 줄(이름을 저장하지 않은 고른 곳 — 수정안을 거치면 NULL 이 빈 글로 남는다)은 `label` 로
+   * 채운다 — 직접 정한 곳은 이름이 있어야 한다(ck_item_label_required). 이름이 있는 줄은 그대로 둔다
+   */
+  async exclude(itemId: number, label: string | null = null): Promise<void> {
     await this.pool.query(
       `UPDATE itinerary_item
           SET kto_content_id = NULL, content_type_id = NULL,
               lcls_systm1 = NULL, lcls_systm2 = NULL, lcls_systm3 = NULL,
-              mapx = NULL, mapy = NULL,
+              mapx = NULL, mapy = NULL, place_label = COALESCE(NULLIF(place_label, ''), $2),
               match_status = 'EXCLUDED', updated_at = now()
         WHERE id = $1`,
-      [itemId],
+      [itemId, label],
     );
   }
 }

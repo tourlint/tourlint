@@ -18,7 +18,7 @@ describe("등록 저장 본문 — 줄이 들어온 경로 (FR-PL-020)", () => {
   it("🔴 줄마다 들어온 경로를 싣는다", () => {
     const items = buildPayload(base).days[0]?.items ?? [];
     expect(items.map((i) => [i.place, i.origin])).toEqual([
-      ["강릉 경포대", "TEXT"], ["세인트존스", "MANUAL"], ["주문진 등대", "PICKER"], ["초당할머니순두부", "MANUAL"],
+      ["강릉 경포대", "TEXT"], ["세인트존스", "MANUAL"], ["", "PICKER"], ["초당할머니순두부", "MANUAL"],
     ]);
     // 장소 담기로 넣은 줄은 고른 곳으로 저장된다
     expect(items[2]).toHaveProperty("content.contentId", "126175");
@@ -46,5 +46,17 @@ describe("등록 저장 본문 — 줄이 들어온 경로 (FR-PL-020)", () => {
       start: "09:30", end: "12:00", place: "", itemType: "SIGHT", excluded: { walkId: "T_CRS_MNG0000000402" }, origin: "PICKER",
     });
     expect(JSON.stringify(payload)).not.toContain("해파랑길");
+  });
+
+  it("🔴 관광지를 고른 줄은 칸에 보이는 공식 명칭을 보내지 않는다 — 서버가 표시할 때 찾는다 (DR-PR-001 · DR-IN-013)", () => {
+    const picked = { contentId: "142785", contentTypeId: 32, mapx: 128.9, mapy: 37.8, lcls1: "AC", lcls2: "AC01", lcls3: null };
+    const payload = buildPayload({ ...base, schedule: [[
+      // 장소 칸에 「세인트존스」 를 치고 후보를 고르면 칸 이름이 공식 명칭으로 바뀐다 (UI-S2-020)
+      { id: "it-1", start: "18:00", end: "", place: "세인트존스 호텔", itemType: "LODGING", origin: "MANUAL", content: picked },
+      { ...base.schedule[0]![2]! },
+    ]] });
+    expect(payload.days[0]?.items.map((i) => i.place)).toEqual(["", ""]);
+    expect(JSON.stringify(payload)).not.toContain("세인트존스");
+    expect(JSON.stringify(payload)).not.toContain("주문진 등대");
   });
 });

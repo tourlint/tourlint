@@ -329,7 +329,8 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
       const walk = typeof item.excluded === 'object' && item.excluded !== null ? str((item.excluded as Record<string, unknown>).walkId) : null;
       if (walk === '') errors.push(`${dayNo}일차 ${seq}번 걷기 길 식별자가 필요합니다.`);
 
-      if (place === '' && walk === null) errors.push(`${dayNo}일차 ${seq}번 장소명을 입력하세요.`);
+      // 고른 관광지가 있는 줄은 이름을 저장하지 않으므로 없어도 된다 — 표시할 때 찾는다 (DR-PR-001)
+      if (place === '' && walk === null && !hasContent(item)) errors.push(`${dayNo}일차 ${seq}번 장소명을 입력하세요.`);
       if (!HHMM.test(start)) errors.push(`${dayNo}일차 ${seq}번 시작 시각이 올바르지 않습니다.`);
       if (endRaw !== '' && !HHMM.test(endRaw)) errors.push(`${dayNo}일차 ${seq}번 종료 시각이 올바르지 않습니다.`);
       if (!(ITEM_TYPE as readonly string[]).includes(itemType)) {
@@ -365,8 +366,9 @@ function validateDays(rawDays: unknown, nights: number, errors: string[]): Valid
         endTime: endRaw === '' ? null : endRaw,
         // 종료 시각이 있으면 입력값, 없으면 기본 체류시간 보완 대상 (FR-IN-011)
         endTimeSource: endRaw === '' ? 'DWELL_DEFAULT' : 'INPUT',
-        // 걷기 길은 코스 이름을 저장하지 않는다 — 보내 와도 버린다 (DR-MD-005)
-        placeLabel: walkId === null ? place : '',
+        // 걷기 길은 코스 이름을, 고른 관광지는 공사 명칭을 저장하지 않는다 — 보내 와도 버린다 (DR-MD-005 · DR-PR-001).
+        // 화면이 고른 줄 이름을 공식 명칭으로 바꿔 보내므로 사용자가 친 글인지 가릴 수 없다
+        placeLabel: walkId === null && content === null ? place : '',
         itemType: itemType as ItemType,
         content: walkId === null ? content : null,
         origin: readOrigin(item.origin),
@@ -402,6 +404,9 @@ export interface PickedItemInput {
   origin: 'PICKER';
   /** 넣을 위치 — 이 항목 다음에 삽입한다 (4-3). 없으면 그 날 끝에 붙인다 */
   afterItemId: number | null;
+  /** 편집 화면이 정한 시각. 없으면 앞 항목 끝 + 이동시간 · 표준 체류시간으로 채운다 (FR-IN-014) */
+  startTime: string | null;
+  endTime: string | null;
   content: {
     contentId: string;
     contentTypeId: number;
@@ -425,8 +430,9 @@ interface RawItem {
 }
 
 /**
- * 장소 담기 넣기 검증 (FR-PL-013). 고른 공사 콘텐츠(content) · 일차 · 항목 유형만 받는다.
- * 시각 · 좌표는 서버가 채운다 — 공사 원문(제목 · 주소)은 저장하지 않는다.
+ * 장소 담기 넣기 검증 (FR-PL-013). 고른 공사 콘텐츠(content) · 일차 · 항목 유형을 받는다.
+ * 시각은 편집 화면이 정해 보내면 그대로 쓰고 아니면 서버가 채운다 — 공사 원문(제목 · 주소)은
+ * 저장하지 않는다.
  */
 export function validatePickedItem(body: Record<string, unknown> | undefined, dayCount: number): { errors: string[]; picked?: PickedItemInput } {
   const errors: string[] = [];
@@ -450,6 +456,11 @@ export function validatePickedItem(body: Record<string, unknown> | undefined, da
     ? null
     : (typeof b.afterItemId === 'number' && Number.isInteger(b.afterItemId) && b.afterItemId > 0 ? b.afterItemId : 0);
   if (afterItemId === 0) errors.push('넣을 위치가 올바르지 않습니다.');
+  const start = str(b.startTime);
+  const end = str(b.endTime);
+  if (start !== '' && !HHMM.test(start)) errors.push('시작 시각을 HH:MM 형식으로 입력하세요.');
+  if (end !== '' && !HHMM.test(end)) errors.push('종료 시각을 HH:MM 형식으로 입력하세요.');
+  if (end !== '' && start === '') errors.push('종료 시각만 보낼 수는 없습니다.');
   if (errors.length > 0) return { errors };
   return {
     errors,
@@ -458,6 +469,8 @@ export function validatePickedItem(body: Record<string, unknown> | undefined, da
       itemType: itemType as ItemType,
       origin: 'PICKER',
       afterItemId,
+      startTime: start === '' ? null : start,
+      endTime: end === '' ? null : end,
       content: {
         contentId,
         contentTypeId,
@@ -506,6 +519,11 @@ export function validateWalkItem(body: Record<string, unknown> | undefined, dayC
       endTime: end === '' ? null : end,
     },
   };
+}
+
+/** 고른 관광지를 실은 줄인가. 모양 검사는 아래에서 한다 — 여기서는 이름이 필요한지만 가른다 */
+function hasContent(item: CreateItemDto): boolean {
+  return typeof item.content === 'object' && item.content !== null;
 }
 
 function strOrNull(v: unknown): string | null {
