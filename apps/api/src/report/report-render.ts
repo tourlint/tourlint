@@ -336,6 +336,8 @@ function drawFindingBlock(doc: Doc, f: ReportFinding): void {
   ensure(doc, 54);
   const badge = SEVERITY_LABEL[f.severity] ?? f.severity;
   const marks = [
+    // 판정마다의 규칙 버전 (#848). 번호(R01)는 싣지 않는다 — 머리는 규칙 이름이다 (#473)
+    typeof f.ruleVersion === 'string' && f.ruleVersion !== '' ? `규칙 버전 ${f.ruleVersion}` : '',
     f.dismissed ? (f.dismissReason ? `무시됨 — ${f.dismissReason}` : '무시됨') : '',
     f.confirmed ? '확인함' : '',
     f.excludedFromScore ? '감점 없음' : '',

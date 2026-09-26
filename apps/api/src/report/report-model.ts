@@ -75,6 +75,8 @@ export interface ReportDay {
 
 export interface ReportFinding {
   readonly ruleCode: string;
+  /** 그 판정을 낸 규칙의 버전. 기능설명서가 「판정마다 규칙 버전을 병기」라고 적었다 (#848) */
+  readonly ruleVersion: string;
   readonly severity: Severity;
   readonly message: string;
   readonly dismissed: boolean;
@@ -334,6 +336,7 @@ export function assembleReport(input: AssembleInput): ReportModel {
     const contentId = f.targetItemId === null ? null : contentOf.get(f.targetItemId) ?? null;
     return {
       ruleCode: f.ruleCode,
+      ruleVersion: f.ruleVersion,
       severity: f.severity,
       // 이름 없이 저장된 문장은 여기서 채운다 — 리포트는 공사 명칭을 이미 읽어 뒀다 (#606)
       message: findingMessage(f.ruleCode, f.message, f.evidence, placeOf,

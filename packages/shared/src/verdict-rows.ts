@@ -47,8 +47,8 @@ const VERDICT: Readonly<Record<string, string>> = {
   FIRST: '첫 검수', UNCHANGED: '그대로', INCOMPARABLE: '비교할 이력 없음',
 };
 
-/** 명절 · 법정공휴일 (정규화 `HOLIDAY_RULES`) */
-const HOLIDAY: Readonly<Record<string, string>> = {
+/** 명절 · 법정공휴일 (정규화 `HOLIDAY_RULES`). 화면의 AI 해석 칸도 같은 말을 쓴다 (#848) */
+export const HOLIDAY_LABEL: Readonly<Record<string, string>> = {
   LUNAR_NEW_YEAR: '설날', CHUSEOK: '추석', LEGAL_HOLIDAY: '법정공휴일',
 };
 
@@ -171,7 +171,7 @@ function toRow(key: string, raw: unknown): VerdictRow | null {
       if (!Array.isArray(raw) || raw.length === 0) return null;
       const days = raw
         .filter((v): v is string => typeof v === 'string')
-        .map((v) => HOLIDAY[v] ?? v);
+        .map((v) => HOLIDAY_LABEL[v] ?? v);
       return days.length === 0 ? null : { label: '해당 날짜', value: days.join(' · ') };
     }
     case 'showFlagTurnedOff': return { label: '비표출로 바뀜', value: raw === true ? '예' : '아니오' };

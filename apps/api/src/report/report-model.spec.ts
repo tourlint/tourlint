@@ -72,6 +72,11 @@ function input(over: Partial<AssembleInput> = {}): AssembleInput {
 }
 
 describe('리포트 모델 조립', () => {
+  it('🔴 판정마다 그 규칙의 버전을 싣는다 — 기능설명서 「판정마다 규칙 버전 병기」 (#848)', () => {
+    const m = assembleReport(input({ run: run([finding({ ruleVersion: '1.0.5' })]) }));
+    expect(m.findings.map((f) => f.ruleVersion)).toEqual(['1.0.5']);
+  });
+
   it('🔴 무시된 항목 건수와 검수 제외 항목 건수를 둘 다 담는다 (FR-PA-064 · UI-S6-004)', () => {
     const m = assembleReport(input({
       run: run([finding(), finding({ id: 2, severity: 'WARNING', dismissed: true })]),
