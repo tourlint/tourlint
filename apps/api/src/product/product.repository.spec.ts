@@ -113,16 +113,16 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     const { productId } = await repo.create(accountA, product);
 
     const detail = await repo.detail(accountA, productId);
-    const byLabel = new Map(detail?.items.map((i) => [i.place, i]));
-    const matched = byLabel.get('경포대');
+    const [matched, typed] = detail?.items ?? [];
     expect(matched?.matchStatus).toBe('CONFIRMED');
     expect(matched?.ktoContentId).toBe('125790');
+    expect(matched?.contentTypeId).toBe(12);
     // 안 고른 줄은 그대로 PENDING 으로 남아 /plan 에서 이어 고른다
-    expect(byLabel.get('초당순두부')?.matchStatus).toBe('PENDING');
+    expect([typed?.place, typed?.matchStatus]).toEqual(['초당순두부', 'PENDING']);
 
     // matched_by 는 사용자가 고른 것이라 USER 다 (D8)
     const row = await pool.query<{ matched_by: string | null }>(
-      `SELECT matched_by FROM itinerary_item WHERE product_id = $1 AND place_label = '경포대'`, [productId]);
+      `SELECT matched_by FROM itinerary_item WHERE product_id = $1 AND kto_content_id = '125790'`, [productId]);
     expect(row.rows[0]?.matched_by).toBe('USER');
   });
 
@@ -144,13 +144,14 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     if (product === null) throw new Error('샘플 검증 실패');
     const { productId } = await repo.create(accountA, product);
 
-    const { rows } = await pool.query<{ place_label: string; origin: string | null; matched_by: string | null }>(
+    const { rows } = await pool.query<{ place_label: string | null; origin: string | null; matched_by: string | null }>(
       `SELECT place_label, origin, matched_by FROM itinerary_item WHERE product_id = $1 ORDER BY seq`, [productId]);
+    // 관광지를 고른 줄은 이름을 저장하지 않는다 — 화면이 보낸 것은 공식 명칭이다 (DR-PR-001 · DR-IN-013)
     expect(rows.map((r) => [r.place_label, r.origin, r.matched_by])).toEqual([
       ['경포해변', 'TEXT', null],
       ['안목해변', 'UPLOAD', null],
-      ['경포대', 'MANUAL', 'USER'],
-      ['주문진 등대', 'PICKER', null],
+      [null, 'MANUAL', 'USER'],
+      [null, 'PICKER', null],
       ['초당순두부', 'MANUAL', null],
       ['숙소', 'MANUAL', null],
     ]);

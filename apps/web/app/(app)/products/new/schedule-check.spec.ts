@@ -29,6 +29,11 @@ describe("저장 전 일정 훑기 (#673)", () => {
     expect(pruneEmptyItems([[picked]])[0]).toHaveLength(1);
   });
 
+  it("🔴 관광지를 고른 줄은 이름이 비어도 짚지 않는다 — 이름은 저장하지 않고 표시할 때 찾는다 (DR-PR-001)", () => {
+    const content = { contentId: "142785", contentTypeId: 32, mapx: 128.9, mapy: 37.8, lcls1: null, lcls2: null, lcls3: null };
+    expect(scheduleErrors([[row({ place: "", content }), row({ id: "b", place: "" })]])).toEqual(["1일차 2번 장소명을 입력하세요."]);
+  });
+
   it("다 채운 일정은 아무 말도 하지 않는다", () => {
     expect(scheduleErrors([[row(), row({ id: "b" })]])).toEqual([]);
   });

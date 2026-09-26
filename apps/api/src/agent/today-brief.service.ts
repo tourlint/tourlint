@@ -80,6 +80,11 @@ export interface TodayBriefOptions {
   readonly radar: TodayBriefSource;
   readonly llm: () => LlmClient;
   readonly lock: AgentLock;
+  /**
+   * 이름을 저장하지 않은 곳(장소 담기 · 등록 화면에서 고른 곳)의 이름 — 알림 목록이 읽어 둔 캐시에서만
+   * 꺼낸다. 공사를 부르지 않는다(0콜 · #908). 없으면 그 곳은 세기만 한다
+   */
+  readonly names?: (contentIds: readonly string[]) => ReadonlyMap<string, string>;
   readonly timeoutMs?: number;
   readonly clock?: () => number;
 }
@@ -107,6 +112,7 @@ export class TodayBriefService {
   private readonly radar: TodayBriefSource;
   private readonly llm: () => LlmClient;
   private readonly lock: AgentLock;
+  private readonly names: ((contentIds: readonly string[]) => ReadonlyMap<string, string>) | undefined;
   private readonly timeoutMs: number | undefined;
   private readonly clock: (() => number) | undefined;
 
@@ -114,6 +120,7 @@ export class TodayBriefService {
     this.radar = options.radar;
     this.llm = options.llm;
     this.lock = options.lock;
+    this.names = options.names;
     this.timeoutMs = options.timeoutMs;
     this.clock = options.clock;
   }
@@ -130,7 +137,10 @@ export class TodayBriefService {
       this.radar.lastBatchAt(),
     ]);
     const basisAt = kstIso(lastBatchAt ?? now);
-    const { candidates, quiet, newPlaces } = buildCandidates(products, changes.rows, regions);
+    // 표출이 중단된 곳은 이름을 다시 내보내지 않는다 (FR-AU-071)
+    const unnamed = changes.rows.filter((c) => !c.placeLabel && !c.hidden && c.ktoContentId !== null);
+    const names = this.names?.(unnamed.map((c) => c.ktoContentId as string)) ?? new Map<string, string>();
+    const { candidates, quiet, newPlaces } = buildCandidates(products, changes.rows, regions, names);
     // 볼 상품도 관심 지역도 없으면 모델을 부르지 않는다
     if (candidates.length === 0 && quiet.length === 0) {
       return { basisAt, todos: [], quiet: [], incomplete: null };
@@ -214,6 +224,8 @@ export function buildCandidates(
   products: readonly BriefProduct[],
   changes: readonly ChangeRow[],
   regions: readonly Record<string, unknown>[],
+  /** 이름을 저장하지 않은 곳의 이름 (contentId → 이름). 알림 목록이 읽어 둔 것이다 */
+  names: ReadonlyMap<string, string> = new Map(),
 ): {
   candidates: readonly BriefCandidate[];
   quiet: readonly BriefProduct[];
@@ -259,8 +271,8 @@ export function buildCandidates(
         startDate: product.startDate,
         released: product.released,
         changedCount: changed.length,
-        // 사용자가 입력한 장소명이다. 공사 원문이 아니다 (DR-PR-001)
-        changedPlaces: [...new Set(changed.map((c) => c.placeLabel).filter((p): p is string => p !== null))].slice(0, 5),
+        // 사용자가 입력한 장소명이다. 이름을 저장하지 않은 곳은 알림 목록이 읽어 둔 이름이다 — 저장하지 않는다 (DR-PR-001 · #908)
+        changedPlaces: [...new Set(changed.map((c) => c.placeLabel || nameOfChange(c, names)).filter((p): p is string => p !== null && p !== ''))].slice(0, 5),
         ...(added > 0 ? { newPlaceCount: added } : {}),
         ...(reaudited ? { reauditedAfter: true } : {}),
       },
@@ -384,4 +396,10 @@ function text(value: unknown): string | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null;
   const s = String(value).trim();
   return s === '' ? null : s;
+}
+
+/** 이름을 저장하지 않은 곳의 이름. 표출이 중단된 곳은 부르지 않는다 (FR-AU-071) */
+function nameOfChange(change: ChangeRow, names: ReadonlyMap<string, string>): string | null {
+  if (change.hidden || change.ktoContentId === null) return null;
+  return names.get(change.ktoContentId) ?? null;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { planApi, type Patch, type PlanPlaceDetail, type ProductDetail, type ProductItem } from "../../../lib/api";
+import { shownPlace } from "../../../lib/place-label";
 
 type ScheduleItem = ProductItem & { day: number };
 interface Change { place: string; context?: string; before: string; after: string }
@@ -14,7 +15,7 @@ function when(day: number | undefined, start?: string | null, end?: string | nul
 }
 function identity(item: ScheduleItem | undefined, id: number): Pick<Change, "place" | "context"> {
   return {
-    place: item?.place.trim() || (item ? `${TYPE_LABEL[item.itemType] ?? "장소"} (이름 미입력)` : `일정 #${id}`),
+    place: item ? (shownPlace(item) ?? `${TYPE_LABEL[item.itemType] ?? "장소"} (이름 미입력)`) : `일정 #${id}`,
     context: item ? `${item.day}일차 · ${item.seq}번째 일정` : "현재 항목 확인 불가",
   };
 }

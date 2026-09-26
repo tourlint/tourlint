@@ -428,7 +428,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>POST</td>
 <td>`/api/v1/products`</td>
-<td>상품 생성 (기본정보 + 상품 성격 + 이동수단). 만든 상품은 **기획 중**(`plannedAt: null`)이다. 본문에 기획 출처 `planOrigin` — 시작 방식 · 신호 종류 · 지역 코드 · 기간 · contentid 만, 원문 없음</td>
+<td>상품 생성 (기본정보 + 상품 성격 + 이동수단). 만든 상품은 **기획 중**(`plannedAt: null`)이다. 본문에 기획 출처 `planOrigin` — 시작 방식 · 신호 종류 · 지역 코드 · 기간 · contentid 만, 원문 없음. 관광지를 고른 줄(`content`)은 장소명을 저장하지 않는다 — 비워도 되고 보내도 버리며 표시할 때 찾는다(DR-PR-001 · DR-IN-013)</td>
 <td>FR-CM-006 · FR-IN-004·007·008 · FR-PL-001 · 020</td>
 </tr>
 <tr>
@@ -469,7 +469,7 @@ POST /api/v1/products                추가 "planOrigin": { "startedBy": "MANUAL
 POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED · RATE_LIMIT_EXCEEDED(3-4)   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
 PATCH /api/v1/products/{id}          "startDate" 변경 = 출발일 옮기기. 항목 시각은 바꾸지 않는다
 GET /api/v1/products/{id}            추가 "plannedAt", "planOrigin", "composition": { "manual": 5, "picker": 2, "excluded": 1 }
-                                     days[].items[] 마다 "lcls2", "endTimeSource": "INPUT|DWELL_DEFAULT|DWELL_FALLBACK" (끝 시간 미리보기 · 「기본값 적용」 표시용, 판정에 쓰지 않는다 · FR-IN-011), "walkId" (걷기 길 식별자 · 아니면 null. 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 · UI-S2-048)
+                                     days[].items[] 마다 "lcls2", "endTimeSource": "INPUT|DWELL_DEFAULT|DWELL_FALLBACK" (끝 시간 미리보기 · 「기본값 적용」 표시용, 판정에 쓰지 않는다 · FR-IN-011), "walkId" (걷기 길 식별자 · 아니면 null. 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 · UI-S2-048), "contentTypeId" (고른 곳의 유형 코드 · 아니면 null. 편집 화면이 저장된 고른 곳을 ✓ 로 열고 다시 찾지 않는다 · UI-S2-025)
 GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" (보드 분류용 — 차단 건수 · 안 읽은 알림은 기존 `latestAudit.counts.blocker` · `unreadNotifications` 를 쓴다)
 ```
 ## 4-3. 일정 항목 (F01)
@@ -577,7 +577,7 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 <tr>
 <td>POST</td>
 <td>`/api/v1/items/{itemId}/exclude`</td>
-<td>"직접 정한 곳으로 두기"(옛 "해당 없음") 처리. 항목은 유지하고 `EXCLUDED`로 전환. 호출처는 화면 2 편집기 행 · 기획 에이전트 카드</td>
+<td>"직접 정한 곳으로 두기"(옛 "해당 없음") 처리. 항목은 유지하고 `EXCLUDED`로 전환. 호출처는 화면 2 편집기 행 · 기획 에이전트 카드. 본문 `{placeLabel?}` — 이름을 저장하지 않은 고른 곳(장소 담기 · 등록 화면에서 고른 줄)은 이 이름(화면이 보낸 찾는 칸의 글자)으로 직접 정한 곳이 되고, 비었으면 400 `INPUT_INVALID` 다. 이름이 있는 줄은 그 이름을 그대로 둔다(DR-PR-001 · DR-IN-013)</td>
 <td>FR-IN-024·025 · FR-AG-012</td>
 </tr>
 <tr>
@@ -1058,13 +1058,13 @@ POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "item
 <tr>
 <td>POST</td>
 <td>`/api/v1/audit-runs/{runId}/check-questions`</td>
-<td>확인 필요 목록으로 곳마다 `{findingIds[], itemId, visit{dayNo, date, start}, tel: string|null, questions[]}`. 도구 결과 밖 전화번호는 `null` 로 바꾼다. `visit` 은 항목 값 그대로이고 `findingIds` 는 그 곳의 것만 남긴다 — 둘 다 서버가 채운다. 확인 필요가 0건이면 모델도 부르지 않는다. 저장 없음</td>
-<td>FR-AG-020 – 022 · 곳마다 최대 2콜(문의처 10분 캐시) + LLM 1회</td>
+<td>확인 필요 목록으로 곳마다 `{findingIds[], itemId, visit{dayNo, date, start}, tel: string|null, questions[]}`. 도구 결과 밖 전화번호는 `null` 로 바꾼다. `visit` 은 항목 값 그대로이고 `findingIds` 는 그 곳의 것만 남긴다 — 둘 다 서버가 채운다. 확인 필요가 0건이면 모델도 부르지 않는다. 모델에게 주는 곳 이름과 이유 문장은 결과 화면과 같은 표시 값이다 — 이름을 저장하지 않은 곳은 결과 화면이 읽어 둔 이름(10분 캐시)을 쓰고, 없으면 그 곳만 공통정보로 찾는다. 저장 없음</td>
+<td>FR-AG-020 – 022 · 곳마다 최대 2콜(문의처 10분 캐시) + 이름을 저장하지 않은 곳의 이름(결과 화면 캐시에 없을 때만 1콜) + LLM 1회</td>
 </tr>
 <tr>
 <td>POST</td>
 <td>`/api/v1/radar/today`</td>
-<td>`{basisAt, todos: [{kind: CHANGE|NEWS, productId?, region?, reason, action: REAUDIT|VIEW_RESULT|NEW_PLAN}], quiet: [{productId, text}]}`. 순서 · 종류 · 대상은 서버가 정하고 모델은 이유 한 줄만 쓴다 — 알림 · 새 소식에 없는 항목은 버린다. `basisAt` 은 마지막 배치 시각(없으면 지금)이다. 저장 없음</td>
+<td>`{basisAt, todos: [{kind: CHANGE|NEWS, productId?, region?, reason, action: REAUDIT|VIEW_RESULT|NEW_PLAN}], quiet: [{productId, text}]}`. 순서 · 종류 · 대상은 서버가 정하고 모델은 이유 한 줄만 쓴다 — 알림 · 새 소식에 없는 항목은 버린다. `basisAt` 은 마지막 배치 시각(없으면 지금)이다. 이름을 저장하지 않은 곳은 알림 목록이 읽어 둔 이름(10분 캐시)만 쓴다 — 공사를 부르지 않고, 없으면 세기만 한다. 표출이 중단된 곳은 이름을 쓰지 않는다. 저장 없음</td>
 <td>FR-AG-030 · 031 · 0콜 + LLM 1회</td>
 </tr>
 </table>

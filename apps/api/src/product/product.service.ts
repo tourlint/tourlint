@@ -443,6 +443,8 @@ function toDays(items: ProductDetailRow['items']): { day: number; items: unknown
       place: it.place,
       itemType: it.itemType,
       ktoContentId: it.ktoContentId,
+      // 편집 화면이 저장된 고른 곳을 ✓ 로 열고 불러올 때 다시 찾지 않는다 (UI-S2-025)
+      contentTypeId: it.contentTypeId,
       matchStatus: it.matchStatus,
       mapx: it.mapx,
       mapy: it.mapy,
