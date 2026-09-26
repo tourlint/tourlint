@@ -8,6 +8,8 @@ import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { KtoClient } from '../external/kto/kto.client';
 import { FixtureKtoTransport } from '../external/kto/transport';
 import type { Finding } from '../engine/rules/types';
+import { applyPatches } from './patch-apply';
+import type { SelectedPatch } from './patch-types';
 
 /**
  * **기대값 표(`docs/기대값표.md`)의 점수를 고정한다.**
@@ -117,6 +119,13 @@ const EXTERNAL = new Set(['R08', 'R09']);
 
 async function audit(file: string): Promise<{ findings: readonly Finding[]; score: number | null }> {
   const { product, items } = rows(load(file));
+  return auditRows(product, items);
+}
+
+async function auditRows(
+  product: ProductRow,
+  items: readonly ItineraryItemRow[],
+): Promise<{ findings: readonly Finding[]; score: number | null }> {
   const kto = new KtoClient({
     transport: new FixtureKtoTransport(KTO_DIR),
     logger: new InMemoryApiCallLogger(),
@@ -223,5 +232,39 @@ describe('픽스처 리플레이 — 기대값 표와 대조 (이슈 #438)', () 
     const festival = r.findings.filter((f) => f.ruleCode === 'R01'
       && String(f.evidence.ktoContentId ?? '') === '695592');
     expect(festival).toHaveLength(0);
+  });
+});
+
+/**
+ * 시연 상품에 수정안을 반영한 결과 (DR-TD-006 · FR-PA-040 · #883).
+ *
+ * 명세는 29 → 93 을 적었지만 그것을 검증하는 테스트가 없었고, 지금 규칙으로는 89 다 — 휴무 식당이
+ * 2일차로 가며 1일차 식사가 비고(R07 식사 · 휴식 주의), R10 결손 주의에는 수정안이 없다. 93 은 R10 이
+ * 생기기 전 숫자다. 실측을 고정하고 명세를 이 값으로 고쳤다.
+ */
+describe('시연 상품 수정안 반영 (DR-TD-006 · #883)', () => {
+  it('🔴 TP-03 에 휴무 식당 날짜 변경 · 끝난 행사 삭제를 반영하면 29 → 89점이다', async () => {
+    const { product, items } = rows(load('TP-03_violation.json'));
+    const before = await auditRows(product, items);
+    expect(before.score).toBe(29);
+
+    const pick = (rule: string, type: string): SelectedPatch => {
+      const finding = before.findings.find((f) => f.ruleCode === rule && (f.patches ?? []).some((p) => p.type === type));
+      const patch = finding?.patches?.find((p) => p.type === type);
+      if (finding === undefined || patch === undefined) throw new Error(`${rule} ${type} 수정안이 없다`);
+      return { ...patch, findingId: before.findings.indexOf(finding) + 1 } as SelectedPatch;
+    };
+    const applied = applyPatches(items, [pick('R01', 'TIME_SHIFT'), pick('R02', 'REMOVE_ITEM')]);
+    expect(applied.skipped).toEqual([]);
+
+    const after = await auditRows(product, applied.items);
+    expect(counts(after.findings)).toEqual({ BLOCKER: 0, ERROR: 0, WARNING: 2, UNVERIFIED: 1 });
+    expect(after.findings.map((f) => `${f.ruleCode}:${f.reasonCode}`).sort()).toEqual([
+      'R01:PARSE_REFERENCE',     // 갈골한과체험전시관 — 그대로
+      'R07:MEAL_REST_MISSING',   // 가람집이 2일차로 가며 1일차 식사가 빈다
+      'R10:TARGET_MISMATCH',     // 수정안이 없는 결손
+    ]);
+    expect(after.score).toBe(89);
+    expect(deduct(counts(after.findings))).toBe(after.score);
   });
 });
