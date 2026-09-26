@@ -469,7 +469,7 @@ POST /api/v1/products                추가 "planOrigin": { "startedBy": "MANUAL
 POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED · RATE_LIMIT_EXCEEDED(3-4)   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
 PATCH /api/v1/products/{id}          "startDate" 변경 = 출발일 옮기기. 항목 시각은 바꾸지 않는다
 GET /api/v1/products/{id}            추가 "plannedAt", "planOrigin", "composition": { "manual": 5, "picker": 2, "excluded": 1 }
-                                     days[].items[] 마다 "lcls2", "endTimeSource": "INPUT|DWELL_DEFAULT|DWELL_FALLBACK" (끝 시간 미리보기 · 「기본값 적용」 표시용, 판정에 쓰지 않는다 · FR-IN-011)
+                                     days[].items[] 마다 "lcls2", "endTimeSource": "INPUT|DWELL_DEFAULT|DWELL_FALLBACK" (끝 시간 미리보기 · 「기본값 적용」 표시용, 판정에 쓰지 않는다 · FR-IN-011), "walkId" (걷기 길 식별자 · 아니면 null. 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 · UI-S2-048)
 GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" (보드 분류용 — 차단 건수 · 안 읽은 알림은 기존 `latestAudit.counts.blocker` · `unreadNotifications` 를 쓴다)
 ```
 ## 4-3. 일정 항목 (F01)
@@ -489,7 +489,7 @@ GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" 
 <tr>
 <td>POST</td>
 <td>`/api/v1/products/{productId}/items`</td>
-<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`(`MANUAL` · `UPLOAD` · `TEXT` · `PICKER`, 없으면 `MANUAL` · FR-PL-020) · `excluded: true` 면 장소명을 둔 채 EXCLUDED(직접 정한 곳 · UI-S2-021). 걷기 길(`excluded{walkId}`)은 `startTime` · `endTime` 을 주면 그 시각으로 넣는다(편집 화면 · UI-S2-048) — 없으면 아래처럼 그 날 끝이다. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움). 상품에 항목이 45건이면 어느 본문이든 400 `INPUT_INVALID` 로 거부한다(상품 저장 · 넣는 수정안 확정도 같다)</td>
+<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`(`MANUAL` · `UPLOAD` · `TEXT` · `PICKER`, 없으면 `MANUAL` · FR-PL-020) · `excluded: true` 면 장소명을 둔 채 EXCLUDED(직접 정한 곳 · UI-S2-021). 걷기 길(`excluded{walkId}`)과 고른 곳(`content{…}`)은 `startTime` · `endTime` 을 주면 그 시각으로 넣는다(편집 화면 · UI-S2-048 · FR-IN-014 — 끝을 비우면 기본 체류시간 보완 대상) — 없으면 아래처럼 채운다. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움). 상품에 항목이 45건이면 어느 본문이든 400 `INPUT_INVALID` 로 거부한다(상품 저장 · 넣는 수정안 확정도 같다)</td>
 <td>FR-IN-014 · FR-PL-013 · PM-NG-011 · NF-CP-010</td>
 </tr>
 <tr>

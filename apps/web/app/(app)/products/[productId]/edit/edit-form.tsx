@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isApiError, itemApi, matchApi, productApi, type PlanPlace, type PlanWalk, type ProductDetail, type ProductUpdate } from "../../../../lib/api";
-import { isEmptyPlan, planSchedule, type EditedItem } from "../../../../lib/schedule-diff";
+import { isEmptyPlan, placeCalls, planSchedule, type EditedItem } from "../../../../lib/schedule-diff";
 import { Field, Section, Segmented, SelectInput, TextInput } from "../../new/controls";
 import { ScheduleEditor } from "../../new/schedule-editor";
 import { RegisterPlacePicker } from "../../new/register-place-picker";
@@ -168,7 +168,8 @@ export function EditForm({ productId }: { productId: number }) {
         const newIds = new Map<number, number>();
         for (const [i, add] of plan.added.entries()) {
           // 장소 담기로 고른 곳은 확정으로 넣는다 — 손으로 친 줄과 호출이 다르다 (FR-PL-013).
-          // 걷기 길은 식별자와 정한 시각만 보낸다 — 코스 이름은 보내지 않는다 (DR-MD-005 · UI-S2-048)
+          // 걷기 길은 식별자와 정한 시각만 보낸다 — 코스 이름은 보내지 않는다 (DR-MD-005 · UI-S2-048).
+          // 둘 다 적은 시각을 싣는다 — 안 실으면 서버가 앞 일정 끝으로 다시 채운다 (FR-IN-014)
           const created = add.walkId !== undefined
             ? await itemApi.addWalk(productId, { dayNo: add.dayNo, walkId: add.walkId, startTime: add.startTime, endTime: add.endTime })
             : add.content
@@ -177,6 +178,8 @@ export function EditForm({ productId }: { productId: number }) {
                 itemType: add.itemType,
                 // 분류가 빈 곳도 있다. 서버는 빈 값을 없는 것으로 받는다 (validatePickedItem)
                 content: { ...add.content, lcls1: add.content.lcls1 ?? "", lcls2: add.content.lcls2 ?? "" },
+                startTime: add.startTime,
+                endTime: add.endTime,
               })
             : await itemApi.add(productId, {
                 dayNo: add.dayNo, startTime: add.startTime, endTime: add.endTime,
@@ -200,14 +203,13 @@ export function EditForm({ productId }: { productId: number }) {
         }
       }
       /*
-       * 고르는 중이던 저장된 줄에 「직접 정한 곳으로 두기」를 골랐으면 직접 정한 곳으로 바꾼다 (UI-S2-021).
-       * 순서 · 시각 비교(planSchedule)와 따로다 — 그것만 바꿨으면 비교는 빈 계획이다
+       * 불러온 줄의 장소 상태 — 고르는 중이던 줄의 「직접 정한 곳으로 두기」는 직접 정한 곳으로(UI-S2-021),
+       * 새로 고른 곳은 기획 화면처럼 사람이 고른 것으로 확정한다(FR-IN-029). 순서 · 시각 비교와 따로다 —
+       * 그것만 바꿨으면 비교는 빈 계획이다
        */
-      for (const it of filled.flat()) {
-        if (it.itemId !== undefined && it.excluded === true && it.saved?.matchStatus === "PENDING") {
-          await matchApi.exclude(it.itemId);
-        }
-      }
+      const place = placeCalls(filled.flat());
+      for (const itemId of place.exclude) await matchApi.exclude(itemId);
+      for (const m of place.match) await matchApi.match(m.itemId, m.contentId, "USER");
       router.push(`/products/${productId}${loaded.plannedAt === null ? "/plan" : ""}`);
     } catch (e) {
       setErr(isApiError(e) ? e.message : "저장하지 못했습니다.");
@@ -419,7 +421,10 @@ function toSchedule(d: ProductDetail): Schedule {
       end: it.end ?? "",
       place: it.place,
       itemType: it.itemType as ItemType,
-      saved: { end: it.end ?? "", endTimeSource: it.endTimeSource, lcls2: it.lcls2, matchStatus: it.matchStatus },
+      // 걷기 길은 코스 이름만 보이고 고치지 않는다 — 이름을 저장하지 않는 줄이다 (UI-S2-048 · DR-MD-005).
+      // 직접 정한 곳은 그 표시를 단다 (UI-S2-021)
+      ...(it.walkId ? { walk: { walkId: it.walkId } } : it.matchStatus === "EXCLUDED" ? { excluded: true } : {}),
+      saved: { end: it.end ?? "", endTimeSource: it.endTimeSource, lcls2: it.lcls2, matchStatus: it.matchStatus, contentId: it.ktoContentId },
     }));
   }
   return days;

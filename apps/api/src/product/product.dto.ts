@@ -402,6 +402,9 @@ export interface PickedItemInput {
   origin: 'PICKER';
   /** 넣을 위치 — 이 항목 다음에 삽입한다 (4-3). 없으면 그 날 끝에 붙인다 */
   afterItemId: number | null;
+  /** 편집 화면이 정한 시각. 없으면 앞 항목 끝 + 이동시간 · 표준 체류시간으로 채운다 (FR-IN-014) */
+  startTime: string | null;
+  endTime: string | null;
   content: {
     contentId: string;
     contentTypeId: number;
@@ -425,8 +428,9 @@ interface RawItem {
 }
 
 /**
- * 장소 담기 넣기 검증 (FR-PL-013). 고른 공사 콘텐츠(content) · 일차 · 항목 유형만 받는다.
- * 시각 · 좌표는 서버가 채운다 — 공사 원문(제목 · 주소)은 저장하지 않는다.
+ * 장소 담기 넣기 검증 (FR-PL-013). 고른 공사 콘텐츠(content) · 일차 · 항목 유형을 받는다.
+ * 시각은 편집 화면이 정해 보내면 그대로 쓰고 아니면 서버가 채운다 — 공사 원문(제목 · 주소)은
+ * 저장하지 않는다.
  */
 export function validatePickedItem(body: Record<string, unknown> | undefined, dayCount: number): { errors: string[]; picked?: PickedItemInput } {
   const errors: string[] = [];
@@ -450,6 +454,11 @@ export function validatePickedItem(body: Record<string, unknown> | undefined, da
     ? null
     : (typeof b.afterItemId === 'number' && Number.isInteger(b.afterItemId) && b.afterItemId > 0 ? b.afterItemId : 0);
   if (afterItemId === 0) errors.push('넣을 위치가 올바르지 않습니다.');
+  const start = str(b.startTime);
+  const end = str(b.endTime);
+  if (start !== '' && !HHMM.test(start)) errors.push('시작 시각을 HH:MM 형식으로 입력하세요.');
+  if (end !== '' && !HHMM.test(end)) errors.push('종료 시각을 HH:MM 형식으로 입력하세요.');
+  if (end !== '' && start === '') errors.push('종료 시각만 보낼 수는 없습니다.');
   if (errors.length > 0) return { errors };
   return {
     errors,
@@ -458,6 +467,8 @@ export function validatePickedItem(body: Record<string, unknown> | undefined, da
       itemType: itemType as ItemType,
       origin: 'PICKER',
       afterItemId,
+      startTime: start === '' ? null : start,
+      endTime: end === '' ? null : end,
       content: {
         contentId,
         contentTypeId,
