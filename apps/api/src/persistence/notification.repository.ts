@@ -23,6 +23,12 @@ export interface NotificationToSave {
   readonly body: Readonly<Record<string, unknown>>;
 }
 
+/** 등록 상품에 든 콘텐츠 하나. 소개정보를 부르려면 유형이 필요하다 */
+export interface RegisteredContent {
+  readonly contentId: string;
+  readonly contentTypeId: number;
+}
+
 export class NotificationRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -117,6 +123,32 @@ export class NotificationRepository {
       out.set(row.kto_content_id, list);
     }
     return out;
+  }
+
+  /**
+   * 개별 확인 대상 — 여행이 끝나지 않은 등록 상품에 든 콘텐츠 (FR-MO-016 · EX-MO-003).
+   *
+   * 동기화 목록이 페이지 상한을 넘은 날, 배치가 목록 대신 이것을 하나씩 상세 조회한다. 범위는
+   * 조건 1 후보(`productsWithContents`)와 같다 — 검수 시작을 지났고, 여행이 끝나지 않았고
+   * (FR-MO-018), 고른 곳(`CONFIRMED`)이다. 감시 상한(FR-MO-020)은 걸지 않는다 — 조건 1 에도 없다.
+   *
+   * 여러 상품이 넣은 곳도 한 번만 부르도록 콘텐츠로 묶는다. 유형을 모르면 소개정보를 부를 수
+   * 없어 뺀다.
+   */
+  async registeredContents(today: IsoDate): Promise<readonly RegisteredContent[]> {
+    const { rows } = await this.pool.query<{ kto_content_id: string; content_type_id: number }>(
+      `SELECT DISTINCT ON (i.kto_content_id) i.kto_content_id, i.content_type_id
+         FROM product p
+         JOIN itinerary_item i ON i.product_id = p.id
+        WHERE i.match_status = 'CONFIRMED'
+          AND i.kto_content_id IS NOT NULL
+          AND i.content_type_id IS NOT NULL
+          AND p.planned_at IS NOT NULL
+          AND p.start_date + p.nights >= $1::date
+        ORDER BY i.kto_content_id, i.content_type_id`,
+      [today],
+    );
+    return rows.map((r) => ({ contentId: r.kto_content_id, contentTypeId: Number(r.content_type_id) }));
   }
 
   /**

@@ -241,7 +241,8 @@ import { SettingsRepository } from './settings/settings.repository';
           },
           /*
            * 상세 한 번으로 행사기간(조건 3)과 지문(FR-MO-036)을 둘 다 얻는다. 유형을 함께
-           * 넘겨야 유형별 필드가 채워져 온다 (EI-KT).
+           * 넘겨야 유형별 필드가 채워져 온다 (EI-KT). 목록이 페이지 상한을 넘은 날의 개별
+           * 확인(FR-MO-016)도 이것을 쓴다 — 「없음」이면 표출 중단이다.
            */
           fetchDetail: async (contentId: string, contentTypeId: number) =>
             kto().detailIntro(contentId, contentTypeId as ContentTypeId),

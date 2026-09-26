@@ -1,10 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { KtoClient } from '../external/kto';
 import { parseIsoDate } from '../engine/calendar/dates';
-import { buildContentFingerprint, compareFingerprint, type FingerprintSnapshot } from '../engine/fingerprint';
+import {
+  buildContentFingerprint, compareFingerprint, isSupportedContentTypeId, type FingerprintSnapshot,
+} from '../engine/fingerprint';
 import { isKtoError } from '../external/kto';
 import type { BatchState, BatchStateRepository, BatchStatus } from '../persistence/batch-state.repository';
-import type { NotificationRepository, NotificationToSave } from '../persistence/notification.repository';
+import type {
+  NotificationRepository, NotificationToSave, RegisteredContent,
+} from '../persistence/notification.repository';
 import {
   matchByContent, matchByEventPeriod, matchByRegion, mergeImpacts,
   type ChangedContent, type EventPeriod, type Impact, type ImpactCandidate,
@@ -31,6 +35,9 @@ import { isSyncDelay, isWeekend, kstToday, pendingDates, toKtoDate } from './syn
  *
  * **비표출 감지를 위한 별도 조회를 하지 않는다** (FR-MO-012 · EI-KT-012). 같은 응답의
  * `showflag` 로 읽는다 — `showflag` 를 지정하지 않으면 표출 · 비표출이 함께 온다.
+ *
+ * 예외는 목록이 페이지 상한을 넘은 날 하나다 (FR-MO-016). 그 날은 목록을 끝까지 읽을 수 없어
+ * 등록 상품의 콘텐츠만 하나씩 확인한다 (`confirmRegistered`).
  */
 
 /** 행사 유형. 이 유형만 개최 기간이 있다 (조건 3) */
@@ -38,8 +45,8 @@ export const FESTIVAL_TYPE_ID = 15 as const;
 
 /**
  * 동기화 목록을 한 날짜에 몇 페이지까지 읽는가 (FR-MO-016 · #773). 한 페이지가 1,000건이라
- * 20페이지면 2만 건이다 — 실측 최대는 2026-07-28 의 3,206건이었다. 넘으면
- * `HIDDEN_OVERFLOW` 로 남긴다.
+ * 20페이지면 2만 건이다 — 실측 최대는 2026-07-28 의 3,206건이었다. 넘는 날은 `HIDDEN_OVERFLOW`
+ * 로 남기고 목록 대신 등록 상품의 콘텐츠를 하나씩 확인한다 (`confirmRegistered` · #866).
  */
 export const SYNC_PAGE_LIMIT = 20;
 
@@ -214,7 +221,8 @@ export class SyncBatchJob {
     let covered: string | null = null;
     let calls = 0;
     let emptyDay: string | null = null;
-    let overflow = false;
+    /** 페이지 상한을 넘은 날. 순회는 여기서 멈추고 개별 확인으로 넘어간다 */
+    let overflowDay: string | null = null;
 
     for (const date of dates) {
       if (!(await this.hasBudget())) {
@@ -260,6 +268,14 @@ export class SyncBatchJob {
        */
       const dayItems = [...page.items];
       const total = page.totalCount ?? dayItems.length;
+      /*
+       * 상한을 넘는 날은 첫 쪽의 `totalCount` 로 이미 안다 (EX-MO-003 · #866). 20쪽을 읽고 나서
+       * 버리면 콜만 쓴다 — 그 날에서 순회를 멈추고 개별 확인으로 간다.
+       */
+      if (Math.ceil(total / Math.max(page.numOfRows ?? 0, dayItems.length)) > SYNC_PAGE_LIMIT) {
+        overflowDay = date;
+        break;
+      }
       let pageNo = 1;
       let budgetOut = false;
       while (dayItems.length < total && pageNo < SYNC_PAGE_LIMIT) {
@@ -284,28 +300,141 @@ export class SyncBatchJob {
         this.logger.warn(`예산이 남지 않아 ${date} 를 끝까지 읽지 못했다. 그 날부터 다음 배치로 넘긴다`);
         break;
       }
+      // 쪽마다 덜 채워 와 상한까지 읽고도 모자라면 이것도 넘친 날이다 — 읽은 데까지로 끝내지 않는다
       if (dayItems.length < total && pageNo >= SYNC_PAGE_LIMIT) {
-        overflow = true;
-        this.logger.error(
-          `${date} 변경 ${total}건이 페이지 상한(${SYNC_PAGE_LIMIT})을 넘어 ${dayItems.length}건만 읽었다 (BATCH_HIDDEN_OVERFLOW)`,
-        );
+        overflowDay = date;
+        break;
       }
 
       contents.push(...dayItems.map(toSyncedContent));
       covered = date;
     }
 
-    const status: BatchStatus = emptyDay !== null && covered === null
-      ? 'EMPTY'
-      : overflow ? 'HIDDEN_OVERFLOW' : 'OK';
+    /*
+     * 넘친 날은 등록 상품의 콘텐츠를 하나씩 본다 (FR-MO-016 · EX-MO-003). **다 본 뒤에만** 그
+     * 날짜를 처리한 것으로 친다 — 못 다 보면 `last_covered` 가 앞 날짜에 머물러 다음 배치가
+     * 그 날짜부터 다시 본다.
+     */
+    let checked: Confirmation = NOT_CONFIRMED;
+    if (overflowDay !== null) {
+      this.logger.error(
+        `${overflowDay} 변경이 페이지 상한(${SYNC_PAGE_LIMIT}쪽)을 넘는다 (BATCH_HIDDEN_OVERFLOW). 등록 상품의 콘텐츠를 하나씩 확인한다`,
+      );
+      checked = await this.confirmRegistered(overflowDay, now);
+      if (checked.done) covered = overflowDay;
+    }
+
+    const status: BatchStatus = overflowDay !== null
+      ? 'HIDDEN_OVERFLOW'
+      : emptyDay !== null && covered === null ? 'EMPTY' : 'OK';
     if (emptyDay !== null) {
       this.logger.warn(`${emptyDay}(어제 · 평일) 조회가 0건이다. 다음 배치가 다시 보도록 last_covered 를 올리지 않는다 (FR-MO-015)`);
     }
     await this.record(status, contents.length, now, covered);
 
-    // ── 2단계 ──
+    // ── 2단계 ── 넘친 날 앞의 날짜들. 넘친 날의 목록은 쓰지 않는다 — 개별 확인이 그 몫이다
     const { impacts, notified } = await this.findImpacts(contents, now, dates[0] ?? null);
-    return { status, dates, contents, covered, calls, skippedReason: null, impacts, notified };
+    return {
+      status, dates, contents, covered, calls, skippedReason: null,
+      impacts: [...checked.impacts, ...impacts],
+      notified: checked.notified + notified,
+    };
+  }
+
+  /**
+   * 페이지 상한을 넘은 날 — 목록 대신 등록 상품의 콘텐츠를 하나씩 확인한다 (FR-MO-016 · EX-MO-003).
+   *
+   * 여행이 끝나지 않은 등록 상품(조건 1 후보와 같은 범위)의 콘텐츠마다 소개정보를 한 번 부르고,
+   * 한 콜씩 예산 문을 지난다.
+   *
+   *   · **없는 곳은 표출 중단이다.** 공사는 숨은 곳을 「없는 곳」 으로 답한다(#745). 알림에
+   *     `hidden` 을 남기면 재검수가 그 기록으로 R06-b 차단을 낸다. 이미 표출 중단으로 남긴
+   *     곳이면 다시 알리지 않는다
+   *   · 있는 곳은 그 상품의 직전 지문과 견준다 — 조건 1 과 같은 판정(`judge`)이다
+   *
+   * **전부 확인해야 `done` 이다.** 예산이 떨어지거나 한 곳이라도 못 읽으면 그 날짜를 처리한 것으로
+   * 치지 않는다. 다음 배치가 다시 확인해도 같은 변경은 `change_key` 가 같아 두 번 들어가지 않는다.
+   */
+  private async confirmRegistered(date: string, now: Date): Promise<Confirmation> {
+    const notifications = this.notifications;
+    const fetchDetail = this.fetchDetail;
+    if (notifications === null || fetchDetail === undefined) {
+      this.logger.warn(`${date} 을 개별 확인할 수 없다 (알림 저장소 · 상세 조회 없음). 그 날부터 다음 배치로 넘긴다`);
+      return NOT_CONFIRMED;
+    }
+
+    const today = kstToday(now);
+    try {
+      const targets = (await notifications.registeredContents(today))
+        .filter((t) => isSupportedContentTypeId(t.contentTypeId));
+      const direct = await notifications.productsWithContents(targets.map((t) => t.contentId), today);
+      const previous = new Map<number, ReadonlyMap<string, FingerprintSnapshot>>();
+      const hiddenBefore = new Map<number, ReadonlySet<string>>();
+      const pending: NotificationToSave[] = [];
+      const impacts: Impact[] = [];
+      const toReaudit = new Set<number>();
+      let done = true;
+      let seen = 0;
+
+      for (const target of targets) {
+        if (!(await this.hasBudget())) {
+          done = false;
+          break;
+        }
+        let detail: Record<string, unknown> | null = null;
+        try {
+          detail = await fetchDetail(target.contentId, target.contentTypeId);
+        } catch (e) {
+          if (!isKtoError(e) || e.reasonCode !== 'CONTENT_NOT_FOUND') {
+            // 못 읽은 곳을 「안 바뀌었다」 로 넘기지 않는다 (FR-RU-051). 그 날짜는 끝난 것이 아니다
+            this.logger.warn(`콘텐츠 ${target.contentId} 를 확인하지 못했다: ${isKtoError(e) ? e.reasonCode : '알 수 없음'}`);
+            done = false;
+            continue;
+          }
+        }
+        seen++;
+
+        const content = registeredContent(target, detail);
+        for (const { productId } of direct.get(target.contentId) ?? []) {
+          let decision: { notify: boolean; reaudit: boolean; hashes: ChangeHashes };
+          if (detail === null) {
+            let known = hiddenBefore.get(productId);
+            if (known === undefined) {
+              known = await notifications.hiddenContentIds(productId);
+              hiddenBefore.set(productId, known);
+            }
+            if (known.has(target.contentId)) continue;
+            decision = UNKNOWN_CHANGE;
+          } else {
+            decision = await this.judge(productId, content, detail, previous);
+          }
+          if (decision.reaudit) toReaudit.add(productId);
+          if (!decision.notify) continue;
+
+          const impact: Impact = { productId, condition: 1, kind: 'RISK' };
+          impacts.push(impact);
+          /*
+           * 지문이 있으면 조건 1 과 같은 키다 — 목록으로 먼저 본 같은 변경과 겹치지 않는다. 없으면
+           * (표출 중단 · 지문을 못 만듦) 목록의 수정 시각이 없으니 확인한 날짜로 묶는다.
+           */
+          const changeKey = decision.hashes.to !== null
+            ? changeKeyOf(content, decision.hashes)
+            : `CHECKED:${date}`;
+          pending.push(toNotification(impact, content, decision.hashes, changeKey));
+        }
+      }
+
+      const notified = pending.length === 0 ? 0 : await notifications.insertMany(pending);
+      this.logger.log(
+        `${date} 개별 확인 ${seen}/${targets.length}곳 · 영향 ${impacts.length}건 · 새 알림 ${notified}건`
+        + (done ? '' : ' · 다 보지 못해 다음 배치가 다시 본다'),
+      );
+      await this.reaudit([...toReaudit]);
+      return { done, impacts, notified };
+    } catch (e) {
+      this.logger.error(`${date} 개별 확인에 실패했다: ${(e as Error).message}`);
+      return NOT_CONFIRMED;
+    }
   }
 
   /**
@@ -626,6 +755,37 @@ const NO_HASHES: ChangeHashes = { from: null, to: null };
 /** 비교할 수 없을 때. 모르는 것을 「안 바뀌었다」로 읽지 않는다 (FR-RU-051) */
 const UNKNOWN_CHANGE = { notify: true, reaudit: true, hashes: NO_HASHES } as const;
 
+/** 넘친 날 개별 확인의 결과. `done` 이어야 그 날짜를 처리한 것으로 친다 */
+interface Confirmation {
+  readonly done: boolean;
+  readonly impacts: readonly Impact[];
+  readonly notified: number;
+}
+
+const NOT_CONFIRMED: Confirmation = { done: false, impacts: [], notified: 0 };
+
+/**
+ * 개별 확인한 콘텐츠를 목록 항목 모양으로 (FR-MO-016). 상세가 없으면(없는 곳) 표출 중단이다.
+ *
+ * 목록에서 온 것이 아니라 모르는 값 — 수정 시각 · 등록 시각 · 지역 · 분류 · 좌표 — 은 비운다.
+ * 비어 있으면 조건 2 ~ 6 이 걸리지 않고, 알림 카드도 공사가 고친 날을 적지 않는다.
+ */
+function registeredContent(target: RegisteredContent, detail: Record<string, unknown> | null): ChangedContent {
+  return {
+    contentId: target.contentId,
+    contentTypeId: String(target.contentTypeId),
+    modifiedTime: '',
+    showFlag: detail === null ? '0' : '1',
+    createdTime: '',
+    ldongRegnCd: null,
+    ldongSignguCd: null,
+    lclsSystm2: null,
+    mapX: null,
+    mapY: null,
+    eventPeriod: detail === null ? null : toEventPeriod(detail),
+  };
+}
+
 /**
  * 재노출 판정 키 (FR-MO-036 · DB 명세서 v1.7).
  *
@@ -652,7 +812,12 @@ export function changeKeyOf(content: SyncedContent, hashes: ChangeHashes, kind: 
  * ⚠️ **공사 원문을 담지 않는다.** 상품명 · 관광지명은 화면이 자기 데이터로 채운다 —
  *    여기 담으면 알림 테이블에 원문이 남는다 (FR-MO-002).
  */
-function toNotification(impact: Impact, content: ChangedContent, hashes: ChangeHashes): NotificationToSave {
+function toNotification(
+  impact: Impact,
+  content: ChangedContent,
+  hashes: ChangeHashes,
+  changeKey: string = changeKeyOf(content, hashes, impact.kind),
+): NotificationToSave {
   return {
     productId: impact.productId,
     kind: impact.kind,
@@ -660,7 +825,7 @@ function toNotification(impact: Impact, content: ChangedContent, hashes: ChangeH
     ktoContentId: content.contentId,
     hashFrom: hashes.from,
     hashTo: hashes.to,
-    changeKey: changeKeyOf(content, hashes, impact.kind),
+    changeKey,
     body: {
       condition: impact.condition,
       contentTypeId: content.contentTypeId,

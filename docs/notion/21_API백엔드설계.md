@@ -2279,6 +2279,10 @@ public interface AuditRule {
         │                     주말 · 이틀 지난 평일의 0건은 변경 없는 날로 보고 넘어간다
         ├─ 비표출 페이지 상한(20) 초과 → BATCH_HIDDEN_OVERFLOW
         │                     배치 중단 후 등록 상품 contentid 개별 확인으로 전환
+        │                     초과는 그 날짜 첫 쪽 totalCount 로 안다 · 그 날에서 순회를 멈춘다
+        │                     여행이 끝나지 않은 등록 상품의 contentid 마다 detailIntro2 1콜 (예산 게이트)
+        │                     없음 = 표출 중단 알림 · 있음 = 직전 지문 비교(조건 1 과 같은 판정)
+        │                     전부 확인해야 last_covered 를 그 날짜로 올린다
         └─ 예산 소진율 80% 도달 → 중단하고 다음 회차로 이월
         │
 [2단계] 변경분 중 등록 상품에 포함된 contentid만 상세 재호출

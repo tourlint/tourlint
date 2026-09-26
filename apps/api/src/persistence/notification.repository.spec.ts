@@ -332,6 +332,36 @@ describe.skipIf(URL === undefined)('NotificationRepository — 실 DB', () => {
         .not.toContain(productId);
     });
 
+    it('🔴 넘친 날 개별 확인 대상은 조건 1 후보와 같은 범위다 — 콘텐츠마다 한 번 (FR-MO-016 · #866)', async () => {
+      /*
+       * 이 스펙만 쓰는 contentid 로 본다. 공용 테스트 DB 라 전체 목록의 길이는 볼 수 없다.
+       * 잡혀야 하는 것: 검수 시작을 지났고 여행이 안 끝난 상품의 고른 곳. 두 상품이 같이 넣었어도 한 줄.
+       */
+      const [keep, planning, past, pending, untyped] = ['777000001', '777000002', '777000003', '777000004', '777000005'];
+      const products = await pool.query<{ id: string }>(
+        `INSERT INTO product (account_id, name, ldong_regn_cd, start_date, nights, transport, planned_at)
+         VALUES ($1, '감시 상품 A', '51', '2099-09-10', 1, 'CAR', now()),
+                ($1, '감시 상품 B', '51', '2099-09-11', 0, 'CAR', now()),
+                ($1, '기획 중', '51', '2099-09-10', 1, 'CAR', NULL),
+                ($1, '지난 여행', '51', '2020-01-01', 1, 'CAR', now())
+         RETURNING id`, [accountId]);
+      const [a, b, planningId, pastId] = products.rows.map((r) => Number(r.id));
+      await pool.query(
+        `INSERT INTO itinerary_item
+           (product_id, day_no, seq, start_time, end_time_source, place_label, item_type, kto_content_id, content_type_id, match_status)
+         VALUES ($1, 1, 1, '10:00', 'INPUT', 'x', 'SIGHT', $5, 12, 'CONFIRMED'),
+                ($2, 1, 1, '10:00', 'INPUT', 'x', 'SIGHT', $5, 12, 'CONFIRMED'),
+                ($3, 1, 1, '10:00', 'INPUT', 'x', 'SIGHT', $6, 12, 'CONFIRMED'),
+                ($4, 1, 1, '10:00', 'INPUT', 'x', 'SIGHT', $7, 12, 'CONFIRMED'),
+                ($1, 1, 2, '12:00', 'INPUT', 'x', 'SIGHT', $8, 12, 'PENDING'),
+                ($2, 1, 2, '12:00', 'INPUT', 'x', 'SIGHT', $9, NULL, 'CONFIRMED')`,
+        [a, b, planningId, pastId, keep, planning, past, pending, untyped],
+      );
+
+      const mine = (await repo.registeredContents('2026-08-27')).filter((r) => r.contentId.startsWith('777'));
+      expect(mine).toEqual([{ contentId: keep, contentTypeId: 12 }]);
+    });
+
     it('🔴 기획 중 상품(planned_at NULL)은 조건 1 · 2 · 3 후보에서 빠진다 (#492 · B6 함정)', async () => {
       // 아직 검수 시작을 안 누른 상품은 F13 영향 탐색·알림 대상이 아니다
       const planning = await pool.query<{ id: string }>(
