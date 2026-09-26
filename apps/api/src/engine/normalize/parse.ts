@@ -2,7 +2,7 @@ import type { ContentTypeId } from '@tourlint/shared';
 import { parseClosedRaw } from './closed';
 import { parseHoursRaw } from './hours';
 import { mergeNormalized } from './merge';
-import { splitNotes, stripFormatting } from './preprocess';
+import { splitNotes, stripFormatting, truncateFragment } from './preprocess';
 import { parseTimeOfDay } from './primitives';
 import { emptyNormalized, type NormalizedOperatingInfo, type UnparsedFragment } from './types';
 
@@ -83,7 +83,11 @@ export function parseOperatingInfo(input: ParseOperatingInfoInput): NormalizedOp
     }
   }
 
-  return mergeNormalized({ sourceFieldNames, closedHits, hoursGroups, unparsed });
+  // 연중무휴 뒤 괄호 · 주석을 못 읽었으면 그 안에 예외가 있을 수 있다 — 연중무휴를 추정으로 둔다 (FR-AU-012 · #855)
+  const alwaysOpenExceptionsUnread = closedHits.some((h) => h.kind === 'ALWAYS_OPEN')
+    && (closed?.unparsedFragments.length ?? 0) > 0;
+
+  return mergeNormalized({ sourceFieldNames, closedHits, hoursGroups, unparsed, alwaysOpenExceptionsUnread });
 }
 
 /**
@@ -134,7 +138,8 @@ function readTimeField(
   // `15:00` · `오후 3시` · `- 입실 15:00` 어느 쪽이든 시각 하나만 뽑는다
   const m = /(\d{1,2}\s*(?::\s*\d{2}|시(?:\s*\d{1,2}\s*분)?))/.exec(main);
   const time = m === null ? null : parseTimeOfDay(m[1] as string);
-  if (time === null) unparsed.push({ fragment: main, reason: 'SCHEMA_INVALID', affects: [path] });
+  // 숙박은 병합(mergeNormalized)을 안 거친다 — 여기서 자르지 않으면 원문이 통째로 저장된다 (DR-PR-003 · #855)
+  if (time === null) unparsed.push({ fragment: truncateFragment(main), reason: 'SCHEMA_INVALID', affects: [path] });
   return time;
 }
 

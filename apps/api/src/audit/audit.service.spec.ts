@@ -1273,7 +1273,8 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       const row = rows.find((r) => r.contentid === '3539725');
       expect(row, '갈골한과체험전시관의 확인 필요 항목이 없다').toBeDefined();
       expect(row?.placeLabel, '저장은 안 했지만 표시 이름은 있어야 한다').toBe('갈골한과체험전시관');
-      expect(row?.reason).toBe('갈골한과체험전시관 — 휴무일 정보를 확인할 수 없습니다');
+      // 문장은 남은 조각의 사유를 따른다 — `예약시 운영` 은 참조형이다 (EX-PS-002 · #855)
+      expect(row?.reason).toBe('갈골한과체험전시관 — 휴무일을 홈페이지 · 문의로 안내하고 있어 데이터로 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요');
     });
 
     it('일정 항목을 못 넘겨도 빈 값으로 응답한다 — 목록이 깨지지 않는다', async () => {

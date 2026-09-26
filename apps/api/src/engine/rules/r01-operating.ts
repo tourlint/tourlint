@@ -5,6 +5,7 @@ import {
   type CalendarDate,
 } from '../calendar/dates';
 import type { HolidayCalendar } from '../calendar/holidays';
+import { openRangeCount } from '../normalize/fallback';
 import { toMinutes } from '../normalize/primitives';
 import type {
   ConditionalRule, DayOfWeek, HoursEntry, NormalizedOperatingInfo, TimeOfDay,
@@ -28,13 +29,15 @@ import {
  */
 
 /**
+ * `1.0.6` — 휴무 · 운영시간을 모를 때(1-7 · 2-4) 남은 조각의 사유로 말한다 — 대상별 상이 · 참조형 · 조건 ·
+ *   여러 범위 (EX-PS-002 · EX-PS-007 · #855). 전에는 늘 「… 정보를 확인할 수 없습니다」 였다
  * `1.0.5` — 게이트는 아직 남은 미해석 조각이 가리키는 경로만 본다. AI 가 읽어 뺀 조각은 해석된 것이다 (#784)
  * `1.0.4` — 「연다」 로 끝난 판정에도 신뢰도 게이트를 건다. UNPARSED 경로의 값으로 정상 판정하지 않는다 (#771)
  * `1.0.3` — 휴무일 필드가 없는 유형(축제 15 · 숙박 32)을 R01 **전체**에서 뺀다 (이슈 #436)
  * `1.0.2` — 축제의 휴무 확인 불가만 막았다. 운영시간 단계로 흘러가 문제를 옮기기만 했다
  * `1.0.1` — 조건부 휴무 문구에서 원문을 뺐다 (FR-AU-071 계열 · DR-NM-014 · 이슈 #361)
  */
-export const R01_VERSION = '1.0.5';
+export const R01_VERSION = '1.0.6';
 
 /**
  * 1단계 결과.
@@ -302,6 +305,36 @@ function openGate(
   return unverified(item, placeLine(item, text), { step: '5', date: item.date }, UNPARSED_REASON_CODE[reason]);
 }
 
+/** 운영시간 축 경로 — 2-4 에서 모르는 까닭을 찾을 때 본다 */
+const HOURS_AXIS_PATHS = ['openHours', 'dayOfWeekHours', 'seasonalHours'] as const;
+
+/**
+ * 모른다고 할 때의 까닭 (EX-PS-002 · EX-PS-007 · #855). 아직 남은 미해석 조각 가운데 그 축을 가리키는
+ * 것의 사유로 문장과 사유코드를 고른다. 없으면 `null` — 부르는 쪽이 종전 문장을 쓴다.
+ *
+ * 한 조각에 시각 범위가 둘 이상이면(`야외공간 09:00~18:00 / 실내시설 09:00~17:00`) 「조건이 붙어」 가
+ * 아니라 여러 개라서 모른다고 말한다 — 파서가 하나를 고르지 않은 까닭이 그것이다 (FR-AU-014).
+ */
+function unknownBecause(
+  item: AuditItem,
+  n: NormalizedOperatingInfo,
+  paths: readonly string[],
+  axis: '휴무일' | '운영시간',
+  step: string,
+): Finding | null {
+  const fragment = n.unparsed.find((u) => u.affects.some((a) => paths.includes(a)));
+  if (fragment === undefined) return null;
+  const lead = axis === '운영시간' && fragment.reason === 'CONDITIONAL' && openRangeCount(fragment.fragment) > 1
+    ? '운영시간이 여러 가지로 안내되어 방문 시각에 열려 있는지 데이터로'
+    : UNPARSED_REASON_TEXT[fragment.reason](axis);
+  return unverified(
+    item,
+    placeLine(item, `${lead} 확인할 수 없습니다. 출시 전 운영기관에 직접 확인해 주세요`),
+    { step, date: item.date },
+    UNPARSED_REASON_CODE[fragment.reason],
+  );
+}
+
 /** [4단계] 등급 매핑 */
 const SEVERITY_BY_VERDICT: Readonly<Record<string, { severity: Severity; reason: ReasonCode }>> = {
   CLOSED: { severity: 'BLOCKER', reason: 'REST_DAY_CONFLICT' },
@@ -375,9 +408,11 @@ export class R01OperatingRule implements AuditRule {
     }
 
     if (closed.kind === 'UNKNOWN') {
-      findings.push(unverified(item, placeLine(item, '휴무일 정보를 확인할 수 없습니다'), {
-        step: closed.step, date: item.date,
-      }, 'REST_DAY_UNCERTAIN'));
+      // 1-2(공휴일 달력이 없는 해)는 원문 탓이 아니다 — 남은 조각의 사유를 붙이지 않는다
+      findings.push((closed.step === '1-7' ? unknownBecause(item, n, CLOSED_AXIS_PATHS, '휴무일', closed.step) : null)
+        ?? unverified(item, placeLine(item, '휴무일 정보를 확인할 수 없습니다'), {
+          step: closed.step, date: item.date,
+        }, 'REST_DAY_UNCERTAIN'));
       return findings;
     }
 
@@ -386,9 +421,10 @@ export class R01OperatingRule implements AuditRule {
     if (selected === null) {
       // 휴무가 아니라 운영시간을 모르는 것이다. `REST_DAY_UNCERTAIN` 을 달면 화면에
       // "휴무일 확인 불가" 로 뜬다
-      findings.push(unverified(item, placeLine(item, '운영시간 정보를 확인할 수 없습니다'), {
-        step: '2-4', date: item.date,
-      }, 'PARSE_MISSING'));
+      findings.push(unknownBecause(item, n, HOURS_AXIS_PATHS, '운영시간', '2-4')
+        ?? unverified(item, placeLine(item, '운영시간 정보를 확인할 수 없습니다'), {
+          step: '2-4', date: item.date,
+        }, 'PARSE_MISSING'));
       return findings;
     }
 

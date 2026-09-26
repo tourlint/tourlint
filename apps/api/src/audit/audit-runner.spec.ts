@@ -1108,7 +1108,8 @@ describe('외부 조회 상한은 차단부터 쓴다 (#602 · NF-PF-014)', () =
     for (const f of blockers) {
       expect((f.patches ?? []).map((p) => p.type), `${f.reasonCode} 에 대체가 없다`).toContain('REPLACE_CONTENT');
     }
-    const unsure = result.findings.find((f) => f.reasonCode === 'REST_DAY_UNCERTAIN');
+    // 사유코드는 남은 조각의 사유를 따른다(#855) — 등급으로 찾는다
+    const unsure = result.findings.find((f) => f.ruleCode === 'R01' && f.severity === 'UNVERIFIED');
     expect((unsure?.patches ?? []).map((p) => p.type), '확인 불가가 굶었다').toContain('REPLACE_CONTENT');
     expect((result.findings.find((f) => f.ruleCode === 'R10')?.patches ?? []).length,
       'R10 이 수정안 없이 남았다').toBeGreaterThan(0);

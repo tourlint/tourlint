@@ -60,6 +60,20 @@ describe('수정안은 표시 문구를 담지 않는다 (DR-PR-001)', () => {
   });
 });
 
+describe('R01 — 휴무를 몰라서 낸 확인 불가(1-7)는 휴무 쪽 수정안이다 (#855)', () => {
+  it('🔴 사유가 PARSE_* 여도 같은 날 순서 교체를 내지 않는다 — 순서를 바꿔도 휴무는 안 풀린다', () => {
+    const target = item({ day: 1, start: '10:00', end: '11:00', rest: '※ 점포별 상이함', use: '09:00~18:00' });
+    const other = item({ day: 1, start: '12:00', end: '13:00', rest: '연중무휴', use: '09:00~18:00' });
+    const patches = proposeLocalPatches({
+      finding: finding({
+        targetItemId: target.id, severity: 'UNVERIFIED', reasonCode: 'PARSE_TARGET_VARIES', evidence: { step: '1-7' },
+      }),
+      items: [target, other], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(patches.map((p) => p.type)).not.toContain('REORDER');
+  });
+});
+
 describe('R01 — 휴무 충돌이면 날짜를 바꾼다 (FR-RU-013①)', () => {
   it('그 콘텐츠가 열려 있는 다른 일차를 고른다', () => {
     // 매주 화요일 휴무. 1일차(10/22 목)는 열려 있다
