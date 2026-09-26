@@ -336,6 +336,8 @@ function drawFindingBlock(doc: Doc, f: ReportFinding): void {
   ensure(doc, 54);
   const badge = SEVERITY_LABEL[f.severity] ?? f.severity;
   const marks = [
+    // 판정마다의 규칙 버전 (#848). 번호(R01)는 싣지 않는다 — 머리는 규칙 이름이다 (#473)
+    typeof f.ruleVersion === 'string' && f.ruleVersion !== '' ? `규칙 버전 ${f.ruleVersion}` : '',
     f.dismissed ? (f.dismissReason ? `무시됨 — ${f.dismissReason}` : '무시됨') : '',
     f.confirmed ? '확인함' : '',
     f.excludedFromScore ? '감점 없음' : '',
@@ -452,6 +454,10 @@ function drawProvenance(doc: Doc, m: ReportModel): void {
   doc.moveDown(0.2);
   doc.font('bold').fontSize(SMALL).fillColor('#111827')
     .text(p.source, MARGIN, doc.y, { width: contentWidth(doc) });
+  // 판정에 쓴 외부 자료 — 기상청 평년값은 기준 평년과 함께 (NF-CO-023 · #849)
+  for (const line of p.externalSources) {
+    doc.text(line, MARGIN, doc.y, { width: contentWidth(doc) });
+  }
 }
 
 /**

@@ -124,6 +124,10 @@ export interface ClimateNormal {
   readonly rainRatio: number;
   /** 화면 문장에 들어가는 지역명 (FR-RU-092) */
   readonly regionName: string;
+  /** 기준 평년 — 표에 저장된 값 그대로(`1991-2020`). 화면에 함께 적는다 (EI-WX-004 · #849) */
+  readonly normalPeriod: string;
+  /** 표에 저장된 출처(`출처: 기상청 기상자료개방포털 · 대표지점 강릉`) */
+  readonly sourceNote: string;
 }
 
 export interface AuditRunnerOptions {
@@ -848,6 +852,7 @@ export class AuditRunner {
             ok: true, source: 'CLIMATE',
             probability: normal.rainRatio, rainDays: normal.rainDays,
             regionName: normal.regionName, month,
+            normalPeriod: normal.normalPeriod, sourceNote: normal.sourceNote,
           });
         }
       } catch {

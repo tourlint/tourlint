@@ -59,6 +59,13 @@ describe('판정 입력값을 사람 말로 (#478)', () => {
     ]);
   });
 
+  it('🔴 기준 평년 · 평년값 출처를 이름표를 붙여 보인다 (EI-WX-004 · #849)', () => {
+    expect(verdictRows({ normalPeriod: '1991~2020', normalSource: '기상청 기상자료개방포털 · 대표지점 제주' })).toEqual([
+      { label: '기준 평년', value: '1991~2020' },
+      { label: '평년값 출처', value: '기상청 기상자료개방포털 · 대표지점 제주' },
+    ]);
+  });
+
   it('🔴 평년 경로도 전부 한글이다 (R09) — 조건부 스프레드 안이라 #480 에서 빠졌다', () => {
     expect(verdictRows(REAL.R09)).toEqual([
       { label: '방문일', value: '2026-12-05' },

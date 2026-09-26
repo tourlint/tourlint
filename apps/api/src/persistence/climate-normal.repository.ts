@@ -34,8 +34,11 @@ export class ClimateNormalRepository implements ClimateNormalLookup {
     if (station === null) return null;
 
 
-    const { rows } = await this.pool.query<{ rain_days: string; rain_ratio: string }>(
-      `SELECT rain_days, rain_ratio FROM climate_normal WHERE ldong_regn_cd = $1 AND month = $2`,
+    const { rows } = await this.pool.query<{
+      rain_days: string; rain_ratio: string; normal_period: string; source_note: string;
+    }>(
+      `SELECT rain_days, rain_ratio, normal_period, source_note
+         FROM climate_normal WHERE ldong_regn_cd = $1 AND month = $2`,
       [ldongRegnCd, month],
     );
     const row = rows[0];
@@ -46,6 +49,10 @@ export class ClimateNormalRepository implements ClimateNormalLookup {
     // NUMERIC 은 문자열로 온다. 못 읽으면 0 으로 뭉개지 않고 없는 것으로 본다
     if (!Number.isFinite(rainDays) || !Number.isFinite(rainRatio)) return null;
 
-    return { rainDays, rainRatio, regionName: station.name };
+    // 기준 평년 · 출처는 저장된 값을 그대로 화면까지 보낸다 (EI-WX-004 · #849). 전에는 저장만 했다
+    return {
+      rainDays, rainRatio, regionName: station.name,
+      normalPeriod: row.normal_period.trim(), sourceNote: row.source_note.trim(),
+    };
   }
 }

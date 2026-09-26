@@ -73,14 +73,28 @@ describe.skipIf(URL === undefined)('ClimateNormalRepository — 실 DB', () => {
     await pool.query(
       `INSERT INTO climate_normal (ldong_regn_cd, month, rain_days, rain_ratio, normal_period, source_note)
        VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (ldong_regn_cd, month) DO UPDATE SET rain_days = EXCLUDED.rain_days, rain_ratio = EXCLUDED.rain_ratio`,
+       ON CONFLICT (ldong_regn_cd, month) DO UPDATE SET rain_days = EXCLUDED.rain_days, rain_ratio = EXCLUDED.rain_ratio,
+         normal_period = EXCLUDED.normal_period, source_note = EXCLUDED.source_note`,
       [sido, month, rainDays, ratio, CLIMATE_NORMAL_PERIOD, CLIMATE_SOURCE_NOTE],
     );
   }
 
   it('시도 · 월로 찾고 지점명을 붙여 준다 (FR-RU-092)', async () => {
     await seed('51', 9, 9.2, 0.307);
-    expect(await repo.find('51', 9)).toEqual({ rainDays: 9.2, rainRatio: 0.307, regionName: '강릉' });
+    expect(await repo.find('51', 9)).toEqual({
+      rainDays: 9.2, rainRatio: 0.307, regionName: '강릉',
+      normalPeriod: CLIMATE_NORMAL_PERIOD, sourceNote: CLIMATE_SOURCE_NOTE,
+    });
+  });
+
+  it('🔴 기준 평년 · 출처는 표에 저장된 값을 그대로 준다 — 상수로 채우지 않는다 (EI-WX-004 · #849)', async () => {
+    await pool.query(
+      `INSERT INTO climate_normal (ldong_regn_cd, month, rain_days, rain_ratio, normal_period, source_note)
+       VALUES ('51', 9, 9.2, 0.307, '1981-2010', '출처: 시험 자료 · 대표지점 강릉')
+       ON CONFLICT (ldong_regn_cd, month)
+       DO UPDATE SET normal_period = EXCLUDED.normal_period, source_note = EXCLUDED.source_note`,
+    );
+    expect(await repo.find('51', 9)).toMatchObject({ normalPeriod: '1981-2010', sourceNote: '출처: 시험 자료 · 대표지점 강릉' });
   });
 
   it('🔴 그 시도 · 월이 없으면 null 이다 — 다른 달로 대신 채우지 않는다', async () => {

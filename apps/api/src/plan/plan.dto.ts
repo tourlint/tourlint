@@ -68,6 +68,8 @@ export function readPlacesQuery(raw: RawPlacesQuery): PlacesQuery {
 export interface RawPlaceDetailQuery {
   contentId?: string;
   contentTypeId?: string;
+  /** `accessible,pet` — 목록에서 그렇게 표시된 축만 (#850) */
+  with?: string;
 }
 
 /** 카드 「자세히」 조회 — contentId 와 지원 유형(contentTypeId)이 있어야 한다 */
@@ -78,7 +80,17 @@ export function readPlaceDetailQuery(raw: RawPlaceDetailQuery): PlaceDetailQuery
   if (!Number.isInteger(contentTypeId) || !(CONTENT_TYPE_ID as readonly number[]).includes(contentTypeId)) {
     throw new BadRequestException(`contentTypeId 는 ${CONTENT_TYPE_ID.join(' · ')} 중 하나여야 합니다.`);
   }
-  return { contentId, contentTypeId };
+  const want = readWith(raw.with);
+  return want === undefined ? { contentId, contentTypeId } : { contentId, contentTypeId, want };
+}
+
+/** `with=accessible,pet`. 모르는 축은 조용히 무시하지 않고 튕긴다 — 관광지 1건 조회와 같은 규칙 */
+function readWith(raw: string | undefined): { accessible: boolean; pet: boolean } | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const axes = raw.split(',').map((s) => s.trim()).filter((s) => s !== '');
+  const unknown = axes.filter((a) => a !== 'accessible' && a !== 'pet');
+  if (unknown.length > 0) throw new BadRequestException('with 는 accessible · pet 만 받습니다.');
+  return { accessible: axes.includes('accessible'), pet: axes.includes('pet') };
 }
 
 /** 지역만 받는 조회(걷기 길) */

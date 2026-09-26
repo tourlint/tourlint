@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.57</td>
+<td>API · 백엔드 설계 v2.58</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -969,14 +969,14 @@ GET /api/v1/rules             기존 응답에 규칙마다 추가
 </tr>
 <tr>
 <td>GET</td>
-<td>`/api/v1/plan/place-detail?contentId&contentTypeId`</td>
-<td>카드 「자세히」 — 그 콘텐츠의 이용시간 · 쉬는 날 · 요금 · 주차 · (축제는) 행사 기간. `detailIntro2` 1콜을 그때그때 실호출한다(**캐시 없음** — 펼칠 때마다). `place-facts`(4-2)와 같은 유형별 매핑을 쓰되 상품 · 항목이 아니라 contentId 로 부르므로 저장 전 카드에도 쓴다. 소개정보를 못 받으면 값은 `null`. 원문은 응답으로만 흐르고 저장하지 않는다. 무장애 · 반려동물은 목록 응답에 이미 있어 여기서 내지 않는다</td>
-<td>FR-PL-012 · 1콜 · 검수와 같은 게이트</td>
+<td>`/api/v1/plan/place-detail?contentId&contentTypeId&with`</td>
+<td>카드 「자세히」 — 그 콘텐츠의 이용시간 · 쉬는 날 · 요금 · 주차 · 문의 · (축제는) 행사 기간. `detailIntro2` 1콜을 그때그때 실호출한다(**캐시 없음** — 펼칠 때마다). `place-facts`(4-2)와 같은 유형별 매핑을 쓰되 상품 · 항목이 아니라 contentId 로 부르므로 저장 전 카드에도 쓴다. 소개정보를 못 받으면 값은 `null`. 원문은 응답으로만 흐르고 저장하지 않는다. `with=accessible,pet` 이면 목록에서 그렇게 표시된 축의 상세(`detailWithTour2` · `detailPetTour2`)를 1콜씩 함께 부른다 — 목록은 해당 여부만 알려 준다. 축이 막히거나 실패하면 그 축만 `null`, 다른 값이 오면 400 (#850)</td>
+<td>FR-PL-012 · 1콜 + 축마다 1콜 · 국문은 검수와 같은 게이트, 축은 각 서비스 예산</td>
 </tr>
 <tr>
 <td>GET</td>
 <td>`/api/v1/contents/{contentId}?with=accessible,pet`</td>
-<td>기존 엔드포인트 확장. 좌표 · 분류 · 유형(#517)과 요청한 조건 축(무장애 · 반려동물)을 낸다 — 축마다 1콜, `with` 에 다른 값이 오면 400, 축이 막히거나 실패하면 그 축만 `null`. 카드 「자세히」의 이용시간 · 쉬는 날 · 요금 · 주차는 핑거프린트 필드만 담는 이 응답이 아니라 `/plan/place-detail` 이 낸다</td>
+<td>기존 엔드포인트 확장. 좌표 · 분류 · 유형(#517)과 요청한 조건 축(무장애 · 반려동물)을 낸다 — 축마다 1콜, `with` 에 다른 값이 오면 400, 축이 막히거나 실패하면 그 축만 `null`. 카드 「자세히」는 핑거프린트 필드만 담는 이 응답이 아니라 `/plan/place-detail` 이 낸다(조건 축 포함 · #850)</td>
 <td>FR-PL-012</td>
 </tr>
 <tr>
@@ -1017,8 +1017,9 @@ GET /api/v1/plan/places?scope=NEAR3KM&nearKind=MEAL|CAFE|STAY&anchor=128.89,37.7
 GET /api/v1/plan/events?regnCd&signguCd&startDate&nights   → { "window": { "from", "to" }, "items": PlanEvent[] }
 GET /api/v1/plan/walks?regnCd&signguCd                     → { "items": PlanWalk[], "notice": "넣으면 직접 정한 곳으로 들어가요" }
     두루누비 courseList 1콜(지역 조건 없음 · 전국 코스 · 10분 캐시)을 코스의 시군구 글자(sigun)로 거른다. 코스에 좌표가 없어 앵커가 되지 않는다
-GET /api/v1/plan/place-detail?contentId=125790&contentTypeId=12
-  → { "contentId", "hours", "restDays", "fee", "parking", "eventPeriod" }   값은 공사 원문 · 응답으로만 · 저장 없음. 원문의 `<br>` 만 개행으로 바꿔 보낸다(#762)
+GET /api/v1/plan/place-detail?contentId=125790&contentTypeId=12&with=accessible
+  → { "contentId", "hours", "restDays", "fee", "parking", "eventPeriod", "contact", "accessible"?: {...} | null, "pet"?: {...} | null }
+    값은 공사 원문 · 응답으로만 · 저장 없음. 원문의 `<br>` 만 개행으로 바꿔 보낸다(#762). accessible · pet 은 요청한 축만 실린다(#850)
     detailIntro2 1콜을 캐시 없이 실호출한다(펼칠 때마다). place-facts 와 같은 유형별 필드 매핑(INTRO_FIELDS · 요금 · 주차)을 contentId 로 쓴다. 소개정보를 못 받으면 모든 값 null
     거르는 기준은 법정동 목록에서 찾은 시군구 이름이고, 세종처럼 시군구 단계가 없는 곳만 시도 약칭으로 본다
 GET /api/v1/contents/{contentId}?contentTypeId=12&with=accessible,pet   기존 응답 + "accessible": {...} | null, "pet": {...} | null
@@ -3050,6 +3051,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
 	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.58 (2026.09.26) — #850: 4-10 `GET /plan/place-detail` 에 `with`(무장애 · 반려동물 축) · `contact` 를 더했다. 카드 「자세히」가 목록의 해당 여부 한 줄만 적어 두 서비스의 상세 오퍼레이션이 한 번도 불리지 않았다 — 1차 심사로 낸 기능설명서는 상세로 「펼친 장소 카드의 동반 조건 · 무장애 정보」를 보인다고 적었다. 「무장애 · 반려동물은 목록 응답에 이미 있어 여기서 내지 않는다」는 문장을 뺐다.
 	v2.57 (2026.09.26) — #838: 4-5 에 `GET /audit-availability`(지금 검수를 시작할 수 있는지 · 다시 열리는 때)를 더했다. UI-ST-007 이 요구한 「누르기 전에 버튼을 막고 재개 시점을 안내」를 화면이 할 수 없었다 — 눌러야 429 로 알았다. 검수 429 문장도 다른 조회와 같은 말(「내일 0시부터 다시 검수할 수 있고 …」)로 바꿨다.
 	v2.56 (2026.09.26) — #840: 3-4 로그인 시도 행 — 공개된 테스트 계정은 로그인에 성공할 때마다 알림 확인 처리를 되돌린다(무시한 알림 제외). 같이 쓰는 심사위원 가운데 처음 레이더를 연 사람만 "새로"를 봤다.
 	v2.55 (2026.09.25) — #832: 4-10 `plan/places` 의 `scope.label` — `together` 로 순위를 매기면 기준 연월(「2026년 8월 기준 함께 많이 가는 순」)을 붙인다. EI-KT-024 가 요구한 표기가 화면에 없었다.

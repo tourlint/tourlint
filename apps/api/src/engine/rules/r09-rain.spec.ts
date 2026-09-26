@@ -145,17 +145,37 @@ describe('R09 판정 (FR-RU-092 · 093)', () => {
     expect(RULE_CONSTANTS.R09_CLIMATE_RAIN_THRESHOLD).toBeLessThan(RULE_CONSTANTS.R09_FORECAST_RAIN_THRESHOLD);
     const climate: DailyRainOutlook = {
       ok: true, source: 'CLIMATE', probability: 0.3, rainDays: 9.2, regionName: '강릉', month: 9,
+      normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉',
     };
     const [f] = evaluate([item({ cls: OUT })], { '2026-08-30': climate });
-    expect(f?.message).toContain('평년 기준 — 9월 강릉 강수일수 9.2일 (30%)');
+    expect(f?.message).toContain('평년(1991~2020) 기준 — 9월 강릉 강수일수 9.2일 (30%)');
+  });
+
+  it('🔴 평년 기준이면 예보가 아직 없는 날이라고 말하고 기준 평년 · 출처를 남긴다 (UI-S3-018 · EI-WX-004 · #849)', () => {
+    const climate: DailyRainOutlook = {
+      ok: true, source: 'CLIMATE', probability: 0.3, rainDays: 9.2, regionName: '강릉', month: 9,
+      normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉',
+    };
+    const [f] = evaluate([item({ cls: OUT })], { '2026-08-30': climate });
+    expect(f?.message).toContain('예보가 아직 없는 날이라 평년(1991~2020) 기준 — 9월 강릉 강수일수 9.2일 (30%)');
+    expect(f?.evidence).toMatchObject({
+      rainSource: 'CLIMATE', normalPeriod: '1991~2020', normalSource: '기상청 기상자료개방포털 · 대표지점 강릉',
+    });
+  });
+
+  it('예보 경로에는 기준 평년 · 출처를 남기지 않는다', () => {
+    const [f] = evaluate([item({ cls: OUT })], { '2026-08-30': mid(0.7) });
+    expect(f?.evidence).not.toHaveProperty('normalPeriod');
+    expect(f?.evidence).not.toHaveProperty('normalSource');
   });
 
   it('🔴 예보를 못 받아 평년으로 내려온 날은 그 사실을 문장과 근거에 적는다 (EI-WX-006 · #797)', () => {
     const climate: DailyRainOutlook = {
       ok: true, source: 'CLIMATE', probability: 0.3, rainDays: 9.2, regionName: '강릉', month: 9, downgradedFrom: 'SHORT',
+      normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉',
     };
     const [f] = evaluate([item({ cls: OUT })], { '2026-08-30': climate });
-    expect(f?.message).toContain('예보를 받지 못해 평년 기준 — 9월 강릉 강수일수 9.2일 (30%)');
+    expect(f?.message).toContain('예보를 받지 못해 평년(1991~2020) 기준 — 9월 강릉 강수일수 9.2일 (30%)');
     expect(f?.evidence).toMatchObject({ rainSource: 'CLIMATE', forecastDowngradedFrom: 'SHORT' });
   });
 
