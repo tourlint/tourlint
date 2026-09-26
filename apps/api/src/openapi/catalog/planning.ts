@@ -109,7 +109,7 @@ export const PLANNING: readonly Endpoint[] = [
     route: 'GET /api/v1/plan/place-detail',
     tag: '장소 찾기',
     summary: '장소 상세',
-    description: '장소의 이용시간 · 쉬는 날 · 요금 · 주차 정보를 돌려줍니다.',
+    description: '장소의 이용시간 · 쉬는 날 · 요금 · 주차 · 문의 정보를 돌려줍니다. with 로 고른 축은 무장애 · 반려동물 동반 조건을 함께 돌려줍니다 — 못 받으면 그 축만 null 입니다.',
     params: {
       contentId: { description: '관광지 번호', required: true, example: '129784' },
       contentTypeId: {
@@ -118,6 +118,7 @@ export const PLANNING: readonly Endpoint[] = [
         type: 'integer',
         example: 14,
       },
+      with: { description: '함께 볼 조건 — accessible(무장애) · pet(반려동물), 쉼표로 여럿', example: 'accessible' },
     },
     responses: {
       200: {
@@ -129,6 +130,12 @@ export const PLANNING: readonly Endpoint[] = [
           fee: '어른 개인 3,000원 / 청소년 2,000원 / 어린이 1,000원',
           parking: null,
           eventPeriod: null,
+          contact: '033-660-3301',
+          accessible: {
+            wheelchair: '대여 가능(5대/매표소 발권 후 우측에 보관함)',
+            elevator: '엘리베이터 있음',
+            restroom: '장애인 화장실 있음',
+          },
         },
       },
     },

@@ -21,7 +21,8 @@ import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import type { BudgetDecision } from '../external/budget-guard';
 import { isKtoError, KtoFetchError, type KtoClient, type KtoListPage } from '../external/kto';
 import { PlanCache } from './plan-cache';
-import { factFields } from './place-facts.service';
+import { contactField, factFields } from './place-facts.service';
+import { PlaceConditionService, type ConditionWant } from './place-conditions.service';
 import { isCourseInRegion, toWalk } from './plan-region';
 
 /**
@@ -82,6 +83,11 @@ export interface PlacesResult {
 export interface PlaceDetailQuery {
   readonly contentId: string;
   readonly contentTypeId: number;
+  /**
+   * 목록에서 무장애 · 반려동물로 표시된 축. 그 축만 상세를 1콜씩 부른다 (UI-S2-040 · #850).
+   * 목록의 집합은 해당 여부만 알려 주고, 어떤 시설 · 조건인지는 상세에만 있다
+   */
+  readonly want?: ConditionWant;
 }
 
 /** 카드 「자세히」 값 — 공사 원문 표시값이라 응답으로만 흐른다 (DB 명세서 6-4) */
@@ -92,6 +98,11 @@ export interface PlaceDetailResult {
   readonly fee: string | null;
   readonly parking: string | null;
   readonly eventPeriod: string | null;
+  /** 소개정보의 문의처 (UI-S2-040) */
+  readonly contact: string | null;
+  /** 요청한 축만 실린다. 못 받으면 `null` 이고 카드의 나머지는 그대로다 (EX-PL-004) */
+  readonly accessible?: Record<string, unknown> | null;
+  readonly pet?: Record<string, unknown> | null;
 }
 
 /** 시군구 목록 한 번에 받는 행 수. 칩의 `totalCount` 와 같은 조회다 */
@@ -112,11 +123,14 @@ export class PlanService {
   private readonly kto: () => KtoClient;
   private readonly budget: PlanBudget;
   private readonly cache: PlanCache;
+  private readonly conditions: PlaceConditionService;
 
   constructor(options: PlanServiceOptions) {
     this.kto = options.kto;
     this.budget = options.budget;
     this.cache = options.cache ?? new PlanCache();
+    // 무장애 · 반려동물 상세는 각 서비스의 예산 문을 따로 지난다 (EI-KT-022 · 023)
+    this.conditions = new PlaceConditionService({ kto: this.kto, budget: this.budget, cache: this.cache });
   }
 
   /**
@@ -239,6 +253,18 @@ export class PlanService {
       fee: fields?.fee ?? null,
       parking: fields?.parking ?? null,
       eventPeriod: fields?.eventPeriod ?? null,
+      contact: intro === null ? null : contactField(query.contentTypeId, intro),
+      ...(await this.conditionsOf(query.contentId, query.want)),
+    };
+  }
+
+  /** 요청한 축만 붙인다. 전에는 「자세히」가 목록의 참거짓 한 줄만 적어 상세를 한 번도 안 불렀다 (#850) */
+  private async conditionsOf(contentId: string, want: ConditionWant | undefined): Promise<Record<string, unknown>> {
+    if (want === undefined || (!want.accessible && !want.pet)) return {};
+    const found = await this.conditions.of(contentId, want);
+    return {
+      ...(want.accessible ? { accessible: found.accessible } : {}),
+      ...(want.pet ? { pet: found.pet } : {}),
     };
   }
 
