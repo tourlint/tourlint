@@ -44,7 +44,7 @@ export const PRODUCTS: readonly Endpoint[] = [
         conceptKey: 'EMOTIONAL',
         headCount: 24,
         transport: 'CHARTER_BUS',
-        planOrigin: { startedBy: 'MANUAL' },
+        planOrigin: { startedBy: 'TEXT' },
         days: [
           {
             day: 1,
@@ -54,6 +54,7 @@ export const PRODUCTS: readonly Endpoint[] = [
                 end: '11:30',
                 place: '강릉 경포대',
                 itemType: 'SIGHT',
+                origin: 'TEXT',
                 content: {
                   contentId: '125790',
                   contentTypeId: 12,
@@ -63,7 +64,7 @@ export const PRODUCTS: readonly Endpoint[] = [
                   mapy: 37.7955136762197,
                 },
               },
-              { start: '12:00', end: '13:00', place: '가람집옹심이', itemType: 'MEAL' },
+              { start: '12:00', end: '13:00', place: '가람집옹심이', itemType: 'MEAL', origin: 'TEXT' },
             ],
           },
           { day: 2, items: [] },
@@ -89,6 +90,7 @@ export const PRODUCTS: readonly Endpoint[] = [
         'days.items.end': '종료 시각 HH:MM. 비워도 됩니다',
         'days.items.place': '장소명',
         'days.items.itemType': 'SIGHT(관광) · MEAL(식사) · LODGING(숙박) · REST(휴식) · MOVE(이동) · FREE(자유)',
+        'days.items.origin': '그 줄이 들어온 경로 — MANUAL(직접 입력) · UPLOAD(엑셀) · TEXT(메모) · PICKER(장소 담기). 없으면 MANUAL',
         'days.items.content': '고른 관광지(선택)',
         'days.items.content.contentId': '관광지 번호',
         'days.items.content.contentTypeId': '관광지 유형 코드',
@@ -118,7 +120,7 @@ export const PRODUCTS: readonly Endpoint[] = [
     tag: '상품',
     summary: '상품 목록',
     description:
-      '내 상품 목록을 돌려줍니다. 상품마다 현재 일정의 검수 결과 요약과 알림 수가 함께 옵니다 — 확인하지 않은 알림(`unreadNotifications`) · 무시하지 않은 알림(`activeNotifications`) · 알림 뒤에 다시 검수하지 않은 바뀐 정보(`risksSinceAudit`). 여행이 끝난 상품의 알림 수는 0 입니다.',
+      '내 상품 목록을 돌려줍니다. 상품마다 현재 일정의 검수 결과 요약과 알림 수가 함께 옵니다 — 확인하지 않은 알림(`unreadNotifications`) · 무시하지 않은 알림(`activeNotifications`) · 알림 뒤에 다시 검수하지 않은 바뀐 정보(`risksSinceAudit`). 여행이 끝난 상품의 알림 수는 0 입니다. `startedBy` 는 기획을 시작한 방법(MANUAL · UPLOAD · TEXT · SIGNAL)이고 기록이 없으면 null 입니다.',
     params: {
       page: { description: '쪽 번호. 0부터', example: 0, type: 'integer' },
       size: { description: '한 쪽에 담을 상품 수. 기본 20 · 최대 100', example: 20, type: 'integer' },
@@ -148,6 +150,7 @@ export const PRODUCTS: readonly Endpoint[] = [
               pendingMatches: 0,
               plannedAt: '2026-09-17T12:59:28.751Z',
               releasedAt: null,
+              startedBy: null,
             },
             '…외 8개',
           ],
@@ -201,6 +204,8 @@ export const PRODUCTS: readonly Endpoint[] = [
                   matchStatus: 'CONFIRMED',
                   mapx: 128.89648397,
                   mapy: 37.79551368,
+                  lcls2: 'HS01',
+                  endTimeSource: 'INPUT',
                 },
                 {
                   itemId: 338,
@@ -213,6 +218,8 @@ export const PRODUCTS: readonly Endpoint[] = [
                   matchStatus: 'CONFIRMED',
                   mapx: 128.8796621,
                   mapy: 37.77913887,
+                  lcls2: 'VE07',
+                  endTimeSource: 'INPUT',
                 },
               ],
             },

@@ -35,4 +35,9 @@ describe("읽어 온 일정을 폼에 넣기 (#670)", () => {
     expect(r.schedule).toEqual([[], [], []]);
     expect(r.put).toBe(0);
   });
+
+  it("🔴 읽어 온 줄은 그 경로(엑셀 · 메모)로 남는다 (FR-PL-020)", () => {
+    expect(importedSchedule([row(1, "경포대")], 1, 1, "TEXT").schedule[0][0].origin).toBe("TEXT");
+    expect(importedSchedule([row(1, "경포대")], 1, 1, "UPLOAD").schedule[0][0].origin).toBe("UPLOAD");
+  });
 });

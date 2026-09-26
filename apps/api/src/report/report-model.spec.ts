@@ -3,7 +3,7 @@ import { SEVERITY_WEIGHT_DEFAULT } from '@tourlint/shared';
 import { calculateReadiness } from '../engine/score';
 import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 import {
-  UNNAMED_PLACE, assembleReport, comparisonRows, describeItineraryChanges, externalSourcesOf, labelOnly,
+  UNNAMED_PLACE, assembleReport, comparisonRows, describeItineraryChanges, describePlanning, externalSourcesOf, labelOnly,
   type AssembleInput, type ContentEvidence, type DiffableItem,
 } from './report-model';
 
@@ -291,5 +291,34 @@ describe('수정 전후 비교 (FR-PA-043 · #806)', () => {
     const comparison = { appliedAt: '2026-09-25T20:00:00+09:00', rows: [['차단', '1', '0', '−1']] as const };
     expect(assembleReport(input({ comparison })).comparison).toEqual(comparison);
     expect(assembleReport(input()).comparison).toBeNull();
+  });
+});
+
+describe('1절 기획 출처 한 줄 (FR-PL-020)', () => {
+  const line = (matchStatus: string, origin: string | null, matchedBy: string | null = null) => ({ matchStatus, origin, matchedBy });
+
+  it('🔴 시작 방식 · 줄마다 들어온 경로 · 고른 방식을 센다', () => {
+    expect(describePlanning({ startedBy: 'TEXT' }, [
+      line('CONFIRMED', 'TEXT', 'AUTO'), line('CONFIRMED', 'TEXT', 'USER'), line('EXCLUDED', 'TEXT'),
+      line('CONFIRMED', 'MANUAL', 'AGENT'), line('CONFIRMED', 'PICKER'), line('EXCLUDED', 'PICKER'),
+      line('CONFIRMED', 'PATCH'),
+    ])).toBe('메모 붙여넣기로 시작 · 일정 7개 (직접 입력 1 · 메모 3 · 장소 담기 2 · 수정안 1) · 고른 방식 (자동 1 · 직접 고름 1 · AI가 찾음 1)');
+  });
+
+  it('🔴 경로를 남기기 전의 줄은 직접 입력으로 치지 않고 「기록 없음」 이다', () => {
+    expect(describePlanning(null, [line('CONFIRMED', null, 'USER'), line('PENDING', null)]))
+      .toBe('직접 기획 · 일정 2개 (기록 없음 2) · 고른 방식 (직접 고름 1)');
+  });
+
+  it('레이더에서 시작했으면 기간을 붙이고, 원문(행사명 · 장소 이름)은 넣지 않는다', () => {
+    const origin = { startedBy: 'SIGNAL', signal: { type: 'NEWS', regnCd: '51', signguCd: '210', from: '2026-11-01', to: '2026-11-01', contentId: '999' } };
+    expect(describePlanning(origin, [])).toBe('레이더 소식으로 시작(기간 2026-11-01) · 일정 없음');
+    expect(describePlanning({ ...origin, signal: { ...origin.signal, to: '2026-11-30' } }, []))
+      .toBe('레이더 소식으로 시작(기간 2026-11-01 ~ 2026-11-30) · 일정 없음');
+  });
+
+  it('조립한 모델의 상품 개요에 실린다', () => {
+    const m = assembleReport(input({ planOrigin: { startedBy: 'UPLOAD' }, items: [item({ origin: 'UPLOAD', matchedBy: 'AUTO' })] }));
+    expect(m.product.planning).toBe('엑셀로 시작 · 일정 1개 (엑셀 1) · 고른 방식 (자동 1)');
   });
 });

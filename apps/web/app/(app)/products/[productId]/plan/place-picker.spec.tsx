@@ -43,3 +43,77 @@ it('기본 브리핑에 없는 부족 유형도 선택 가능하게 표시한다
   expect(host.textContent).toContain('자연생태'); expect(host.textContent).toContain('자연공원');
   expect(planApi.places).toHaveBeenCalledWith(expect.objectContaining({ lcls2: 'NA03' }));
 });
+
+// 장소 담기 칸 (UI-S2-036 · 037 · 038 · 043 · EX-PL-002)
+const briefing = (over: Partial<Awaited<ReturnType<typeof planApi.briefing>>> = {}) => ({
+  region: { regnCd: '51', signguCd: '150', name: '강릉시' }, budget: 'OK' as const,
+  types: [{ kind: 'LCLS2' as const, lcls2: 'VE07', nearKind: null, name: '전시시설', count: 25, disabled: null }],
+  events: { count: 0, from: '2026-11-14', to: '2026-11-22' }, accessible: { count: 30 }, pet: { count: 4 }, walks: { count: 2 }, ...over,
+});
+const text = () => host.textContent ?? '';
+const btn = (label: string) => [...host.querySelectorAll('button')].find(b => b.textContent === label);
+const box = (label: string) => [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith(label))?.querySelector('input') ?? null;
+const settle = () => act(async () => { await new Promise(r => setTimeout(r, 0)); });
+const renderPicker = async (props: Partial<Parameters<typeof PlacePicker>[0]> = {}) => {
+  await act(async () => root.render(<PlacePicker product={{ ...product, region: { regnName: '강원특별자치도', signguName: '강릉시' } } as ProductDetail} onInserted={async () => {}} {...props} />));
+  await settle();
+};
+
+it('🔴 칸을 접고 펼친다 — 처음에는 펼쳐 둔다 (UI-S2-036)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing());
+  await renderPicker();
+  expect(btn('접기')?.getAttribute('aria-expanded')).toBe('true');
+  expect(text()).toContain('전시시설');
+  await act(async () => btn('접기')!.click());
+  expect(text()).not.toContain('전시시설');
+  expect(host.querySelector('select')).toBeNull();
+  await act(async () => btn('펼치기')!.click());
+  expect(text()).toContain('전시시설');
+});
+
+it('🔴 줄 머리 「(시군구) 전체」 · 「(앞 장소) 근처 3km」, 누른 칩의 개수, 가까운 순 안내 (UI-S2-037)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing());
+  await renderPicker({ initialDay: 2, initialAnchorId: 2, initialNearKind: 'MEAL' });
+  expect(text()).toContain('강릉시 전체');
+  expect(text()).toContain('둘째 날 관광지 근처 3km');
+  expect(text()).toContain('식당 · 카페 · 숙소는 가까운 순으로 보여 드려요');
+  expect(btn('식당1')).toBeDefined();
+  expect(btn('카페')).toBeDefined();
+});
+
+it('🔴 필터가 켜지면 「필터 끄기」, 누르면 모두 끈다 (UI-S2-038)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing());
+  await renderPicker({ openType: 'VE07' });
+  expect(btn('필터 끄기')).toBeUndefined();
+  await act(async () => box('휠체어 가능')!.click());
+  expect(planApi.places).toHaveBeenLastCalledWith(expect.objectContaining({ wheelchair: true }));
+  await act(async () => btn('필터 끄기')!.click());
+  expect(box('휠체어 가능')!.checked).toBe(false);
+  expect(planApi.places).toHaveBeenLastCalledWith(expect.objectContaining({ wheelchair: false }));
+});
+
+it('🔴 무장애 · 반려동물 · 걷기 길을 못 받으면 그 필터 · 칸만 「지금은 볼 수 없어요」 (UI-S2-043)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing({ accessible: null, walks: null }));
+  await renderPicker({ openType: 'VE07' });
+  const wheelchair = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('휠체어 가능'))!;
+  expect(wheelchair.textContent).toContain('지금은 볼 수 없어요');
+  expect(wheelchair.querySelector('input')!.disabled).toBe(true);
+  expect(box('반려동물 동반')!.disabled).toBe(false);
+  expect(planApi.places).toHaveBeenLastCalledWith(expect.objectContaining({ wheelchair: false }));
+  const walks = [...host.querySelectorAll('h3')].find(h => h.textContent === '걷기 길')?.parentElement;
+  expect(walks?.textContent).toContain('지금은 볼 수 없어요');
+});
+
+it('🔴 행사가 0건이면 칸을 숨기지 않고 한 줄로, 못 받았으면 따로 적는다 (EX-PL-002)', async () => {
+  vi.spyOn(planApi, 'briefing').mockResolvedValue(briefing());
+  await renderPicker();
+  const events = () => [...host.querySelectorAll('h3')].find(h => h.textContent === '행사 · 공연')?.parentElement?.textContent ?? '';
+  expect(events()).toContain('여행 날짜 앞뒤 3일에 등록된 행사가 없어요');
+  expect(events()).not.toContain('출발일을');
+
+  await act(async () => root.unmount()); root = createRoot(host);
+  vi.spyOn(planApi, 'events').mockRejectedValue(new TypeError('Failed to fetch'));
+  await renderPicker();
+  expect(events()).toContain('지금은 볼 수 없어요');
+  expect(events()).not.toContain('등록된 행사가 없어요');
+});

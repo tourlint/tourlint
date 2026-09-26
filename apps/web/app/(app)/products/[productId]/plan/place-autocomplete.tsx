@@ -5,6 +5,9 @@
 // 명칭은 고른 뒤 표시한다 (D1). 결과가 1곳뿐이면 자동으로 고른다(AUTO).
 // 이미 고른 곳을 다시 고를 때(FR-IN-029 · #802)는 자동으로 고르지 않는다 — 같은 곳이 바로
 // 다시 골라져 다른 곳을 고를 수 없다.
+//
+// 기획 화면의 고르지 않은 줄은 접힌 채로 둔다 — 「아직 고르지 않음」 과 [장소 찾기] · [직접 정한
+// 곳으로 두기]만 보인다(UI-S2-034). 접혀 있어도 처음 검색과 1곳 자동 확정은 그대로 돈다.
 
 import { useEffect, useRef, useState } from "react";
 import { isApiError, itemApi, matchApi, type ContentCandidate, type ProductItem } from "../../../../lib/api";
@@ -12,6 +15,17 @@ import { isApiError, itemApi, matchApi, type ContentCandidate, type ProductItem 
 const CONTENT_TYPE_LABEL: Record<number, string> = {
   12: "관광지", 14: "문화시설", 15: "축제", 25: "여행코스", 28: "레포츠", 32: "숙박", 38: "쇼핑", 39: "음식점",
 };
+
+/**
+ * 이름이 없는 줄의 안내 (UI-S2-045 · EX-PL-010). 그 문구로 검색하지 않고 무엇을 적을지 말한다.
+ * 식사 줄은 식당, 휴식 줄은 카페, 숙박 줄은 숙소 — 오른쪽 장소 담기의 근처 칩과 같은 말이다.
+ */
+export function noNameHint(itemType: string): string {
+  const kind = itemType === "MEAL" ? "식당을" : itemType === "REST" ? "카페를" : itemType === "LODGING" ? "숙소를" : null;
+  return kind === null
+    ? "장소 이름을 적어 보세요 · 이름을 모르면 오른쪽 장소 담기에서 골라 보세요"
+    : `${kind.slice(0, 2)} 이름을 적어 보세요 · 이름을 모르면 오른쪽 장소 담기에서 근처 ${kind} 골라 보세요`;
+}
 
 export function PlaceAutocomplete({
   item,
@@ -21,6 +35,11 @@ export function PlaceAutocomplete({
   onResolved,
   autoPick = true,
   onCancel,
+  folded = false,
+  hideActions = false,
+  onOpen,
+  autoFocus = false,
+  initialKeyword,
 }: {
   item: ProductItem;
   regnCd: string;
@@ -31,13 +50,27 @@ export function PlaceAutocomplete({
   autoPick?: boolean;
   /** 다시 고르기를 그만둔다 — 있으면 「취소」 가 보인다 */
   onCancel?: () => void;
+  /** 접힌 줄 — 「아직 고르지 않음」 과 두 버튼만 그린다. 검색 · 1곳 자동 확정은 그대로 돈다 (UI-S2-034) */
+  folded?: boolean;
+  /** 에이전트 카드가 이 줄을 다루는 동안 두 버튼을 숨긴다 — 같은 동작은 카드 버튼으로만 (UI-S2-034) */
+  hideActions?: boolean;
+  /** 접힌 줄의 [장소 찾기] */
+  onOpen?: () => void;
+  /** 열 때 장소 칸에 초점을 두고 글자를 전체 선택한다 (UI-S2-045) */
+  autoFocus?: boolean;
+  /** 처음 검색어. 이름이 없다고 본 줄은 빈 칸으로 열어 그 문구로 검색하지 않는다 (UI-S2-045) */
+  initialKeyword?: string;
 }) {
-  const [keyword, setKeyword] = useState(item.place);
+  const [keyword, setKeyword] = useState(initialKeyword ?? item.place);
   const [candidates, setCandidates] = useState<ContentCandidate[] | null>(null);
   const [searching, setSearching] = useState(false);
+  // 검색 호출 자체가 실패했다 — 0곳과 다르다. 줄은 고르지 않은 채로 두고 다시 시도를 준다 (EX-MC-004)
+  const [searchFailed, setSearchFailed] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const autoTried = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 이름이 아직 없는 줄 — 빈 검색을 던지지 않고 이름을 적어 보라고 안내한다 (UI-S2-021)
   const emptyName = keyword.trim() === "";
@@ -51,12 +84,14 @@ export function PlaceAutocomplete({
         if (keyword.trim() === "") {
           if (alive) {
             setCandidates(null);
+            setSearchFailed(null);
             setSearching(false);
           }
           return;
         }
         setSearching(true);
         setErr(null);
+        setSearchFailed(null);
         try {
           const res = await matchApi.search(keyword, regnCd, signguCd);
           if (!alive) return;
@@ -71,7 +106,11 @@ export function PlaceAutocomplete({
             }
           }
         } catch (e) {
-          if (alive) setErr(isApiError(e) ? e.message : "장소를 찾지 못했어요.");
+          // 0곳으로 적지 않는다 — 결과를 비우고 실패로 둔다. 검수 제외로 바꾸지 않는다 (EX-MC-004)
+          if (alive) {
+            setCandidates(null);
+            setSearchFailed(isApiError(e) ? e.message : "장소를 검색하지 못했어요.");
+          }
         } finally {
           if (alive) setSearching(false);
         }
@@ -81,7 +120,14 @@ export function PlaceAutocomplete({
       alive = false;
       window.clearTimeout(id);
     };
-  }, [keyword, regnCd, signguCd, item.itemId, item.place, onResolved, autoPick]);
+  }, [keyword, regnCd, signguCd, item.itemId, item.place, onResolved, autoPick, attempt]);
+
+  // 열 때 칸에 초점을 두고 글자를 전체 선택한다 — 바로 치면 새 이름이 된다 (UI-S2-045)
+  useEffect(() => {
+    if (folded || !autoFocus) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [folded, autoFocus]);
 
   async function pick(contentid: string) {
     setBusy(true);
@@ -114,22 +160,73 @@ export function PlaceAutocomplete({
     }
   }
 
+  function open() {
+    // 접혀 있는 동안 검색이 실패했으면 열 때 다시 찾는다
+    if (searchFailed !== null) setAttempt((n) => n + 1);
+    onOpen?.();
+  }
+
+  if (folded) {
+    return (
+      <div className="mt-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-xs text-slate-500 dark:text-slate-400">아직 고르지 않음</span>
+          {!hideActions && (
+            <>
+              <button
+                type="button"
+                onClick={open}
+                disabled={busy}
+                className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                장소 찾기
+              </button>
+              <button
+                type="button"
+                onClick={() => void keepAsIs()}
+                disabled={busy}
+                className="text-xs text-slate-500 underline-offset-2 hover:underline disabled:opacity-60 dark:text-slate-400"
+              >
+                직접 정한 곳으로 두기
+              </button>
+            </>
+          )}
+        </div>
+        {err && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
+      </div>
+    );
+  }
+
   const count = candidates?.length ?? 0;
 
   return (
     <div className="mt-2">
       <input
+        ref={inputRef}
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
+        aria-label="장소 이름"
         placeholder="숙소·식당 이름을 적어 보세요…"
         className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
       />
       {err && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{err}</p>}
 
-      {/* 이름이 없는 줄은 검색 대신 안내 문구만 보인다 (UI-S2-021) */}
-      {emptyName && <p className="mt-2 text-xs text-slate-400">숙소·식당 이름을 적어 보세요…</p>}
+      {/* 이름이 없는 줄은 검색 대신 안내 문구만 보인다 (UI-S2-021 · UI-S2-045) */}
+      {emptyName && <p className="mt-2 text-xs text-slate-400">{noNameHint(item.itemType)}</p>}
 
-      {candidates !== null && (
+      {searchFailed !== null ? (
+        <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+          <span>{searchFailed}</span>
+          <button
+            type="button"
+            onClick={() => setAttempt((n) => n + 1)}
+            disabled={searching}
+            className="rounded-md border border-slate-300 px-2.5 py-1 font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            다시 시도
+          </button>
+        </div>
+      ) : candidates !== null && (
         count === 0 ? (
           <p className="mt-2 text-xs text-slate-400">
             {searching ? "찾는 중…" : "관광정보에 올라 있는 이름으로 검색해 보세요 · 상호나 공식 이름이면 찾을 수 있어요"}

@@ -1,4 +1,4 @@
-import { ITEM_TYPE, type ExceptionReasonCode, type ItemType } from '@tourlint/shared';
+import { ITEM_TYPE, MAX_ITEMS_PER_PRODUCT, type ExceptionReasonCode, type ItemType } from '@tourlint/shared';
 
 /**
  * 지정 양식(엑셀·CSV) 일정 파싱 (F01 · UI-S2-010·011 · FR-IN-015).
@@ -24,7 +24,7 @@ export const TYPE_MAP: Record<string, ItemType> = {
 export const MAX_DAY = 3;
 /** 업로드 상한. 행은 파싱 전, 유효 항목은 파싱 후에 본다 (EX-IN-003 · 004 · NF-CP-003) */
 const MAX_ROWS = 500;
-export const MAX_ITEMS = 45;
+export const MAX_ITEMS = MAX_ITEMS_PER_PRODUCT;
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const HEADER_TOKENS = ['일차', '시작시간', '종료시간', '장소명', '유형'];
 

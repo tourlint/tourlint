@@ -53,6 +53,14 @@ describe("findForbidden — 화면별 규칙과 근거 칸 제외", () => {
     expect(findForbidden("<p>R01 차단</p>", false)).toEqual([]);
   });
 
+  it("🔴 근거 칸 안에 같은 태그가 또 있어도 칸 끝까지 뺀다 — 첫 닫는 태그에서 끊지 않는다", () => {
+    const html = "<div data-evidence><div>조회 시각</div><div>데이터 지문 abc</div><p>규칙셋 1.2.9</p></div><p>화면 글자</p>";
+    expect(visibleText(html)).toBe("<p>화면 글자</p>");
+    expect(findForbidden(html, false)).toEqual([]);
+    // 칸 밖의 같은 낱말은 잡는다
+    expect(findForbidden(`${html}<div>지문</div>`, false)).toEqual(["지문"]);
+  });
+
   it("🔴 접힌 근거 칸(data-evidence) 안의 말은 검사에서 뺀다", () => {
     // 가드: 기획 화면에 R01 이 그냥 있으면 빨강
     expect(findForbidden("<p>R01</p>", true)).toContain("R01");

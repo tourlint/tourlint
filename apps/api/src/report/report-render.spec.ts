@@ -121,6 +121,18 @@ describe('리포트 렌더', () => {
     expect(missingGlyphs('규칙 버전 1.0.5', FONT_BOLD)).toEqual([]);
   });
 
+  it('🔴 상품 개요에 기획 출처 한 줄을 싣고 그 글자를 그릴 수 있다 (FR-PL-020)', () => {
+    const src = readFileSync(join(__dirname, 'report-render.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(src).toMatch(/\['기획 출처', p\.planning\]/);
+    expect(model().product.planning).toBeDefined();
+    const words = '기획 출처 직접 기획 직접 입력으로 시작 엑셀로 시작 메모 붙여넣기로 시작 레이더 소식으로 시작(기간 2026-11-01 ~ 2026-11-30)'
+      + ' 일정 15개 (직접 입력 1 · 엑셀 2 · 메모 9 · 장소 담기 5 · 레이더 소식 1 · 수정안 1 · 기록 없음 3) · 고른 방식 (자동 6 · 직접 고름 2 · AI가 찾음 1) 일정 없음';
+    expect(missingGlyphs(words)).toEqual([]);
+    expect(missingGlyphs('기획 출처', FONT_BOLD)).toEqual([]);
+  });
+
   it('🔴 규칙 이름 열 가지를 전부 그릴 수 있다 — 판정 머리는 굵은 글꼴이다', () => {
     const names = Object.values(RULE_NAMES).join(' ');
     expect(missingGlyphs(names)).toEqual([]);

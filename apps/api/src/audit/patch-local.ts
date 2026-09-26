@@ -1,12 +1,12 @@
 import { LCLS_SYSTM2, PATCH_TIME_STEP_MINUTES, RULE_CONSTANTS, SETTING_DEFAULTS, type IndoorOutdoor } from '@tourlint/shared';
-import { addDays, parseIsoDate } from '../engine/calendar/dates';
+import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import type { HolidayCalendar } from '../engine/calendar/holidays';
-import { evaluateClosed, evaluateHours, selectHours } from '../engine/rules/r01-operating';
+import { R01OperatingRule, evaluateClosed, evaluateHours, selectHours } from '../engine/rules/r01-operating';
 import { addMinutes } from '../engine/itinerary/dwell';
 import { pointOf, straightMeters } from '../engine/geo';
 import { toMinutes } from '../engine/normalize/primitives';
 import type { TimeOfDay } from '../engine/normalize/types';
-import type { AuditItem, Finding } from '../engine/rules/types';
+import { DEFAULT_AUDIT_SETTINGS, type AuditItem, type Finding } from '../engine/rules/types';
 import { segmentKey, type TravelSegment } from '../engine/rules/r08-travel';
 import { patchId, type Patch } from './patch-types';
 
@@ -71,6 +71,10 @@ export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
  *   시각 충돌  → ② 같은 날 다른 시간대와 바꾼다
  *              ① 그 시각에 여는 다른 날로 옮긴다 (#877)
  * 옮기는 자리 · 맞바꾸는 자리는 휴무뿐 아니라 운영시간 안인지도 본다. 운영시간을 모르면 휴무만 본다.
+ *
+ * 확인 불가는 다르다. 모르는 것이 문제라 옮긴 자리에서도 모르면 반영하고 재검수해도 그대로
+ * 남는다. 옮긴 자리에서 R01 이 아무것도 내지 않을 때만 옮긴다 (#888 — 운영시간이 두 가지로
+ * 안내된 주문진 등대를 운영시간을 모르는 2일차로 옮기는 안을 냈다).
  */
 function r01(
   finding: Finding,
@@ -84,6 +88,9 @@ function r01(
   // 휴무를 몰라서 낸 확인 불가(1-7)는 사유가 PARSE_* 여도 휴무 쪽이다 — 날짜를 바꾸는 수정안이 맞다 (#855)
   const isRestDay = finding.reasonCode === 'REST_DAY_CONFLICT' || finding.reasonCode === 'REST_DAY_UNCERTAIN'
     || String(finding.evidence.step ?? '').startsWith('1-');
+  const accept: SlotCheck = finding.severity === 'UNVERIFIED'
+    ? (isoDate, start, end) => settles(target, isoDate, start, end, holidays)
+    : () => true;
 
   const shift = (slot: { dayNo: number; startTime: string; endTime: string | null }): Patch => ({
     patchId: patchId(out.length), type: 'TIME_SHIFT', targetItemId: target.id,
@@ -99,17 +106,33 @@ function r01(
   });
 
   if (isRestDay) {
-    const slot = openSlotFor(target, items, holidays);
+    const slot = openSlotFor(target, items, holidays, accept);
     if (slot !== null) out.push(shift(slot));
-    const other = crossDaySwap(target, items, holidays);
+    const other = crossDaySwap(target, items, holidays, accept);
     if (other !== null) out.push(reorder(other));
   } else {
-    const swap = swapCandidate(target, items);
+    const swap = swapCandidate(target, items, accept);
     if (swap !== null) out.push(reorder(swap));
-    const slot = openSlotFor(target, items, holidays);
+    const slot = openSlotFor(target, items, holidays, accept);
     if (slot !== null) out.push(shift(slot));
   }
   return out;
+}
+
+/** 대상을 그 날짜 · 시각으로 옮겨도 되는가 */
+type SlotCheck = (isoDate: string, start: string, end: string | null) => boolean;
+
+const r01Rule = new R01OperatingRule();
+
+/**
+ * 대상을 그 자리로 옮기면 R01 이 아무것도 내지 않는가 (#888).
+ *
+ * 따로 기준을 만들지 않고 R01 을 그대로 돌린다 — `patch-verify.ts` 의 `opensDuring` 과 같은 까닭이다.
+ * R01 은 설정을 읽지 않는다.
+ */
+function settles(target: AuditItem, isoDate: string, start: string, end: string | null, holidays: HolidayCalendar): boolean {
+  const probe: AuditItem = { ...target, date: isoDate, startTime: start, endTime: end };
+  return r01Rule.evaluate({ productId: 0, items: [probe], holidays, settings: DEFAULT_AUDIT_SETTINGS }).length === 0;
 }
 
 /**
@@ -118,7 +141,12 @@ function r01(
  * 옮겨 가는 쪽은 상대의 날짜 · 시각에, 상대는 이쪽의 날짜 · 시각에 연다. 상대의 운영정보를 모르면
  * 바꾸지 않는다 — 한쪽을 풀려고 다른 쪽을 모르는 자리로 보내면 반영 뒤 재검수에서 새 문제가 난다.
  */
-function crossDaySwap(target: AuditItem, items: readonly AuditItem[], holidays: HolidayCalendar): AuditItem | null {
+function crossDaySwap(
+  target: AuditItem,
+  items: readonly AuditItem[],
+  holidays: HolidayCalendar,
+  accept: SlotCheck,
+): AuditItem | null {
   const mine = target.content?.normalized ?? null;
   if (mine === null) return null;
   for (const other of items) {
@@ -127,6 +155,7 @@ function crossDaySwap(target: AuditItem, items: readonly AuditItem[], holidays: 
     if (theirs === null || other.matchStatus !== 'CONFIRMED') continue;
     if (!opensAt(mine, other.date, other.startTime, other.endTime, holidays)) continue;
     if (!opensAt(theirs, target.date, target.startTime, target.endTime, holidays)) continue;
+    if (!accept(other.date, other.startTime, other.endTime)) continue;
     return other;
   }
   return null;
@@ -166,6 +195,7 @@ function openSlotFor(
   target: AuditItem,
   items: readonly AuditItem[],
   holidays: HolidayCalendar,
+  accept: SlotCheck,
 ): { dayNo: number; startTime: string; endTime: string | null } | null {
   const normalized = target.content?.normalized ?? null;
   const base = parseIsoDate(target.date);
@@ -184,6 +214,7 @@ function openSlotFor(
     for (const placed of placesIn(items.filter((i) => i.dayNo === dayNo), duration)) {
       const end = duration === null ? null : addMinutes(placed, duration);
       if (hours !== null && evaluateHours(hours.entry, placed, end) !== 'OPEN') continue;
+      if (!accept(formatIsoDate(date), placed, end)) continue;
       return { dayNo, startTime: placed, endTime: end };
     }
   }
@@ -240,9 +271,10 @@ function fromMinutes(total: number): string {
 }
 
 /** 같은 일차 안에서 시간대를 바꿔 볼 만한 항목. 관광 항목끼리만 바꾼다 */
-function swapCandidate(target: AuditItem, items: readonly AuditItem[]): AuditItem | null {
+function swapCandidate(target: AuditItem, items: readonly AuditItem[], accept: SlotCheck): AuditItem | null {
   return items.find(
-    (i) => i.id !== target.id && i.dayNo === target.dayNo && i.itemType === target.itemType && i.endTime !== null,
+    (i) => i.id !== target.id && i.dayNo === target.dayNo && i.itemType === target.itemType && i.endTime !== null
+      && accept(target.date, i.startTime, i.endTime),
   ) ?? null;
 }
 

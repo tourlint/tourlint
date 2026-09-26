@@ -17,6 +17,7 @@ import { ScheduleEditor } from "./schedule-editor";
 import { RegisterPlacePicker } from "./register-place-picker";
 import { LeaveConfirm } from "./leave-confirm";
 import { afterSaveHref, hasInput, type AfterSave } from "./save-intent";
+import { buildPayload } from "./product-payload";
 import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
 import { startDateFromMonth } from "./signal-start";
@@ -50,6 +51,9 @@ interface Region {
   signguName: string;
 }
 
+/** 레이더에서 오지 않은 상품의 시작 방식 (FR-PL-020 · `planOrigin.startedBy`) */
+type StartedBy = "MANUAL" | "UPLOAD" | "TEXT";
+
 export default function ProductNewPage() {
   const router = useRouter();
   const [method, setMethod] = useState<InputMethod>("direct");
@@ -75,6 +79,9 @@ export default function ProductNewPage() {
 
   // 레이더 "이 지역으로 새 상품 기획"에서 넘어오면 지역을 미리 채우고 기획 출처를 남긴다 (FR-PL-001)
   const [planOrigin, setPlanOrigin] = useState<PlanOrigin | null>(null);
+  // 레이더에서 오지 않았으면 시작 방식을 남긴다 — 마지막으로 일정을 채운 방식 (FR-PL-020).
+  // 엑셀 · 자연어는 일정을 통째로 바꾸므로 마지막 것이 지금 일정의 출처다
+  const [startedBy, setStartedBy] = useState<StartedBy>("MANUAL");
   useEffect(() => {
     // 쿼리 읽기는 클라이언트에서만. setState 는 비동기 콜백 안에서 한다(effect 본문 동기 setState 금지)
     void (async () => {
@@ -124,14 +131,17 @@ export default function ProductNewPage() {
       setHeadcount(d.headcount);
       setTransport(d.transport);
       setSchedule(d.schedule);
+      if (d.startedBy !== undefined) setStartedBy(d.startedBy);
     })();
   }, []);
 
   // 업로드 파싱 결과를 폼에 채운다 (UI-S2-010). 박수와 일정만 채우고 나머지는 편집으로 둔다.
+  // 엑셀이면 UPLOAD, 자연어면 TEXT — 줄마다 들어온 경로와 시작 방식으로 남는다 (FR-PL-020)
   const importSeq = useRef(0);
-  function applyUpload(nights: number, items: ParsedItemDTO[]) {
+  function applyUpload(nights: number, items: ParsedItemDTO[], origin: "UPLOAD" | "TEXT") {
     importSeq.current += 1;
     setAnchorId(null);
+    setStartedBy(origin);
     const n = Math.max(0, Math.min(2, nights)) as Nights;
     setNights(n);
     const days = dayCount(n);
@@ -141,7 +151,7 @@ export default function ProductNewPage() {
       const d = it.day - 1;
       if (d < 0 || d >= days) continue;
       seq += 1;
-      sched[d].push({ id: `up-${importSeq.current}-${seq}`, start: it.start, end: it.end ?? "", place: it.place, itemType: it.itemType });
+      sched[d].push({ id: `up-${importSeq.current}-${seq}`, start: it.start, end: it.end ?? "", place: it.place, itemType: it.itemType, origin });
     }
     setSchedule(sched);
   }
@@ -185,6 +195,8 @@ export default function ProductNewPage() {
       place: p.title,
       itemType,
       content: { contentId: p.contentId, contentTypeId: p.contentTypeId, mapx: p.mapx, mapy: p.mapy, lcls1: p.lcls1, lcls2: p.lcls2, lcls3: null },
+      // 기획 화면에서 「장소 담기에서 넣음」 으로 보인다 (FR-PL-005)
+      origin: "PICKER",
     };
     setSchedule((prev) =>
       prev.map((items, i) => {
@@ -215,11 +227,14 @@ export default function ProductNewPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload({ name, region, startDate, nights, target, concept, headcount, transport, schedule: filled, planOrigin })),
+        body: JSON.stringify(buildPayload({
+          name, region, startDate, nights, target, concept, headcount, transport, schedule: filled,
+          planOrigin: planOrigin ?? { startedBy },
+        })),
       });
       if (res.status === 401) {
         // 세션 만료 — 작성분을 담아 두고 재로그인으로 유도한다 (EX-SY-002). 돌아오면 복원된다.
-        saveDraft({ method, name, region, startDate, nights, target, concept, headcount, transport, schedule });
+        saveDraft({ method, name, region, startDate, nights, target, concept, headcount, transport, schedule, startedBy });
         router.push("/login");
         return;
       }
@@ -361,9 +376,9 @@ export default function ProductNewPage() {
           />
         )}
         {method === "upload" && (
-          <UploadPanel onApplied={applyUpload} onEdit={() => setMethod("direct")} />
+          <UploadPanel onApplied={(n, items) => applyUpload(n, items, "UPLOAD")} onEdit={() => setMethod("direct")} />
         )}
-        {method === "nl" && <NlPanel onApplied={applyUpload} onEdit={() => setMethod("direct")} />}
+        {method === "nl" && <NlPanel onApplied={(n, items) => applyUpload(n, items, "TEXT")} onEdit={() => setMethod("direct")} />}
 
         {/* 저장 검증 결과 — 기본정보 3칸만 본다 (EX-IN-005 개정 · #519) */}
         {submitted && errors.length > 0 && (
@@ -461,6 +476,8 @@ interface Draft {
   headcount: string;
   transport: Transport;
   schedule: Schedule;
+  /** 옛 초안에는 없다 */
+  startedBy?: StartedBy;
 }
 
 function saveDraft(d: Draft): void {
@@ -504,41 +521,6 @@ function validate(f: FormState): string[] {
   if (!f.region.regnCode) errs.push("여행 지역(시도)을 선택하세요.");
   if (!f.startDate) errs.push("출발일을 선택하세요.");
   return errs;
-}
-
-function buildPayload(
-  f: FormState & {
-    target: string;
-    concept: string;
-    headcount: string;
-    transport: Transport;
-    planOrigin?: PlanOrigin | null;
-  },
-) {
-  // 필드명·enum 은 API 정본(설계 5-1)을 따른다. 이동수단은 공용 TRANSPORT 값을 그대로 보낸다.
-  return {
-    name: f.name.trim(),
-    ldongRegnCd: f.region.regnCode,
-    ldongSignguCd: f.region.signguCode || null,
-    startDate: f.startDate,
-    nights: f.nights,
-    targetKey: f.target.trim() || null,
-    conceptKey: f.concept.trim() || null,
-    headCount: f.headcount ? Number(f.headcount) : null,
-    transport: f.transport,
-    planOrigin: f.planOrigin ?? null,
-    days: f.schedule.map((items, i) => ({
-      day: i + 1,
-      items: items.map((it) => ({
-        start: it.start,
-        end: it.end || null,
-        place: it.place.trim(),
-        itemType: it.itemType,
-        // 입력하는 순간 고른 관광지가 있으면 저장 시 CONFIRMED 로 (UI-S2-020 · create content 계약)
-        ...(it.content ? { content: it.content } : {}),
-      })),
-    })),
-  };
 }
 
 // 타깃 · 콘셉트를 고르면 그 조합에 자주 넣는 종류를 칩으로 보여 준다 (FR-PL-003). R10 표준

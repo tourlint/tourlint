@@ -1,5 +1,7 @@
 // 화면 2 · 상품 등록 폼 모델 (UI-S2 · F01). 직접 입력 1차 범위.
 
+import type { InputItemOrigin } from "@tourlint/shared";
+
 export type Nights = 0 | 1 | 2;
 
 /**
@@ -69,6 +71,13 @@ export interface ScheduleItem {
   itemType: ItemType | ""; // "" = 미선택
   /** 장소 칸에서 고른 관광지. null = 아직 안 고름(저장 시 PENDING) (UI-S2-020) */
   content?: MatchedContent | null;
+  /** 이 줄이 들어온 경로 — 직접 입력 · 엑셀 · 메모 · 장소 담기 (FR-PL-020). 없으면 직접 입력으로 보낸다 */
+  origin?: InputItemOrigin;
+  /**
+   * 편집 화면에서 불러온 줄의 저장값. 끝 시간을 비웠을 때 채워질 시각과 「기본값 적용」 을 엔진과 같은
+   * 표로 보이는 데만 쓴다 (FR-IN-011). 저장할 때 보내지 않는다
+   */
+  saved?: { end: string; endTimeSource?: string; lcls2?: string | null; matchStatus: string };
 }
 
 // 일차별 항목 배열. index 0 = 1일차.

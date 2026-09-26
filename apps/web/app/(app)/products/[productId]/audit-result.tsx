@@ -29,7 +29,7 @@ import {
   type Severity,
   type UnverifiedItem,
 } from "../../../lib/api";
-import { DISMISS_REASON_PRESET, SETTING_DEFAULTS, ktoFieldLabel, ktoRawText, unavailableText } from "@tourlint/shared";
+import { DISMISS_REASON_PRESET, SETTING_DEFAULTS, STARTED_BY_LABEL, ktoFieldLabel, ktoRawText, unavailableText } from "@tourlint/shared";
 import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
 import { contactText, readNormalized, readVerdict, ruleLine } from "../../../lib/evidence";
@@ -636,14 +636,7 @@ function ApplyResultBanner({
 
 // 상단 라이프사이클 바 (UI-S1-011 · 기획 → 검수 → 레이더). 기획 출처 · 구성, 검수 요약,
 // 출시 후 레이더 안내를 한 줄로 보여 준다. 출시 버튼은 아래 요약 카드에 있다.
-const STARTED_BY_LABEL: Record<string, string> = {
-  MANUAL: "직접 입력으로 시작",
-  UPLOAD: "엑셀로 시작",
-  TEXT: "메모 붙여넣기로 시작",
-  CLONE: "복제로 시작",
-  SIGNAL: "레이더 소식으로 시작",
-};
-
+// 시작 방식은 홈 보드 카드 · 리포트와 같은 표(`STARTED_BY_LABEL`)를 본다.
 function planCell(product: ProductDetail): string {
   const started = product.planOrigin ? (STARTED_BY_LABEL[product.planOrigin.startedBy] ?? "기획으로 시작") : "직접 기획";
   const c = product.composition;

@@ -4,17 +4,21 @@
 // 공사 콘텐츠로 고르거나(장소 찾기) 직접 정한 곳으로 둔다. 고른 방식은 서버가 남긴다(D8).
 // 일정 구조(추가 · 삭제 · 시각) 편집은 편집 화면에서 한다.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { isApiError, planApi, productApi, type PlaceFacts, type ProductDetail, type ProductItem } from "../../../../lib/api";
 import { PlaceAutocomplete } from "./place-autocomplete";
 import { PlaceFactsLine } from "./place-facts-line";
 import { DaySummary } from "./day-summary";
-import { PendingBar } from "./pending-bar";
+import { PendingBar, usePlaceFinder } from "./pending-bar";
 import { StartAuditSheet } from "./start-audit-sheet";
+import { cardItemIds } from "./place-suggestion-card";
+import { withDays } from "./line-label";
 import { PlacePicker } from "./place-picker";
 import { hhmm, savedLabel } from "../../../../lib/save-status";
+import { dwellDefaultOf } from "../../../../lib/dwell-preview";
+import { StatusBadge } from "../../../../components/badges";
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
   SIGHT: "관광", MEAL: "식사", LODGING: "숙박", REST: "휴식", MOVE: "이동", FREE: "자유",
@@ -29,6 +33,8 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
   const [error, setError] = useState<string | null>(null);
   // 이번 세션에서 마지막으로 저장된 시각 (hh:mm). null = 아직 이 화면에서 저장 안 함
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // [AI로 한 번에 찾기] — 편집기 위 안내와 검수 시작 창이 같이 부른다 (UI-S2-023 · 033)
+  const finder = usePlaceFinder(productId);
 
   const load = useCallback(async () => {
     const d = await productApi.detail(productId);
@@ -86,9 +92,16 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
   if (product === null) return <p className="mt-8 text-sm text-slate-400">불러오는 중…</p>;
 
   const regionLabel = [product.region.regnName, product.region.signguName].filter(Boolean).join(" ") || "이 지역";
-  const allItems = product.days.flatMap((d) => d.items);
+  // 일차를 붙여 둔다 — 검수 시작 창과 AI 카드가 「1일차 09:00 · 강릉역」 으로 줄을 가리킨다
+  const allItems = withDays(product.days);
   const pending = allItems.filter((it) => it.matchStatus === "PENDING").length;
   const empty = allItems.length === 0;
+  // 검수 시작 창에 적는 고르지 않은 줄 (UI-S2-023)
+  const pendingLines = allItems
+    .filter((it) => it.matchStatus === "PENDING")
+    .map((it) => ({ itemId: it.itemId, day: it.day, start: it.start, place: it.place }));
+  // 에이전트 카드가 다루는 줄 — 그 줄의 [장소 찾기] · [직접 정한 곳으로 두기]를 숨긴다 (UI-S2-034)
+  const inCard = cardItemIds(finder.suggestions, allItems);
 
   return (
     <>
@@ -111,7 +124,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
             일정 편집
           </Link>
           {product.plannedAt === null ? (
-            <StartAuditSheet productId={productId} pendingCount={pending} />
+            <StartAuditSheet productId={productId} pendingCount={pending} pendingItems={pendingLines} onFindAll={() => void finder.findAll()} />
           ) : (
             <Link href={`/products/${productId}`} className="button-primary">
               검수 결과로 돌아가기
@@ -125,9 +138,9 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
         <div className="min-w-0">
           {pending > 0 ? (
             <PendingBar
-              productId={productId}
               pendingCount={pending}
-              items={product.days.flatMap((d) => d.items)}
+              finder={finder}
+              items={allItems}
               regnCd={product.ldongRegnCd}
               signguCd={product.ldongSignguCd}
               regionLabel={regionLabel}
@@ -165,6 +178,7 @@ export function PlanEditor({ productId, openType = null }: { productId: number; 
                       regnCd={product.ldongRegnCd}
                       signguCd={product.ldongSignguCd}
                       regionLabel={regionLabel}
+                      inCard={inCard.has(it.itemId)}
                       onResolved={handleSaved}
                     />
                   ))}
@@ -190,6 +204,7 @@ function ItemRow({
   regnCd,
   signguCd,
   regionLabel,
+  inCard,
   onResolved,
 }: {
   item: ProductItem;
@@ -198,10 +213,17 @@ function ItemRow({
   regnCd: string;
   signguCd: string | null;
   regionLabel: string;
+  /** 에이전트 카드가 이 줄을 다루는 중이다 — 줄의 두 버튼을 숨긴다 (UI-S2-034) */
+  inCard: boolean;
   onResolved: () => Promise<void>;
 }) {
   // 숙박은 끝 시간이 없다. 그 밖에 끝 시간을 비운 항목은 검수가 보통 머무는 시간으로 채운다.
   const endHint = item.matchStatus !== "EXCLUDED" && item.end === null && item.itemType !== "LODGING";
+  // 끝 시각이 기본 체류시간에서 오는 줄 — 채워질 시각(회색)과 「기본값 적용 · N분」 (FR-IN-011 · UI-S2-009 · 032).
+  // 고르는 중인 줄은 분류가 아직 없고, 직접 정한 곳은 검수가 판정에서 빼서 짓지 않는다 (UI-S2-035)
+  const dwell = dwellDefaultOf(item);
+  // 고르지 않은 줄은 접어 둔다 — [장소 찾기]를 눌러야 검색칸이 열린다 (UI-S2-034)
+  const [searching, setSearching] = useState(false);
   // 고른 뒤에도 그 줄 안에서 다시 찾는다 (FR-IN-029 · #802)
   const [reselecting, setReselecting] = useState(false);
   const canReselect = item.matchStatus === "CONFIRMED";
@@ -220,7 +242,13 @@ function ItemRow({
       <header className="plan-stop-header">
         <span className="plan-stop-number" aria-label={`${position}번째 장소`}>{String(position).padStart(2, "0")}</span>
         <div className="plan-stop-heading">
-          <p className="plan-stop-time">{item.start}{item.end !== null ? ` – ${item.end}` : ""}<span>{ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}</span></p>
+          <p className="plan-stop-time">
+            <time>
+              {item.start}
+              {item.end !== null ? ` – ${item.end}` : dwell?.preview ? <> – <span className="plan-stop-end-preview">{dwell.end}</span></> : ""}
+            </time>
+            <span>{ITEM_TYPE_LABEL[item.itemType] ?? item.itemType}</span>
+          </p>
           <h3>{item.place || "장소를 골라 주세요"}</h3>
         </div>
         <StatusTag status={item.matchStatus} />
@@ -229,9 +257,27 @@ function ItemRow({
       {item.matchStatus === "EXCLUDED" && (
         <p className="mt-1 text-xs text-slate-400">이용시간 정보는 표시되지 않아요.</p>
       )}
-      {endHint && <p className="mt-1 text-xs text-slate-400">끝 시간을 비우면 보통 머무는 시간으로 채워요.</p>}
+      {(endHint || dwell !== null) && (
+        <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          {dwell !== null && <StatusBadge status="DEFAULT_APPLIED" detail={`${dwell.minutes}분`} />}
+          {endHint && "끝 시간을 비우면 보통 머무는 시간으로 채워요."}
+        </p>
+      )}
       {item.matchStatus === "PENDING" && (
-        <PlaceAutocomplete item={item} regnCd={regnCd} signguCd={signguCd} regionLabel={regionLabel} onResolved={onResolved} />
+        // 접혀 있어도 같은 칸이 처음 검색과 1곳 자동 확정을 한다 — 펼칠 때 다시 만들지 않는다 (FR-IN-021)
+        <OutsideClose active={searching && !inCard} onClose={() => setSearching(false)}>
+          <PlaceAutocomplete
+            item={item}
+            regnCd={regnCd}
+            signguCd={signguCd}
+            regionLabel={regionLabel}
+            folded={!searching || inCard}
+            hideActions={inCard}
+            onOpen={() => setSearching(true)}
+            autoFocus
+            onResolved={onResolved}
+          />
+        </OutsideClose>
       )}
       {canReselect && !reselecting && (
         <button
@@ -259,6 +305,20 @@ function ItemRow({
       </article>
     </li>
   );
+}
+
+/** 펼친 검색칸 밖을 누르면 다시 접는다 (UI-CM-042). 접혀 있을 때는 듣지 않는다 */
+function OutsideClose({ active, onClose, children }: { active: boolean; onClose: () => void; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!active) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [active, onClose]);
+  return <div ref={ref}>{children}</div>;
 }
 
 function StatusTag({ status }: { status: string }) {

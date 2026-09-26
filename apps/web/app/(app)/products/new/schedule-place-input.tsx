@@ -44,6 +44,8 @@ export function SchedulePlaceInput({
   const pickSeq = useRef(0);
   const anchorIntent = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // 검색 호출 자체가 실패한 조회 — 0곳과 다르다. 줄은 고르지 않은 채로 두고 다시 시도를 준다 (EX-MC-004)
+  const [failedKey, setFailedKey] = useState<string | null>(null);
   const [resultKey, setResultKey] = useState("");
   const [searchVersion, setSearchVersion] = useState(0);
   const lookupKey = JSON.stringify([value, regnCd, signguCd, content?.contentId]);
@@ -85,11 +87,13 @@ export function SchedulePlaceInput({
         }
         setSearching(true);
         setError(null);
+        setFailedKey(null);
         try {
           const res = await searchSchedulePlaces(kw, regnCd, signguCd, regionLabel);
           if (alive) { setCandidates(res.candidates); setResultKey(lookupKey); }
         } catch {
-          if (alive) { setCandidates(null); setError("장소를 찾지 못했습니다. 장소명을 다시 입력해 검색해 주세요."); }
+          // 0곳으로 적지 않는다 — 목록 자리에 실패와 다시 시도를 둔다 (EX-MC-004)
+          if (alive) { setCandidates(null); setFailedKey(lookupKey); }
         } finally {
           if (alive) setSearching(false);
         }
@@ -157,6 +161,7 @@ export function SchedulePlaceInput({
 
   const currentCandidates = resultKey === lookupKey ? candidates : null;
   const count = currentCandidates?.length ?? 0;
+  const failed = failedKey === lookupKey;
 
   return (
     <div ref={ref} className="relative flex min-w-[10rem] flex-1 flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">
@@ -177,10 +182,22 @@ export function SchedulePlaceInput({
       {error && <span role="alert" className="text-rose-600">{error}</span>}
       {open && value.trim() !== "" && regnCd !== "" && (
         <div className="absolute top-full z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-800 dark:bg-slate-900">
-          {searching || (currentCandidates === null && error === null) ? (
+          {failed && !searching ? (
+            <div role="alert" className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <span>장소를 검색하지 못했어요.</span>
+              <button
+                type="button"
+                onClick={() => setSearchVersion((version) => version + 1)}
+                className="rounded-md border border-slate-300 px-2 py-0.5 font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                다시 시도
+              </button>
+            </div>
+          ) : searching || (currentCandidates === null && error === null) ? (
             <p className="px-2 py-1.5 text-xs text-slate-400">찾는 중…</p>
           ) : count === 0 ? (
-            <p className="px-2 py-1.5 text-xs text-slate-400">검색 결과가 없습니다. 지역명은 빼고 장소 이름만 입력해 보세요</p>
+            // 숫자 대신 다음에 할 일 (EX-PL-010 · UI-CM-043)
+            <p className="px-2 py-1.5 text-xs text-slate-400">관광정보에 올라 있는 이름으로 검색해 보세요</p>
           ) : (
             <>
               <p className="px-2 py-1 text-xs text-slate-400">{regionLabel}에서 찾은 곳 {count}곳</p>

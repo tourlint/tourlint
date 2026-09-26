@@ -75,6 +75,20 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     expect(listA.rows[0]?.pendingMatches).toBe(3);
   });
 
+  it('🔴 목록에 기획을 시작한 방법을 싣는다 — 기록이 없는 상품은 null (UI-S1-010)', async () => {
+    const { product } = validateCreate({
+      name: '강릉 메모로 시작 스펙', ldongRegnCd: '51', ldongSignguCd: '150',
+      startDate: '2026-10-23', nights: 0, transport: 'CAR', planOrigin: { startedBy: 'TEXT' },
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const fromText = await repo.create(accountA, product);
+    const plain = await repo.create(accountA, sample());
+
+    const { rows } = await repo.list(accountA, 0, 100);
+    expect(rows.find((r) => r.id === fromText.productId)?.startedBy).toBe('TEXT');
+    expect(rows.find((r) => r.id === plain.productId)?.startedBy).toBeNull();
+  });
+
   it('남의 상품은 상세·수정·삭제가 안 된다', async () => {
     const created = await repo.create(accountA, sample());
     expect(await repo.detail(accountB, created.productId)).toBeNull();
@@ -112,6 +126,36 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     expect(row.rows[0]?.matched_by).toBe('USER');
   });
 
+  it('🔴 등록 화면 줄마다 들어온 경로를 남긴다 — 장소 담기 줄은 고른 방식을 비운다 (FR-PL-020 · FR-PL-005)', async () => {
+    const content = { contentId: '125790', contentTypeId: 12, mapx: 128.9, mapy: 37.79, lcls1: 'HS', lcls2: 'HS01', lcls3: null };
+    const { product } = validateCreate({
+      name: '강릉 출처 스펙', ldongRegnCd: '51', ldongSignguCd: '150',
+      startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        { start: '09:00', end: '10:00', place: '경포해변', itemType: 'SIGHT', origin: 'TEXT' },
+        { start: '10:30', end: '11:30', place: '안목해변', itemType: 'SIGHT', origin: 'UPLOAD' },
+        { start: '12:00', end: '13:00', place: '경포대', itemType: 'SIGHT', origin: 'MANUAL', content },
+        { start: '14:30', end: '', place: '주문진 등대', itemType: 'SIGHT', origin: 'PICKER', content: { ...content, contentId: '126175' } },
+        // 경로를 안 보내거나 모르는 값이면 직접 입력이다
+        { start: '16:00', end: '17:00', place: '초당순두부', itemType: 'MEAL' },
+        { start: '18:00', end: '', place: '숙소', itemType: 'LODGING', origin: 'PATCH' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await repo.create(accountA, product);
+
+    const { rows } = await pool.query<{ place_label: string; origin: string | null; matched_by: string | null }>(
+      `SELECT place_label, origin, matched_by FROM itinerary_item WHERE product_id = $1 ORDER BY seq`, [productId]);
+    expect(rows.map((r) => [r.place_label, r.origin, r.matched_by])).toEqual([
+      ['경포해변', 'TEXT', null],
+      ['안목해변', 'UPLOAD', null],
+      ['경포대', 'MANUAL', 'USER'],
+      ['주문진 등대', 'PICKER', null],
+      ['초당순두부', 'MANUAL', null],
+      ['숙소', 'MANUAL', null],
+    ]);
+  });
+
   it('삭제하면 일정 항목도 CASCADE 로 함께 지워진다', async () => {
     const created = await repo.create(accountA, sample());
     expect(await repo.remove(accountA, created.productId)).toBe(true);
@@ -128,8 +172,12 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
       endTimeSource: 'INPUT',
       placeLabel: '야식',
       itemType: 'MEAL',
+      origin: 'TEXT',
     });
     expect(added.matchStatus).toBe('PENDING');
+    // 편집 화면에서 메모로 채운 줄이다 (FR-PL-020)
+    const origin = await pool.query<{ origin: string | null }>(`SELECT origin FROM itinerary_item WHERE id = $1`, [added.itemId]);
+    expect(origin.rows[0]?.origin).toBe('TEXT');
     const patched = await repo.patchItem(accountA, added.itemId, {
       placeLabel: '야식2',
       endTime: '23:00',

@@ -33,6 +33,7 @@ export type PickerAction =
   | { type: "SET_SORT"; sort: PickerSort }
   | { type: "SET_ANCHOR"; anchorItemId: number | null }
   | { type: "TOGGLE_FILTER"; key: keyof PickerFilters }
+  | { type: "CLEAR_FILTERS" }
   | { type: "TOGGLE_EXPAND"; contentId: string }
   | { type: "MARK_INSERTED"; contentId: string };
 
@@ -68,6 +69,9 @@ export function pickerReducer(state: PickerState, action: PickerAction): PickerS
       return { ...state, anchorItemId: action.anchorItemId, nearKind: state.nearKind !== null ? null : state.nearKind };
     case "TOGGLE_FILTER":
       return { ...state, filters: { ...state.filters, [action.key]: !state.filters[action.key] } };
+    case "CLEAR_FILTERS":
+      // 「필터 끄기」 · 「필터 모두 끄기」 (UI-S2-038). 종류 · 정렬 · 넣을 위치는 그대로 둔다
+      return { ...state, filters: { ...initialPickerState.filters } };
     case "TOGGLE_EXPAND":
       return { ...state, expandedId: state.expandedId === action.contentId ? null : action.contentId };
     case "MARK_INSERTED":

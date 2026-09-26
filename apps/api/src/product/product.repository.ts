@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { SETTING_DEFAULTS, type ItemType, type MatchStatus, type Severity, type Transport, kstIso } from '@tourlint/shared';
+import { SETTING_DEFAULTS, type EndTimeSource, type ItemType, type MatchStatus, type Severity, type Transport, kstIso } from '@tourlint/shared';
 import { calculateReadiness, type ScorableFinding, type ScoreResult } from '../engine/score';
 import { CURRENT_RUN_LATERAL, currentRunOf, toCurrentRun, type CurrentRun } from '../persistence/current-run';
 import { withTransaction } from '../persistence/db';
@@ -47,6 +47,8 @@ export interface ProductListRow {
   /** 검수 시작을 누른 시각. null 이면 기획 중 (DR-IN-014) */
   readonly plannedAt: string | null;
   readonly releasedAt: string | null;
+  /** 기획을 시작한 방법(`plan_origin.startedBy`). 기록이 없는 상품은 null — 보드의 기획 중 카드가 쓴다 (UI-S1-010) */
+  readonly startedBy: string | null;
 }
 
 export interface ProductDetailRow {
@@ -84,6 +86,12 @@ export interface ItemDetail {
   readonly mapy: number | null;
   /** 걷기 길 식별자 (D9). 이름은 표시할 때 두루누비에서 찾는다 */
   readonly walkId: string | null;
+  /**
+   * 중분류 · 끝 시각 출처 (FR-IN-011). 화면이 끝 시간을 비운 줄에 채워질 시각을, 기본 체류시간으로
+   * 채운 줄에 「기본값 적용 · N분」 을 엔진과 같은 표로 보인다 — 판정에는 쓰지 않는다
+   */
+  readonly lcls2: string | null;
+  readonly endTimeSource: EndTimeSource;
 }
 
 export interface CreatedProduct {
@@ -160,7 +168,7 @@ export class ProductRepository {
 
     const { rows } = await this.pool.query<ListRaw>(
       `SELECT p.id, p.name, p.start_date, p.nights, p.ldong_regn_cd, p.ldong_signgu_cd,
-              p.planned_at, p.released_at,
+              p.planned_at, p.released_at, p.plan_origin ->> 'startedBy' AS started_by,
               (SELECT count(*) FROM itinerary_item it
                  WHERE it.product_id = p.id AND it.match_status = 'PENDING')::int AS pending,
               nt.unread, nt.active, nt.risks,
@@ -249,7 +257,8 @@ export class ProductRepository {
     if (row === undefined) return null;
 
     const items = await this.pool.query<ItemRaw>(
-      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy, walk_id
+      `SELECT id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin, mapx, mapy, walk_id,
+              lcls_systm2, end_time_source
          FROM itinerary_item WHERE product_id = $1 ORDER BY day_no, seq`,
       [productId],
     );
@@ -475,6 +484,15 @@ export class ProductRepository {
     return rows[0]?.nights ?? null;
   }
 
+  /** 상품의 일정 항목 수. 상한(NF-CP-003) 검사용 — 소유권은 호출 전 ownedNights 로 확인한다 */
+  async countItems(productId: number): Promise<number> {
+    const { rows } = await this.pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM itinerary_item WHERE product_id = $1`,
+      [productId],
+    );
+    return rows[0]?.n ?? 0;
+  }
+
   /** 항목 추가. seq 는 그 일차 끝에 붙인다. 소유권은 호출 전 ownedNights 로 확인한다. */
   /**
    * 넣을 위치를 잡는다 (4-3). `afterItemId` 를 주면 그 항목(같은 날)을, 없으면 그 날 마지막
@@ -554,7 +572,8 @@ export class ProductRepository {
            (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
             match_status, origin, kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy)
          VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, 'CONFIRMED', $8, $9, $10, $11, $12, $13, $14, $15)
-         RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin`,
+         RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin,
+                   lcls_systm2, end_time_source`,
         [
           productId, picked.dayNo, seq, placement.start, placement.end,
           placement.end === null ? 'INPUT' : 'DWELL_DEFAULT', picked.itemType, picked.origin,
@@ -596,7 +615,8 @@ export class ProductRepository {
        VALUES ($1, $2,
                (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
                $3, $4, 'DWELL_DEFAULT', NULL, $5, 'EXCLUDED', $6, $7)
-       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin`,
+       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status, origin,
+                   lcls_systm2, end_time_source`,
       [productId, walk.dayNo, start, end, walk.itemType, walk.origin, walk.walkId],
     );
     const row = rows[0];
@@ -607,12 +627,13 @@ export class ProductRepository {
   async addItem(productId: number, item: ValidItemInput): Promise<ItemDetail> {
     const { rows } = await this.pool.query<ItemRaw>(
       `INSERT INTO itinerary_item
-         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status)
+         (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status, origin)
        VALUES ($1, $2,
                (SELECT COALESCE(MAX(seq), 0) + 1 FROM itinerary_item WHERE product_id = $1 AND day_no = $2),
-               $3, $4, $5, $6, $7, 'PENDING')
-       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status`,
-      [productId, item.dayNo, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType],
+               $3, $4, $5, $6, $7, 'PENDING', $8)
+       RETURNING id, day_no, seq, start_time, end_time, place_label, item_type, kto_content_id, match_status,
+                 lcls_systm2, end_time_source`,
+      [productId, item.dayNo, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType, item.origin],
     );
     const row = rows[0];
     if (row === undefined) throw new Error('항목 추가 결과가 비어 있다');
@@ -640,7 +661,8 @@ export class ProductRepository {
       `UPDATE itinerary_item i SET ${sets.join(', ')}, updated_at = now()
          FROM product p
         WHERE i.id = $${params.length - 1} AND i.product_id = p.id AND p.account_id = $${params.length}
-       RETURNING i.id, i.day_no, i.seq, i.start_time, i.end_time, i.place_label, i.item_type, i.kto_content_id, i.match_status`,
+       RETURNING i.id, i.day_no, i.seq, i.start_time, i.end_time, i.place_label, i.item_type, i.kto_content_id, i.match_status,
+                 i.lcls_systm2, i.end_time_source`,
       params,
     );
     const row = rows[0];
@@ -708,17 +730,20 @@ async function insertItem(
 ): Promise<void> {
   // 입력하는 순간 고른 관광지가 있으면 CONFIRMED 로 넣는다 (UI-S2-020 · D8). place_label 은 사용자가
   // 친 이름 그대로 두고(공식 명칭은 표시할 때 읽는다 · DR-PR-001) 코드·좌표·분류만 채운다.
+  // 줄이 들어온 경로도 남긴다 (FR-PL-020). 장소 담기로 넣은 줄은 기획 화면 장소 담기와 같이 고른
+  // 방식을 비운다 — 「장소 담기에서 넣음」 은 origin 으로 표시한다 (DR-MD-002 · 003).
   if (item.content !== null) {
     await client.query(
       `INSERT INTO itinerary_item
          (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type,
           kto_content_id, content_type_id, lcls_systm1, lcls_systm2, lcls_systm3, mapx, mapy,
-          matched_by, match_status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'USER','CONFIRMED')`,
+          matched_by, match_status, origin)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'CONFIRMED',$17)`,
       [
         productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType,
         item.content.contentId, item.content.contentTypeId,
         item.content.lcls1, item.content.lcls2, item.content.lcls3, item.content.mapx, item.content.mapy,
+        item.origin === 'PICKER' ? null : 'USER', item.origin,
       ],
     );
     return;
@@ -726,9 +751,9 @@ async function insertItem(
   // 안 고른 줄은 PENDING 이다 — 확정은 /plan 에서 이어 붙는다 (UI-S2-020: 못 고른 곳은 그대로 남긴다).
   await client.query(
     `INSERT INTO itinerary_item
-       (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING')`,
-    [productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType],
+       (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status, origin)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9)`,
+    [productId, item.dayNo, item.seq, item.startTime, item.endTime, item.endTimeSource, item.placeLabel, item.itemType, item.origin],
   );
 }
 
@@ -758,6 +783,7 @@ interface ListRaw {
   failed_count: number | null;
   planned_at: Date | string | null;
   released_at: Date | string | null;
+  started_by: string | null;
 }
 
 /**
@@ -814,6 +840,7 @@ function toListRow(r: ListRaw, scores: ReadonlyMap<string, ScoreResult>): Produc
     latestAudit,
     plannedAt: isoStamp(r.planned_at),
     releasedAt: isoStamp(r.released_at),
+    startedBy: r.started_by ?? null,
   };
 }
 
@@ -848,6 +875,8 @@ interface ItemRaw {
   mapx?: number | string | null;
   mapy?: number | string | null;
   walk_id?: string | null;
+  lcls_systm2?: string | null;
+  end_time_source?: EndTimeSource;
 }
 
 function toItemDetail(r: ItemRaw): ItemDetail {
@@ -864,5 +893,7 @@ function toItemDetail(r: ItemRaw): ItemDetail {
     mapx: r.mapx == null ? null : Number(r.mapx),
     mapy: r.mapy == null ? null : Number(r.mapy),
     walkId: r.walk_id ?? null,
+    lcls2: r.lcls_systm2 ?? null,
+    endTimeSource: r.end_time_source ?? 'INPUT',
   };
 }

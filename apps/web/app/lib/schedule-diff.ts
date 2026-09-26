@@ -5,6 +5,7 @@
  * 테스트로 잡는다.
  */
 
+import type { InputItemOrigin } from '@tourlint/shared';
 import type { MatchedContent } from '../(app)/products/new/types';
 
 export interface EditedItem {
@@ -15,6 +16,8 @@ export interface EditedItem {
    * 하므로 저장할 때 다른 호출로 나간다. 견주기(`changedFields`)는 이 값을 보지 않는다.
    */
   readonly content?: MatchedContent | null;
+  /** 새 항목이 들어온 경로 (FR-PL-020). 견주기는 이 값을 보지 않는다 */
+  readonly origin?: InputItemOrigin;
   readonly dayNo: number;
   readonly seq: number;
   readonly startTime: string;

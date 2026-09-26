@@ -4,12 +4,14 @@
 // 브리핑 · 장소를 부르고, [일정에 넣기]는 폼 일정에 곧바로 끼운다(서버 호출 없음).
 // 지역이 비어 있으면 기본 템플릿만 보이고, 지역을 넣으면 그 지역 장소로 채운다.
 // 점수 · 추천 · 인기 표현은 쓰지 않는다. 근처 3km 는 왼쪽에서 체크한 "고른 줄" 좌표를 기준으로 한다.
+// 칸은 접을 수 있고 처음에는 펼쳐 둔다 (UI-S2-036).
 
 import { useEffect, useMemo, useState } from "react";
 import { isApiError, planApi, type PlanBriefing, type PlanPlace } from "../../../lib/api";
 import { BriefingStatus } from "../briefing-status";
 import { PlaceResults } from "../place-results";
 import { PlaceDetailView } from "../place-detail-view";
+import { NearGuide, PlaceFilters, appliedFilters, hasFilter, unavailableFilters } from "../place-filters";
 import { dayCount, type Nights, type Schedule, type ScheduleItem } from "./types";
 
 type NearKind = "MEAL" | "CAFE" | "STAY";
@@ -59,6 +61,10 @@ export function RegisterPlacePicker({
   const [filters, setFilters] = useState<Filters>({ wheelchair: false, pet: false, indoor: false });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [insertingId, setInsertingId] = useState<string | null>(null);
+  // 처음에는 펼쳐 둔다 (UI-S2-036)
+  const [open, setOpen] = useState(true);
+  // 누른 근처 칩의 개수 — 그 조건으로 받은 목록의 전체 수다 (UI-S2-037)
+  const [nearTotal, setNearTotal] = useState<{ key: string; total: number } | null>(null);
 
   const [briefing, setBriefing] = useState<PlanBriefing | null>(null);
   // 종류 목록을 못 받은 이유. 다시 받으면 지운다 — 남겨 두면 성공한 뒤에도 목록 위에 뜬다 (#822)
@@ -91,24 +97,41 @@ export function RegisterPlacePicker({
     };
   }, [ready, regnCd, signguCd, startDate, nights, reload]);
 
+  // 무장애 · 반려동물 목록을 못 받았으면 그 필터는 쓸 수 없다 — 걸지 않는다 (UI-S2-043 · EX-PL-004)
+  const filterOff = unavailableFilters(ready ? briefing : null);
+  const applied = appliedFilters(filters, filterOff);
   const placeQuery = !ready || (lcls2 === null && activeNear === null) ? null : {
     regnCd, signguCd,
     ...(activeNear !== null && anchor !== null
       ? { scope: "NEAR3KM" as const, nearKind: activeNear }
       : { lcls2: lcls2 as string, sort }),
     ...(anchor ? { anchor: { mapx: anchor.mapx, mapy: anchor.mapy }, anchorContentId: anchor.contentId } : {}),
-    wheelchair: filters.wheelchair, pet: filters.pet, indoor: filters.indoor,
+    ...applied,
   };
+  const queryKey = placeQuery === null ? "" : JSON.stringify(placeQuery);
+  const nearCount = activeNear !== null && nearTotal?.key === queryKey ? nearTotal.total : null;
+  const clearFilters = () => setFilters({ wheelchair: false, pet: false, indoor: false });
 
   const lclsChips = (briefing?.types ?? []).filter((t) => t.kind === "LCLS2");
   const nearItemType = activeNear !== null ? (NEAR_KINDS.find((n) => n.kind === activeNear)?.itemType ?? "SIGHT") : "SIGHT";
   const paused = briefing?.budget === "PAUSED";
 
+  const header = (
+    <div className="flex items-center justify-between gap-2">
+      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">장소 담기</h2>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+        {open ? "접기" : "펼치기"}
+      </button>
+    </div>
+  );
+  if (!open) return <section className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">{header}</section>;
+
   // ── 지역이 없을 때: 기본 템플릿 (개편안 4-3 의 뼈대만) ──────────────────────
   if (regnCd === "") {
     return (
       <section className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">장소 담기</h2>
+        {header}
         <p className="mt-1 text-xs text-slate-400">여행 지역과 출발일을 넣으면 그 지역의 장소를 여기서 보여드려요.</p>
         {/* 종류 칩 자리 (뼈대) */}
         <div className="mt-4 flex flex-wrap gap-1.5" aria-hidden>
@@ -137,7 +160,7 @@ export function RegisterPlacePicker({
 
   return (
     <section className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
-      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-50">장소 담기</h2>
+      {header}
       <p className="mt-1 text-xs text-slate-400">{regionLabel}의 장소예요. 넣을 곳을 골라 일정에 담아 보세요.</p>
 
       {!ready && (
@@ -148,7 +171,7 @@ export function RegisterPlacePicker({
 
       {paused && (
         <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          오늘 공사 데이터 조회량을 다 써서 장소를 새로 불러올 수 없어요. 내일 다시 시도해 주세요.
+          오늘 쓸 수 있는 관광정보 조회를 다 써서 장소를 새로 불러올 수 없어요. 내일 다시 시도해 주세요.
         </p>
       )}
 
@@ -156,7 +179,9 @@ export function RegisterPlacePicker({
       {ready && (briefing === null ? (
         <BriefingStatus error={briefingErr} onRetry={() => { setBriefingErr(null); setReload((n) => n + 1); }} />
       ) : (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {/* 첫째 줄 머리 — 「(시군구) 전체」 (UI-S2-037) */}
+          <span className="mr-1 text-xs text-slate-400">{briefing.region.name || regionLabel} 전체</span>
           {lclsChips.map((t) => (
             <Chip key={t.lcls2} active={lcls2 === t.lcls2} onClick={() => { if (t.lcls2 !== null) { setLcls2(t.lcls2); setNearKind(null); } }}>
               {t.name}
@@ -166,31 +191,27 @@ export function RegisterPlacePicker({
         </div>
       ))}
 
-      {/* 둘째 줄 — 고른 줄 근처 3km 식당 · 카페 · 숙소 */}
+      {/* 둘째 줄 — 고른 줄 근처 3km 식당 · 카페 · 숙소. 머리는 「(기준 줄) 근처 3km」, 누른 칩에는 개수 (UI-S2-037) */}
       {ready && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="mr-1 text-xs text-slate-400">
-            {anchor !== null ? `"${anchor.label}" 근처` : "고른 줄 근처"}
+            {anchor !== null ? `"${anchor.label}" 근처 3km` : "고른 줄 근처 3km"}
           </span>
           {NEAR_KINDS.map((n) => (
             <Chip key={n.kind} active={activeNear === n.kind} disabled={anchor === null} onClick={() => { if (anchor !== null) { setNearKind(n.kind); setLcls2(null); } }}>
               {n.label}
+              {activeNear === n.kind && nearCount !== null && <span className="ml-1 tabular-nums text-slate-400">{nearCount}</span>}
             </Chip>
           ))}
           {anchor === null && <span className="text-xs text-slate-400">왼쪽 일정에서 기준 줄을 체크하면 근처를 볼 수 있어요</span>}
         </div>
       )}
+      {ready && <NearGuide />}
 
       {/* 필터 */}
       {ready && (
-        <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-          {([["wheelchair", "휠체어 가능"], ["pet", "반려동물 동반"], ["indoor", "실내만"]] as const).map(([key, label]) => (
-            <label key={key} className="flex cursor-pointer items-center gap-1">
-              <input type="checkbox" checked={filters[key]} onChange={() => setFilters((f) => ({ ...f, [key]: !f[key] }))} />
-              {label}
-            </label>
-          ))}
-        </div>
+        <PlaceFilters filters={filters} off={filterOff}
+          onToggle={(key) => setFilters((f) => ({ ...f, [key]: !f[key] }))} onClear={clearFilters} />
       )}
 
       {ready && (lcls2 !== null || activeNear !== null) && (
@@ -208,7 +229,9 @@ export function RegisterPlacePicker({
               </div>
             )}
           </div>
-          <PlaceResults query={placeQuery}>
+          <PlaceResults query={placeQuery}
+            onClearFilters={hasFilter(applied) ? clearFilters : undefined}
+            onLoaded={(d) => setNearTotal({ key: queryKey, total: d.totalCount })}>
             {(p) => (
                 <PlaceCard
                   key={p.contentId}

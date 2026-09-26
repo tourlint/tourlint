@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateCreate, validateUpdate, type CreateProductDto } from './product.dto';
+import { validateAddItem, validateCreate, validateUpdate, type CreateProductDto } from './product.dto';
 
 /**
  * 상품 등록 검증 — 순수 함수라 DB 없이 돈다. 서버가 저장 전에 다시 보는 가드다 (EX-IN-005).
@@ -25,6 +25,27 @@ function base(overrides: Partial<CreateProductDto> = {}): CreateProductDto {
 }
 
 describe('validateCreate', () => {
+  // 15곳씩 세 날. n 이 45 를 넘으면 마지막 날에 더 붙인다
+  const many = (n: number): CreateProductDto['days'] => [0, 1, 2].map((d) => ({
+    day: d + 1,
+    items: Array.from({ length: d === 2 ? n - 30 : 15 }, (_, i) => ({
+      start: `${String(8 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`,
+      end: '', place: `장소 ${String(d * 15 + i + 1)}`, itemType: 'SIGHT',
+    })),
+  }));
+
+  it('🔴 일정이 45건을 넘으면 저장 전에 거부하고 사유를 적는다 (NF-CP-003 · NF-CP-010 · #892)', () => {
+    const { errors, product } = validateCreate(base({ days: many(46) }));
+    expect(product).toBeNull();
+    expect(errors).toContain('일정은 상품당 45건까지 넣을 수 있어요. 다른 일정을 지우거나 상품을 나눠 주세요.');
+  });
+
+  it('45건은 저장한다', () => {
+    const { errors, product } = validateCreate(base({ days: many(45) }));
+    expect(errors).toEqual([]);
+    expect(product?.items).toHaveLength(45);
+  });
+
   it('올바른 요청을 저장용 형태로 바꾼다', () => {
     const { errors, product } = validateCreate(base());
     expect(errors).toEqual([]);
@@ -184,5 +205,32 @@ describe('기획 출처 (DR-PR-009)', () => {
       const { product } = validateCreate(base({ planOrigin: { startedBy } }));
       expect(product?.planOrigin, startedBy).toMatchObject({ startedBy });
     }
+  });
+});
+
+describe('줄이 들어온 경로 (FR-PL-020)', () => {
+  it('🔴 등록 화면이 보낸 경로를 줄마다 받는다 — 없거나 모르는 값이면 직접 입력', () => {
+    const { product } = validateCreate(base({
+      days: [
+        { day: 1, items: [
+          { start: '10:00', end: '11:30', place: '경포대', itemType: 'SIGHT', origin: 'TEXT' },
+          { start: '12:00', end: '13:00', place: '가람집', itemType: 'MEAL', origin: 'UPLOAD' },
+          { start: '14:00', end: '', place: '주문진 등대', itemType: 'SIGHT', origin: 'PICKER' },
+        ] },
+        { day: 2, items: [{ start: '09:00', end: '', place: '오죽헌', itemType: 'SIGHT' }] },
+        // 수정안 · 레이더 소식은 화면이 보낼 수 있는 값이 아니다
+        { day: 3, items: [{ start: '12:00', end: '13:00', place: '초당순두부', itemType: 'MEAL', origin: 'PATCH' }] },
+      ],
+    }));
+    expect(product?.items.map((i) => i.origin)).toEqual(['TEXT', 'UPLOAD', 'PICKER', 'MANUAL', 'MANUAL']);
+  });
+
+  it('🔴 편집 화면의 항목 추가도 경로를 받는다', () => {
+    const add = (origin?: unknown) => validateAddItem(
+      { dayNo: 1, startTime: '10:00', endTime: '', placeLabel: '경포대', itemType: 'SIGHT', origin }, 3).item?.origin;
+    expect(add('UPLOAD')).toBe('UPLOAD');
+    expect(add('TEXT')).toBe('TEXT');
+    expect(add()).toBe('MANUAL');
+    expect(add('SIGNAL')).toBe('MANUAL');
   });
 });

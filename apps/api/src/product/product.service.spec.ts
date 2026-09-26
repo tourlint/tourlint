@@ -151,11 +151,46 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
     expect(Number(rows[2]?.id)).toBe(tailId);       // 밀린 항목이 3번
   });
 
+  it('🔴 45건이 찬 상품에는 줄 · 장소 담기 · 걷기 길 어느 길로도 더 넣지 않는다 (NF-CP-003 · #892)', async () => {
+    const { productId } = await makeProduct();
+    // 1건(경포대) + 44건 = 45건
+    await pool.query(
+      `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status)
+       SELECT $1, 1, 1 + g, '12:00', NULL, 'DWELL_DEFAULT', '채움 ' || g, 'SIGHT', 'PENDING' FROM generate_series(1, 44) AS g`,
+      [productId],
+    );
+    const attempts = [
+      { dayNo: 1, startTime: '20:00', endTime: '', placeLabel: '한 줄 더', itemType: 'SIGHT' },
+      picked(REPLACEMENT),
+      { dayNo: 1, itemType: 'SIGHT', excluded: { walkId: 'T_TEST_WALK', startTime: '20:00', endTime: '21:00' } },
+    ];
+    for (const body of attempts) {
+      const e = await service.addItem(accountId, productId, body).catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(DomainException);
+      expect((e as DomainException).getStatus()).toBe(HttpStatus.BAD_REQUEST);
+      expect((e as DomainException).reasonCode).toBe('INPUT_INVALID');
+    }
+    const { rows } = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM itinerary_item WHERE product_id = $1`, [productId]);
+    expect(rows[0]?.n).toBe(45);
+  });
+
   it('넣을 위치를 안 주면 그 날 끝에 붙는다', async () => {
     const { productId } = await makeProduct();
     await service.addItem(accountId, productId, picked(REPLACEMENT));
     const days = (await service.detail(accountId, productId)).days as { items: { seq: number }[] }[];
     expect(days[0]?.items.map((i) => i.seq)).toEqual([1, 2]);
+  });
+
+  it('🔴 상세의 항목에 중분류와 끝 시각 출처가 실린다 — 화면이 「기본값 적용 · N분」 을 보인다 (FR-IN-011)', async () => {
+    const { productId } = await makeProduct();
+    const cafe = picked(REPLACEMENT);
+    // 장소 담기는 끝 시각을 표준 체류시간(카페 FD05 60분)으로 채운다
+    await service.addItem(accountId, productId, { ...cafe, itemType: 'REST', content: { ...cafe.content, lcls1: 'FD', lcls2: 'FD05' } });
+    const days = (await service.detail(accountId, productId)).days as { items: Record<string, unknown>[] }[];
+    expect(days[0]?.items.map((i) => [i.lcls2, i.endTimeSource, i.start, i.end])).toEqual([
+      [null, 'INPUT', '10:00', '11:30'],
+      ['FD05', 'DWELL_DEFAULT', '11:30', '12:30'],
+    ]);
   });
 });
 

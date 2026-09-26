@@ -142,20 +142,26 @@ export type StatusKind =
   | "DEFAULT_APPLIED"
   | "DISPLAY_STOPPED";
 
-const STATUS: Record<StatusKind, { label: string; cls: string }> = {
+const STATUS: Record<StatusKind, { label: string; cls: string; title?: string }> = {
   EXCLUDED: { label: "검수 제외", cls: "border-slate-300 text-slate-500 dark:border-slate-700 dark:text-slate-400" },
   NOT_RELEASABLE: { label: "출시 불가", cls: "border-rose-300 text-rose-700 dark:border-rose-800 dark:text-rose-300" },
   PARTIAL: { label: "부분 검수", cls: "border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300" },
   DISMISSED: { label: "무시됨", cls: "border-slate-300 text-slate-500 dark:border-slate-700 dark:text-slate-400" },
-  DEFAULT_APPLIED: { label: "기본값 적용", cls: "border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300" },
+  // 회색 — 판정이 아니라 끝 시각을 어디서 가져왔는지다. 관광정보가 아니라는 것을 함께 적는다 (UI-S2-009)
+  DEFAULT_APPLIED: {
+    label: "기본값 적용",
+    cls: "border-slate-300 text-slate-500 dark:border-slate-700 dark:text-slate-400",
+    title: "끝 시각을 관광정보가 아니라 TourLint 의 보통 머무는 시간으로 채웠어요",
+  },
   DISPLAY_STOPPED: { label: "표출 중단", cls: "border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-300" },
 };
 
-export function StatusBadge({ status, className = "" }: { status: StatusKind; className?: string }) {
+/** `detail` 을 주면 이름 뒤에 붙인다 — 「기본값 적용 · 60분」 (UI-S2-009) */
+export function StatusBadge({ status, detail, className = "" }: { status: StatusKind; detail?: string; className?: string }) {
   const s = STATUS[status];
   return (
-    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${s.cls} ${className}`}>
-      {s.label}
+    <span title={s.title} className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${s.cls} ${className}`}>
+      {detail === undefined ? s.label : `${s.label} · ${detail}`}
     </span>
   );
 }

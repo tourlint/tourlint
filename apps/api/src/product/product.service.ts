@@ -1,5 +1,5 @@
 import { BadRequestException, HttpStatus } from '@nestjs/common';
-import { DWELL_MINUTES_SEED, SETTING_DEFAULTS } from '@tourlint/shared';
+import { DWELL_MINUTES_SEED, ITEM_CAP_MESSAGE, MAX_ITEMS_PER_PRODUCT, SETTING_DEFAULTS } from '@tourlint/shared';
 import type { AuditService } from '../audit/audit.service';
 import type { PlaceNameResolver } from '../audit/place-name';
 import type { CatalogService } from '../catalog/catalog.service';
@@ -70,6 +70,7 @@ export class ProductService {
         pendingMatches: r.pendingMatches,
         plannedAt: r.plannedAt,
         releasedAt: r.releasedAt,
+        startedBy: r.startedBy,
       })),
       page,
       size,
@@ -306,6 +307,10 @@ export class ProductService {
   async addItem(accountId: number, productId: number, body: unknown): Promise<Record<string, unknown>> {
     const nights = await this.repo.ownedNights(accountId, productId);
     if (nights === null) throw notFound(productId);
+    // 줄 추가 · 장소 담기 · 걷기 길이 모두 여기로 온다. 상한을 넘기지 않는다 (NF-CP-003 · NF-CP-010 · #892)
+    if (await this.repo.countItems(productId) >= MAX_ITEMS_PER_PRODUCT) {
+      throw new DomainException(HttpStatus.BAD_REQUEST, 'INPUT_INVALID', ITEM_CAP_MESSAGE, 'PRODUCT');
+    }
     const b = body as Record<string, unknown> | undefined;
     // 걷기 길로 넣으면 excluded.walkId 가 온다 — 직접 정한 곳(EXCLUDED)으로 넣고 이름은 저장 안 함 (D9)
     if (b !== undefined && typeof b.excluded === 'object' && b.excluded !== null) {
@@ -432,6 +437,9 @@ function toDays(items: ProductDetailRow['items']): { day: number; items: unknown
       matchStatus: it.matchStatus,
       mapx: it.mapx,
       mapy: it.mapy,
+      // 끝 시간 미리보기 · 「기본값 적용」 표시용 (FR-IN-011 · UI-S2-009). 판정에는 쓰지 않는다
+      lcls2: it.lcls2,
+      endTimeSource: it.endTimeSource,
     });
     byDay.set(it.dayNo, list);
   }

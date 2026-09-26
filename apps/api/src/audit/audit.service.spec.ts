@@ -684,12 +684,14 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       ]);
       const applied = await confirmAndSettle([{ findingId, patchId: 'p-1' }]);
 
-      const { rows } = await pool.query<{ match_status: string; kto_content_id: string | null }>(
-        `SELECT match_status, kto_content_id FROM itinerary_item
+      const { rows } = await pool.query<{ match_status: string; kto_content_id: string | null; origin: string | null }>(
+        `SELECT match_status, kto_content_id, origin FROM itinerary_item
           WHERE product_id = $1 AND item_type = 'MEAL' AND start_time = '18:00'::time`, [productId],
       );
       expect(rows[0]?.match_status).toBe('EXCLUDED');
       expect(rows[0]?.kto_content_id).toBeNull();
+      // 수정안으로 들어온 줄로 남는다 (FR-PL-020)
+      expect(rows[0]?.origin).toBe('PATCH');
 
       // ① 넣은 항목이 확인 불가로 세어지지 않는다
       const application = await service.getPatchApplication(applied.patchApplicationId);
@@ -701,6 +703,29 @@ describe.skipIf(URL === undefined)('AuditService — 관통', () => {
       // ② 사용자가 다시 검수를 눌러도 거절당하지 않는다
       await expect(service.requestAudit(productId, 'MANUAL')).resolves.toBeDefined();
       await service.waitForIdle();
+    });
+
+    it('🔴 45건이 찬 상품에는 넣는 수정안을 확정하지 않는다 (NF-CP-003 · #892)', async () => {
+      const [a] = await day1Ids();
+      const fill = 45 - (await itemsOf()).length;
+      await pool.query(
+        `INSERT INTO itinerary_item (product_id, day_no, seq, start_time, end_time, end_time_source, place_label, item_type, match_status)
+         SELECT $1, 1, 100 + g, '21:00', NULL, 'DWELL_DEFAULT', '채움 ' || g, 'FREE', 'EXCLUDED' FROM generate_series(1, $2::int) AS g`,
+        [productId, fill],
+      );
+      try {
+        const findingId = await synthFinding([
+          {
+            patchId: 'p-1', type: 'INSERT_ITEM', targetItemId: a,
+            payload: { dayNo: 1, afterItemId: a, startTime: '18:00', endTime: '19:00', itemType: 'MEAL' },
+          },
+        ]);
+        await expect(service.confirmPatches(productId, [{ findingId, patchId: 'p-1' }], null))
+          .rejects.toMatchObject({ reasonCode: 'INPUT_INVALID' });
+        expect(await itemsOf()).toHaveLength(45);
+      } finally {
+        await pool.query(`DELETE FROM itinerary_item WHERE product_id = $1 AND place_label LIKE '채움 %'`, [productId]);
+      }
     });
 
     it('🔴 관광지가 담긴 삽입은 매칭된 항목으로 저장된다 (FR-RU-093 ① · 103)', async () => {

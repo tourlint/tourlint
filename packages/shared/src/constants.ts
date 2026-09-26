@@ -65,6 +65,14 @@ export const TRANSPORT_LABEL: Readonly<Record<Transport, string>> = {
 
 export const NIGHTS_ALLOWED = [0, 1, 2] as const;
 
+/**
+ * 상품당 일정 항목 상한 (NF-CP-003). 엑셀 · 메모 읽기 · 직접 입력 · 장소 담기 · 걷기 길 · 수정안이
+ * 같은 수를 본다 — 업로드만 막고 다른 길로는 넘겨 저장되던 것을 막는다 (NF-CP-010 · #892).
+ */
+export const MAX_ITEMS_PER_PRODUCT = 45;
+export const ITEM_CAP_MESSAGE =
+  `일정은 상품당 ${MAX_ITEMS_PER_PRODUCT}건까지 넣을 수 있어요. 다른 일정을 지우거나 상품을 나눠 주세요.`;
+
 // ─────────────────────────────────────────────────────────────
 // 규칙 판정 사유코드 15종 — 예외 사유코드와 네임스페이스가 다르다 (EX-CM-022)
 // ─────────────────────────────────────────────────────────────
@@ -688,6 +696,26 @@ export type ItemMatchedBy = (typeof ITEM_MATCHED_BY)[number];
 /** 항목이 들어온 경로 (`itinerary_item.origin` · `ck_item_origin`) */
 export const ITEM_ORIGIN = ['MANUAL', 'UPLOAD', 'TEXT', 'PICKER', 'SIGNAL', 'PATCH'] as const;
 export type ItemOrigin = (typeof ITEM_ORIGIN)[number];
+
+/**
+ * 기획을 시작한 방법의 화면 말 (`product.plan_origin.startedBy` · FR-PL-020 · UI-S1-010). 검수 결과 화면의
+ * 기획 칸 · 홈 보드의 기획 중 카드 · 리포트 1절이 이 표 하나를 본다 — 한 상품을 화면마다 다르게
+ * 부르지 않는다. 옛 기록의 CLONE 도 읽는다.
+ */
+export const STARTED_BY_LABEL: Readonly<Record<string, string>> = {
+  MANUAL: '직접 입력으로 시작',
+  UPLOAD: '엑셀로 시작',
+  TEXT: '메모 붙여넣기로 시작',
+  CLONE: '복제로 시작',
+  SIGNAL: '레이더 소식으로 시작',
+};
+
+/**
+ * 등록 · 편집 화면이 줄마다 보내는 경로 (FR-PL-020). 직접 입력 · 엑셀 · 메모 붙여넣기 · 장소 담기.
+ * 수정안이 넣은 줄(PATCH)은 서버가 붙이고, 레이더 소식(SIGNAL)으로 줄을 넣는 화면은 아직 없다.
+ */
+export const INPUT_ITEM_ORIGIN = ['MANUAL', 'UPLOAD', 'TEXT', 'PICKER'] as const;
+export type InputItemOrigin = (typeof INPUT_ITEM_ORIGIN)[number];
 
 /** 기획 조회의 메모리 캐시 — 지역 · 중분류별 수와 목록, 무장애 · 반려동물 contentid 집합, 걷기 길 목록. DB · 로그 금지 (DB 명세서 6-4) */
 export const PLAN_LIST_CACHE_TTL_MS = 10 * 60 * 1000;

@@ -171,6 +171,15 @@ describe.skipIf(URL === undefined)('ReportService — 관통', () => {
     expect((await build(before)).comparison).toBeNull();
   });
 
+  it('🔴 1절에 기획 출처 · 줄마다 들어온 경로 · 고른 방식을 한 줄로 싣는다 (FR-PL-020)', async () => {
+    await pool.query(`UPDATE product SET plan_origin = '{"startedBy":"TEXT"}'::jsonb WHERE id = $1`, [productId]);
+    await pool.query(`UPDATE itinerary_item SET origin = 'TEXT', matched_by = 'AUTO' WHERE product_id = $1 AND seq = 1`, [productId]);
+    const model = await (service as unknown as { buildModel(run: number, product: number): Promise<ReportModel> })
+      .buildModel(runId, productId);
+    // 경로를 남기기 전에 넣은 줄(seq 2)은 직접 입력으로 치지 않는다
+    expect(model.product.planning).toBe('메모 붙여넣기로 시작 · 일정 2개 (메모 1 · 기록 없음 1) · 고른 방식 (자동 1)');
+  });
+
   it('검수 제외 항목 건수가 리포트에 반영된다 (FR-PA-064)', async () => {
     // 렌더 결과를 직접 못 읽으므로 모델 경유 확인은 report-model.spec 이 한다.
     // 여기서는 EXCLUDED 항목이 있어도 생성이 끝까지 도는지만 본다

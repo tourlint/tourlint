@@ -1,0 +1,47 @@
+// 등록 폼 → `POST /products` 본문 (API 설계 5-1). 페이지 파일은 기본 내보내기만 둘 수 있어
+// 따로 두고 시험한다.
+
+import type { PlanOrigin } from "../../../lib/api";
+import type { Nights, Schedule, Transport } from "./types";
+
+export interface PayloadInput {
+  name: string;
+  region: { regnCode: string; signguCode: string };
+  startDate: string;
+  nights: Nights;
+  schedule: Schedule;
+  target: string;
+  concept: string;
+  headcount: string;
+  transport: Transport;
+  planOrigin?: PlanOrigin | null;
+}
+
+export function buildPayload(f: PayloadInput) {
+  // 필드명·enum 은 API 정본(설계 5-1)을 따른다. 이동수단은 공용 TRANSPORT 값을 그대로 보낸다.
+  return {
+    name: f.name.trim(),
+    ldongRegnCd: f.region.regnCode,
+    ldongSignguCd: f.region.signguCode || null,
+    startDate: f.startDate,
+    nights: f.nights,
+    targetKey: f.target.trim() || null,
+    conceptKey: f.concept.trim() || null,
+    headCount: f.headcount ? Number(f.headcount) : null,
+    transport: f.transport,
+    planOrigin: f.planOrigin ?? null,
+    days: f.schedule.map((items, i) => ({
+      day: i + 1,
+      items: items.map((it) => ({
+        start: it.start,
+        end: it.end || null,
+        place: it.place.trim(),
+        itemType: it.itemType,
+        // 입력하는 순간 고른 관광지가 있으면 저장 시 CONFIRMED 로 (UI-S2-020 · create content 계약)
+        ...(it.content ? { content: it.content } : {}),
+        // 줄이 들어온 경로 (FR-PL-020)
+        origin: it.origin ?? "MANUAL",
+      })),
+    })),
+  };
+}
