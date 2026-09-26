@@ -48,7 +48,7 @@ function evidence(over: Partial<ContentEvidence> = {}): ContentEvidence {
     homepageUrl: null, contact: { tel: '033-640-4457' },
     fields: [{ name: 'restdate', value: '연중무휴' }],
     ktoModifiedTime: '20260801120000', hidden: false, unavailableReason: null,
-    contentTypeId: 14, mapx: null, mapy: null, lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, ...over,
+    contentTypeId: 14, mapx: null, mapy: null, lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, cpyrhtDivCd: null, ...over,
   };
 }
 

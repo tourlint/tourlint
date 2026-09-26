@@ -214,13 +214,14 @@ export const AUDIT: readonly Endpoint[] = [
     route: 'GET /api/v1/products/{productId}/audit-runs',
     tag: '검수',
     summary: '검수 이력',
-    description: '상품의 검수 결과 목록을 최신순으로 돌려줍니다. 현재 일정의 결과에는 `isCurrent: true` 가 붙습니다.',
+    description: '상품의 검수 결과 목록을 최신순으로 돌려줍니다. 현재 일정의 결과에는 `isCurrent: true` 가 붙습니다. 검수가 도는 중이면 `activeJobId` 에 그 작업 번호가 있습니다(없으면 `null`) — 결과 화면이 다시 열려도 진행 상태를 이어서 봅니다.',
     params: PRODUCT,
     responses: {
       200: {
         description: '성공',
         example: {
           totalCount: 13,
+          activeJobId: null,
           runs: [
             {
               auditRunId: 111,

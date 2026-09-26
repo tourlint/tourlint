@@ -32,6 +32,13 @@ describe('ContentService (API 설계 4-2 · 5-12)', () => {
     await svc.detail('1', '99');
     expect(seen).toEqual([14]);
   });
+
+  it('🔴 저작권 유형(cpyrhtDivCd)을 싣는다 — 화면이 Type3 에 「변경금지」를 붙인다 (FR-CM-011 · EI-KT-017)', async () => {
+    expect((await service({}, { cpyrhtDivCd: 'Type3' }).svc.detail('2868839', '39')).cpyrhtDivCd).toBe('Type3');
+    expect((await service({}, { cpyrhtDivCd: 'Type1' }).svc.detail('129784', '14')).cpyrhtDivCd).toBe('Type1');
+    // 실측에 빈 값도 있다(감자유원지 등). 없으면 null — 지어내지 않는다
+    expect((await service({}, { cpyrhtDivCd: '' }).svc.detail('2941250', '12')).cpyrhtDivCd).toBeNull();
+  });
 });
 
 describe('카드 펼침의 조건 축 (FR-PL-012 · API 4-10)', () => {

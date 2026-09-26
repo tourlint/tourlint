@@ -643,6 +643,16 @@ export class AuditService implements OnApplicationBootstrap {
   }
 
   /**
+   * 그 상품에 지금 도는 검수 작업 (UI-ST-003 · EX-AU-003). 재검수 중에 결과 화면을 새로 열면
+   * 이 번호로 진행 상태를 이어 폴링한다 — 끝난 실행만 보면 직전 결과를 최종처럼 보인다.
+   * 기한을 넘겨 멈춘 작업은 진행 중으로 치지 않는다 (#772).
+   */
+  async activeJobOf(productId: number): Promise<number | null> {
+    const job = await this.jobs.findActive(productId);
+    return job === null || isStale(job, new Date()) ? null : job.id;
+  }
+
+  /**
    * 있으면 주고 없으면 `null`.
    *
    * `getRun` 과 달리 던지지 않는다 — 재검수가 아직 안 끝났거나 실패한 이력은
@@ -1343,9 +1353,12 @@ export const PRE_DEPARTURE_NOTE = '출발이 가까워 자동으로 올린 항�
 export function toRunListResponse(
   runs: readonly StoredAuditRun[],
   currentRunId: number | null = null,
+  activeJobId: number | null = null,
 ): Record<string, unknown> {
   return {
     totalCount: runs.length,
+    // 도는 검수 작업. 결과 화면이 다시 열려도 이어 폴링한다 (UI-ST-003)
+    activeJobId,
     runs: runs.map((r) => ({
       auditRunId: r.id,
       // 지금 일정의 결과. 되돌렸으면 가장 최근이 아니라 반영 전 실행이다 (#551)

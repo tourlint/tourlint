@@ -76,6 +76,7 @@ export class PlaceMatchService {
     const lclsSystm1 = str(common.lclsSystm1);
     const lclsSystm2 = str(common.lclsSystm2);
     const lclsSystm3 = str(common.lclsSystm3);
+    const cpyrhtDivCd = str(common.cpyrhtDivCd);
 
     await this.repo.confirm(item.itemId, { contentId, contentTypeId, lclsSystm1, lclsSystm2, lclsSystm3, mapx, mapy, matchedBy });
 
@@ -92,11 +93,14 @@ export class PlaceMatchService {
         lclsSystm3,
         mapx,
         mapy,
-        cpyrhtDivCd: str(common.cpyrhtDivCd),
+        cpyrhtDivCd,
       },
       fetchedAt: kstIso(new Date()),
-      // 실측상 대부분 Type3(변경금지)라 기본값으로 가정하고 병기한다 (FR-CM-011)
-      sourceBadge: { type: 'KTO_RAW', note: '변경금지' },
+      /*
+       * 받은 저작권 유형대로 적는다 (EI-KT-017). Type3 만 「변경금지」다 — 종전에는 값과 무관하게
+       * 붙여 Type1(오죽헌 등)에도 변경금지가 나갔다. 값이 없으면 표기를 생략한다
+       */
+      sourceBadge: { type: 'KTO_RAW', note: copyrightNote(cpyrhtDivCd) },
     };
   }
 
@@ -127,6 +131,11 @@ function toCandidate(raw: Record<string, unknown>): Record<string, unknown> {
     lDongSignguCd: str(raw.lDongSignguCd),
     cpyrhtDivCd: str(raw.cpyrhtDivCd),
   };
+}
+
+/** 출처 배지 곁말 — 제3유형(Type3)이면 「변경금지」, 그 밖에는 없다 (FR-CM-011 · EI-KT-017) */
+export function copyrightNote(cpyrhtDivCd: string | null): '변경금지' | null {
+  return cpyrhtDivCd === 'Type3' ? '변경금지' : null;
 }
 
 function str(v: unknown): string | null {
