@@ -4,6 +4,8 @@ import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DomainException } from '../common/domain.exception';
 import { PlaceNameResolver } from '../audit/place-name';
+import { AuditService } from '../audit/audit.service';
+import type { StoredAuditRun } from '../persistence/audit-result.repository';
 import { CatalogService } from '../catalog/catalog.service';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { FixtureKtoTransport, KtoClient } from '../external/kto';
@@ -243,6 +245,46 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
       ['강릉 오죽헌·시립박물관', 14],
       ['초당순두부', null],
     ]);
+  });
+
+  it('결과 화면이 여는 상세 · 판정 · 확인 필요가 이름 없는 곳마다 한 번만 부르고, 다시 열면 부르지 않는다 (#911 리뷰)', async () => {
+    // 프로세스에 하나인 이름 리졸버 — app.module 과 같은 모양으로 둘에 같은 것을 준다
+    const transport = new FixtureKtoTransport(FIXTURE_DIR);
+    const client = new KtoClient({ transport, logger: new InMemoryApiCallLogger() });
+    const names = new PlaceNameResolver({ kto: () => client });
+    const kto = (): KtoClient => client;
+    const products = new ProductService(
+      new ProductRepository(pool), new CatalogService(kto), patches, names, {} as never,
+      new WalkNameResolver({ kto, budget: async () => ({ allowed: true, ratio: 0, reasonCode: null, warn: false, remaining: 800 }) }),
+      () => null,
+    );
+    const audit = new AuditService(pool, undefined, names);
+    // 이름을 저장하지 않은 고른 곳 넷 — 가이드 상품의 세인트존스 호텔 · 주문진 등대 · 하이오션 경포 · 하슬라아트월드 자리
+    const picked = (contentId: string, contentTypeId: number, start: string) =>
+      ({ start, end: '', place: '', itemType: 'SIGHT', origin: 'PICKER', content: { contentId, contentTypeId } });
+    const { product } = validateCreate({
+      name: '이름 조회 한 번 스펙', ldongRegnCd: '51', ldongSignguCd: '150', startDate: '2026-10-22', nights: 0, transport: 'CAR',
+      days: [{ day: 1, items: [
+        picked(ORIGINAL, 12, '09:00'), picked(REPLACEMENT, 14, '11:00'), picked('125769', 12, '13:00'), picked('1756581', 14, '15:00'),
+        { start: '17:00', end: '18:00', place: '초당순두부', itemType: 'MEAL' },
+      ] }],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await new ProductRepository(pool).create(accountId, product);
+    const items = await audit.itemsOf(productId);
+    const screen = () => Promise.all([
+      products.detail(accountId, productId),
+      audit.targetsByItem({ productId } as StoredAuditRun),
+      audit.displayLabels(items),
+    ]);
+
+    const [, targets, labels] = await screen();
+    expect(transport.replayCounts.get('detailCommon2')).toBe(4);
+    expect([...labels.values()]).toContain('강릉 경포대');
+    expect(targets.get(items[0]?.id ?? 0)?.placeLabel).toBe('강릉 경포대');
+    // 10분 안에 다시 열면 부르지 않는다
+    await screen();
+    expect(transport.replayCounts.get('detailCommon2')).toBe(4);
   });
 
   it('🔴 상세의 항목에 걷기 길 식별자가 실린다 — 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 (UI-S2-048)', async () => {

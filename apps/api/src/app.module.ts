@@ -158,6 +158,28 @@ import { SettingsRepository } from './settings/settings.repository';
       inject: [DB_POOL],
     },
     {
+      /*
+       * 이름을 저장하지 않은 고른 곳의 표시 이름 (DR-PR-001 · #908). **프로세스에 하나** — 상품 상세 ·
+       * 판정 · 확인 필요 · 미리보기 · 알림 · 장소 정보가 캐시를 나눠 쓰고, 같은 곳을 동시에 물으면 조회
+       * 하나를 같이 기다린다. 따로 두었더니 결과 화면 한 번에 같은 곳을 세 번 불렀다 (#911 리뷰).
+       * 국문 예산 문을 거친다 — 다 쓰면 부르지 않고 화면은 대체 표시를 한다
+       */
+      provide: PlaceNameResolver,
+      useFactory: (pool: Pool) => {
+        const logs = new PgApiCallLogger(pool);
+        const state = new BatchStateRepository(pool);
+        let client: KtoClient | null = null;
+        return new PlaceNameResolver({
+          kto: () => (client ??= createKtoClient(logs)),
+          budget: async () => {
+            const { dailyQuota } = await state.setting();
+            return ktoBudgetGuard('KOR', { counter: logs, dailyQuota }).check('PLAN');
+          },
+        });
+      },
+      inject: [DB_POOL],
+    },
+    {
       // 관리자 설정 (F16). 계정 설정 조회·저장 + 전역 설정 조회 (PM-DA-005)
       provide: SettingsService,
       useFactory: (pool: Pool) => new SettingsService(new SettingsRepository(pool)),
@@ -183,14 +205,14 @@ import { SettingsRepository } from './settings/settings.repository';
     {
       // 상품 CRUD. 목록의 지역명 조회에 CatalogService 를 재사용한다 (fixture 리플레이라 예산 0)
       provide: ProductService,
-      useFactory: (pool: Pool, catalog: CatalogService, audit: AuditService, walkNames: WalkNameResolver) => {
+      useFactory: (pool: Pool, catalog: CatalogService, audit: AuditService, walkNames: WalkNameResolver, names: PlaceNameResolver) => {
         const logs = new PgApiCallLogger(pool);
         return new ProductService(
           new ProductRepository(pool),
           catalog,
           new PatchApplicationRepository(pool),
           // 대체·추가된 항목의 이름은 표시할 때 읽는다 (FR-PA-003 · DR-PR-001)
-          new PlaceNameResolver({ kto: () => createKtoClient(logs) }),
+          names,
           // 검수 시작(handoff)이 검수를 요청한다 (D7)
           audit,
           // 걷기 길(walk_id)의 표시 이름은 저장하지 않고 볼 때 찾는다 (D9)
@@ -206,7 +228,7 @@ import { SettingsRepository } from './settings/settings.repository';
           },
         );
       },
-      inject: [DB_POOL, CatalogService, AuditService, WalkNameResolver],
+      inject: [DB_POOL, CatalogService, AuditService, WalkNameResolver, PlaceNameResolver],
     },
     {
       // 관광지 확정(매칭). 검색·상세 프록시에 KTO 클라이언트를 쓴다 (KTO_MODE 에 따라 live/fixture)
@@ -331,7 +353,7 @@ import { SettingsRepository } from './settings/settings.repository';
        * 규칙엔진을 부르지 않는다 — 기획 화면에는 판정이 없다.
        */
       provide: PlaceFactsService,
-      useFactory: (pool: Pool) => {
+      useFactory: (pool: Pool, names: PlaceNameResolver) => {
         const logs = new PgApiCallLogger(pool);
         const state = new BatchStateRepository(pool);
         let client: KtoClient | null = null;
@@ -350,11 +372,11 @@ import { SettingsRepository } from './settings/settings.repository';
             const { dailyQuota } = await state.setting();
             return ktoBudgetGuard(service, { counter: logs, dailyQuota }).check('PLAN');
           },
-          // 리포트가 쓰는 것과 같은 리졸버지만 인스턴스는 따로다 — 이름 캐시는 10분짜리 메모리다
-          names: new PlaceNameResolver({ kto: () => (client ??= createKtoClient(logs)) }),
+          // 상품 상세 · 판정과 같은 리졸버 — 이름 캐시 하나를 나눠 쓴다
+          names,
         });
       },
-      inject: [DB_POOL],
+      inject: [DB_POOL, PlaceNameResolver],
     },
     {
       /** 에이전트 셋이 함께 쓰는 자물쇠 — 계정마다 같은 에이전트 동시 1회 (FR-AG-002 · EX-AG-004) */
@@ -470,11 +492,9 @@ import { SettingsRepository } from './settings/settings.repository';
     {
       // 알림 카드의 이름은 저장하지 않고 볼 때 읽는다 (UI-S7-003 · DB 명세서 6-4 · #685)
       provide: NotificationService,
-      useFactory: (pool: Pool) => {
-        const logs = new PgApiCallLogger(pool);
-        return new NotificationService(pool, new PlaceNameResolver({ kto: () => createKtoClient(logs) }));
-      },
-      inject: [DB_POOL],
+      // 이름 캐시는 상품 상세 · 판정과 하나다 — 오늘 할 일도 이 캐시에서 빌린다 (#908)
+      useFactory: (pool: Pool, names: PlaceNameResolver) => new NotificationService(pool, names),
+      inject: [DB_POOL, PlaceNameResolver],
     },
     RadarService,
   ],

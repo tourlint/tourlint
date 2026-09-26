@@ -7,6 +7,33 @@ import {
   NAME_CACHE_MAX, NAME_TTL_MS, PlaceNameResolver, applyNames, collectPatchContentIds, replacedContentIds,
 } from './place-name';
 
+/** 부를 때마다 멈춰 두고 손으로 풀어 주는 공사 스텁 — 동시에 몇 곳이 도는지 본다 */
+function gatedKto() {
+  const calls: string[] = [];
+  let running = 0;
+  let peak = 0;
+  const gates: (() => void)[] = [];
+  const kto = {
+    detailCommon: async (contentId: string) => {
+      calls.push(contentId);
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise<void>((open) => gates.push(open));
+      running -= 1;
+      return { title: `이름-${contentId}` } as Record<string, unknown>;
+    },
+  } as unknown as KtoClient;
+  const openAll = async (): Promise<void> => {
+    // 부르기까지 몇 단계를 거친다 — 먼저 돌 차례를 준다
+    await new Promise((r) => setTimeout(r, 0));
+    while (gates.length > 0) {
+      gates.splice(0).forEach((open) => open());
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  };
+  return { kto: () => kto, calls, peak: () => peak, openAll };
+}
+
 /** 부른 횟수를 셀 수 있는 공사 스텁 */
 function stubKto(byId: Record<string, unknown> = {}) {
   const calls: string[] = [];
@@ -72,6 +99,49 @@ describe('대체 관광지 이름 (DR-PR-001)', () => {
     expect(r.peek(['1', '2'])).toEqual(new Map([['1', '이름-1']]));
     now += NAME_TTL_MS;
     expect(r.peek(['1'])).toEqual(new Map());
+    expect(calls).toEqual(['1']);
+  });
+
+  it('🔴 같은 곳을 동시에 물어도 한 번만 부른다 — 결과 화면이 상세 · 판정 · 확인 필요를 함께 부른다 (#911)', async () => {
+    const gated = gatedKto();
+    const r = new PlaceNameResolver({ kto: gated.kto });
+    const three = Promise.all([r.resolve(['1', '2']), r.resolve(['1', '2']), r.resolve(['2', '1'])]);
+    await gated.openAll();
+    const [a, b, c] = await three;
+    expect(gated.calls).toEqual(['1', '2']);
+    for (const names of [a, b, c]) expect(names).toEqual(new Map([['1', '이름-1'], ['2', '이름-2']]));
+  });
+
+  it('🔴 여러 곳을 나란히 부르되 동시에 넷까지다 — 한 곳씩 차례로 부르지 않는다', async () => {
+    const gated = gatedKto();
+    const r = new PlaceNameResolver({ kto: gated.kto });
+    const pending = r.resolve(['1', '2', '3', '4', '5', '6']);
+    await new Promise((done) => setTimeout(done, 0));
+    // 첫 넷이 한꺼번에 나가 있다
+    expect(gated.calls).toEqual(['1', '2', '3', '4']);
+    await gated.openAll();
+    expect((await pending).size).toBe(6);
+    expect(gated.peak()).toBe(4);
+  });
+
+  it('🔴 한도를 넘기면 읽은 데까지만 주고, 늦은 조회는 뒤에서 캐시를 채운다', async () => {
+    const gated = gatedKto();
+    const r = new PlaceNameResolver({ kto: gated.kto, waitMs: 20 });
+    const started = Date.now();
+    expect(await r.resolve(['1'])).toEqual(new Map());
+    expect(Date.now() - started).toBeLessThan(1_000);
+    await gated.openAll();
+    expect(r.peek(['1'])).toEqual(new Map([['1', '이름-1']]));
+    expect(gated.calls).toEqual(['1']);
+  });
+
+  it('🔴 예산이 다 됐으면 부르지 않고 읽어 둔 이름만 준다', async () => {
+    const { kto, calls } = stubKto();
+    let allowed = true;
+    const r = new PlaceNameResolver({ kto, budget: async () => ({ allowed }) });
+    await r.resolve(['1']);
+    allowed = false;
+    expect(await r.resolve(['1', '2'])).toEqual(new Map([['1', '이름-1']]));
     expect(calls).toEqual(['1']);
   });
 

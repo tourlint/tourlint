@@ -34,6 +34,7 @@ import { AuditBasis, basisRows } from "../../../components/audit-basis";
 import { GradeBadge, GradeCounts, SourceBadge, StatusBadge, type SourceKind } from "../../../components/badges";
 import { contactText, readNormalized, readVerdict, ruleLine } from "../../../lib/evidence";
 import { ruleName } from "../../../lib/rule-names";
+import { shownPlace } from "../../../lib/place-label";
 import { scoreSentence } from "../../../lib/score-sentence";
 import { WorkspaceIcon } from "../../../components/workspace-icon";
 import {
@@ -1732,7 +1733,7 @@ function itemLabeler(product: ProductDetail | null): (itemId: number | null) => 
   const map = new Map<number, string>();
   if (product) {
     for (const day of product.days) {
-      for (const it of day.items) map.set(it.itemId, `${day.day}일차 · ${it.place}`);
+      for (const it of day.items) map.set(it.itemId, `${day.day}일차 · ${shownPlace(it) ?? it.place}`);
     }
   }
   return (itemId) => (itemId === null ? "상품 전체" : (map.get(itemId) ?? `항목 #${itemId}`));

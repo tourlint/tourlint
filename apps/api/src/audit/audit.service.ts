@@ -126,6 +126,8 @@ export class AuditService implements OnApplicationBootstrap {
     @Inject(DB_POOL) private readonly pool: Pool,
     /** 걷기 길의 표시 이름. 상품 응답 · 리포트와 같은 것을 쓴다 — 10분 캐시를 나눠 쓰려고 주입받는다 (#739) */
     @Optional() @Inject(WalkNameResolver) private readonly walkNames?: WalkNameResolver,
+    /** 고른 곳의 표시 이름. 상품 상세 · 알림과 같은 것을 쓴다 — 결과 화면이 같은 곳을 세 번 부르지 않게 (#911 리뷰) */
+    @Optional() @Inject(PlaceNameResolver) private readonly sharedNames?: PlaceNameResolver,
   ) {
     this.jobs = new AuditJobRepository(pool);
     this.products = new ProductRepository(pool);
@@ -413,8 +415,9 @@ export class AuditService implements OnApplicationBootstrap {
     return applyNames(before, after, await this.placeNames().resolve(ids));
   }
 
-  /** 첫 조회 때 만든다. 캐시를 살리려고 한 번 만든 것을 계속 쓴다 */
+  /** 주입받은 것을 쓴다. 없으면(테스트) 첫 조회 때 만들어 계속 쓴다 */
   private placeNames(): PlaceNameResolver {
+    if (this.sharedNames !== undefined) return this.sharedNames;
     this.nameResolver ??= new PlaceNameResolver({ kto: () => createKtoClient(this.callLogger) });
     return this.nameResolver;
   }
