@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.79</td>
+<td>API · 백엔드 설계 v2.80</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -959,7 +959,7 @@ GET /api/v1/rules             기존 응답에 규칙마다 추가
 <tr>
 <td>GET</td>
 <td>`/api/v1/plan/places`</td>
-<td>`scope=SIGNGU|NEAR3KM` `lcls2` `nearKind=MEAL|CAFE|STAY` `sort=near|together` `anchor=mapx,mapy` `anchorContentId` `wheelchair` `pet` `indoor` `page`. SIGNGU 는 칩과 같은 조건의 `areaBasedList2` 목록 1콜(100행 · 10분 캐시), `sort=near` 는 `locationBasedList2` 반경 20km 를 목록과 같은 `lclsSystm2` 로 좁혀 끝 쪽까지 받은 거리다(응답이 거리순이 아니다). NEAR3KM 은 앵커 기준 `locationBasedList2`(radius 3000) 1콜 — 식당은 음식점에서 주점 · 카페 제외, 카페는 FD05, 숙소는 AC — 가까운 순만 · 순위 없음 · 응답 개수가 칩 숫자이고, 앵커가 없으면 부르지 않고 `disabled: "ANCHOR_REQUIRED"`. 응답의 제목 · 주소 · 사진 URL 은 저장하지 않는다</td>
+<td>`scope=SIGNGU|NEAR3KM` `lcls2` `nearKind=MEAL|CAFE|STAY` `sort=near|together` `anchor=mapx,mapy` `anchorContentId` `wheelchair` `pet` `indoor` `page`. SIGNGU 는 칩과 같은 조건의 `areaBasedList2` 목록 1콜(100행 · 10분 캐시), `sort=near` 는 목록 항목의 좌표로 앵커까지 잰 직선거리로 정렬한다 — 따로 부르지 않고, 좌표가 없으면 거리 없이 뒤에 둔다(위치기반 목록에는 지역 목록의 장소가 다 오지 않는다 · 2026.09.27 실호출). NEAR3KM 은 앵커 기준 `locationBasedList2`(radius 3000) 1콜 — 식당은 음식점에서 주점 · 카페 제외, 카페는 FD05, 숙소는 AC — 가까운 순만 · 순위 없음 · 응답 개수가 칩 숫자이고, 앵커가 없으면 부르지 않고 `disabled: "ANCHOR_REQUIRED"`. 응답의 제목 · 주소 · 사진 URL 은 저장하지 않는다</td>
 <td>FR-PL-010 · 011 · 1에서 2콜</td>
 </tr>
 <tr>
@@ -2056,7 +2056,7 @@ public interface AuditRule {
 <tr>
 <td>7</td>
 <td>`locationBasedList2`</td>
-<td>대체 관광지 추천 (반경 20km 이내) · 장소 담기 가까운 순(20km) · 식당 · 카페 · 숙소 칩(3km)</td>
+<td>대체 관광지 추천 (반경 20km 이내) · 식당 · 카페 · 숙소 칩(3km)</td>
 <td>R01 · R02 · R08 수정안 · F17</td>
 </tr>
 <tr>
@@ -3070,6 +3070,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
 	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.80 (2026.09.27) — #924 재수정: 4-10 `sort=near` 는 목록 항목의 좌표로 잰 직선거리로 정렬하고 위치기반 목록을 부르지 않는다고 고쳤다. v2.77 의 같은 중분류 조회도 배포 뒤 운영에서 그대로였다 — 실호출로 보니 위치기반 목록에 지역 목록의 장소가 다 오지 않는다(강릉 랜드마크관광 6곳 중 반경 20km 2곳). 외부 호출 표의 `locationBasedList2` 쓰임에서 장소 담기 가까운 순을 뺐다.
 	v2.79 (2026.09.27) — #926: 5-9 전후 비교의 `targetFit` 은 무시한 R10 도 결손 유형을 적고 「(무시됨)」 을 붙인다는 것을 적었다(FR-PA-040).
 	v2.78 (2026.09.27) — #925: 4-3 시각 자동 채움의 앞 항목 종료는 끝을 비웠으면 기본 체류시간으로 채운 끝(FR-IN-011)이고 숙박은 입실 시각이라는 것을 적었다. 장소 담기 · 걷기 길이 끝 빈 항목의 시작 시각을 써서 앞 항목과 겹쳤다.
 	v2.77 (2026.09.27) — #924: 4-10 `sort=near` 의 거리 조회를 목록과 같은 `lclsSystm2` 로 좁혀 끝 쪽까지 받는다고 적었다. 전 종류를 1,000행 한 쪽만 받아 기준 바로 옆 장소가 거리 없이 뒤로 밀렸다.

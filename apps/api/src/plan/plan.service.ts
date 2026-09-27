@@ -17,6 +17,7 @@ import {
   type PlanWalk,
 } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
+import { straightDistanceM } from '../common/geo';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import type { BudgetDecision } from '../external/budget-guard';
 import { isKtoError, KtoFetchError, type KtoClient, type KtoListPage } from '../external/kto';
@@ -109,8 +110,6 @@ export interface PlaceDetailResult {
 export const PLAN_LIST_ROWS = 100;
 /** 근처 3km 원본의 페이지 크기 — 강릉 3km 음식점이 185건이었다 (2026.09.15 실호출) */
 export const PLAN_NEAR_ROWS = 1000;
-/** 가까운 순 정렬용 반경 (API 4-10) */
-export const PLAN_SORT_NEAR_RADIUS_M = 20_000;
 /** 한 쪽에 보이는 장소 수 */
 export const PLAN_PAGE_SIZE = 20;
 
@@ -293,7 +292,7 @@ export class PlanService {
     let notice = accessible === null || pet === null ? PARTIAL_NOTICE : null;
 
     if (query.sort === 'near' && query.anchor !== null) {
-      places = await this.sortByDistance(places, query.anchor, lcls2);
+      places = sortByDistance(places, query.anchor);
     }
     let basis: string | null = null;
     if (query.sort === 'together') {
@@ -311,19 +310,6 @@ export class PlanService {
       disabled: null,
       notice,
     };
-  }
-
-  /** 가까운 순 — 반경 20km 조회의 `dist` 를 붙인다. 그 안에 없으면 거리 없음으로 뒤에 둔다 */
-  private async sortByDistance(
-    places: readonly PlanPlace[],
-    anchor: { mapx: number; mapy: number },
-    lcls2: string,
-  ): Promise<readonly PlanPlace[]> {
-    const distances = await this.distancesAround(anchor, PLAN_SORT_NEAR_RADIUS_M, lcls2);
-    if (distances === null) return places;
-    return [...places]
-      .map((p) => ({ ...p, distanceM: distances.get(p.contentId) ?? null }))
-      .sort(byDistance);
   }
 
   /**
@@ -549,39 +535,6 @@ export class PlanService {
     });
   }
 
-  /**
-   * 반경 안 거리표. 실패하면 `null` — 거리를 지어내지 않는다.
-   *
-   * 목록과 같은 중분류로 좁혀 끝 쪽까지 받는다. 응답이 거리순이 아니어서, 전 종류를 1,000행만
-   * 받았더니 기준 바로 옆 장소가 빠져 거리 없이 뒤로 밀렸다(강릉 20km · #924).
-   */
-  private async distancesAround(
-    anchor: { mapx: number; mapy: number },
-    radius: number,
-    lcls2: string,
-  ): Promise<ReadonlyMap<string, number> | null> {
-    try {
-      const page = await this.cache.getOrLoad(`dist:${anchorKey(anchor)}:${radius}:${lcls2}`, async () =>
-        this.allPlacePages('locationBasedList2', (pageNo) => this.kto().locationBasedList({
-          mapX: anchor.mapx,
-          mapY: anchor.mapy,
-          radius,
-          lclsSystm2: lcls2,
-          numOfRows: PLAN_NEAR_ROWS,
-          pageNo,
-        })));
-      const out = new Map<string, number>();
-      for (const item of page.items) {
-        const dist = Number(item.dist);
-        if (Number.isFinite(dist)) out.set(String(item.contentid ?? ''), Math.round(dist));
-      }
-      return out;
-    } catch (e) {
-      if (!isKtoError(e)) throw e;
-      return null;
-    }
-  }
-
   /** 지역 이름 — 법정동 코드표에서 찾는다. 코드표는 원문이 아니라 캐시해도 된다 */
   private async regionOf(region: PlanRegion): Promise<{ name: string; signguName: string | null }> {
     const signguName = await this.cache.getOrLoad(`region:${regionKey(region)}`, async () => {
@@ -721,6 +674,24 @@ function matchesFilters(place: PlanPlace, query: PlacesQuery): boolean {
   if (query.pet && place.pet !== true) return false;
   if (query.indoor && place.indoorOutdoor !== 'INDOOR') return false;
   return true;
+}
+
+/**
+ * 가까운 순 — 목록 항목의 공사 좌표로 기준 줄까지 직선거리를 잰다. 좌표가 없으면 거리 없음으로 뒤에 둔다.
+ *
+ * 위치기반 목록(`locationBasedList2`)의 `dist` 를 붙였더니 지역 목록의 장소가 거기 다 오지 않아
+ * 기준 바로 옆 장소가 거리 없이 뒤로 밀렸다 — 강릉 랜드마크관광 6곳 중 반경 20km 조회에 2곳만
+ * 왔다(2026.09.27 실호출 · #924). 목록에 이미 있는 좌표를 쓰니 호출도 따로 없다.
+ */
+export function sortByDistance(places: readonly PlanPlace[], anchor: { mapx: number; mapy: number }): readonly PlanPlace[] {
+  return [...places]
+    .map((p) => ({ ...p, distanceM: straightDistanceM(anchor, coordinateOf(p)) }))
+    .sort(byDistance);
+}
+
+/** 좌표가 비었거나 0 이면 없는 것으로 본다 — 0,0 까지 잰 거리를 지어내지 않는다 */
+function coordinateOf(p: PlanPlace): { mapx: number; mapy: number } | null {
+  return p.mapx === null || p.mapy === null || p.mapx === 0 || p.mapy === 0 ? null : { mapx: p.mapx, mapy: p.mapy };
 }
 
 function byDistance(a: PlanPlace, b: PlanPlace): number {

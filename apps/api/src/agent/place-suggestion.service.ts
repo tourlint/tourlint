@@ -1,6 +1,7 @@
 import { HttpStatus } from '@nestjs/common';
 import { CONTENT_TYPE_ID, LCLS_SYSTM2, type AgentIncomplete, type ContentTypeId, type PlaceSuggestion } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
+import { straightDistanceM } from '../common/geo';
 import { BudgetBlockedError } from '../external/budget-guard';
 import { isKtoError, type KtoClient, type KtoListPage } from '../external/kto';
 import type { LlmClient } from '../external/llm';
@@ -340,18 +341,7 @@ export function anchorOf(items: readonly PlanItem[], item: PlanItem | null): { m
   return near === null || near.mapx === null || near.mapy === null ? null : { mapx: near.mapx, mapy: near.mapy };
 }
 
-/** 직선거리(m). 이동시간이 아니다 — 시간은 길찾기만 말할 수 있다 (R08 과 같은 원칙) */
-export function straightDistanceM(
-  from: { mapx: number; mapy: number } | null,
-  to: { mapx: number; mapy: number } | null,
-): number | null {
-  if (from === null || to === null) return null;
-  const rad = Math.PI / 180;
-  const meanLat = ((from.mapy + to.mapy) / 2) * rad;
-  const dx = (to.mapx - from.mapx) * rad * Math.cos(meanLat);
-  const dy = (to.mapy - from.mapy) * rad;
-  return Math.round(Math.sqrt(dx * dx + dy * dy) * 6_371_000);
-}
+export { straightDistanceM };
 
 interface Answer {
   readonly itemId: number;
