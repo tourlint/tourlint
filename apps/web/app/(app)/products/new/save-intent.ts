@@ -23,22 +23,39 @@ export function afterSaveHref(
   return `/products/${productId}/plan${suffix}`;
 }
 
-/** 취소로 버려질 입력. 손대지 않은 빈 폼이면 묻지 않고 나간다 */
-export function hasInput(f: {
-  name: string;
+/**
+ * 레이더 「이 지역으로 새 상품 기획」 링크가 미리 채운 값. 사용자가 쓴 것이 아니다 — 이것만 있는
+ * 폼에서 취소를 누르면 「작성한 내용은 사라집니다」 를 묻지 않는다 (UI-S2-013 · #927).
+ */
+export interface Prefill {
   regnCode: string;
+  signguCode: string;
   startDate: string;
-  nights: Nights;
-  target: string;
-  concept: string;
-  headcount: string;
-  transport: Transport;
-  schedule: Schedule;
-}): boolean {
+}
+
+export const NO_PREFILL: Prefill = { regnCode: "", signguCode: "", startDate: "" };
+
+/** 취소로 버려질 입력. 손대지 않은 폼(빈 폼 · 링크가 채운 그대로)이면 묻지 않고 나간다 */
+export function hasInput(
+  f: {
+    name: string;
+    regnCode: string;
+    signguCode: string;
+    startDate: string;
+    nights: Nights;
+    target: string;
+    concept: string;
+    headcount: string;
+    transport: Transport;
+    schedule: Schedule;
+  },
+  prefill: Prefill = NO_PREFILL,
+): boolean {
   return (
     f.name.trim() !== "" ||
-    f.regnCode !== "" ||
-    f.startDate !== "" ||
+    f.regnCode !== prefill.regnCode ||
+    (f.regnCode !== "" && f.signguCode !== prefill.signguCode) ||
+    f.startDate !== prefill.startDate ||
     f.nights !== 0 ||
     f.target !== "" ||
     f.concept !== "" ||
@@ -46,4 +63,9 @@ export function hasInput(f: {
     f.transport !== "CAR" ||
     f.schedule.some((day) => day.length > 0)
   );
+}
+
+/** 취소 · 나가기로 갈 곳. 레이더 링크로 왔으면 레이더로 돌아간다 — 가이드도 「취소로 돌아오세요」 다 (#927) */
+export function leaveHref(fromRadar: boolean): string {
+  return fromRadar ? "/radar" : "/planning";
 }
