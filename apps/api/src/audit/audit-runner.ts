@@ -733,6 +733,8 @@ export class AuditRunner {
       const found = await proposeInsertions(request.anchor, request.slot, {
         kto: this.kto, knownConfidence, exclude,
         wantLcls2: request.wantLcls2,
+        // R09 ① 은 실내 「관광지」다 — 실내로 분류된 식당 · 숙소는 넣지 않는다 (FR-RU-094 · #961)
+        sightOnly: finding.ruleCode === 'R09',
         dwellOf: (lcls2) => (lcls2 === null ? undefined : this.settings.dwellMinutes[lcls2])
           ?? SETTING_DEFAULTS.dwellFallbackMinutes,
         maxListCalls: listCalls,
