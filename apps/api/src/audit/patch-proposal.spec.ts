@@ -967,6 +967,19 @@ describe('넣을 관광지 조회 (FR-RU-103 · #579)', () => {
     expect(found.listCalls).toBe(1);
   });
 
+  it('🔴 R09 ① 은 실내여도 식당 · 숙소를 넣지 않는다 — 관광 유형(12 · 14 · 28)만 (FR-RU-094 · #961)', async () => {
+    const near = (id: string, type: string, lcls2: string, dist: string): Record<string, string> =>
+      ({ contentid: id, contenttypeid: type, lclsSystm2: lcls2, mapx: '128.9', mapy: '37.8', dist });
+    const stub = {
+      locationBasedList: async () => ({ items: [
+        near('restaurant', '39', 'FD01', '50'), near('hostel', '32', 'AC06', '80'), near('museum', '14', 'VE07', '300'),
+      ], totalCount: 3 }),
+    } as never;
+    // 실내 중분류는 넷이라 분류 없이 한 번 받아 거른다 — 매핑표는 식당 · 숙소도 실내로 본다
+    const found = await proposeInsertions(item({}), SLOT, { kto: stub, wantLcls2: ['FD01', 'AC06', 'VE07', 'SH01'], sightOnly: true });
+    expect(idsOf(found.patches)).toEqual(['museum']);
+  });
+
   it('🔴 목록 조회 수를 넘기지 않고, 채워지면 더 부르지 않는다', async () => {
     const one = await proposeInsertions(item({}), SLOT, { kto: kto(), wantLcls2: ['EX02', 'FD05'], maxListCalls: 1 });
     expect(one.listCalls).toBe(1);
