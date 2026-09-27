@@ -1,3 +1,4 @@
+import { CLIMATE_NORMAL_PERIOD } from './climate-station';
 import { LCLS_SYSTM2 } from './lcls-systm';
 import { TARGET_LABEL, CONCEPT_LABEL, type TargetKey, type ConceptKey } from './target-profile';
 
@@ -108,6 +109,17 @@ export function findingMessage(rule: string, original: string, evidence: Record<
     const profile = original.split(' 상품인데 ')[0];
     if (missing.length && original.includes(' 상품인데 ')) return `${profile} 여행에 어울리는 ${missing.join('·')} 방문이 아직 없어요. 해당 장소를 추가해 일정을 보완해 보세요.`;
   }
+  // 기준 평년이 근거에 들기 전(#849) 저장된 평년 판정 — 판정은 그대로, 기간만 지금 말처럼 넣는다 (#968)
+  if (rule === 'R09' && evidence.rainSource === 'CLIMATE' && typeof evidence.normalPeriod !== 'string') {
+    return withNormalPeriod(original);
+  }
   if (PAIR_RULES.has(rule)) return withPairNames(rule, original, evidence, targetName, secondName);
   return PLACE_RULES.has(rule) ? withPlaceName(original, targetName) : original;
+}
+
+/** `평년 기준 — ` → `예보가 아직 없는 날이라 평년(1991~2020) 기준 — `. 예보를 받지 못한 날(#797)이면 그 말을 살린다 */
+function withNormalPeriod(message: string): string {
+  const period = CLIMATE_NORMAL_PERIOD.replace('-', '~');
+  return message.replace(/(예보가 아직 없는 날이라 |예보를 받지 못해 )?평년 기준 — /, (_whole, lead?: string) =>
+    `${lead ?? '예보가 아직 없는 날이라 '}평년(${period}) 기준 — `);
 }
