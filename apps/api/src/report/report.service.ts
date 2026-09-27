@@ -6,6 +6,7 @@ import { DomainException } from '../common/domain.exception';
 import { buildRunFingerprint, shortFingerprint } from '../engine/fingerprint';
 import { createKtoClient } from '../external/kto';
 import { WalkNameResolver } from '../plan/walk-names';
+import { PlaceNameResolver } from '../audit/place-name';
 import { DB_POOL } from '../persistence/db';
 import { PgApiCallLogger } from '../persistence/api-call-log.repository';
 import { AuditResultRepository, type StoredAuditRun } from '../persistence/audit-result.repository';
@@ -48,6 +49,7 @@ export class ReportService {
     @Inject(DB_POOL) pool: Pool,
     private readonly catalog: CatalogService,
     private readonly walkNames: WalkNameResolver,
+    private readonly names: PlaceNameResolver,
   ) {
     this.reports = new ReportRepository(pool);
     this.results = new AuditResultRepository(pool);
@@ -111,6 +113,14 @@ export class ReportService {
       this.comparisonOf(patchRows),
     ]);
 
+    // 수정 이력에만 남은 곳(되돌린 추가 등)은 지금 일정의 근거에 없다. 장소 담기 · 수정안 · 등록 화면에서
+    // 고른 곳은 이름을 저장하지 않으니(DR-PR-001) 표시할 때 찾는다 — 공유 조회기라 예산 문 · 2.5초 상한 안이다 (#916)
+    const historyOnly = [...new Set(patchRows
+      .flatMap((r) => [...r.before.items, ...r.after.items])
+      .filter((i) => i.ktoContentId !== null && !evidence.has(i.ktoContentId) && (i.placeLabel ?? '').trim() === '')
+      .map((i) => i.ktoContentId as string))];
+    const historyNames = historyOnly.length === 0 ? new Map<string, string>() : await this.names.resolve(historyOnly);
+
     return assembleReport({
       run,
       product: {
@@ -127,10 +137,12 @@ export class ReportService {
       // 1절 기획 출처 한 줄 (FR-PL-020)
       planOrigin: productRow.planOrigin,
       patches: await this.toPatchHistory(patchRows, (item) => {
-        // 3절 일정표와 같은 이름을 쓴다. 지금 일정에 없는 곳(되돌린 추가)은 읽어 둔 명칭이 없다
+        // 3절 일정표와 같은 이름을 쓴다. 지금 일정에 없는 곳(되돌린 추가)은 위에서 찾은 이름이다
         const walk = item.walkId ?? null;
         if (walk !== null) return walkNames.get(walk) ?? '걷기 길';
-        const official = item.ktoContentId === null ? undefined : evidence.get(item.ktoContentId)?.officialName;
+        const official = item.ktoContentId === null
+          ? undefined
+          : evidence.get(item.ktoContentId)?.officialName ?? historyNames.get(item.ktoContentId);
         return official ?? labelOnly(item);
       }),
       comparison,
