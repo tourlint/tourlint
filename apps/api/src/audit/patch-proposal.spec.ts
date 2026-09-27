@@ -1175,3 +1175,78 @@ describe('R09 ③ — 실내 관광지로 바꾸기 (FR-RU-094 · #880)', () => 
     expect(got?.id).toBe(morning.id);
   });
 });
+
+describe('직접 정한 곳도 시간을 차지한다 — 수정안이 그 시간에 넣지 않는다 (#941)', () => {
+  // 걷기 길 · 집결지. 규칙은 이 줄을 보지 않는다(FR-IN-025) — 수정안이 겹쳐 넣으면 재검수도 못 잡는다
+  const excluded = (s: Spec): AuditItem => ({
+    ...item(s), matchStatus: 'EXCLUDED', content: null, mapX: null, mapY: null,
+  });
+
+  it('🔴 상품 구성 낮 자리는 걷기 길이 끝난 뒤다 — 조회 기준은 좌표 있는 앞 줄이다', () => {
+    const a = item({ start: '09:00', end: '10:00' });
+    const b = item({ start: '12:00', end: '13:00' });
+    const walk = excluded({ start: '13:00', end: '17:00' });
+    const r10 = finding({ ruleCode: 'R10', severity: 'WARNING', reasonCode: 'TARGET_MISMATCH', targetItemId: null, evidence: { missingLcls2: ['EX02'] } });
+
+    // 10:00 ~ 12:00 은 120분이라 여유까지 150분이 안 들어간다. 13:00 뒤는 걷기 길이 17:00 까지다
+    const plan = planInsertion(r10, [a, b], {}, 90, new Set(), [a, b, walk]);
+    expect(plan?.slot).toEqual({ dayNo: 1, afterItemId: walk.id, startTime: '17:30', endTime: '19:00' });
+    expect(plan?.anchor.id).toBe(b.id);
+  });
+
+  it('🔴 야간 자리는 그 날 마지막 직접 정한 곳 뒤에 여유를 두고 잡는다', () => {
+    const sight = item({ day: 1, start: '15:00', end: '16:00' });
+    const hotel = item({ day: 1, start: '17:00', end: null, type: 'LODGING', mapX: 128.9, mapY: 37.8 });
+    const walk = excluded({ day: 1, start: '18:00', end: '19:10' });
+    const r10 = finding({
+      ruleCode: 'R10', severity: 'WARNING', reasonCode: 'TARGET_MISMATCH', targetItemId: null,
+      evidence: { expectedLcls2: ['FD05'], missingLcls2: [], expectsNight: true, hasNight: false },
+    });
+    const plan = planNightInsertion(r10, [sight, hotel], new Set(), 60, [sight, hotel, walk]);
+    expect(plan?.slot).toEqual({ dayNo: 1, afterItemId: walk.id, startTime: '19:40', endTime: '20:40' });
+    expect(plan?.anchor.id).toBe(hotel.id);
+  });
+
+  it('🔴 식사는 걷기 길이 차지한 공백에 넣지 않는다', () => {
+    const a = item({ start: '09:00', end: '11:00' });
+    const walk = excluded({ start: '11:00', end: '13:00' });
+    const b = item({ start: '15:00', end: '16:00' });
+    const [p] = proposeLocalPatches({
+      finding: finding({ ruleCode: 'R07', reasonCode: 'MEAL_REST_MISSING', targetItemId: a.id, evidence: { dayNo: 1 } }),
+      items: [a, b], occupied: [a, walk, b], holidays: KOREAN_HOLIDAYS,
+    });
+    expect(p?.payload).toMatchObject({ afterItemId: walk.id, startTime: '13:00', endTime: '14:00', itemType: 'MEAL' });
+  });
+
+  it('🔴 휴무라 다른 날로 옮길 때 그 날 직접 정한 곳의 시간은 빈 자리가 아니다', () => {
+    // item() 의 1일차는 10/22(목)
+    const target = item({ day: 1, start: '10:00', end: '11:00', rest: '매주 목요일', use: '09:00~18:00' });
+    const walk = excluded({ day: 2, start: '09:00', end: '12:00' });
+    const lunch = item({ day: 2, start: '12:30', end: '13:30', type: 'MEAL' });
+    const [p] = proposeLocalPatches({
+      finding: finding({ targetItemId: target.id }), items: [target, lunch], occupied: [target, walk, lunch], holidays: KOREAN_HOLIDAYS,
+    });
+    // 걷기 길 뒤 12:00 ~ 12:30 은 좁고, 점심 뒤 14:00 이 첫 자리다
+    expect(p).toMatchObject({ type: 'TIME_SHIFT', payload: { newDayNo: 2, newStartTime: '14:00', newEndTime: '15:00' } });
+  });
+
+  it('🔴 뒤 일정을 미는 안이 직접 정한 곳과 새로 겹치면 내지 않는다 — 남은 안의 번호는 다시 매긴다', () => {
+    const from = item({ start: '10:00', end: '11:00', mapX: 128.90, mapY: 37.79 });
+    const to = item({ start: '11:00', end: '12:00', mapX: 129.00, mapY: 37.79 });
+    const closer = item({ start: '15:00', end: '16:00', mapX: 128.905, mapY: 37.79 });
+    const walk = excluded({ start: '12:15', end: '14:00' });
+    const patches = proposeLocalPatches({
+      finding: finding({ ruleCode: 'R08', severity: 'ERROR', reasonCode: 'TRAVEL_TIME_SHORT', targetItemId: from.id, targetItemId2: to.id, evidence: { shortfallMinutes: 20 } }),
+      items: [from, to, closer], occupied: [from, to, closer, walk], holidays: KOREAN_HOLIDAYS,
+    });
+    // 11:30 ~ 12:30 으로 밀면 걷기 길(12:15 ~)과 겹친다. 순서 교체만 남는다
+    expect(patches.map((p) => [p.patchId, p.type])).toEqual([['p-1', 'REORDER']]);
+  });
+
+  it('직접 정한 곳이 없으면 전과 같다 — occupied 를 안 주면 items 다', () => {
+    const a = item({ start: '10:00', end: '11:00' });
+    const b = item({ start: '16:00', end: '17:00' });
+    const r10 = finding({ ruleCode: 'R10', severity: 'WARNING', reasonCode: 'TARGET_MISMATCH', targetItemId: null, evidence: { missingLcls2: ['VE07'] } });
+    expect(planInsertion(r10, [a, b], {}, 90)?.slot).toEqual(planInsertion(r10, [a, b], {}, 90, new Set(), [a, b])?.slot);
+  });
+});

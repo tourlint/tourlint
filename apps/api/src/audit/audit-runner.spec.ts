@@ -773,6 +773,26 @@ describe('R10 — 기대 프로파일 조회 (FR-RU-100)', () => {
     expect(payload.startTime).toBe('10:30');
   });
 
+  it('🔴 직접 정한 곳이 차지한 시간에는 넣지 않는다 — 러너가 그 줄을 수정안에 넘긴다 (#941)', async () => {
+    // 바로 위와 같은 상품에 10:00 ~ 16:00 걷기 길(직접 정한 곳)을 둔다. 규칙은 이 줄을 안 보지만 시간은 차 있다
+    const withTarget: ProductRow = { ...product, targetKey: 'YOUTH_20S', conceptKey: 'EMOTIONAL', accountId: 7 };
+    const morning = item({ id: 1, dayNo: 1, seq: 1, startTime: '09:00', endTime: '10:00',
+                           placeLabel: '오죽헌', ktoContentId: '129784', contentTypeId: 14,
+                           lclsSystm2: 'VE07', mapX: 128.898632, mapY: 37.753996 });
+    const walk = item({ id: 3, dayNo: 1, seq: 2, startTime: '10:00', endTime: '16:00',
+                        placeLabel: '해파랑길', matchStatus: 'EXCLUDED' });
+    const evening = item({ id: 2, dayNo: 1, seq: 3, startTime: '17:00', endTime: '18:00',
+                           placeLabel: '경포대', ktoContentId: '125790', contentTypeId: 12,
+                           lclsSystm2: 'VE07', mapX: 128.8961, mapY: 37.7955 });
+
+    const result = await runner({ profileOf: found(['VE07', 'FD05']) }).run(withTarget, [morning, walk, evening]);
+    const r10 = result.findings.find((f) => f.ruleCode === 'R10');
+    const inserts = (r10?.patches ?? []).filter((p) => p.type === 'INSERT_ITEM');
+    expect(inserts.length, '넣기 수정안이 안 붙었다').toBeGreaterThan(0);
+    // 걷기 길 뒤 16:00 ~ 17:00 은 좁다. 경포대 뒤 18:30 이다 — 10:30 이면 걷기 길 한가운데다
+    for (const p of inserts) expect((p.payload as { startTime: string }).startTime).toBe('18:30');
+  });
+
   it('🔴 제보된 일정 — 사이 공백이 좁고 야간이 빈 2박 3일에도 수정안이 붙는다 (#579)', async () => {
     /*
      * 「강릉 바다 2박 3일」 검수 #96 의 모양 그대로다. 항목 사이 공백이 30 ~ 60분뿐이고
