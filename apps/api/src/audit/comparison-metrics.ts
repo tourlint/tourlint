@@ -93,10 +93,16 @@ function targetFitMetric(before: StoredAuditRun, after: StoredAuditRun): Compari
   };
 }
 
+/**
+ * 무시해도 결손은 남는다 — 무시는 점수 · 건수에서만 뺀다(FR-AU-046). 무시한 R10 을 걸렀더니
+ * 공예체험이 여전히 없는데 「결손 유형 없음」 이라고 적었다(#926). 무시한 것은 그렇다고 붙인다.
+ */
 function targetFitText(run: StoredAuditRun): string {
-  const r10 = run.findings.find((f) => f.ruleCode === 'R10' && !f.dismissed);
+  const r10 = run.findings.find((f) => f.ruleCode === 'R10' && !f.dismissed)
+    ?? run.findings.find((f) => f.ruleCode === 'R10');
   if (r10 === undefined) return '결손 유형 없음';
+  const dismissed = r10.dismissed ? ' (무시됨)' : '';
   const missing = r10.evidence.missingLcls2;
-  if (!Array.isArray(missing) || missing.length === 0) return r10.message;
-  return missing.map((code) => LCLS_SYSTM2[String(code)]?.name ?? String(code)).join(' · ') + ' 없음';
+  if (!Array.isArray(missing) || missing.length === 0) return r10.message + dismissed;
+  return missing.map((code) => LCLS_SYSTM2[String(code)]?.name ?? String(code)).join(' · ') + ' 없음' + dismissed;
 }

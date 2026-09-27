@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { afterSaveHref, hasInput } from "./save-intent";
+import { afterSaveHref, hasInput, leaveHref } from "./save-intent";
 import type { Schedule } from "./types";
 
 const EMPTY = {
   name: "",
   regnCode: "",
+  signguCode: "",
   startDate: "",
   nights: 0 as const,
   target: "",
@@ -44,5 +45,26 @@ describe("등록 화면에서 나가는 길 (#657)", () => {
 
   it("공백만 친 상품명은 채운 것으로 보지 않는다", () => {
     expect(hasInput({ ...EMPTY, name: "  " })).toBe(false);
+  });
+});
+
+describe("레이더 링크로 연 등록 화면에서 나가기 (UI-S2-013 · #927)", () => {
+  const LINK = { regnCode: "51", signguCode: "210", startDate: "2026-11-01" };
+  const opened = { ...EMPTY, ...LINK };
+
+  it("🔴 링크가 채운 지역 · 출발일만 있으면 묻지 않는다 — 사용자가 쓴 것이 아니다", () => {
+    expect(hasInput(opened, LINK)).toBe(false);
+  });
+
+  it("그 값을 바꾸거나 다른 칸을 채웠으면 묻는다", () => {
+    expect(hasInput({ ...opened, startDate: "2026-11-05" }, LINK)).toBe(true);
+    expect(hasInput({ ...opened, signguCode: "150" }, LINK)).toBe(true);
+    expect(hasInput({ ...opened, regnCode: "" }, LINK)).toBe(true);
+    expect(hasInput({ ...opened, name: "속초 1박 2일" }, LINK)).toBe(true);
+  });
+
+  it("🔴 레이더에서 왔으면 취소 · 나가기가 레이더로 돌아간다", () => {
+    expect(leaveHref(true)).toBe("/radar");
+    expect(leaveHref(false)).toBe("/planning");
   });
 });

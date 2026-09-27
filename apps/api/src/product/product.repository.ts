@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import { SETTING_DEFAULTS, type EndTimeSource, type ItemType, type MatchStatus, type Severity, type Transport, kstIso } from '@tourlint/shared';
+import { resolveEndTime } from '../engine/itinerary/dwell';
 import { calculateReadiness, type ScorableFinding, type ScoreResult } from '../engine/score';
 import { CURRENT_RUN_LATERAL, currentRunOf, toCurrentRun, type CurrentRun } from '../persistence/current-run';
 import { withTransaction } from '../persistence/db';
@@ -10,6 +11,24 @@ export function addMinutes(hhmm: string, minutes: number): string {
   const [h = 9, m = 0] = hhmm.split(':').map(Number);
   const total = Math.min(h * 60 + m + minutes, 23 * 60 + 59);
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/**
+ * 이 항목 다음에 갈 수 있는 시각 (FR-PL-013). 끝을 비워 뒀으면 검수가 쓰는 기본 체류시간으로
+ * 채운 끝이다(FR-IN-011). 시작 시각을 썼더니 새 항목이 앞 항목과 겹쳤다(#925). 숙박은 끝을
+ * 채우지 않으므로 입실 시각이다.
+ */
+export function availableFrom(row: {
+  start_time: string; end_time: string | null; item_type: ItemType; lcls_systm2: string | null;
+}): string {
+  const start = String(row.start_time).slice(0, 5);
+  const resolved = resolveEndTime({
+    startTime: start,
+    endTime: row.end_time === null ? null : String(row.end_time).slice(0, 5),
+    itemType: row.item_type,
+    lclsSystm2: row.lcls_systm2,
+  });
+  return resolved.endTime ?? start;
 }
 
 /**
@@ -501,7 +520,7 @@ export class ProductRepository {
    * 항목을 기준으로 삼는다. `afterItemId` 가 그 날에 없으면(다른 날 앵커 등) 끝에 붙이는 것으로
    * 되돌린다. 앵커가 없으면(빈 날) `null` — 서비스가 09:00 부터 시작한다.
    *
-   * 이동시간 계산에 쓰도록 좌표와 "이 항목 다음에 갈 수 있는 시각"(끝, 없으면 시작)을 준다.
+   * 이동시간 계산에 쓰도록 좌표와 "이 항목 다음에 갈 수 있는 시각"(`availableFrom`)을 준다.
    * 상품의 이동수단도 함께 주어 대중교통이면 이동시간을 짓지 않게 한다.
    */
   async pickPlacement(
@@ -514,14 +533,18 @@ export class ProductRepository {
     );
     const transport = prod.rows[0]?.transport ?? 'CAR';
 
+    type AnchorRow = {
+      start_time: string; end_time: string | null; item_type: ItemType; lcls_systm2: string | null;
+      seq: number; mapx: number | null; mapy: number | null;
+    };
     const anchorRow = afterItemId === null
-      ? await this.pool.query<{ available_from: string; seq: number; mapx: number | null; mapy: number | null }>(
-        `SELECT COALESCE(end_time, start_time) AS available_from, seq, mapx, mapy FROM itinerary_item
+      ? await this.pool.query<AnchorRow>(
+        `SELECT start_time, end_time, item_type, lcls_systm2, seq, mapx, mapy FROM itinerary_item
           WHERE product_id = $1 AND day_no = $2 ORDER BY seq DESC LIMIT 1`,
         [productId, dayNo],
       )
-      : await this.pool.query<{ available_from: string; seq: number; mapx: number | null; mapy: number | null }>(
-        `SELECT COALESCE(end_time, start_time) AS available_from, seq, mapx, mapy FROM itinerary_item
+      : await this.pool.query<AnchorRow>(
+        `SELECT start_time, end_time, item_type, lcls_systm2, seq, mapx, mapy FROM itinerary_item
           WHERE id = $1 AND product_id = $2 AND day_no = $3`,
         [afterItemId, productId, dayNo],
       );
@@ -533,7 +556,7 @@ export class ProductRepository {
     return {
       transport,
       anchor: found === undefined ? null : {
-        availableFrom: String(found.available_from).slice(0, 5),
+        availableFrom: availableFrom(found),
         seq: Number(found.seq),
         mapx: found.mapx === null ? null : Number(found.mapx),
         mapy: found.mapy === null ? null : Number(found.mapy),
@@ -611,12 +634,13 @@ export class ProductRepository {
       start = walk.startTime;
       end = walk.endTime;
     } else {
-      const prev = await this.pool.query<{ start_time: string; end_time: string | null }>(
-        `SELECT start_time, end_time FROM itinerary_item
+      const prev = await this.pool.query<{ start_time: string; end_time: string | null; item_type: ItemType; lcls_systm2: string | null }>(
+        `SELECT start_time, end_time, item_type, lcls_systm2 FROM itinerary_item
           WHERE product_id = $1 AND day_no = $2 ORDER BY seq DESC LIMIT 1`,
         [productId, walk.dayNo],
       );
-      start = (prev.rows[0]?.end_time ?? prev.rows[0]?.start_time ?? '09:00').slice(0, 5);
+      const last = prev.rows[0];
+      start = last === undefined ? '09:00' : availableFrom(last);
       end = addMinutes(start, SETTING_DEFAULTS.dwellFallbackMinutes);
     }
     const { rows } = await this.pool.query<ItemRaw>(

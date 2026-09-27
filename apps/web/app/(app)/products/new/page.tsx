@@ -16,7 +16,7 @@ import { pruneEmptyItems, scheduleErrors } from "./schedule-check";
 import { ScheduleEditor } from "./schedule-editor";
 import { RegisterPlacePicker } from "./register-place-picker";
 import { LeaveConfirm } from "./leave-confirm";
-import { afterSaveHref, hasInput, type AfterSave } from "./save-intent";
+import { NO_PREFILL, afterSaveHref, hasInput, leaveHref, type AfterSave, type Prefill } from "./save-intent";
 import { buildPayload } from "./product-payload";
 import { NlPanel } from "./nl-panel";
 import { UploadPanel, type ParsedItemDTO } from "./upload-panel";
@@ -79,6 +79,8 @@ export default function ProductNewPage() {
 
   // 레이더 "이 지역으로 새 상품 기획"에서 넘어오면 지역을 미리 채우고 기획 출처를 남긴다 (FR-PL-001)
   const [planOrigin, setPlanOrigin] = useState<PlanOrigin | null>(null);
+  // 그 링크가 채운 값. 이것만 있으면 취소가 묻지 않는다 (UI-S2-013 · #927)
+  const [prefill, setPrefill] = useState<Prefill>(NO_PREFILL);
   // 레이더에서 오지 않았으면 시작 방식을 남긴다 — 마지막으로 일정을 채운 방식 (FR-PL-020).
   // 엑셀 · 자연어는 일정을 통째로 바꾸므로 마지막 것이 지금 일정의 출처다
   const [startedBy, setStartedBy] = useState<StartedBy>("MANUAL");
@@ -96,6 +98,7 @@ export default function ProductNewPage() {
       // 출발일도 채운다 — 그 달 1일, 이 달이면 오늘. 이미 적혀 있으면 두고, 지난 달이면 비워 둔다 (FR-MO-061 · #764)
       const start = startDateFromMonth(month, koreaToday());
       if (start !== null) setStartDate((d) => (d === "" ? start : d));
+      setPrefill({ regnCode: regnCd, signguCode: signguCd, startDate: start ?? "" });
       setPlanOrigin({
         startedBy: "SIGNAL",
         ...(regnCd !== "" && month !== ""
@@ -265,13 +268,15 @@ export default function ProductNewPage() {
     }
   }
 
-  /** 취소. 작성한 게 있으면 묻고, 빈 폼이면 그냥 나간다 (#657) */
+  /** 취소. 작성한 게 있으면 묻고, 빈 폼이면 그냥 나간다 (#657). 레이더에서 왔으면 레이더로 (#927) */
+  const leaveTo = leaveHref(planOrigin?.startedBy === "SIGNAL");
   function leave() {
-    if (hasInput({ name, regnCode: region.regnCode, startDate, nights, target, concept, headcount, transport, schedule })) {
+    const form = { name, regnCode: region.regnCode, signguCode: region.signguCode, startDate, nights, target, concept, headcount, transport, schedule };
+    if (hasInput(form, prefill)) {
       setLeaving(true);
       return;
     }
-    router.push("/planning");
+    router.push(leaveTo);
   }
 
   return (
@@ -462,7 +467,7 @@ export default function ProductNewPage() {
         </aside>
       </div>
 
-      {leaving && <LeaveConfirm onStay={() => setLeaving(false)} onLeave={() => router.push("/planning")} />}
+      {leaving && <LeaveConfirm onStay={() => setLeaving(false)} onLeave={() => router.push(leaveTo)} />}
     </>
   );
 }
