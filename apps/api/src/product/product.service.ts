@@ -5,6 +5,8 @@ import type { PlaceNameResolver } from '../audit/place-name';
 import type { CatalogService } from '../catalog/catalog.service';
 import type { KakaoMobilityClient } from '../external/kakao';
 import { coordinateOf, estimateTravelMinutes } from '../plan/travel-estimate';
+import { departureStamp } from '../audit/audit-runner';
+import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import type { WalkNameResolver } from '../plan/walk-names';
 import { DomainException } from '../common/domain.exception';
 import type { PatchApplicationRepository } from '../persistence/patch-application.repository';
@@ -341,7 +343,7 @@ export class ProductService {
    * 직접 입력 줄처럼 검수가 기본 체류시간으로 채운다.
    */
   private async insertPicked(productId: number, picked: PickedItemInput): Promise<ItemDetail> {
-    const { transport, anchor } = await this.repo.pickPlacement(productId, picked.dayNo, picked.afterItemId);
+    const { transport, startDate, anchor } = await this.repo.pickPlacement(productId, picked.dayNo, picked.afterItemId);
     const afterSeq = anchor?.seq ?? null;
     if (picked.startTime !== null) {
       return this.repo.insertPickedItem(productId, picked, {
@@ -351,11 +353,18 @@ export class ProductService {
 
     let start = '09:00';
     if (anchor !== null) {
+      // 여행 날 앞 일정이 끝나는 시각으로 잰다 — 카드의 「차로 약 N분」 · 검수 R08 과 같은 시각이다.
+      // 출발 시각 없이 부르면 지금 교통이라, 새벽에 담으니 1분 짧게 들어갔다 (#951)
+      const base = startDate === null ? null : parseIsoDate(startDate);
+      const departureAt = base === null
+        ? null
+        : departureStamp(formatIsoDate(addDays(base, picked.dayNo - 1)), anchor.availableFrom);
       const travel = await estimateTravelMinutes({
         kakao: this.kakao(),
         from: coordinateOf(anchor.mapx, anchor.mapy),
         to: coordinateOf(picked.content.mapx, picked.content.mapy),
         transport,
+        departureAt,
       });
       start = addMinutes(anchor.availableFrom, travel ?? 0);
     }

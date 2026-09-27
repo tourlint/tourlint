@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.80</td>
+<td>API · 백엔드 설계 v2.81</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -489,7 +489,7 @@ GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" 
 <tr>
 <td>POST</td>
 <td>`/api/v1/products/{productId}/items`</td>
-<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`(`MANUAL` · `UPLOAD` · `TEXT` · `PICKER`, 없으면 `MANUAL` · FR-PL-020) · `excluded: true` 면 장소명을 둔 채 EXCLUDED(직접 정한 곳 · UI-S2-021). 걷기 길(`excluded{walkId}`)과 고른 곳(`content{…}`)은 `startTime` · `endTime` 을 주면 그 시각으로 넣는다(편집 화면 · UI-S2-048 · FR-IN-014 — 끝을 비우면 기본 체류시간 보완 대상) — 없으면 아래처럼 채운다. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 앞 항목의 끝을 비워 뒀으면 기본 체류시간으로 채운 끝(FR-IN-011)을 쓰고, 숙박은 입실 시각이다. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움). 상품에 항목이 45건이면 어느 본문이든 400 `INPUT_INVALID` 로 거부한다(상품 저장 · 넣는 수정안 확정도 같다)</td>
+<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`(`MANUAL` · `UPLOAD` · `TEXT` · `PICKER`, 없으면 `MANUAL` · FR-PL-020) · `excluded: true` 면 장소명을 둔 채 EXCLUDED(직접 정한 곳 · UI-S2-021). 걷기 길(`excluded{walkId}`)과 고른 곳(`content{…}`)은 `startTime` · `endTime` 을 주면 그 시각으로 넣는다(편집 화면 · UI-S2-048 · FR-IN-014 — 끝을 비우면 기본 체류시간 보완 대상) — 없으면 아래처럼 채운다. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간(그 일차 날짜 · 앞 항목 종료 시각 출발), 잴 수 없으면 앞 항목 종료 시각 그대로. 앞 항목의 끝을 비워 뒀으면 기본 체류시간으로 채운 끝(FR-IN-011)을 쓰고, 숙박은 입실 시각이다. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움). 상품에 항목이 45건이면 어느 본문이든 400 `INPUT_INVALID` 로 거부한다(상품 저장 · 넣는 수정안 확정도 같다)</td>
 <td>FR-IN-014 · FR-PL-013 · PM-NG-011 · NF-CP-010</td>
 </tr>
 <tr>
@@ -535,7 +535,7 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
   { "dayNo": 1, "afterItemId": 17 | null, "itemType": "SIGHT", "origin": "PICKER",
     "placeLabel": null,
     "content": { "contentId": "125769", "contentTypeId": 12, "lcls1": "VE", "lcls2": "VE01", "lcls3": "VE0101", "mapx": 128.89, "mapy": 37.79 } }
-  → CONFIRMED 항목. start = 앞 항목 end + 이동시간(잴 수 있으면, 카카오 1콜) 아니면 앞 항목 end, end = start + 표준 체류시간(DWELL_MINUTES_SEED). 식당 · 카페 · 숙소는 itemType MEAL · REST · LODGING(숙박은 end 비움)
+  → CONFIRMED 항목. start = 앞 항목 end + 이동시간(잴 수 있으면, 그 일차 날짜 · 앞 항목 end 출발 · 카카오 1콜) 아니면 앞 항목 end, end = start + 표준 체류시간(DWELL_MINUTES_SEED). 식당 · 카페 · 숙소는 itemType MEAL · REST · LODGING(숙박은 end 비움)
   { "dayNo": 1, "afterItemId": 17, "itemType": "SIGHT", "origin": "PICKER", "excluded": { "walkId": "…" } }
   → EXCLUDED 항목 (걷기 길 · 직접 정한 곳). place_label 은 비우고 walk_id 만 저장한다 — 코스 이름은 보내지도 저장하지도 않는다 (DR-MD-005). 이름은 표시할 때 찾는다 (5-12 콜아웃)
 ```
@@ -989,7 +989,7 @@ GET /api/v1/rules             기존 응답에 규칙마다 추가
 <tr>
 <td>POST</td>
 <td>`/api/v1/products/{productId}/place-facts`</td>
-<td>`{itemIds?}`. 고른 항목의 장소 정보 한 줄 값(이용시간 · 쉬는 날 · 요금 · 주차 · 행사 기간)과 앞 항목에서 차로 걸리는 시간(양쪽 좌표가 있고 앞 줄이 같은 날 고른 곳일 때만, 대중교통 상품은 늘 `null`). 고르지 않은 줄 · 직접 정한 곳은 응답에 넣지 않고, 장소명을 저장하지 않은 줄은 표시할 때 찾는다. 규칙엔진을 부르지 않고 `audit_run` 없음 · 저장 없음. 고른 직후 그 항목만</td>
+<td>`{itemIds?}`. 고른 항목의 장소 정보 한 줄 값(이용시간 · 쉬는 날 · 요금 · 주차 · 행사 기간)과 앞 항목에서 차로 걸리는 시간(양쪽 좌표가 있고 앞 줄이 같은 날 고른 곳일 때만, 대중교통 상품은 늘 `null`. 그 일차 날짜에 앞 항목이 끝나는 시각 출발 — 끝을 비워 뒀으면 기본 체류시간으로 채운 끝). 고르지 않은 줄 · 직접 정한 곳은 응답에 넣지 않고, 장소명을 저장하지 않은 줄은 표시할 때 찾는다. 규칙엔진을 부르지 않고 `audit_run` 없음 · 저장 없음. 고른 직후 그 항목만</td>
 <td>FR-PL-005 · 항목당 1콜 + 구간 카카오 1콜</td>
 </tr>
 <tr>
@@ -3070,6 +3070,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
 	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.81 (2026.09.28) — #951: 4-3 시각 자동 채움과 4-10 `place-facts` 의 걸리는 시간은 그 일차 날짜 · 앞 항목 종료 시각을 출발 시각으로 넘긴다고 적었다(FR-PL-005 · 013). 넣을 때는 출발 시각 없이 불러 지금 교통으로 쟀다.
 	v2.80 (2026.09.27) — #924 재수정: 4-10 `sort=near` 는 목록 항목의 좌표로 잰 직선거리로 정렬하고 위치기반 목록을 부르지 않는다고 고쳤다. v2.77 의 같은 중분류 조회도 배포 뒤 운영에서 그대로였다 — 실호출로 보니 위치기반 목록에 지역 목록의 장소가 다 오지 않는다(강릉 랜드마크관광 6곳 중 반경 20km 2곳). 외부 호출 표의 `locationBasedList2` 쓰임에서 장소 담기 가까운 순을 뺐다.
 	v2.79 (2026.09.27) — #926: 5-9 전후 비교의 `targetFit` 은 무시한 R10 도 결손 유형을 적고 「(무시됨)」 을 붙인다는 것을 적었다(FR-PA-040).
 	v2.78 (2026.09.27) — #925: 4-3 시각 자동 채움의 앞 항목 종료는 끝을 비웠으면 기본 체류시간으로 채운 끝(FR-IN-011)이고 숙박은 입실 시각이라는 것을 적었다. 장소 담기 · 걷기 길이 끝 빈 항목의 시작 시각을 써서 앞 항목과 겹쳤다.

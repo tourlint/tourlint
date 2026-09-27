@@ -5,12 +5,14 @@ import {
   LCLS_SYSTM2,
   type ContentTypeId,
   type ItemMatchedBy,
+  type ItemType,
   type ItemOrigin,
   type PlaceFacts,
   type Transport,
 } from '@tourlint/shared';
 import { DomainException } from '../common/domain.exception';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
+import { resolveEndTime } from '../engine/itinerary/dwell';
 import { normalizeLineBreaks } from '../engine/normalize/preprocess';
 import { departureStamp } from '../audit/audit-runner';
 import type { PlaceNameResolver } from '../audit/place-name';
@@ -161,9 +163,14 @@ export class PlaceFactsService {
     if (prev === null || prev.matchStatus !== 'CONFIRMED') return null;
 
     const start = parseIsoDate(product.startDate);
-    const departureAt = start === null || prev.endTime === null
+    // 끝을 비워 둔 앞 항목은 기본 체류시간으로 채운 끝에 떠난다(FR-IN-011) — 숙박은 입실 시각.
+    // 출발 시각 없이 재면 지금 교통이라 장소 담기가 넣는 시각 · 검수와 시간이 달라진다 (#951)
+    const leaves = resolveEndTime({
+      startTime: prev.startTime, endTime: prev.endTime, itemType: prev.itemType as ItemType, lclsSystm2: prev.lcls2,
+    }).endTime ?? prev.startTime;
+    const departureAt = start === null
       ? null
-      : departureStamp(formatIsoDate(addDays(start, prev.dayNo - 1)), prev.endTime);
+      : departureStamp(formatIsoDate(addDays(start, prev.dayNo - 1)), leaves);
 
     return estimateTravelMinutes({
       kakao: this.kakao(),

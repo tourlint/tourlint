@@ -78,12 +78,14 @@ describe.skipIf(URL === undefined)('PlaceFactsService — 실 DB', () => {
   let productId: number;
   const logger = new InMemoryApiCallLogger();
 
-  const service = (options: { budget?: BudgetDecision; withKakao?: boolean; transport?: string } = {}): PlaceFactsService => {
+  const service = (options: {
+    budget?: BudgetDecision; withKakao?: boolean; kakao?: KakaoMobilityClient; transport?: string;
+  } = {}): PlaceFactsService => {
     const kto = (): KtoClient => new KtoClient({ transport: new FixtureKtoTransport(KTO_FIXTURES), logger, sleep: async () => undefined });
     return new PlaceFactsService({
       items: new PlanItemRepository(pool),
       kto,
-      kakao: () => (options.withKakao === true
+      kakao: () => options.kakao ?? (options.withKakao === true
         ? new KakaoMobilityClient({ transport: new FixtureKakaoTransport(KAKAO_FIXTURES), logger })
         : null),
       budget: async () => options.budget ?? allowed,
@@ -172,6 +174,27 @@ describe.skipIf(URL === undefined)('PlaceFactsService — 실 DB', () => {
     const facts = await service({ withKakao: true }).factsOf(accountId, productId, null);
     // 미래 길찾기 픽스처 323초 → 검수와 같은 올림으로 6분.
     expect(facts.map((f) => f.travelFromPrevMinutes)).toEqual([null, 6, null]);
+  });
+
+  it('🔴 앞 항목에서 걸리는 시간은 여행 날 앞 항목이 끝나는 시각에 떠나는 길이다 — 끝을 비웠으면 기본 체류시간으로 채운 끝 (FR-RU-085 · #951)', async () => {
+    await newProduct();
+    const first = await addItem({ dayNo: 2, seq: 1, contentId: '125769', contentTypeId: 12 });
+    await addItem({ dayNo: 2, seq: 2, contentId: '125790', contentTypeId: 12 });
+    await pool.query(
+      `UPDATE itinerary_item SET end_time = NULL, end_time_source = 'DWELL_DEFAULT' WHERE id = $1`, [first.rows[0]?.id],
+    );
+    const departures: (string | null)[] = [];
+    const kakao = {
+      route: async (_from: unknown, _to: unknown, departureAt: string | null) => {
+        departures.push(departureAt);
+        return { durationSeconds: 185, distanceMeters: 1000, futureBased: true };
+      },
+    } as unknown as KakaoMobilityClient;
+
+    const facts = await service({ kakao }).factsOf(accountId, productId, null);
+    // 2일차 = 10-24. 10:00 에 시작해 끝을 비운 역사관광지(HS01)는 60분 뒤 11:00 에 떠난다
+    expect(departures).toEqual(['202610241100']);
+    expect(facts[1]?.travelFromPrevMinutes).toBe(4);
   });
 
   it('🔴 앞 항목이 직접 정한 곳이면 시간을 적지 않는다', async () => {
