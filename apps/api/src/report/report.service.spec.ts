@@ -6,6 +6,7 @@ import { DomainException } from '../common/domain.exception';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
 import { createKtoClient } from '../external/kto';
 import { WalkNameResolver } from '../plan/walk-names';
+import { PlaceNameResolver } from '../audit/place-name';
 import { ReportService } from './report.service';
 import type { ReportModel } from './report-model';
 
@@ -46,7 +47,8 @@ describe.skipIf(URL === undefined)('ReportService — 관통', () => {
       kto: () => createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
       budget: async () => ({ allowed: true, ratio: 0, reasonCode: null, warn: false, remaining: 800 }),
     });
-    service = new ReportService(pool, catalog, walkNames);
+    const names = new PlaceNameResolver({ kto: () => createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV) });
+    service = new ReportService(pool, catalog, walkNames, names);
   });
 
   afterAll(async () => {
@@ -169,6 +171,26 @@ describe.skipIf(URL === undefined)('ReportService — 관통', () => {
 
     await pool.query('UPDATE patch_application SET reverted_at = clock_timestamp() WHERE id = $1', [applicationId]);
     expect((await build(before)).comparison).toBeNull();
+  });
+
+  it('🔴 수정 이력에만 남은 곳(되돌린 추가)도 이름을 찾아 적는다 — 이름을 저장하지 않는다 (#916)', async () => {
+    // 가이드 14-1: 공예체험을 넣었다가 되돌리면 그 곳은 지금 일정에 없고 이름도 저장돼 있지 않다
+    const item = {
+      id: 999_001, dayNo: 3, seq: 5, startTime: '16:00', endTime: '17:30', endTimeSource: 'INPUT',
+      placeLabel: null, itemType: 'SIGHT', ktoContentId: '125790', contentTypeId: 12,
+      lclsSystm1: null, lclsSystm2: null, lclsSystm3: null, mapx: null, mapy: null, matchStatus: 'CONFIRMED',
+    };
+    const snap = (items: unknown[]): string =>
+      JSON.stringify({ snapshotVersion: '1.0', snapshotAt: '2026-09-27T08:04:00Z', productId, items });
+    await pool.query(
+      `INSERT INTO patch_application
+         (product_id, applied_at, applied_by, selected_patches, before_snapshot, after_snapshot, before_audit_run_id, reverted_at)
+       VALUES ($1, clock_timestamp(), $2, '[{"findingId":1,"patchId":"p-1"}]'::jsonb, $3::jsonb, $4::jsonb, $5, clock_timestamp())`,
+      [productId, accountId, snap([]), snap([item]), runId],
+    );
+    const model = await (service as unknown as { buildModel(run: number, product: number): Promise<ReportModel> })
+      .buildModel(runId, productId);
+    expect(model.patchHistory.flatMap((p) => p.changes)).toContain('추가 — 3일차 16:00 강릉 경포대');
   });
 
   it('🔴 1절에 기획 출처 · 줄마다 들어온 경로 · 고른 방식을 한 줄로 싣는다 (FR-PL-020)', async () => {
