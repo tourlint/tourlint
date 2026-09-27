@@ -204,6 +204,22 @@ describe.skipIf(URL === undefined)('ProductRepository', () => {
     expect([auto.start, auto.end, auto.endTimeSource]).toEqual(['16:30', '18:00', 'DWELL_DEFAULT']);
   });
 
+  it('🔴 끝을 비운 줄 뒤에 넣으면 그 줄의 기본 체류시간이 끝난 뒤다 — 시작 시각에 겹쳐 넣었다 (FR-PL-013 · #925)', async () => {
+    const p = (await repo.create(accountA, sample())).productId;
+    // 2일차 오죽헌 09:00 · 끝 비움. 고른 랜드마크관광(VE01)이면 기본 60분이라 10:00 에 끝난다
+    await pool.query(`UPDATE itinerary_item SET lcls_systm2 = 'VE01' WHERE product_id = $1 AND day_no = 2`, [p]);
+    const placement = await repo.pickPlacement(p, 2, null);
+    expect(placement.anchor?.availableFrom).toBe('10:00');
+    const walk = await repo.addWalkItem(p, { dayNo: 2, itemType: 'SIGHT', origin: 'PICKER', walkId: 'W-3', startTime: null, endTime: null });
+    expect([walk.start, walk.end]).toEqual(['10:00', '11:30']);
+
+    // 숙박은 끝을 채우지 않으므로 입실 시각 그대로다 — 검수도 숙박에 체류시간을 더하지 않는다
+    const lodging = await repo.addItem(p, {
+      dayNo: 3, startTime: '18:00', endTime: null, endTimeSource: 'INPUT', placeLabel: '호텔', itemType: 'LODGING', origin: 'MANUAL', excluded: false,
+    });
+    expect((await repo.pickPlacement(p, 3, lodging.itemId)).anchor?.availableFrom).toBe('18:00');
+  });
+
   it('삭제하면 일정 항목도 CASCADE 로 함께 지워진다', async () => {
     const created = await repo.create(accountA, sample());
     expect(await repo.remove(accountA, created.productId)).toBe(true);
