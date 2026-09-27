@@ -325,6 +325,13 @@ export interface InsertionOptions extends ReplacementOptions {
    * **늘리지는 않는다.** 자리는 그 길이가 들어가는지만 확인한 것이다.
    */
   readonly dwellOf?: (lclsSystm2: string | null) => number;
+  /**
+   * 관광 유형(12 · 14 · 28)만 넣는다 — R09 ① 실내 관광지 추가 (FR-RU-094).
+   *
+   * 실내 · 야외 매핑표는 식당 · 숙박 · 쇼핑 중분류도 실내로 본다. 거르지 않으면 비 오는 날 할 일로
+   * 호스텔 · 식당을 관광 일정으로 넣자고 했다 (#961). ③ 우천 대체와 같은 유형이다.
+   */
+  readonly sightOnly?: boolean;
 }
 
 /**
@@ -390,7 +397,8 @@ export async function proposeInsertions(
     const ranked = rankCandidates(items.filter((raw) => !isConvenienceFacility(raw)), anchor, options.knownConfidence ?? new Map())
       .filter((c) => !exclude.has(c.ktoContentId) && !picked.some((p) => p.ktoContentId === c.ktoContentId))
       // 중분류를 지정했으면 그 중 하나여야 한다. 모르는 것(null)은 넣지 않는다 — 결손을 채운다고 말할 수 없다
-      .filter((c) => wanted.size === 0 || (c.lclsSystm2 !== null && wanted.has(c.lclsSystm2)));
+      .filter((c) => wanted.size === 0 || (c.lclsSystm2 !== null && wanted.has(c.lclsSystm2)))
+      .filter((c) => options.sightOnly !== true || SIGHT_TYPES.has(c.contentTypeId));
 
     for (const candidate of ranked) {
       if (picked.length >= limit) break;

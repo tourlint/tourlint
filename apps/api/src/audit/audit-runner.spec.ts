@@ -633,6 +633,32 @@ describe('R09 — 강수 근거 수집 (FR-RU-091 · EI-WX-006)', () => {
     expect(f?.evidence).toMatchObject({ forecastDowngradedFrom: 'MID' });
   });
 
+  it('🔴 ① 실내 관광지 추가는 관광 유형만 넣는다 — 실내로 분류된 식당 · 숙소가 가까워도 (FR-RU-094 · #961)', async () => {
+    const climate: ClimateNormalLookup = {
+      find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉', normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉' }),
+    };
+    const real = createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV);
+    const near = (id: string, type: string, lcls2: string, dist: string): Record<string, string> =>
+      ({ contentid: id, contenttypeid: type, lclsSystm2: lcls2, mapx: '128.9', mapy: '37.79', dist });
+    const kto = {
+      ...real,
+      detailCommon: real.detailCommon.bind(real),
+      detailIntro: real.detailIntro.bind(real),
+      locationBasedList: async () => ({ items: [
+        near('restaurant', '39', 'FD01', '50'), near('hostel', '32', 'AC06', '80'), near('museum', '14', 'VE07', '300'),
+      ], totalCount: 3 }),
+    } as unknown as ReturnType<typeof createKtoClient>;
+    const withRegion: ProductRow = { ...product, ldongRegnCd: '51', ldongSignguCd: '150' };
+
+    const result = await new AuditRunner({ kto, clock, kma: kmaClient(), climate }).run(withRegion, [outdoor(1, 1)]);
+
+    const f = result.findings.find((x) => x.ruleCode === 'R09');
+    expect(f?.severity).toBe('WARNING');
+    const inserted = (f?.patches ?? []).filter((p) => p.type === 'INSERT_ITEM')
+      .map((p) => (p.payload as { content: { ktoContentId: string } }).content.ktoContentId);
+    expect(inserted).toEqual(['museum']);
+  });
+
   it('평년 테이블이 있으면 그것으로 판정한다', async () => {
     const climate: ClimateNormalLookup = {
       find: async () => ({ rainDays: 9.2, rainRatio: 0.31, regionName: '강릉', normalPeriod: '1991-2020', sourceNote: '출처: 기상청 기상자료개방포털 · 대표지점 강릉' }),
