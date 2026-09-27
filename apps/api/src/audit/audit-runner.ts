@@ -500,11 +500,13 @@ export class AuditRunner {
         return;
       }
 
-      // 여행 날짜와 출발 시각 기준으로 부른다. 현재 시각 기준은 미래 상품의 근거가 못 된다
+      // 여행 날짜와 출발 시각 기준으로 부른다. 현재 시각 기준은 미래 상품의 근거가 못 된다.
+      // 떠나는 시각은 판정이 간격을 재는 끝과 같다 — 끝을 비운 줄은 기본 체류시간으로 채운 끝,
+      // 숙박은 입실 시각이다(R08 `allowedMinutes`). 저장된 끝만 보면 둘 다 지금 교통이었다 (#956)
       const departureAt =
-        start === null || from.endTime === null
+        start === null
           ? null
-          : departureStamp(formatIsoDate(addDays(start, from.dayNo - 1)), from.endTime);
+          : departureStamp(formatIsoDate(addDays(start, from.dayNo - 1)), this.leavesAt(from));
 
       const cacheKey = `${String(from.mapX)},${String(from.mapY)}>${String(to.mapX)},${String(to.mapY)}@${departureAt ?? ''}`;
       let pending = inflight.get(cacheKey);
@@ -519,6 +521,14 @@ export class AuditRunner {
     });
 
     return out;
+  }
+
+  /** 이 줄에서 떠나는 시각. 규칙 컨텍스트와 같은 체류시간 표로 끝을 채운다 (FR-IN-011 · FR-RU-031) */
+  private leavesAt(item: AuditItem): string {
+    const resolved = resolveEndTime({
+      startTime: item.startTime, endTime: item.endTime, itemType: item.itemType, lclsSystm2: item.lclsSystm2,
+    }, this.settings.dwellMinutes);
+    return resolved.endTime ?? item.startTime;
   }
 
   /** 구간 하나. **던지지 않는다** — 실패도 판정 근거라 확인 불가로 담아 돌려준다 (EI-KM-009) */

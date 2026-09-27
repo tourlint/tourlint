@@ -991,6 +991,43 @@ describe('구간 캐시 (NF-PF-012 · EI-KM-006)', () => {
   });
 });
 
+describe('R08 구간의 출발 시각 (FR-RU-085 · #956)', () => {
+  it('🔴 끝을 비운 줄은 기본 체류시간으로 채운 끝에, 숙소는 입실 시각에 떠나는 길로 잰다 — 지금 교통이 아니다', async () => {
+    /*
+     * 판정은 채운 끝(숙소는 입실 시각)부터 간격을 잰다. 길찾기를 저장된 끝으로만 부르면 끝이 빈
+     * 줄은 출발 시각이 없어 검수하는 시각의 교통으로 재고, 모자라면 「현재 시각 기준」 이 붙었다.
+     */
+    const legs: string[] = [];
+    const kakao = {
+      route: async (o: { x: number }, d: { x: number }, at: string | null) => {
+        legs.push(`${String(o.x)}>${String(d.x)}@${at ?? '지금'}`);
+        return { durationSeconds: 300, distanceMeters: 2000, futureBased: at !== null };
+      },
+    };
+    const runner = new AuditRunner({
+      kto: createKtoClient(new InMemoryApiCallLogger(), FIXTURE_ENV),
+      clock,
+      kakao: kakao as never,
+    });
+
+    await runner.run(product, [
+      // 1일차(10-13) 18:00 입실 숙소 → 19:00 카페
+      item({ id: 1, dayNo: 1, seq: 1, startTime: '18:00', endTime: null, endTimeSource: 'INPUT', itemType: 'LODGING',
+             placeLabel: '숙소', mapX: 128.1, mapY: 37.1 }),
+      item({ id: 2, dayNo: 1, seq: 2, startTime: '19:00', endTime: '20:00', itemType: 'REST',
+             placeLabel: '카페', mapX: 128.2, mapY: 37.2 }),
+      // 2일차(10-14) 14:30 에 시작해 끝을 비운 역사관광지(HS01 · 60분) → 16:00 공방
+      item({ id: 3, dayNo: 2, seq: 1, startTime: '14:30', endTime: null, endTimeSource: 'DWELL_DEFAULT', lclsSystm2: 'HS01',
+             placeLabel: '등대', mapX: 128.3, mapY: 37.3 }),
+      item({ id: 4, dayNo: 2, seq: 2, startTime: '16:00', endTime: '17:30',
+             placeLabel: '공방', mapX: 128.4, mapY: 37.4 }),
+    ]);
+
+    const itinerary = legs.filter((l) => l.startsWith('128.1>128.2@') || l.startsWith('128.3>128.4@'));
+    expect(itinerary.sort()).toEqual(['128.1>128.2@202610131800', '128.3>128.4@202610141530']);
+  });
+});
+
 describe('R08 대체 후보는 앞 항목 주변에서 찾는다 (FR-RU-083 ③)', () => {
   const GYEONGPO = { x: 128.898632, y: 37.753996 };
   const FAR = { x: 129.2, y: 37.2 };
