@@ -402,7 +402,26 @@ describe('PlanService — 조회 조건과 경계', () => {
     });
     const result = await service(transport).places(placesQuery({ sort: 'near', anchor: { mapx: 128.9, mapy: 37.79 } }));
     expect(result.items.map((p) => [p.contentId, p.distanceM])).toEqual([['2', 900], ['1', 12000], ['3', null]]);
-    expect(transport.paramsOf('locationBasedList2')[0]).toMatchObject({ radius: 20_000 });
+    expect(transport.paramsOf('locationBasedList2')[0]).toMatchObject({ radius: 20_000, lclsSystm2: 'VE01' });
+  });
+
+  it('🔴 가까운 순의 거리는 목록과 같은 중분류로 받는다 — 전 종류 앞 1,000행에 옆 장소가 없었다 (#924)', async () => {
+    // 전 종류로 부르면 20km 안 3,000곳 중 한 쪽 1,000행만 오고 목록의 장소가 거기 없다(응답이 거리순이 아니다)
+    const others = Array.from({ length: 1000 }, (_, i) =>
+      ({ ...place({ contentid: `x${i}`, lclsSystm1: 'FD', lclsSystm2: 'FD01' }), dist: String(100 + i) }));
+    const transport: KtoTransport = { kind: 'http', async request(operation, params) {
+      if (operation === 'areaBasedList2') {
+        return { body: envelope(listBody([place({ contentid: '1' }), place({ contentid: '2' })])), httpStatus: 200 };
+      }
+      if (operation !== 'locationBasedList2') return { body: envelope({ items: '', totalCount: 0 }), httpStatus: 200 };
+      const sameClass = params.lclsSystm2 === 'VE01';
+      const rows = sameClass
+        ? [{ ...place({ contentid: '1' }), dist: '5203' }, { ...place({ contentid: '2' }), dist: '412' }]
+        : others;
+      return { body: envelope(listBody(rows, sameClass ? rows.length : 3000)), httpStatus: 200 };
+    } };
+    const result = await service(transport).places(placesQuery({ sort: 'near', anchor: { mapx: 128.9186, mapy: 37.7941 } }));
+    expect(result.items.map((p) => [p.contentId, p.distanceM])).toEqual([['2', 412], ['1', 5203]]);
   });
 });
 
