@@ -392,36 +392,33 @@ describe('PlanService — 조회 조건과 경계', () => {
     });
   });
 
-  it('가까운 순은 반경 20km 조회의 거리로 정렬하고, 그 안에 없으면 뒤에 둔다', async () => {
+  it('가까운 순은 목록 좌표로 잰 직선거리로 정렬하고, 좌표가 없으면 뒤에 둔다 — 따로 부르지 않는다', async () => {
     const transport = new RecordingTransport({
-      areaBasedList2: listBody([place({ contentid: '1' }), place({ contentid: '2' }), place({ contentid: '3' })]),
-      locationBasedList2: listBody([
-        { ...place({ contentid: '2' }), dist: '900.4' },
-        { ...place({ contentid: '1' }), dist: '12000' },
+      areaBasedList2: listBody([
+        place({ contentid: '1', mapx: '128.9071992254', mapy: '37.7481081912' }),
+        place({ contentid: '2', mapx: '128.9166745373', mapy: '37.7977252179' }),
+        place({ contentid: '3', mapx: '', mapy: '' }),
       ]),
     });
-    const result = await service(transport).places(placesQuery({ sort: 'near', anchor: { mapx: 128.9, mapy: 37.79 } }));
-    expect(result.items.map((p) => [p.contentId, p.distanceM])).toEqual([['2', 900], ['1', 12000], ['3', null]]);
-    expect(transport.paramsOf('locationBasedList2')[0]).toMatchObject({ radius: 20_000, lclsSystm2: 'VE01' });
+    const result = await service(transport).places(placesQuery({ sort: 'near', anchor: { mapx: 128.9186301059, mapy: 37.794078097 } }));
+    expect(result.items.map((p) => [p.contentId, p.distanceM === null ? null : Math.round(p.distanceM / 100) / 10]))
+      .toEqual([['2', 0.4], ['1', 5.2], ['3', null]]);
+    expect(transport.paramsOf('locationBasedList2')).toEqual([]);
   });
 
-  it('🔴 가까운 순의 거리는 목록과 같은 중분류로 받는다 — 전 종류 앞 1,000행에 옆 장소가 없었다 (#924)', async () => {
-    // 전 종류로 부르면 20km 안 3,000곳 중 한 쪽 1,000행만 오고 목록의 장소가 거기 없다(응답이 거리순이 아니다)
-    const others = Array.from({ length: 1000 }, (_, i) =>
-      ({ ...place({ contentid: `x${i}`, lclsSystm1: 'FD', lclsSystm2: 'FD01' }), dist: String(100 + i) }));
-    const transport: KtoTransport = { kind: 'http', async request(operation, params) {
-      if (operation === 'areaBasedList2') {
-        return { body: envelope(listBody([place({ contentid: '1' }), place({ contentid: '2' })])), httpStatus: 200 };
-      }
-      if (operation !== 'locationBasedList2') return { body: envelope({ items: '', totalCount: 0 }), httpStatus: 200 };
-      const sameClass = params.lclsSystm2 === 'VE01';
-      const rows = sameClass
-        ? [{ ...place({ contentid: '1' }), dist: '5203' }, { ...place({ contentid: '2' }), dist: '412' }]
-        : others;
-      return { body: envelope(listBody(rows, sameClass ? rows.length : 3000)), httpStatus: 200 };
-    } };
-    const result = await service(transport).places(placesQuery({ sort: 'near', anchor: { mapx: 128.9186, mapy: 37.7941 } }));
-    expect(result.items.map((p) => [p.contentId, p.distanceM])).toEqual([['2', 412], ['1', 5203]]);
+  it('🔴 위치기반 목록에 없는 곳도 거리가 붙는다 — 20km 조회가 6곳 중 2곳만 줬다 (#924)', async () => {
+    // 운영 실호출(2026.09.27): 강릉 랜드마크관광 지역 목록 6곳 중 세인트존스 반경 20km locationBasedList2 에는 2곳만 온다
+    const transport = new RecordingTransport({
+      areaBasedList2: listBody([
+        place({ contentid: '2753136', title: '노암터널', mapx: '128.9071992254', mapy: '37.7481081912' }),
+        place({ contentid: '2721544', title: '강문솟대다리', mapx: '128.9166745373', mapy: '37.7977252179' }),
+        place({ contentid: '129179', title: '주문진 등대', mapx: '128.833759044094', mapy: '37.8976166977071' }),
+      ]),
+      locationBasedList2: listBody([{ ...place({ contentid: '2753136' }), dist: '5202.8' }]),
+    });
+    const result = await service(transport).places(placesQuery({ sort: 'near', anchor: { mapx: 128.9186301059, mapy: 37.794078097 } }));
+    expect(result.items.map((p) => p.title)).toEqual(['강문솟대다리', '노암터널', '주문진 등대']);
+    expect(result.items.every((p) => p.distanceM !== null)).toBe(true);
   });
 });
 
