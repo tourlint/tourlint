@@ -293,7 +293,7 @@ export class PlanService {
     let notice = accessible === null || pet === null ? PARTIAL_NOTICE : null;
 
     if (query.sort === 'near' && query.anchor !== null) {
-      places = await this.sortByDistance(places, query.anchor);
+      places = await this.sortByDistance(places, query.anchor, lcls2);
     }
     let basis: string | null = null;
     if (query.sort === 'together') {
@@ -317,8 +317,9 @@ export class PlanService {
   private async sortByDistance(
     places: readonly PlanPlace[],
     anchor: { mapx: number; mapy: number },
+    lcls2: string,
   ): Promise<readonly PlanPlace[]> {
-    const distances = await this.distancesAround(anchor, PLAN_SORT_NEAR_RADIUS_M, null);
+    const distances = await this.distancesAround(anchor, PLAN_SORT_NEAR_RADIUS_M, lcls2);
     if (distances === null) return places;
     return [...places]
       .map((p) => ({ ...p, distanceM: distances.get(p.contentId) ?? null }))
@@ -548,22 +549,27 @@ export class PlanService {
     });
   }
 
-  /** 반경 안 거리표. 실패하면 `null` — 거리를 지어내지 않는다 */
+  /**
+   * 반경 안 거리표. 실패하면 `null` — 거리를 지어내지 않는다.
+   *
+   * 목록과 같은 중분류로 좁혀 끝 쪽까지 받는다. 응답이 거리순이 아니어서, 전 종류를 1,000행만
+   * 받았더니 기준 바로 옆 장소가 빠져 거리 없이 뒤로 밀렸다(강릉 20km · #924).
+   */
   private async distancesAround(
     anchor: { mapx: number; mapy: number },
     radius: number,
-    lcls1: string | null,
+    lcls2: string,
   ): Promise<ReadonlyMap<string, number> | null> {
     try {
-      const page = await this.cache.getOrLoad(`dist:${anchorKey(anchor)}:${radius}:${lcls1 ?? ''}`, async () =>
-        this.kto().locationBasedList({
+      const page = await this.cache.getOrLoad(`dist:${anchorKey(anchor)}:${radius}:${lcls2}`, async () =>
+        this.allPlacePages('locationBasedList2', (pageNo) => this.kto().locationBasedList({
           mapX: anchor.mapx,
           mapY: anchor.mapy,
           radius,
-          ...(lcls1 === null ? {} : { lclsSystm1: lcls1 }),
+          lclsSystm2: lcls2,
           numOfRows: PLAN_NEAR_ROWS,
-          pageNo: 1,
-        }));
+          pageNo,
+        })));
       const out = new Map<string, number>();
       for (const item of page.items) {
         const dist = Number(item.dist);
