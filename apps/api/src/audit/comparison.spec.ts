@@ -1,6 +1,6 @@
 import { SEVERITY_WEIGHT_DEFAULT, type Severity } from '@tourlint/shared';
 import { describe, expect, it } from 'vitest';
-import type { StoredAuditRun } from '../persistence/audit-result.repository';
+import type { StoredAuditRun, StoredFinding } from '../persistence/audit-result.repository';
 import type { StoredPatchApplication } from '../persistence/patch-application.repository';
 import { toComparisonResponse } from './audit.service';
 
@@ -118,5 +118,27 @@ describe('총 감점 (FR-PA-041)', () => {
   it('부분 검수는 점수가 없어 감점도 없다 (FR-AU-029)', () => {
     const m = metricsOf(run({ score: null }), run({ score: 90 }));
     expect(m.find((x) => x.key === 'deduction')).toMatchObject({ before: null, after: 10 });
+  });
+});
+
+describe('수요 적합성 (FR-PA-040)', () => {
+  const r10 = (dismissed: boolean): StoredFinding => ({
+    id: 9, ruleCode: 'R10', ruleVersion: '1.0.1', severity: 'WARNING', reasonCode: 'TARGET_MISMATCH',
+    dismissed, needsConfirmation: false, targetItemId: null, targetItemId2: null,
+    message: '20대 · 감성 여행에 어울리는 공예체험 방문이 아직 없어요.', evidence: { missingLcls2: ['EX02'] },
+    requiresExternal: false, externalSource: null, dismissReason: dismissed ? '전화로 직접 확인함' : null,
+    confirmed: false, dismissedAt: dismissed ? new Date('2026-09-27T10:30:00Z') : null, confirmedAt: null, patches: [],
+  });
+  const withFindings = (findings: StoredFinding[]): StoredAuditRun => ({ ...run(), findings });
+  const fitOf = (before: StoredAuditRun, after: StoredAuditRun): Record<string, unknown> | undefined =>
+    metricsOf(before, after).find((m) => m.key === 'targetFit');
+
+  it('🔴 상품 구성을 무시해도 결손은 남는다 — 「결손 유형 없음」 이라고 하지 않는다 (#926)', () => {
+    const fit = fitOf(withFindings([r10(false)]), withFindings([r10(true)]));
+    expect(fit).toMatchObject({ beforeText: '공예체험 없음', afterText: '공예체험 없음 (무시됨)' });
+  });
+
+  it('R10 이 안 나왔으면 결손 유형 없음이다', () => {
+    expect(fitOf(withFindings([r10(false)]), withFindings([]))).toMatchObject({ afterText: '결손 유형 없음' });
   });
 });
