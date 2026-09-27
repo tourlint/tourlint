@@ -861,6 +861,19 @@ export function TodoRow({ item, subject }: { item: TodayItem; subject: string | 
 }
 
 // ── 관심 키워드 · 관심 지역 새 소식 (FR-MO-059~061 · UI-S7-012~018) ────────────
+/**
+ * 관심 키워드 · 지역 칩 (UI-S7-012 · 014). 지우는 버튼은 「×」 로 보이지만 무엇을 지우는지 이름을 단다 —
+ * 이름이 없으면 화면 읽기 프로그램에 「×」 로만 읽혔다 (#946).
+ */
+export function WatchChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+      {label}
+      <button type="button" onClick={onRemove} aria-label={`${label} 삭제`} className="text-slate-400 hover:text-slate-600">×</button>
+    </span>
+  );
+}
+
 function WatchAndNews({ onError, automatic, checkedText }: { onError: (m: string | null) => void; automatic: boolean; checkedText: string | null }) {
   const [keywords, setKeywords] = useState<string[]>([]);
   const [regions, setRegions] = useState<{ regnCd: string; signguCd: string | null; month: string }[]>([]);
@@ -991,10 +1004,7 @@ function WatchAndNews({ onError, automatic, checkedText }: { onError: (m: string
       <div className="mt-3">
         <div className="flex flex-wrap gap-1.5">
           {keywords.map((k) => (
-            <span key={k} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
-              {k}
-              <button type="button" onClick={() => void saveKeywords(removeKeyword(keywords, k))} className="text-slate-400 hover:text-slate-600">×</button>
-            </span>
+            <WatchChip key={k} label={k} onRemove={() => void saveKeywords(removeKeyword(keywords, k))} />
           ))}
           {keywords.length === 0 && <span className="text-xs text-slate-400">등록한 키워드가 없어요.</span>}
         </div>
@@ -1022,10 +1032,11 @@ function WatchAndNews({ onError, automatic, checkedText }: { onError: (m: string
         <h3 className="text-sm font-medium text-slate-700 dark:text-slate-200">관심 지역</h3>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {regions.map((r, i) => (
-            <span key={`${r.regnCd}-${r.signguCd}-${r.month}`} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
-              {regionLabel(regionNames, r.regnCd, r.signguCd)} · {r.month}
-              <button type="button" onClick={() => void removeRegion(i)} className="text-slate-400 hover:text-slate-600">×</button>
-            </span>
+            <WatchChip
+              key={`${r.regnCd}-${r.signguCd}-${r.month}`}
+              label={`${regionLabel(regionNames, r.regnCd, r.signguCd)} · ${r.month}`}
+              onRemove={() => void removeRegion(i)}
+            />
           ))}
           {regions.length === 0 && <span className="text-xs text-slate-400">등록한 지역이 없어요.</span>}
         </div>
