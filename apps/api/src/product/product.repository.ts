@@ -527,11 +527,17 @@ export class ProductRepository {
     productId: number,
     dayNo: number,
     afterItemId: number | null,
-  ): Promise<{ transport: Transport; anchor: { availableFrom: string; seq: number; mapx: number | null; mapy: number | null } | null }> {
-    const prod = await this.pool.query<{ transport: Transport }>(
-      `SELECT transport FROM product WHERE id = $1`, [productId],
+  ): Promise<{
+    transport: Transport;
+    /** 출발일. 넣는 시각의 이동시간을 여행 날 시각으로 재는 데 쓴다 (#951) */
+    startDate: string | null;
+    anchor: { availableFrom: string; seq: number; mapx: number | null; mapy: number | null } | null;
+  }> {
+    const prod = await this.pool.query<{ transport: Transport; start_date: Date | string }>(
+      `SELECT transport, start_date FROM product WHERE id = $1`, [productId],
     );
     const transport = prod.rows[0]?.transport ?? 'CAR';
+    const startDate = prod.rows[0] === undefined ? null : isoDate(prod.rows[0].start_date);
 
     type AnchorRow = {
       start_time: string; end_time: string | null; item_type: ItemType; lcls_systm2: string | null;
@@ -555,6 +561,7 @@ export class ProductRepository {
     }
     return {
       transport,
+      startDate,
       anchor: found === undefined ? null : {
         availableFrom: availableFrom(found),
         seq: Number(found.seq),

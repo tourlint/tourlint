@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import type { StoredAuditRun } from '../persistence/audit-result.repository';
 import { CatalogService } from '../catalog/catalog.service';
 import { InMemoryApiCallLogger } from '../external/api-call-log';
+import type { KakaoMobilityClient } from '../external/kakao';
 import { FixtureKtoTransport, KtoClient } from '../external/kto';
 import { PatchApplicationRepository } from '../persistence/patch-application.repository';
 import { WalkNameResolver } from '../plan/walk-names';
@@ -33,6 +34,8 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
   let service: ProductService;
   let patches: PatchApplicationRepository;
   let accountId: number;
+  /** 기본은 없음 — 앞 항목 끝에 붙는 경로. 이동시간을 보는 스펙만 가짜를 끼운다 */
+  let kakao: KakaoMobilityClient | null = null;
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL, max: 4 });
@@ -46,7 +49,7 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
       new PlaceNameResolver({ kto }),
       {} as never, // 이 스펙은 handoff 를 부르지 않는다
       new WalkNameResolver({ kto, budget: async () => ({ allowed: true, ratio: 0, reasonCode: null, warn: false, remaining: 800 }) }),
-      () => null, // 이 스펙은 카카오 이동시간 없이 앞 항목 끝에 붙는 경로를 본다
+      () => kakao,
     );
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO account (email, password_hash) VALUES ($1, 'x')
@@ -190,6 +193,42 @@ describe.skipIf(URL === undefined)('ProductService — 대체된 항목의 이�
       [timed.itemId, 2, '14:30:00', '15:45:00', 'INPUT', 'CONFIRMED'],
       [open.itemId, 3, '18:00:00', null, 'DWELL_DEFAULT', 'CONFIRMED'],
     ]);
+  });
+
+  it('🔴 장소 담기가 넣는 시각의 이동시간은 여행 날 앞 일정이 끝나는 시각으로 잰다 — 지금 교통이 아니다 (FR-PL-013 · #951)', async () => {
+    const { product } = validateCreate({
+      name: '이동시간 출발 시각 스펙', ldongRegnCd: '51', ldongSignguCd: '150', startDate: '2026-11-16', nights: 1, transport: 'CAR',
+      days: [
+        { day: 1, items: [{ start: '10:00', end: '11:00', place: '경포대', itemType: 'SIGHT' }] },
+        { day: 2, items: [{ start: '15:00', end: '16:00', place: '경포대', itemType: 'SIGHT' }] },
+      ],
+    });
+    if (product === null) throw new Error('샘플 검증 실패');
+    const { productId } = await new ProductRepository(pool).create(accountId, product);
+    const { rows } = await pool.query<{ id: string }>(
+      `UPDATE itinerary_item SET mapx = 128.8961, mapy = 37.7954 WHERE product_id = $1 AND day_no = 2 RETURNING id`,
+      [productId],
+    );
+    const departures: (string | null)[] = [];
+    kakao = {
+      route: async (_from: unknown, _to: unknown, departureAt: string | null) => {
+        departures.push(departureAt);
+        return { durationSeconds: 185 };
+      },
+    } as unknown as KakaoMobilityClient;
+    try {
+      const added = await service.addItem(accountId, productId, {
+        ...picked(REPLACEMENT), dayNo: 2, afterItemId: Number(rows[0]?.id),
+        content: { ...picked(REPLACEMENT).content, mapx: 128.8783, mapy: 37.7797 },
+      });
+      expect(departures).toEqual(['202611171600']); // 2일차 = 11-17, 앞 일정이 16:00 에 끝난다
+      const inserted = await pool.query<{ start_time: string }>(
+        `SELECT start_time::text FROM itinerary_item WHERE id = $1`, [added.itemId],
+      );
+      expect(inserted.rows[0]?.start_time).toBe('16:04:00'); // 185초 → 4분
+    } finally {
+      kakao = null;
+    }
   });
 
   it('넣을 위치를 안 주면 그 날 끝에 붙는다', async () => {
