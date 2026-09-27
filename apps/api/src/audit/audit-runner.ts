@@ -394,9 +394,14 @@ export class AuditRunner {
 
     // ── 8) 수정안 생성 (판정 이후 별도 단계) ──
     // 공사가 멈추라고 했으면 수정안용 조회(대체 관광지 · 넣을 곳)도 하지 않는다 (#793)
+    // 직접 정한 곳은 판정에서 빠지지만 시간은 차지한다. 수정안이 빈 시간을 잴 때만 넣는다 (#941)
+    const occupied = [
+      ...ctx.items,
+      ...this.toAuditItems(product, items.filter((item) => item.matchStatus === 'EXCLUDED'), fetched, verdicts),
+    ];
     const patched = await this.attachPatches([...findings, ...isolated], ctx, fetched, halted !== null, {
       regnCd: product.ldongRegnCd ?? null, signguCd: product.ldongSignguCd ?? null,
-    });
+    }, occupied);
     // 예외로 끝난 규칙은 확인 불가로 남긴다 — 0건과 같아 보이면 안 된다 (EX-AU-006 · #774)
     const all = [...patched, ...failedRuleFindings(failedRules)];
 
@@ -555,6 +560,8 @@ export class AuditRunner {
     ktoHalted = false,
     /** 상품 지역 — R02 행사 교체가 같은 지역 행사를 찾는다 (FR-RU-022 ① · #880) */
     region: { readonly regnCd: string | null; readonly signguCd: string | null } = { regnCd: null, signguCd: null },
+    /** 직접 정한 곳까지 든 일정 — 수정안이 빈 시간을 잴 때만 쓴다 (#941) */
+    occupied: readonly AuditItem[] = ctx.items,
   ): Promise<readonly Finding[]> {
     const knownConfidence = new Map(
       [...fetched].map(([id, c]) => [id, c.normalized.confidence.overall] as const),
@@ -571,7 +578,7 @@ export class AuditRunner {
     const drafts = findings.map((finding) => ({
       finding,
       patches: [...proposeLocalPatches({
-        finding, items: ctx.items, holidays: ctx.holidays,
+        finding, items: ctx.items, occupied, holidays: ctx.holidays,
         travelTimes: ctx.travelTimes,
         // R09 순서 교체가 규칙과 같은 표를 보게 넘긴다 (FR-OP-021)
         indoorOutdoor: ctx.settings.r09IndoorOutdoor,
@@ -602,7 +609,7 @@ export class AuditRunner {
       const draft = drafts[index];
       if (draft === undefined || draft.patches.length >= MAX_PATCHES_PER_FINDING) continue;
       const external = await this.externalPatches(
-        draft.finding, ctx, knownConfidence, draft.patches.length, this.maxReplacementCalls - calls, region,
+        draft.finding, ctx, knownConfidence, draft.patches.length, this.maxReplacementCalls - calls, region, occupied,
       );
       // 행사 교체(R02)는 위치기반 목록이 아니라 상한에 넣지 않는다 — 그래서 콜 없이 수정안이 올 수 있다
       calls += external.spent;
@@ -626,6 +633,7 @@ export class AuditRunner {
     /** 이 finding 이 쓸 수 있는 위치기반 조회 수. 상한에서 앞선 finding 들이 쓴 만큼 뺀 값이다 */
     listBudget: number,
     region: { readonly regnCd: string | null; readonly signguCd: string | null } = { regnCd: null, signguCd: null },
+    occupied: readonly AuditItem[] = ctx.items,
   ): Promise<{ patches: readonly Patch[]; spent: number }> {
     /*
      * R02 ① 여행일에 열리는 같은 지역 행사로 교체 (FR-RU-022 · #880). 행사 조회 1콜이고 위치기반
@@ -690,8 +698,8 @@ export class AuditRunner {
      * 중분류가 좁다. 낮 자리가 결손을 먼저 가져가면 카페가 18:00 에 들어가고 「19:00 이후
      * 없음」 이 남는다. 야간이 채운 중분류는 낮 자리에서 빼고, 남은 결손만 낮 자리가 맡는다.
      */
-    const dayPossible = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor) !== null;
-    const nightPossible = planNightInsertion(finding, ctx.items, new Set()) !== null;
+    const dayPossible = planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor, undefined, new Set(), occupied) !== null;
+    const nightPossible = planNightInsertion(finding, ctx.items, new Set(), undefined, occupied) !== null;
 
     const patches: Patch[] = [];
     const exclude = new Set(ctx.items.map((i) => i.content?.ktoContentId ?? ''));
@@ -702,8 +710,8 @@ export class AuditRunner {
     for (const slotKind of ['night', 'day'] as const) {
       // 뒤 자리의 요청은 앞 자리 결과를 보고 만든다. 무엇이 아직 비었는지는 그때 정해진다
       const request = slotKind === 'night'
-        ? planNightInsertion(finding, ctx.items, covered)
-        : planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor, undefined, covered);
+        ? planNightInsertion(finding, ctx.items, covered, undefined, occupied)
+        : planInsertion(finding, ctx.items, ctx.settings.r09IndoorOutdoor, undefined, covered, occupied);
       if (request === null) continue;
       const room = MAX_PATCHES_PER_FINDING - startIndex - patches.length;
       // 야간이 목록 조회를 다 쓰면 낮 자리가 굶는다. 낮 자리가 있으면 한 콜을 남긴다
@@ -999,9 +1007,26 @@ export class AuditRunner {
     targetProfile: TargetProfileContext | null,
     executedAt: Date,
   ): ItineraryContext {
+    const auditItems = this.toAuditItems(product, items, fetched, verdicts);
+
+    return {
+      productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS,
+      settings: this.settings, travelTimes, rainOutlooks, targetProfile,
+      // 출발 임박 확인이 쓴다. 규칙이 시계를 보지 않게 여기서 한국 날짜로 넣는다 (FR-AU-085 · NF-MT-001)
+      auditDate: kstToday(executedAt), startDate: product.startDate,
+    };
+  }
+
+  /** 일정 줄을 판정용 항목으로 — 날짜 · 보완한 종료시간 · 조회한 콘텐츠를 붙인다 */
+  private toAuditItems(
+    product: ProductRow,
+    items: readonly ItineraryItemRow[],
+    fetched: ReadonlyMap<string, FetchedContent>,
+    verdicts: ReadonlyMap<string, ChangeVerdict>,
+  ): AuditItem[] {
     const start = parseIsoDate(product.startDate);
 
-    const auditItems: AuditItem[] = items.map((item) => {
+    return items.map((item) => {
       const date = start === null ? product.startDate : formatIsoDate(addDays(start, item.dayNo - 1));
       // 종료시간 보완은 판정 전에 끝난다 (FR-RU-031)
       const resolved = resolveEndTime({
@@ -1025,13 +1050,6 @@ export class AuditRunner {
         content: toMatchedContent(item, fetched, verdicts),
       };
     });
-
-    return {
-      productId: product.id, items: auditItems, holidays: KOREAN_HOLIDAYS,
-      settings: this.settings, travelTimes, rainOutlooks, targetProfile,
-      // 출발 임박 확인이 쓴다. 규칙이 시계를 보지 않게 여기서 한국 날짜로 넣는다 (FR-AU-085 · NF-MT-001)
-      auditDate: kstToday(executedAt), startDate: product.startDate,
-    };
   }
 }
 
