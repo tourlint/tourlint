@@ -31,9 +31,26 @@ export interface LocalPatchInput {
    * 또 걸린다.
    */
   readonly indoorOutdoor?: Readonly<Record<string, IndoorOutdoor>>;
+  /**
+   * 직접 정한 곳(걷기 길 · 집결지)까지 든 일정 전체. **빈 시간을 잴 때만 쓴다** — 판정 대상과
+   * 맞바꿀 상대는 `items` 그대로다. 없으면 `items`.
+   *
+   * 직접 정한 곳은 규칙이 보지 않아서, 수정안이 그 시간에 넣으면 미리보기(수정안끼리의 겹침만
+   * 본다)도 재검수도 못 잡는다. 걷기 길 16:35 – 18:05 가 있는 날 공예체험을 17:05 에 넣자고
+   * 했다 (#941).
+   */
+  readonly occupied?: readonly AuditItem[];
 }
 
 export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
+  const occupied = input.occupied ?? input.items;
+  // 직접 정한 곳과 새로 겹치게 옮기는 안은 뺀다. 번호는 다시 매긴다 — 뒤에 붙는 외부 수정안이 개수로 이어 번호를 딴다
+  return proposeAll(input, occupied)
+    .filter((patch) => !shiftsOntoExcluded(patch, input.items, occupied))
+    .map((patch, index) => ({ ...patch, patchId: patchId(index) }));
+}
+
+function proposeAll(input: LocalPatchInput, occupied: readonly AuditItem[]): readonly Patch[] {
   const { finding, items } = input;
 
   /*
@@ -45,7 +62,7 @@ export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
     case 'R04': return r04(finding, items);
     // R07 은 「식사가 짧다」면 그 항목을, 「아예 없다」면 아무것도 지목하지 않는다.
     // 뒤쪽 `target` 검사에 두면 **식사가 없는 쪽만** 수정안이 사라진다 — 정작 넣어 줘야 할 때다
-    case 'R07': return r07(finding, items);
+    case 'R07': return r07(finding, occupied);
     default: break;
   }
 
@@ -53,7 +70,7 @@ export function proposeLocalPatches(input: LocalPatchInput): readonly Patch[] {
   if (target === undefined) return [];
 
   switch (finding.ruleCode) {
-    case 'R01': return r01(finding, target, items, input.holidays);
+    case 'R01': return r01(finding, target, items, occupied, input.holidays);
     case 'R02': return r02(finding, target);
     case 'R03': return r03(finding, items, input.travelTimes);
     case 'R08': return r08(finding, items);
@@ -80,6 +97,7 @@ function r01(
   finding: Finding,
   target: AuditItem,
   items: readonly AuditItem[],
+  occupied: readonly AuditItem[],
   holidays: HolidayCalendar,
 ): readonly Patch[] {
   // 숙박 입실 판정(L-*)에는 수정안을 붙이지 않는다 — 숙소를 옮기거나 바꾸는 것은 답이 아니다 (#875)
@@ -106,14 +124,14 @@ function r01(
   });
 
   if (isRestDay) {
-    const slot = openSlotFor(target, items, holidays, accept);
+    const slot = openSlotFor(target, items, occupied, holidays, accept);
     if (slot !== null) out.push(shift(slot));
     const other = crossDaySwap(target, items, holidays, accept);
     if (other !== null) out.push(reorder(other));
   } else {
     const swap = swapCandidate(target, items, accept);
     if (swap !== null) out.push(reorder(swap));
-    const slot = openSlotFor(target, items, holidays, accept);
+    const slot = openSlotFor(target, items, occupied, holidays, accept);
     if (slot !== null) out.push(shift(slot));
   }
   return out;
@@ -194,6 +212,8 @@ function opensAt(
 function openSlotFor(
   target: AuditItem,
   items: readonly AuditItem[],
+  /** 빈 자리는 직접 정한 곳까지 넣고 잰다 (#941) */
+  occupied: readonly AuditItem[],
   holidays: HolidayCalendar,
   accept: SlotCheck,
 ): { dayNo: number; startTime: string; endTime: string | null } | null {
@@ -211,7 +231,7 @@ function openSlotFor(
 
     // 빈 자리 가운데 운영시간 안에 드는 첫 자리 (#877). 운영시간을 모르면 첫 자리다
     const hours = selectHours(normalized, date);
-    for (const placed of placesIn(items.filter((i) => i.dayNo === dayNo), duration)) {
+    for (const placed of placesIn(occupied.filter((i) => i.dayNo === dayNo), duration)) {
       const end = duration === null ? null : addMinutes(placed, duration);
       if (hours !== null && evaluateHours(hours.entry, placed, end) !== 'OPEN') continue;
       if (!accept(formatIsoDate(date), placed, end)) continue;
@@ -539,6 +559,8 @@ export function planInsertion(
   dwellMinutes = SETTING_DEFAULTS.dwellFallbackMinutes,
   /** 다른 자리가 이미 채운 중분류. 같은 종류를 두 번 제안하지 않는다 (#589) */
   coveredLcls2: ReadonlySet<string> = new Set(),
+  /** 직접 정한 곳까지 든 일정. 빈 구간은 이것으로 잰다 (#941) */
+  occupied: readonly AuditItem[] = items,
 ): InsertionRequest | null {
   const found = insertionScope(finding, items, indoorOutdoor);
   if (found === null || found.candidates.length === 0) return null;
@@ -551,7 +573,7 @@ export function planInsertion(
   let best: { after: AuditItem; gap: number } | null = null;
   // 일차 순서를 고정한다. 같은 폭이면 앞선 날이 이긴다 (NF-MT-001)
   for (const day of [...new Set(scope.candidates.map((i) => i.dayNo))].sort((a, b) => a - b)) {
-    for (const { after, gap } of gapsOf(scope.candidates.filter((i) => i.dayNo === day))) {
+    for (const { after, gap } of gapsOf(occupied.filter((i) => i.dayNo === day))) {
       if (gap >= need && (best === null || gap > best.gap)) best = { after, gap };
     }
   }
@@ -559,7 +581,8 @@ export function planInsertion(
 
   const start = addMinutes(best.after.endTime as string, MIN_TRANSFER_MINUTES);
   return {
-    anchor: best.after,
+    // 직접 정한 곳 뒤 자리면 좌표가 없다. 그 날 가장 가까운 앞(없으면 뒤)의 좌표 있는 줄 근처에서 찾는다
+    anchor: locatedNear(best.after, scope.candidates) ?? best.after,
     slot: { dayNo: best.after.dayNo, afterItemId: best.after.id, startTime: start, endTime: addMinutes(start, dwellMinutes) },
     wantLcls2: scope.wantLcls2,
     verifyOpen: false,
@@ -622,6 +645,8 @@ export function planNightInsertion(
   items: readonly AuditItem[],
   coveredLcls2: ReadonlySet<string>,
   dwellMinutes: number = SETTING_DEFAULTS.dwellFallbackMinutes,
+  /** 직접 정한 곳까지 든 일정. 그 날 마지막 일정은 이것으로 본다 (#941) */
+  occupied: readonly AuditItem[] = items,
 ): InsertionRequest | null {
   if (finding.ruleCode !== 'R10') return null;
   const { expectsNight, hasNight, expectedLcls2, missingLcls2 } = finding.evidence;
@@ -644,7 +669,7 @@ export function planNightInsertion(
 
   const nightFrom = toMinutes(RULE_CONSTANTS.R10_NIGHT_SLOT_FROM);
   for (const day of ordered) {
-    const sameDay = items
+    const sameDay = occupied
       .filter((i) => i.dayNo === day)
       .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
     const lastEnd = Math.max(0, ...sameDay.map((i) => toMinutes(i.endTime ?? i.startTime)));
@@ -698,6 +723,51 @@ function insertionScope(
     return indoor.length === 0 ? null : { candidates: items.filter((i) => i.date === date), wantLcls2: indoor };
   }
   return null;
+}
+
+/**
+ * 좌표가 있으면 그 줄, 없으면 같은 날 그보다 먼저 시작하는 좌표 있는 줄 중 가장 늦은 것,
+ * 그것도 없으면 뒤의 가장 이른 것. 넣을 곳을 찾는 조회의 기준점이다.
+ */
+function locatedNear(after: AuditItem, candidates: readonly AuditItem[]): AuditItem | null {
+  const located = (i: AuditItem): boolean => i.mapX !== null && i.mapY !== null;
+  if (located(after)) return after;
+  const sameDay = candidates
+    .filter((i) => i.dayNo === after.dayNo && located(i))
+    .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+  const before = sameDay.filter((i) => toMinutes(i.startTime) <= toMinutes(after.startTime));
+  return before[before.length - 1] ?? sameDay[0] ?? null;
+}
+
+/**
+ * 시각을 옮기는 안이 직접 정한 곳과 **새로** 겹치는가 (#941).
+ *
+ * R03 · R08 은 뒤 일정을 민다. 밀린 자리에 직접 정한 곳이 있으면 규칙도 미리보기도 못 잡으니
+ * 여기서 뺀다. 원래도 겹쳐 있던 것은 이 수정안이 만든 겹침이 아니다.
+ */
+function shiftsOntoExcluded(patch: Patch, items: readonly AuditItem[], occupied: readonly AuditItem[]): boolean {
+  if (patch.type !== 'TIME_SHIFT') return false;
+  const target = items.find((i) => i.id === patch.targetItemId);
+  if (target === undefined) return false;
+  const payload = patch.payload as { newDayNo?: number; newStartTime?: string; newEndTime?: string };
+  const dayNo = payload.newDayNo ?? target.dayNo;
+  const start = payload.newStartTime ?? target.startTime;
+  const duration = durationOf(target);
+  const end = payload.newEndTime
+    ?? (payload.newStartTime === undefined ? target.endTime : duration === null ? null : addMinutes(start, duration));
+
+  const hits = (day: number, from: string, to: string | null, other: AuditItem): boolean => {
+    if (other.dayNo !== day || other.endTime === null) return false;
+    const a = toMinutes(from);
+    const b = to === null ? a : toMinutes(to);
+    // 끝을 모르면 시작 시각이 그 줄 안에 드는지만 본다
+    return to === null
+      ? a >= toMinutes(other.startTime) && a < toMinutes(other.endTime)
+      : a < toMinutes(other.endTime) && toMinutes(other.startTime) < b;
+  };
+  return occupied.some((other) => other.matchStatus === 'EXCLUDED'
+    && hits(dayNo, start, end, other)
+    && !hits(target.dayNo, target.startTime, target.endTime, other));
 }
 
 /** R04 가 지목한 반복 항목 중 **마지막 것**. 대체 수정안의 대상이다 (FR-RU-043) */
