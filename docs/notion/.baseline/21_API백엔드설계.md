@@ -6,7 +6,7 @@
 <table fit-page-width="true" header-row="true">
 <tr>
 <td>문서</td>
-<td>API · 백엔드 설계 v2.57</td>
+<td>API · 백엔드 설계 v2.76</td>
 </tr>
 <tr>
 <td>작성일</td>
@@ -264,8 +264,8 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>201 Created</td>
-<td>상품 · 일정 항목 · 리포트 생성</td>
-<td>–</td>
+<td>상품 · 일정 항목 · 리포트 생성. 업로드 · 메모 읽기(`POST /api/v1/uploads/*`)도 저장 없이 201 로 결과를 돌려주며, 파일 · 글 전체 거부도 201 의 `rejected` 로 싣는다(4-3)</td>
+<td>`rejected.code` — `UPLOAD_FORMAT_INVALID` `UPLOAD_LIMIT_EXCEEDED` `DAY_COUNT_MISMATCH` `NL_STRUCTURE_FAILED`</td>
 </tr>
 <tr>
 <td>202 Accepted</td>
@@ -280,7 +280,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>400 Bad Request</td>
 <td>입력 형식 오류 · 상한 초과</td>
-<td>`UPLOAD_FORMAT_INVALID` `DAY_COUNT_MISMATCH` `UPLOAD_LIMIT_EXCEEDED` `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED` `INPUT_INVALID`(전용 코드가 없는 입력 형식 오류 · 깨진 JSON 본문)</td>
+<td>`UPLOAD_FORMAT_INVALID`(확장자 · 내용 · MIME · 파서 실패) `SETTING_NOT_STRICTER` `DISMISS_REASON_REQUIRED` `INPUT_INVALID`(전용 코드가 없는 입력 형식 오류 · 깨진 JSON 본문)</td>
 </tr>
 <tr>
 <td>401 Unauthorized</td>
@@ -303,9 +303,14 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <td>`PATCH_CONFLICT` `PATCH_STALE` `UNDO_UNAVAILABLE`</td>
 </tr>
 <tr>
+<td>413 Payload Too Large</td>
+<td>업로드 안전망(20MB) 초과 — 받기 전에 막는다. 5MB 에서 20MB 사이는 201 의 `rejected`</td>
+<td>`UPLOAD_LIMIT_EXCEEDED`</td>
+</tr>
+<tr>
 <td>422 Unprocessable</td>
 <td>선행 조건 미충족</td>
-<td>`PLACE_UNRESOLVED`</td>
+<td>`PLACE_UNRESOLVED` `DAY_COUNT_MISMATCH`</td>
 </tr>
 <tr>
 <td>429 Too Many Requests</td>
@@ -335,7 +340,7 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>검수 실행 요청</td>
-<td>계정당 분당 5회</td>
+<td>계정당 분당 5회 — 다시 검수(`audit-jobs`)와 검수 시작(`handoff`)을 한 창으로 센다. **공개된 테스트 계정은 세지 않는다**(심사위원 여럿이 한 계정으로 같은 가이드를 따라가 남의 클릭으로 막힌다 — 로그인 시도와 같은 기준). 배치가 거는 재검수는 세지 않는다. 창은 프로세스 메모리에 둔다(API 인스턴스 1개 전제)</td>
 <td>NF-SC-010 · EX-SY-008</td>
 </tr>
 <tr>
@@ -345,12 +350,12 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 </tr>
 <tr>
 <td>리포트 생성</td>
-<td>계정당 분당 5회</td>
+<td>계정당 분당 5회. 공개된 테스트 계정은 세지 않는다</td>
 <td>NF-SC-010</td>
 </tr>
 <tr>
 <td>장소 담기 · 장소 정보 한 줄 조회 (`/plan/*` · `place-facts`)</td>
-<td>계정당 분당 상한 (수치는 구현에서 정해 이 표에 적는다). 예산 100% 에서 검수와 같은 게이트 — 429 `BUDGET_EXHAUSTED`</td>
+<td>분당 상한을 두지 않는다 — 종류 칩 · 카드 펼침 · 줄마다 부르므로 짧은 시간에 수십 번이 정상이고, 공사 호출은 예산 게이트가 막는다. 예산 100% 에서 검수와 같은 게이트 — 429 `BUDGET_EXHAUSTED`</td>
 <td>NF-SC-010 · FR-PL-018</td>
 </tr>
 <tr>
@@ -417,13 +422,13 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 <tr>
 <td>GET</td>
 <td>`/api/v1/products`</td>
-<td>상품 목록. 홈(내 상품) 보드용 — 출시 준비도 · 등급별 건수 · 알림 수 포함. 행마다 `plannedAt` · `releasedAt` 으로 칸(기획 중 · 검수 중 · 출시할 수 있음 · 출시함)을 나눈다. 알림 수는 셋이다 — `unreadNotifications`(확인하지 않은 알림) · `activeNotifications`(무시하지 않은 알림) · `risksSinceAudit`(알림 뒤에 다시 검수하지 않은 바뀐 정보, 목록의 `latestAudit.executedAt` 과 견준다). 무시한 알림은 세지 않고 여행이 끝난 상품은 셋 다 0 이다(FR-MO-018)</td>
+<td>상품 목록. 홈(내 상품) 보드용 — 출시 준비도 · 등급별 건수 · 알림 수 포함. 행마다 `plannedAt` · `releasedAt` 으로 칸(기획 중 · 검수 중 · 출시할 수 있음 · 출시함)을 나눈다. 알림 수는 셋이다 — `unreadNotifications`(확인하지 않은 알림) · `activeNotifications`(무시하지 않은 알림) · `risksSinceAudit`(알림 뒤에 다시 검수하지 않은 바뀐 정보, 목록의 `latestAudit.executedAt` 과 견준다). 무시한 알림은 세지 않고 여행이 끝난 상품은 셋 다 0 이다(FR-MO-018). `startedBy` 는 기획을 시작한 방법(`plan_origin.startedBy` — MANUAL · UPLOAD · TEXT · SIGNAL)이고 기록이 없는 상품은 `null` 이다 — 보드의 기획 중 카드가 쓴다(UI-S1-010)</td>
 <td>FR-CM-005 · FR-PL-001</td>
 </tr>
 <tr>
 <td>POST</td>
 <td>`/api/v1/products`</td>
-<td>상품 생성 (기본정보 + 상품 성격 + 이동수단). 만든 상품은 **기획 중**(`plannedAt: null`)이다. 본문에 기획 출처 `planOrigin` — 시작 방식 · 신호 종류 · 지역 코드 · 기간 · contentid 만, 원문 없음</td>
+<td>상품 생성 (기본정보 + 상품 성격 + 이동수단). 만든 상품은 **기획 중**(`plannedAt: null`)이다. 본문에 기획 출처 `planOrigin` — 시작 방식 · 신호 종류 · 지역 코드 · 기간 · contentid 만, 원문 없음. 관광지를 고른 줄(`content`)은 장소명을 저장하지 않는다 — 비워도 되고 보내도 버리며 표시할 때 찾는다(DR-PR-001 · DR-IN-013)</td>
 <td>FR-CM-006 · FR-IN-004·007·008 · FR-PL-001 · 020</td>
 </tr>
 <tr>
@@ -460,9 +465,11 @@ tourlint/                      pnpm 워크스페이스 · Node 22+
 **요청 · 응답 모양**
 ```json
 POST /api/v1/products                추가 "planOrigin": { "startedBy": "MANUAL|UPLOAD|TEXT|CLONE|SIGNAL", "signal"?: { "type": "T2", "regnCd", "signguCd", "from", "to", "contentId"? } }
-POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
+                                     days[].items[] 마다 "origin": "MANUAL|UPLOAD|TEXT|PICKER" (없거나 다른 값이면 MANUAL · PICKER 줄은 matched_by 를 비운다 · FR-PL-020), "excluded"?: true (직접 정한 곳 EXCLUDED · content 가 있으면 무시 · UI-S2-021) | { "walkId" } (걷기 길 — place 는 비워도 되고 보내도 저장하지 않는다 · UI-S2-048 · DR-MD-005)
+POST /api/v1/products/{id}/handoff   본문 { "excludePending"?: true }  → 202 { "productId", "plannedAt", "jobId", "excludedCount" } | 422 PLACE_UNRESOLVED { "pendingCount": 2 } | 429 BUDGET_EXHAUSTED · RATE_LIMIT_EXCEEDED(3-4)   (true 면 남은 PENDING 을 EXCLUDED 로 바꾸고 넘긴다 · 한 트랜잭션. 검수 요청이 거절되면 아무것도 바뀌지 않고 상품은 기획 중에 남는다)
 PATCH /api/v1/products/{id}          "startDate" 변경 = 출발일 옮기기. 항목 시각은 바꾸지 않는다
 GET /api/v1/products/{id}            추가 "plannedAt", "planOrigin", "composition": { "manual": 5, "picker": 2, "excluded": 1 }
+                                     days[].items[] 마다 "lcls2", "endTimeSource": "INPUT|DWELL_DEFAULT|DWELL_FALLBACK" (끝 시간 미리보기 · 「기본값 적용」 표시용, 판정에 쓰지 않는다 · FR-IN-011), "walkId" (걷기 길 식별자 · 아니면 null. 편집 화면이 고칠 수 없는 걷기 길 줄로 연다 · UI-S2-048), "contentTypeId" (고른 곳의 유형 코드 · 아니면 null. 편집 화면이 저장된 고른 곳을 ✓ 로 열고 다시 찾지 않는다 · UI-S2-025)
 GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" (보드 분류용 — 차단 건수 · 안 읽은 알림은 기존 `latestAudit.counts.blocker` · `unreadNotifications` 를 쓴다)
 ```
 ## 4-3. 일정 항목 (F01)
@@ -482,8 +489,8 @@ GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" 
 <tr>
 <td>POST</td>
 <td>`/api/v1/products/{productId}/items`</td>
-<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움)</td>
-<td>FR-IN-014 · FR-PL-013 · PM-NG-011</td>
+<td>일정 항목 추가. 본문 확장 — `afterItemId`(넣을 위치, 없으면 맨 뒤) · `content{contentId, contentTypeId, lcls1, lcls2, lcls3, mapx, mapy}` 면 CONFIRMED · `excluded{walkId}` 면 EXCLUDED(걷기 길 · 직접 정한 곳, 코스 이름은 보내지 않는다) · `origin`(`MANUAL` · `UPLOAD` · `TEXT` · `PICKER`, 없으면 `MANUAL` · FR-PL-020) · `excluded: true` 면 장소명을 둔 채 EXCLUDED(직접 정한 곳 · UI-S2-021). 걷기 길(`excluded{walkId}`)과 고른 곳(`content{…}`)은 `startTime` · `endTime` 을 주면 그 시각으로 넣는다(편집 화면 · UI-S2-048 · FR-IN-014 — 끝을 비우면 기본 체류시간 보완 대상) — 없으면 아래처럼 채운다. **시각 자동 채움** — 시작 = 앞 항목 종료 + 이동시간, 잴 수 없으면 앞 항목 종료 시각 그대로. 기존 항목의 시각은 바꾸지 않는다. 식당 · 카페 · 숙소는 식사 · 휴식 · 숙박 유형(숙박은 끝 비움). 상품에 항목이 45건이면 어느 본문이든 400 `INPUT_INVALID` 로 거부한다(상품 저장 · 넣는 수정안 확정도 같다)</td>
+<td>FR-IN-014 · FR-PL-013 · PM-NG-011 · NF-CP-010</td>
 </tr>
 <tr>
 <td>PATCH</td>
@@ -505,26 +512,20 @@ GET /api/v1/products                 행마다 추가 "plannedAt", "releasedAt" 
 </tr>
 <tr>
 <td>POST</td>
-<td>`/api/v1/products/{productId}/items/import`</td>
-<td>엑셀·CSV 업로드 → **미리보기 반환**. 사용자 확정 전에는 저장하지 않음</td>
+<td>`/api/v1/uploads/schedule`</td>
+<td>엑셀 · CSV 파일(multipart `file`)을 읽어 **편집용 결과**(`nights` · `items` · `errors` · `rejected`)를 201 로 돌려준다. 저장하지 않는다 — 화면이 편집한 뒤 상품 저장(`POST /api/v1/products` 의 `days[].items[]`)으로 저장한다. 상품에 딸리지 않는 경로라 등록 전에도 부른다</td>
 <td>FR-IN-002·015</td>
 </tr>
 <tr>
 <td>POST</td>
-<td>`/api/v1/products/{productId}/items/parse-text`</td>
-<td>자연어 텍스트 → LLM 구조화 → **미리보기 반환**</td>
+<td>`/api/v1/uploads/schedule-text`</td>
+<td>메모(자연어) `{ text }` → LLM 구조화 → 같은 모양의 **편집용 결과**를 201 로 돌려준다. 저장하지 않는다</td>
 <td>FR-IN-003·013</td>
 </tr>
 <tr>
-<td>POST</td>
-<td>`/api/v1/products/{productId}/items/commit`</td>
-<td>미리보기 확정 저장</td>
-<td>FR-IN-013</td>
-</tr>
-<tr>
 <td>GET</td>
-<td>`/api/v1/templates/itinerary-form.xlsx`</td>
-<td>지정 양식 파일 내려받기</td>
+<td>`/api/v1/uploads/template`</td>
+<td>지정 양식 파일(.xlsx) 내려받기</td>
 <td>FR-IN-002</td>
 </tr>
 </table>
@@ -540,11 +541,17 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 ```
 <callout icon="📥" color="yellow_bg">
 	**업로드 상한과 거부 규칙**
-	파일 5MB · 500행 초과 → 파싱 전에 400 `UPLOAD_LIMIT_EXCEEDED`
-	유효 일정 항목 45건 초과 → 400 `UPLOAD_LIMIT_EXCEEDED` + 상품 분할 안내 (NF-CP-003)
-	자연어 입력 5,000자 초과 → 400
-	일부 행 형식 오류 → **200 + 정상 행 유지 + 실패 행 번호·사유 반환** (전체 거부 아님)
-	박수와 일자별 일정 수 불일치 → 400 `DAY_COUNT_MISMATCH`
+	업로드 · 메모 붙여넣기는 저장하지 않고 편집용 결과를 201 로 돌려준다. **파일 · 글 전체를 거부할 때도 201 이고** 사유는 결과의 `rejected`(`code` · `message`)에 담는다 — 화면은 `message` 만 보인다
+	파일 5MB · 500행 초과 → 파싱 전에 `rejected` `UPLOAD_LIMIT_EXCEEDED`
+	유효 일정 항목 45건 초과 → `rejected` `UPLOAD_LIMIT_EXCEEDED` + 상품 분할 안내 (NF-CP-003)
+	자연어 입력 4,000자 초과 → `rejected` `UPLOAD_LIMIT_EXCEEDED` (화면은 글자 수를 보이고 넘으면 보내지 않는다 · NF-CP-006)
+	양식 헤더를 못 찾음 · 필수 컬럼 누락 → `rejected` `UPLOAD_FORMAT_INVALID` (없는 컬럼을 짚는다)
+	일부 행 형식 오류 → **201 + 정상 행 유지 + 실패 행 번호 · 사유 반환**(`errors[]` · 사유코드는 싣지 않는다 · 전체 거부 아님)
+	박수와 일자별 일정 수 불일치 → 업로드 · 저장은 막지 않는다. 검수 시작이 422 `DAY_COUNT_MISMATCH` 로 거부한다 (EX-IN-005). 파일에 4일차 이상이 있으면 `rejected` `DAY_COUNT_MISMATCH` 로 파일 전체를 거부한다
+	메모에서 항목을 하나도 못 만듦 · LLM 을 쓸 수 없음 · 빈 글 → `rejected` `NL_STRUCTURE_FAILED`
+	확장자가 .xlsx · .csv 가 아님 · 내용이 형식과 다름(xlsx 는 `PK` 로 시작, CSV 는 NUL 없는 글자) · MIME 이 이미지 · PDF 처럼 명백히 다름 · 파서가 못 읽음 → 400 `UPLOAD_FORMAT_INVALID`
+	파일이 없음 · 메모 본문 `text` 가 문자열이 아님 → 400 `INPUT_INVALID`
+	20MB 초과(업로드 안전망) → 413 `UPLOAD_LIMIT_EXCEEDED`
 	업로드 파일은 파싱 후 폐기하며 서버에 영구 저장하지 않습니다 (NF-SC-006).
 </callout>
 ## 4-4. 관광지 매칭 · 공사 코드 프록시 (F02)
@@ -570,13 +577,13 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 <tr>
 <td>POST</td>
 <td>`/api/v1/items/{itemId}/exclude`</td>
-<td>"직접 정한 곳으로 두기"(옛 "해당 없음") 처리. 항목은 유지하고 `EXCLUDED`로 전환. 호출처는 화면 2 편집기 행 · 기획 에이전트 카드</td>
+<td>"직접 정한 곳으로 두기"(옛 "해당 없음") 처리. 항목은 유지하고 `EXCLUDED`로 전환. 호출처는 화면 2 편집기 행 · 기획 에이전트 카드. 본문 `{placeLabel?}` — 이름을 저장하지 않은 고른 곳(장소 담기 · 등록 화면에서 고른 줄)은 이 이름(화면이 보낸 찾는 칸의 글자)으로 직접 정한 곳이 되고, 비었으면 400 `INPUT_INVALID` 다. 이름이 있는 줄은 그 이름을 그대로 둔다(DR-PR-001 · DR-IN-013)</td>
 <td>FR-IN-024·025 · FR-AG-012</td>
 </tr>
 <tr>
 <td>GET</td>
 <td>`/api/v1/contents/{contentId}`</td>
-<td>관광지 상세 실시간 조회. **DB에서 읽지 않는다**. `with=accessible,pet` 을 주면 요청한 조건 축(무장애 · 반려동물)을 각 1콜로 붙인다 — 서비스를 못 부르면 그 필드만 `null`</td>
+<td>관광지 상세 실시간 조회. **DB에서 읽지 않는다**. `with=accessible,pet` 을 주면 요청한 조건 축(무장애 · 반려동물)을 각 1콜로 붙인다 — 서비스를 못 부르면 그 필드만 `null`. `cpyrhtDivCd`(`Type1` · `Type3` · 없으면 `null`)를 실어 화면이 Type3 공사 원문 배지에 "변경금지"를 붙인다 (FR-CM-011)</td>
 <td>DR-PR-004 · FR-IN-030 · FR-PL-012</td>
 </tr>
 <tr>
@@ -588,7 +595,7 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 <tr>
 <td>GET</td>
 <td>`/api/v1/lcls-codes`</td>
-<td>분류체계 코드. `level` `parentCode` 계층 조회. 수집된 기준 테이블에서 응답</td>
+<td>분류체계 대분류 목록. 파라미터 없음 — 부팅 때(실패하면 첫 요청 때) `lclsSystmCode2` 를 불러 메모리에 둔 것으로 응답한다. 중분류 기준표는 `packages/shared` 상수(`LCLS_SYSTM2`)이고 이 경로로 내보내지 않는다</td>
 <td>EI-KT-015</td>
 </tr>
 </table>
@@ -597,7 +604,7 @@ POST /api/v1/products/{id}/items     기존 { dayNo, start, end, place, itemType
 POST /api/v1/items/{itemId}/match     기존 본문에 "matchedBy": "USER" | "AGENT"  (1곳 자동 확정은 서버가 AUTO 로 남긴다)
 ```
 <callout icon="📍" color="blue_bg">
-	**`/contents/search`****는 검색 결과가 10건 이상이면 상품 지역(법정동 코드)으로 자동 필터링**하고, 응답에 `regionFilterApplied: true`를 함께 반환해 화면이 해제 수단을 제공할 수 있게 합니다 (FR-IN-023 · EX-MC-003).
+	**`/contents/search`****는 지역을 받으면 그 지역 안에서만 찾습니다.** 지역은 `regnCd` · `signguCd` 로 받고, 응답의 `regionFilterApplied` 는 지역을 줬는지를 알립니다. 화면은 결과 건수와 무관하게 늘 상품 지역을 붙여 부르고 해제 수단을 두지 않으며, 적용 중인 지역을 후보 목록 머리("강릉시에서 찾은 곳 N곳")에 적습니다 (FR-IN-023 · EX-MC-003).
 	검색 호출 자체가 실패하면 항목을 `PENDING`으로 두고 재시도 수단을 제공합니다. **검수 제외로 자동 전환하지 않습니다** (EX-MC-004).
 </callout>
 ## 4-5. 검수 (F04 ~ F07)
@@ -671,7 +678,7 @@ POST /api/v1/items/{itemId}/match     기존 본문에 "matchedBy": "USER" | "AG
 <tr>
 <td>GET</td>
 <td>`/api/v1/products/{productId}/audit-runs`</td>
-<td>검수 실행 이력 목록 (전후 비교 선택용). 실행마다 `isCurrent` — 지금 일정의 결과이면 true. 결과 화면은 이 실행부터 연다</td>
+<td>검수 실행 이력 목록 (전후 비교 선택용). 실행마다 `isCurrent` — 지금 일정의 결과이면 true. 결과 화면은 이 실행부터 연다. `activeJobId` — 지금 도는 검수 작업 번호(없거나 기한을 넘겨 멈춘 작업이면 `null`). 결과 화면이 다시 열려도 이 작업을 이어 폴링한다 (UI-ST-003)</td>
 <td>FR-PA-045</td>
 </tr>
 </table>
@@ -821,7 +828,7 @@ R07 finding.message 예: "12:00 점심 60분은 회사 기준 90분보다 짧습
 <tr>
 <td>GET</td>
 <td>`/api/v1/notifications`</td>
-<td>알림 목록. `kind=RISK|OPPORTUNITY` · `unread=true`. **문장은 저장하지 않고 볼 때 사실로 만듭니다**(DB 명세서 4-5) — `schedule`(그 곳이 일정에 든 일차 · 시각) · `changes`(알림 **직전** 검수와 알림 **뒤 첫** 검수의 판독 결과 차이, 예 `운영시간 09:00~18:00 → 09:00~17:00`) · `current`(비교할 이전 검수가 없을 때의 지금 판독값) · `modifiedOn`(관광정보 수정일) · `eventPeriod` · `overlapDays`(행사와 겹치는 여행 일차). `what` · `impact` 는 이 사실로 조립하며, 없는 사실은 없다고 말합니다. 행마다 `placeName` — 사용자가 일정에 적은 이름이 먼저이고, 일정에 없는 곳만 **표시 시점에 읽어** 붙입니다(저장하지 않음 · 메모리 10분 캐시 · 한 쪽의 서로 다른 콘텐츠 수만큼 공통정보 1콜). 표출이 중단된 곳(FR-AU-071)과 못 읽은 곳은 `null` 이고, 이름은 최대 6곳씩 동시에 읽고, 실패하거나 2.5초 안에 안 끝난 곳만 `null` 로 둔 채 목록을 내보냅니다(읽은 이름은 그대로 붙고, 남은 조회는 뒤에서 끝나 캐시를 채웁니다)</td>
+<td>알림 목록. `kind=RISK|OPPORTUNITY` · `unread=true`. **문장은 저장하지 않고 볼 때 사실로 만듭니다**(DB 명세서 4-5) — `schedule`(그 곳이 일정에 든 일차 · 시각) · `changes`(알림 **직전** 검수와 알림 **뒤 첫** 검수의 판독 결과 차이, 예 `운영시간 09:00~18:00 → 09:00~17:00`) · `current`(비교할 이전 검수가 없을 때의 지금 판독값) · `modifiedOn`(관광정보 수정일) · `eventPeriod` · `overlapDays`(행사와 겹치는 여행 일차). `what` · `impact` 는 이 사실로 조립하며, 없는 사실은 없다고 말합니다. 새 소식은 `opportunity`(`slot` · `slotMissing` · `precheck` · 이동시간을 잰 곳 `travelSource`)로 넣을 자리와 사전 확인을, 바뀐 정보는 `verdictDiff`(알림 직전 검수와 알림 뒤 첫 검수에서 그 곳 판정의 `added` · `removed` · `changed`, 두 검수 중 하나라도 그 곳을 안 봤으면 `null`)를 싣습니다(UI-S7-008 · FR-RU-061). 행마다 `placeName` — 사용자가 일정에 적은 이름이 먼저이고, 일정에 없는 곳만 **표시 시점에 읽어** 붙입니다(저장하지 않음 · 메모리 10분 캐시 · 한 쪽의 서로 다른 콘텐츠 수만큼 공통정보 1콜). 표출이 중단된 곳(FR-AU-071)과 못 읽은 곳은 `null` 이고, 이름은 최대 6곳씩 동시에 읽고, 실패하거나 2.5초 안에 안 끝난 곳만 `null` 로 둔 채 목록을 내보냅니다(읽은 이름은 그대로 붙고, 남은 조회는 뒤에서 끝나 캐시를 채웁니다)</td>
 <td>FR-MO-033·035</td>
 </tr>
 <tr>
@@ -861,7 +868,7 @@ POST /api/v1/radar/region-signals/refresh   배치가 꺼진 기간에만(켜져
 	지문 비교값(FR-MO-058)은 알림에 저장돼 있어 항상 실리되, 조건 2 · 3 은 지문 이력이 없어 둘 다 `null` 입니다.
 </callout>
 <callout icon="🔁" color="blue_bg">
-	**"다시 검수"(옛 "지금 재검수")는 별도 엔드포인트가 아닙니다.** `POST /products/{id}/audit-jobs` 에 `triggerType: "MANUAL"` 로 요청하며, 사용자가 누른 요청이라 **예산 100%까지 허용**됩니다 (자동 배치는 80%에서 중지, FR-OP-003 · FR-MO-017).
+	**검수 결과 화면의 "지금 재검수"는 별도 엔드포인트가 아닙니다.** `POST /products/{id}/audit-jobs` 에 `triggerType: "MANUAL"` 로 요청하며, 사용자가 누른 요청이라 **예산 100%까지 허용**됩니다 (자동 배치는 80%에서 중지, FR-OP-003 · FR-MO-017). 레이더 바뀐 정보 카드 · 오늘 할 일의 "다시 검수"는 그 결과 화면으로 보내는 링크입니다.
 </callout>
 ## 4-9. 운영 — 예산 · 검수 기준 · 헬스 (F15 · F16)
 <table fit-page-width="true" header-row="true">
@@ -969,14 +976,14 @@ GET /api/v1/rules             기존 응답에 규칙마다 추가
 </tr>
 <tr>
 <td>GET</td>
-<td>`/api/v1/plan/place-detail?contentId&contentTypeId`</td>
-<td>카드 「자세히」 — 그 콘텐츠의 이용시간 · 쉬는 날 · 요금 · 주차 · (축제는) 행사 기간. `detailIntro2` 1콜을 그때그때 실호출한다(**캐시 없음** — 펼칠 때마다). `place-facts`(4-2)와 같은 유형별 매핑을 쓰되 상품 · 항목이 아니라 contentId 로 부르므로 저장 전 카드에도 쓴다. 소개정보를 못 받으면 값은 `null`. 원문은 응답으로만 흐르고 저장하지 않는다. 무장애 · 반려동물은 목록 응답에 이미 있어 여기서 내지 않는다</td>
-<td>FR-PL-012 · 1콜 · 검수와 같은 게이트</td>
+<td>`/api/v1/plan/place-detail?contentId&contentTypeId&with`</td>
+<td>카드 「자세히」 — 그 콘텐츠의 이용시간 · 쉬는 날 · 요금 · 주차 · 문의 · (축제는) 행사 기간. `detailIntro2` 1콜을 그때그때 실호출한다(**캐시 없음** — 펼칠 때마다). `place-facts`(4-2)와 같은 유형별 매핑을 쓰되 상품 · 항목이 아니라 contentId 로 부르므로 저장 전 카드에도 쓴다. 소개정보를 못 받으면 값은 `null`. 원문은 응답으로만 흐르고 저장하지 않는다. `with=accessible,pet` 이면 목록에서 그렇게 표시된 축의 상세(`detailWithTour2` · `detailPetTour2`)를 1콜씩 함께 부른다 — 목록은 해당 여부만 알려 준다. 축이 막히거나 실패하면 그 축만 `null`, 다른 값이 오면 400 (#850)</td>
+<td>FR-PL-012 · 1콜 + 축마다 1콜 · 국문은 검수와 같은 게이트, 축은 각 서비스 예산</td>
 </tr>
 <tr>
 <td>GET</td>
 <td>`/api/v1/contents/{contentId}?with=accessible,pet`</td>
-<td>기존 엔드포인트 확장. 좌표 · 분류 · 유형(#517)과 요청한 조건 축(무장애 · 반려동물)을 낸다 — 축마다 1콜, `with` 에 다른 값이 오면 400, 축이 막히거나 실패하면 그 축만 `null`. 카드 「자세히」의 이용시간 · 쉬는 날 · 요금 · 주차는 핑거프린트 필드만 담는 이 응답이 아니라 `/plan/place-detail` 이 낸다</td>
+<td>기존 엔드포인트 확장. 좌표 · 분류 · 유형(#517)과 요청한 조건 축(무장애 · 반려동물)을 낸다 — 축마다 1콜, `with` 에 다른 값이 오면 400, 축이 막히거나 실패하면 그 축만 `null`. 카드 「자세히」는 핑거프린트 필드만 담는 이 응답이 아니라 `/plan/place-detail` 이 낸다(조건 축 포함 · #850)</td>
 <td>FR-PL-012</td>
 </tr>
 <tr>
@@ -1017,8 +1024,9 @@ GET /api/v1/plan/places?scope=NEAR3KM&nearKind=MEAL|CAFE|STAY&anchor=128.89,37.7
 GET /api/v1/plan/events?regnCd&signguCd&startDate&nights   → { "window": { "from", "to" }, "items": PlanEvent[] }
 GET /api/v1/plan/walks?regnCd&signguCd                     → { "items": PlanWalk[], "notice": "넣으면 직접 정한 곳으로 들어가요" }
     두루누비 courseList 1콜(지역 조건 없음 · 전국 코스 · 10분 캐시)을 코스의 시군구 글자(sigun)로 거른다. 코스에 좌표가 없어 앵커가 되지 않는다
-GET /api/v1/plan/place-detail?contentId=125790&contentTypeId=12
-  → { "contentId", "hours", "restDays", "fee", "parking", "eventPeriod" }   값은 공사 원문 · 응답으로만 · 저장 없음. 원문의 `<br>` 만 개행으로 바꿔 보낸다(#762)
+GET /api/v1/plan/place-detail?contentId=125790&contentTypeId=12&with=accessible
+  → { "contentId", "hours", "restDays", "fee", "parking", "eventPeriod", "contact", "accessible"?: {...} | null, "pet"?: {...} | null }
+    값은 공사 원문 · 응답으로만 · 저장 없음. 원문의 `<br>` 만 개행으로 바꿔 보낸다(#762). accessible · pet 은 요청한 축만 실린다(#850)
     detailIntro2 1콜을 캐시 없이 실호출한다(펼칠 때마다). place-facts 와 같은 유형별 필드 매핑(INTRO_FIELDS · 요금 · 주차)을 contentId 로 쓴다. 소개정보를 못 받으면 모든 값 null
     거르는 기준은 법정동 목록에서 찾은 시군구 이름이고, 세종처럼 시군구 단계가 없는 곳만 시도 약칭으로 본다
 GET /api/v1/contents/{contentId}?contentTypeId=12&with=accessible,pet   기존 응답 + "accessible": {...} | null, "pet": {...} | null
@@ -1050,13 +1058,13 @@ POST /api/v1/products/{id}/place-facts  본문 { "itemIds"?: [17] }  → { "item
 <tr>
 <td>POST</td>
 <td>`/api/v1/audit-runs/{runId}/check-questions`</td>
-<td>확인 필요 목록으로 곳마다 `{findingIds[], itemId, visit{dayNo, date, start}, tel: string|null, questions[]}`. 도구 결과 밖 전화번호는 `null` 로 바꾼다. `visit` 은 항목 값 그대로이고 `findingIds` 는 그 곳의 것만 남긴다 — 둘 다 서버가 채운다. 확인 필요가 0건이면 모델도 부르지 않는다. 저장 없음</td>
-<td>FR-AG-020 – 022 · 곳마다 최대 2콜(문의처 10분 캐시) + LLM 1회</td>
+<td>확인 필요 목록으로 곳마다 `{findingIds[], itemId, visit{dayNo, date, start}, tel: string|null, questions[]}`. 도구 결과 밖 전화번호는 `null` 로 바꾼다. `visit` 은 항목 값 그대로이고 `findingIds` 는 그 곳의 것만 남긴다 — 둘 다 서버가 채운다. 확인 필요가 0건이면 모델도 부르지 않는다. 모델에게 주는 곳 이름과 이유 문장은 결과 화면과 같은 표시 값이다 — 이름을 저장하지 않은 곳은 결과 화면이 읽어 둔 이름(10분 캐시)을 쓰고, 없으면 그 곳만 공통정보로 찾는다. 저장 없음</td>
+<td>FR-AG-020 – 022 · 곳마다 최대 2콜(문의처 10분 캐시) + 이름을 저장하지 않은 곳의 이름(결과 화면 캐시에 없을 때만 1콜) + LLM 1회</td>
 </tr>
 <tr>
 <td>POST</td>
 <td>`/api/v1/radar/today`</td>
-<td>`{basisAt, todos: [{kind: CHANGE|NEWS, productId?, region?, reason, action: REAUDIT|VIEW_RESULT|NEW_PLAN}], quiet: [{productId, text}]}`. 순서 · 종류 · 대상은 서버가 정하고 모델은 이유 한 줄만 쓴다 — 알림 · 새 소식에 없는 항목은 버린다. `basisAt` 은 마지막 배치 시각(없으면 지금)이다. 저장 없음</td>
+<td>`{basisAt, todos: [{kind: CHANGE|NEWS, productId?, region?, reason, action: REAUDIT|VIEW_RESULT|NEW_PLAN}], quiet: [{productId, text}]}`. 순서 · 종류 · 대상은 서버가 정하고 모델은 이유 한 줄만 쓴다 — 알림 · 새 소식에 없는 항목은 버린다. `basisAt` 은 마지막 배치 시각(없으면 지금)이다. 이름을 저장하지 않은 곳은 알림 목록이 읽어 둔 이름(10분 캐시)만 쓴다 — 공사를 부르지 않고, 없으면 세기만 한다. 표출이 중단된 곳은 이름을 쓰지 않는다. 저장 없음</td>
 <td>FR-AG-030 · 031 · 0콜 + LLM 1회</td>
 </tr>
 </table>
@@ -1143,7 +1151,8 @@ POST /api/v1/radar/today
       "unreadNotifications": 3,
       "activeNotifications": 4,
       "risksSinceAudit": 1,
-      "pendingMatches": 0
+      "pendingMatches": 0,
+      "startedBy": "MANUAL"
     }
   ],
   "page": 0, "size": 20, "totalElements": 1, "totalPages": 1
@@ -1200,7 +1209,7 @@ POST /api/v1/radar/today
 ```
 <callout icon="©️" color="blue_bg">
 	**`sourceBadge`****는 모든 정보에 붙습니다** (FR-CM-010). 4종 — `KTO_RAW` 공사 원문(무가공) · `TOURLINT_VERDICT` 판정 · `AI_NORMALIZED` AI 정규화(원문 병기 필수) · `EXTERNAL_REF` 외부 참고(제공자명 표기).
-	실측상 콘텐츠 대부분이 `cpyrhtDivCd = Type3`(변경금지)이므로 **예외가 아니라 기본값으로 가정**하고 배지에 "변경금지"를 병기합니다 (FR-CM-011 · EI-KT-017).
+	실측상 콘텐츠 대부분이 `cpyrhtDivCd = Type3`(변경금지)입니다. 확정 응답의 `sourceBadge.note` 는 받은 값이 `Type3` 이면 "변경금지", 아니면(`Type1` · 값 없음) `null` 입니다 (FR-CM-011 · EI-KT-017).
 </callout>
 ## 5-4. 검수 요청 · 폴링
 ```json
@@ -1247,7 +1256,7 @@ POST /api/v1/radar/today
 <callout icon="⏱" color="yellow_bg">
 	**같은 상품에 진행 중인 작업이 있으면 새 작업을 만들지 않고 기존 ****`jobId`****를 202로 반환합니다** (EX-AU-004).
 	미확정 관광지가 남아 있으면 작업을 만들지 않고 **422 ****`PLACE_UNRESOLVED`** 로 거부하며, 응답에 미확정 항목 목록을 담습니다 (EX-AU-001).
-	화면 이탈 후 재진입 시 `jobId`로 진행 상태를 이어서 표시합니다 (EX-AU-003).
+	화면 이탈 후 재진입 시 `jobId`로 진행 상태를 이어서 표시합니다 (EX-AU-003). 재진입한 화면은 검수 이력(`GET /products/{productId}/audit-runs`)의 `activeJobId` 로 그 작업을 찾습니다(UI-ST-003). 폴링 간격은 202 응답의 `pollIntervalMs` 입니다.
 </callout>
 ## 5-5. 검수 결과 요약
 ```json
@@ -1755,6 +1764,8 @@ POST /products/{id}/audit-jobs
         ├─ 사전 검증 : PENDING 매칭 존재 → 422 PLACE_UNRESOLVED
         │              진행 중 작업 존재 → 202 + 기존 jobId
         │              예산 100% 소진   → 429 BUDGET_EXHAUSTED
+        │              계정당 분당 5회 초과 → 429 RATE_LIMIT_EXCEEDED + Retry-After
+        │                                  (검수 시작과 한 창 · 공개 테스트 계정 제외 · 3-4)
         │
         ├─ audit_job INSERT (QUEUED) ──→ 202 + jobId  [p95 500ms]
         │
@@ -2235,7 +2246,7 @@ public interface AuditRule {
 </table>
 - 격자 좌표 변환은 **상품 여행 지역 대표 지점 1개**로 수행합니다. 일정 항목별 개별 조회를 하지 않습니다 (EI-WX-002).
 - 예보 API 실패 시 **평년 테이블로 자동 강등**하고 표기를 "평년 기준"으로 바꿉니다. R09 전체를 확인 불가로 만들지 않습니다 (EI-WX-006).
-- 공사 인증키와 **별개의 키**를 사용합니다 (EI-WX-001).
+- 키 문자열은 공사 인증키와 같은 계정 인증키이고(data.go.kr 은 계정당 키 하나), 서비스별 활용신청으로 인가를 따로 받습니다. 환경변수는 `KMA_SERVICE_KEY` 로 분리합니다 — 어댑터가 다른 연동의 설정을 읽지 않습니다 (EI-WX-001).
 - 예보 결과는 발표분 단위로 캐시할 수 있습니다 (단기 1시간 · 중기 12시간). 이 캐시는 자체 판정 입력값이므로 무저장 원칙과 무관합니다 (EI-WX-007).
 <callout icon="📊" color="gray_bg">
 	**평년 강수일수를 파일로 받아 고정 테이블로 쓰는 것은 축소안이 아니라 정상 구현입니다.** 실시간 호출 의무는 한국관광공사 데이터에만 적용되며(SC-DT-014), 기상자료개방포털 통계는 공공누리 제1유형(출처표시)입니다.
@@ -2278,6 +2289,10 @@ public interface AuditRule {
         │                     주말 · 이틀 지난 평일의 0건은 변경 없는 날로 보고 넘어간다
         ├─ 비표출 페이지 상한(20) 초과 → BATCH_HIDDEN_OVERFLOW
         │                     배치 중단 후 등록 상품 contentid 개별 확인으로 전환
+        │                     초과는 그 날짜 첫 쪽 totalCount 로 안다 · 그 날에서 순회를 멈춘다
+        │                     여행이 끝나지 않은 등록 상품의 contentid 마다 detailIntro2 1콜 (예산 게이트)
+        │                     없음 = 표출 중단 알림 · 있음 = 직전 지문 비교(조건 1 과 같은 판정)
+        │                     전부 확인해야 last_covered 를 그 날짜로 올린다
         └─ 예산 소진율 80% 도달 → 중단하고 다음 회차로 이월
         │
 [2단계] 변경분 중 등록 상품에 포함된 contentid만 상세 재호출
@@ -2294,6 +2309,10 @@ public interface AuditRule {
         조건 1 에서 「판정 필드 그대로」 로 넘긴 상품은 그 콘텐츠의 조건 2 · 3 후보에서 뺀다
         조건 3 — 같은 시군구의 행사만. 상품에 시군구가 없으면 같은 시도, 행사 지역을 모르면 걸지 않음. ±7일 창 없음
         기회(4 ~ 6) — 이번 배치가 본 첫 날짜 뒤에 등록된 표출 콘텐츠만
+                      넣을 자리(body.slot · 0콜)를 남기고, 상한 안에 든 것만 배치당 20건까지
+                      계정마다 돌아가며 길찾기로 앞뒤 이동을 재 body.precheck 에 남긴다
+                      (대중교통 제외 · 제공자 장애면 첫 실패에서 · 60초 상한 · UI-S7-008)
+                      바뀐 정보 알림은 사전 확인 전에 넣고 재검수도 먼저 건다
                       R10 결손 유형은 지금 일정의 검수 실행에서, 무시한 R10 은 제외
                       배치 한 번에 상품당 3건까지 (조건 4 먼저 · 같은 조건은 contentid 순)
                       같은 콘텐츠는 한 상품에 한 번만 (change_key NEW:{createdtime})
@@ -2323,8 +2342,8 @@ public interface AuditRule {
 <td>약 29콜(1박 2일 8곳) · 약 43콜(2박 3일 12곳)</td>
 </tr>
 <tr>
-<td>분류체계 전체 수집 (배포 시 1회)</td>
-<td>약 70콜</td>
+<td>분류체계 대분류 목록 (부팅 때 1회 · 메모리 캐시)</td>
+<td>1콜 — 중분류 59행은 `packages/shared` 상수라 부르지 않는다(EI-KT-015)</td>
 </tr>
 </table>
 ## 8-2. 예산 관리자 (F15)
@@ -2362,7 +2381,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
         증설 종료일 다음 날(10.17)부터 다섯 다 800 으로 돌아간다
       소진율 분자 = 당일 그 provider 합산
   서비스마다 BudgetGuard 인스턴스를 두고, 게이트는 부르려는 서비스의 예산을 본다
-  → 새 서비스 호출이 국문 800건 예산을 잠식하지 않는다
+  → 새 서비스 호출이 국문 예산을 잠식하지 않는다
   LLM(에이전트) 호출은 provider=LLM · operation=목적으로 세며 공사 예산에 들어가지 않는다
 데모 계정 포함 전 계정이 같은 예산을 공유한다 (PM-DA-006 · DR-CF-007).
 ```
@@ -2406,32 +2425,32 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <tr>
 <td>`UPLOAD_FORMAT_INVALID`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부. 누락 컬럼 명시 + 양식 링크</td>
+<td>400 · 201</td>
+<td>거부. 확장자 · 내용 · MIME · 파서 실패는 400. 양식 헤더를 못 찾거나 필수 컬럼이 빠지면 201 의 `rejected`(없는 컬럼을 짚는다). 양식 내려받기 링크는 업로드 칸에 늘 있다</td>
 </tr>
 <tr>
 <td>`UPLOAD_ROW_INVALID`</td>
 <td>REQUEST</td>
-<td>200</td>
-<td>부분 수용. 실패 행 번호·사유 반환</td>
+<td>201</td>
+<td>부분 수용. 정상 행은 `items`, 실패 행은 `errors[]`(행 번호 · 사유)로 돌려준다 — 응답에 이 코드를 싣지는 않는다</td>
 </tr>
 <tr>
 <td>`UPLOAD_LIMIT_EXCEEDED`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부. 상한값 안내</td>
+<td>201 · 413</td>
+<td>거부. 상한값 안내. 5MB · 500행 · 유효 항목 45건 · 메모 4,000자 초과는 201 의 `rejected`, 20MB 안전망 초과는 413</td>
 </tr>
 <tr>
 <td>`DAY_COUNT_MISMATCH`</td>
-<td>REQUEST</td>
-<td>400</td>
-<td>거부. 비어 있는 일차 표시</td>
+<td>PRODUCT</td>
+<td>422</td>
+<td>검수 시작 거부. 비어 있는 일차 표시(`missingDays`). 업로드 파일의 4일차 이상도 같은 코드로 파일 전체를 거부한다(201 의 `rejected`)</td>
 </tr>
 <tr>
 <td>`NL_STRUCTURE_FAILED`</td>
 <td>REQUEST</td>
-<td>400</td>
-<td>거부 + 직접 입력 유도. 빈 상품 생성 금지</td>
+<td>201</td>
+<td>거부 + 직접 입력 유도(201 의 `rejected`). 빈 상품 생성 금지</td>
 </tr>
 <tr>
 <td>`PLACE_NOT_FOUND`</td>
@@ -2869,7 +2888,7 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 <td>미리보기 비동기 처리 불필요 수준</td>
 </tr>
 </table>
-**용량 상한** — 동시 사용자 10명 · 계정당 상품 50건 · 상품당 일정 항목 30건 · 동시 검수 3건 · 업로드 5MB/500행 · 자연어 5,000자 · 공사 일일 호출 800건.
+**용량 상한** — 동시 사용자 10명 · 계정당 상품 50건(성능 보증 수 · 막는 한도 아님) · 상품당 일정 항목 45건 · 동시 검수 3건 · 업로드 5MB/500행 · 자연어 4,000자 · 국문 관광정보 일일 예산 8,000건(트래픽 증설 기간 · 증설 마지막 날 다음 날부터 800건).
 <callout icon="📏" color="gray_bg">
 	**성능 측정은 정식 배포된 실제 환경에서 수행합니다.** 로컬 측정치를 근거로 쓰지 않으며, 목표 미달 항목은 미달 사실과 실측치를 함께 문서화합니다. **목표값의 사후 하향은 금지합니다** (NF-PF-020·021).
 </callout>
@@ -3050,6 +3069,25 @@ provider 별로 따로 센다 — 활용신청과 하루 한도가 서비스마�
 	v2.18 (2026.09.20) — #605: 8-1 1단계. 0건 지연 신호를 어제 · 평일로 좁혔다. 일요일은 실제로 0건이 나와(08-30 · 09-06 실호출) 배치가 08-30 에서 3주를 멈춰 있었다. 이틀 지난 평일의 0건은 공휴일로 보고 넘어간다. 기능 요구사항 v2.11 과 연쇄 개정.
 	v2.19 (2026.09.20) — #551: 되돌리기 뒤 「현재 결과」를 정했다(5-9). 출시 승인(4-2) · 리포트 생성(4-7) · 상품 목록 `latestAudit` · 검수 이력 `isCurrent`(4-5)가 가장 최근 실행 대신 지금 일정의 실행을 본다. 되돌린 일정이 출시 승인을 통과하던 문제(2026-09-11 감사 치명 1번)를 막는다.
 	v2.20 (2026.09.20) — #612: 예외 사유코드 `INPUT_INVALID` 신설(42 → 43종, 3-3 · 9-1). 사유코드 없이 던지던 400 입력 오류와 깨진 JSON 본문이 `INTERNAL_ERROR` 로 나가고 파서의 영어 문구가 그대로 실렸다. 예외처리 요구사항 v1.6 과 연쇄 개정.
+	v2.76 (2026.09.27) — #910: 4-4 「직접 정한 곳으로 두기」(`POST /items/{itemId}/exclude`) 에 본문 `{placeLabel?}` 를 적었다 — 이름을 저장하지 않은 고른 곳은 화면이 보낸 찾는 칸의 글자로 직접 정한 곳이 되고, 비었으면 400 `INPUT_INVALID`, 이름이 있는 줄은 그대로다. 그런 줄을 직접 정한 곳으로 두면 `ck_item_label_required` 에 걸려 500 이었다.
+	v2.75 (2026.09.27) — #908: 4-2 상품 저장에 관광지를 고른 줄(`content`)은 장소명을 저장하지 않는다(보내도 버리고 표시할 때 찾는다)는 것을, 4-11 물어볼 내용 · 오늘 할 일에 이름을 저장하지 않은 곳의 이름을 어디서 가져오는지(결과 화면 · 알림 목록의 10분 캐시, 오늘 할 일은 공사를 부르지 않음)와 물어볼 내용의 호출량(캐시에 없을 때만 1콜)을 적었다. 등록 화면이 고른 곳의 공사 명칭을 저장했고, 이름이 빈 곳은 물어볼 내용 · 오늘 할 일 · 이동 · 겹침 문장에서 빈칸으로 나갔다.
+	v2.74 (2026.09.27) — #909: 4-2 상품 상세의 `days[].items[]` 에 `contentTypeId`(편집 화면이 저장된 고른 곳을 ✓ 로 열고 다시 찾지 않는 데 씀)를 더했다.
+	v2.73 (2026.09.27) — #905: 4-3 항목 추가에서 `startTime` · `endTime` 을 걷기 길뿐 아니라 고른 곳(`content`)에도 받는다고 적었다. 편집 화면에서 새로 친 줄에 장소를 고르면 친 시각을 버리고 앞 항목 뒤로 다시 잡았다.
+	v2.72 (2026.09.27) — #903: 4-2 상품 상세의 `days[].items[]` 에 `walkId`(걷기 길 식별자 · 아니면 `null`)를 더했다. 편집 화면이 걷기 길 줄을 알아보지 못해 이름 칸으로 열었다.
+	v2.71 (2026.09.27) — #897: 4-2 상품 저장 본문의 `days[].items[]` 에 걷기 길 `{ "walkId" }`(장소명은 받아도 저장하지 않는다)를, 4-3 항목 추가에 걷기 길의 `startTime` · `endTime`(주면 그 시각, 없으면 그 날 끝)을 더했다. 등록 · 편집 화면에는 걷기 길 칸이 없었고, 항목 추가는 걷기 길을 늘 그 날 끝에 넣었다.
+	v2.70 (2026.09.27) — #895: 4-2 상품 저장 본문의 `days[].items[]` 와 4-3 항목 추가에 `excluded: true`(장소명을 둔 채 직접 정한 곳 `EXCLUDED`)를 더했다. 등록 · 편집 화면이 직접 정한 곳을 실어 보내지 않아 그 줄이 `PENDING` 으로 저장됐다.
+	v2.69 (2026.09.27) — #863: 4-8 `GET /notifications` 에 새 소식의 `opportunity`(`slot` · `slotMissing` · `precheck` · `travelSource`)와 바뀐 정보의 `verdictDiff`(알림 직전 · 뒤 첫 검수의 그 곳 판정 차이)를 더하고, 8-1 에 배치가 넣을 자리를 남기고 사전 확인을 재는 순서(바뀐 정보 알림을 먼저 넣음 · 제공자 장애나 60초에서 멈춤)를 적었다. 새 소식은 조건 번호로 고른 고정 문장뿐이었고, 다시 검수한 바뀐 정보 알림에는 판정 차이가 없었다.
+	v2.68 (2026.09.27) — #861: 4-2 · 5-2 상품 목록에 `startedBy`(기획을 시작한 방법, 기록이 없으면 `null`)를 더했다. 보드의 기획 중 카드는 시작 방식을 적어야 하는데(UI-S1-010) 목록 응답에 그 값이 없었다.
+	v2.67 (2026.09.27) — #892: 4-3 항목 추가 행에 상품에 항목이 45건이면 어느 본문이든 400 `INPUT_INVALID` 로 거부한다는 것(상품 저장 · 넣는 수정안 확정도 같다)을 적고 요구사항 칸에 NF-CP-010 을 더했다. 업로드 · 메모 읽기만 45건을 봐서 직접 입력 · 장소 담기 · 걷기 길 · 수정안으로는 46건 이상이 저장됐다.
+	v2.66 (2026.09.27) — #871: 4-2 상품 상세의 `days[].items[]` 에 `lcls2` · `endTimeSource`(끝 시간 미리보기 · 「기본값 적용」 표시용, 판정에 쓰지 않음)를 더했다. 이 둘이 없어 화면이 채워질 시각을 계산할 수 없었다.
+	v2.65 (2026.09.27) — #870: 4-2 상품 저장 본문의 `days[].items[]` 에 `origin` 을 더하고, 4-3 항목 추가의 `origin` 에 받는 값(`MANUAL` · `UPLOAD` · `TEXT` · `PICKER`, 없거나 다른 값이면 `MANUAL`)을 적었다. 등록 · 편집 화면이 경로를 보내지 않아 기획 화면 장소 담기 · 걷기 길 말고는 모든 줄이 NULL 이었다.
+	v2.64 (2026.09.27) — #890: 4-3 업로드 · 메모 읽기를 실제 경로(`/api/v1/uploads/schedule` · `schedule-text` · `template`)와 응답(저장 없이 201, 파일 · 글 전체 거부도 201 의 `rejected`, 20MB 초과만 413)으로 고치고 없는 `items/commit` 행을 뺐다 — 3-3 · 9-1 의 상태 코드와 `DAY_COUNT_MISMATCH`(검수 시작 422 · 단위 상품)도 맞췄다. 그 밖에 4-4 `lcls-codes`(대분류 목록만) · 검색(늘 상품 지역), 4-8 「지금 재검수」, 7-4 기상 키(같은 계정 키 · `KMA_SERVICE_KEY`), 8-1 분류체계 호출량, 11장 용량 상한(45건 · 4,000자 · 8,000건)을 지금 동작에 맞췄다. 명세가 적은 `items/import` · `parse-text` · `commit` 경로는 코드에 없었고, 상한 초과 · 양식 불일치도 400 이 아니라 201 의 `rejected` 로 나가고 있었다.
+	v2.63 (2026.09.26) — #868: 4-3 업로드 콜아웃에 400 `UPLOAD_FORMAT_INVALID`(확장자 · 내용 · MIME · 파서 실패)와 20MB 초과 413 `UPLOAD_LIMIT_EXCEEDED` 를 적었다. 이름만 `.xlsx` 인 파일은 500 `INTERNAL_ERROR` 로, 20MB 초과는 `INTERNAL_ERROR` 와 영어 문구(`File too large`)로 나갔다.
+	v2.62 (2026.09.26) — #867: 3-4 에 검수 실행 요청(다시 검수 · 검수 시작을 한 창으로) · 리포트 생성의 계정당 분당 5회와 공개된 테스트 계정 제외를 적고, 기획 조회 행(`/plan/*` · `place-facts`)의 「수치는 구현에서 정해 이 표에 적는다」 를 분당 상한을 두지 않는다로 고쳤다. 4-2 `handoff` 와 6-1 흐름에 429 `RATE_LIMIT_EXCEEDED` 를 더했다. 상한은 에이전트 셋과 로그인에만 걸려 있었다.
+	v2.61 (2026.09.26) — #866: 8-1 비표출 조회에 페이지 상한을 넘은 날의 흐름을 적었다 — 첫 쪽 `totalCount` 로 알고 그 날에서 멈춤, 등록 상품 콘텐츠마다 `detailIntro2` 1콜(예산 게이트), 전부 확인해야 `last_covered` 를 올림. 20쪽까지 읽고 나머지를 버린 채 `HIDDEN_OVERFLOW` 로 적고 `last_covered` 를 그 날짜로 올렸다.
+	v2.60 (2026.09.26) — #858: 4-4 콘텐츠 조회(`GET /contents/{contentId}`)에 `cpyrhtDivCd` 를 싣고, 5-3 장소 확정 응답의 `sourceBadge.note` 를 받은 값이 `Type3` 일 때만 「변경금지」(아니면 `null`)로 고쳤다. 확정 응답이 값과 무관하게 「변경금지」 여서 Type1 인 오죽헌에도 붙었다.
+	v2.59 (2026.09.26) — #857: 4-5 검수 이력(`GET /products/{productId}/audit-runs`)에 `activeJobId`(지금 도는 검수 작업, 없거나 멈췄으면 `null`)를 더하고, 5-4 에 다시 연 결과 화면이 그 작업을 이어 폴링하며 간격은 202 응답의 `pollIntervalMs` 라고 적었다. 재검수 중에 결과 화면을 다시 열면 도는 작업을 알 길이 없었고, 폴링은 생성 응답의 2초를 버리고 1.5초로 돌았다.
+	v2.58 (2026.09.26) — #850: 4-10 `GET /plan/place-detail` 에 `with`(무장애 · 반려동물 축) · `contact` 를 더했다. 카드 「자세히」가 목록의 해당 여부 한 줄만 적어 두 서비스의 상세 오퍼레이션이 한 번도 불리지 않았다 — 1차 심사로 낸 기능설명서는 상세로 「펼친 장소 카드의 동반 조건 · 무장애 정보」를 보인다고 적었다. 「무장애 · 반려동물은 목록 응답에 이미 있어 여기서 내지 않는다」는 문장을 뺐다.
 	v2.57 (2026.09.26) — #838: 4-5 에 `GET /audit-availability`(지금 검수를 시작할 수 있는지 · 다시 열리는 때)를 더했다. UI-ST-007 이 요구한 「누르기 전에 버튼을 막고 재개 시점을 안내」를 화면이 할 수 없었다 — 눌러야 429 로 알았다. 검수 429 문장도 다른 조회와 같은 말(「내일 0시부터 다시 검수할 수 있고 …」)로 바꿨다.
 	v2.56 (2026.09.26) — #840: 3-4 로그인 시도 행 — 공개된 테스트 계정은 로그인에 성공할 때마다 알림 확인 처리를 되돌린다(무시한 알림 제외). 같이 쓰는 심사위원 가운데 처음 레이더를 연 사람만 "새로"를 봤다.
 	v2.55 (2026.09.25) — #832: 4-10 `plan/places` 의 `scope.label` — `together` 로 순위를 매기면 기준 연월(「2026년 8월 기준 함께 많이 가는 순」)을 붙인다. EI-KT-024 가 요구한 표기가 화면에 없었다.
