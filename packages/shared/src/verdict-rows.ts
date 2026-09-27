@@ -1,6 +1,7 @@
 import { CONCEPT_LABEL, TARGET_LABEL, type ConceptKey, type TargetKey } from './target-profile';
 import { LCLS_SYSTM2 } from './lcls-systm';
 import { ktoFieldLabel } from './constants';
+import { CLIMATE_NORMAL_PERIOD, CLIMATE_SOURCE_NOTE } from './climate-station';
 
 /**
  * 판정 입력값을 사람 말로 (FR-AU-061 판단 근거 3단 · #478).
@@ -139,6 +140,13 @@ export function verdictRows(evidence: unknown): VerdictRow[] {
 
     const row = toRow(key, raw);
     if (row !== null) rows.push(row);
+  }
+  // 기준 평년 · 출처가 근거에 들기 전(#849) 저장된 평년 판정 — 리포트처럼 표준 기간 · 출처로 채운다 (#968)
+  if (evidence.rainSource === 'CLIMATE' && evidence.normalPeriod === undefined) {
+    rows.push({ label: '기준 평년', value: CLIMATE_NORMAL_PERIOD.replace('-', '~') });
+    if (evidence.normalSource === undefined) {
+      rows.push({ label: '평년값 출처', value: CLIMATE_SOURCE_NOTE.replace(/^출처\s*:\s*/, '') });
+    }
   }
   return rows;
 }

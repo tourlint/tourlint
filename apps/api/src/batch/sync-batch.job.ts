@@ -15,7 +15,7 @@ import {
 } from './impact-finder';
 import {
   addClock, capOpportunities, departureOf, dwellOf, isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType,
-  pickSlot, precheckSlot, roundRobinByAccount, type Leg, type OpportunityCandidate, type PickedSlot,
+  onEventDays, pickSlot, precheckSlot, roundRobinByAccount, type Leg, type OpportunityCandidate, type PickedSlot,
 } from './opportunity';
 import { isSyncDelay, isWeekend, kstToday, pendingDates, toKtoDate } from './sync-window';
 
@@ -566,11 +566,15 @@ export class SyncBatchJob {
         const others = settled.size === 0 ? watched : watched.filter((c) => !settled.has(c.productId));
 
         const dwell = dwellOf(content.lclsSystm2);
-        const chances = opportunity.length > 0 && fresh.includes(content)
+        // 행사는 여행일에 열리는 상품에만, 그날에만 권한다 (FR-MO-052 · #966)
+        const addable = fresh.includes(content)
+          ? opportunity.map((c) => onEventDays(c, changed)).filter((c): c is OpportunityCandidate => c !== null)
+          : [];
+        const chances = addable.length > 0
           ? [
-            ...matchByMissingType(content, opportunity),
-            ...matchByFreeSlot(content, opportunity, dwell),
-            ...matchByDetour(content, opportunity, dwell),
+            ...matchByMissingType(content, addable),
+            ...matchByFreeSlot(content, addable, dwell),
+            ...matchByDetour(content, addable, dwell),
           ]
           : [];
         // 같은 곳이 한 상품에 여러 조건으로 걸리면 번호가 작은 것 하나만 남는다 — 바뀐 정보가 새 소식을 이긴다
@@ -583,7 +587,7 @@ export class SyncBatchJob {
         allImpacts.push(...impacts);
         for (const impact of impacts) {
           const n = toNotification(impact, changed, hashes.get(impact.productId) ?? NO_HASHES);
-          const candidate = impact.kind === 'OPPORTUNITY' ? opportunity.find((c) => c.productId === impact.productId) : undefined;
+          const candidate = impact.kind === 'OPPORTUNITY' ? addable.find((c) => c.productId === impact.productId) : undefined;
           if (candidate === undefined) {
             pending.push(n);
             continue;

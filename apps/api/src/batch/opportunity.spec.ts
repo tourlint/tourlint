@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_DETOUR_METERS, OPPORTUNITY_CAP_PER_PRODUCT, addClock, capOpportunities, departureOf, detourMeters, dwellOf, freeSlots,
   isNewlyRegistered, matchByDetour, matchByFreeSlot, matchByMissingType, pickSlot, precheckSlot, roundRobinByAccount,
-  type OpportunityCandidate, type OpportunityItem, type OpportunitySlot,
+  type OpportunityCandidate, type OpportunityItem, type OpportunitySlot, onEventDays,
 } from './opportunity';
 import { straightMeters } from '../engine/geo';
 import { toSyncedContent } from './sync-batch.job';
@@ -262,6 +262,34 @@ describe('상품당 상한 (#616)', () => {
   it('같은 입력이면 들어온 순서와 상관없이 같은 것이 남는다 (NF-MT-001)', () => {
     const items = [chance(1, 5, 'c'), chance(1, 5, 'a'), chance(1, 5, 'b'), chance(1, 5, 'd')];
     expect(capOpportunities(items).kept).toEqual(capOpportunities([...items].reverse()).kept);
+  });
+});
+
+describe('행사는 열리는 날에만 권한다 (FR-MO-052 · #966)', () => {
+  /** 11-17 ~ 11-19 2박 3일 — 하루에 한 줄씩 */
+  const trip = candidate({
+    startDate: '2026-11-17', nights: 2,
+    items: [item({ dayNo: 1 }), item({ dayNo: 2 }), item({ dayNo: 3 })],
+  });
+  const event = (start: string | null, end: string | null) =>
+    ({ ...content({ contenttypeid: '15', lclsSystm2: 'EV01' }), eventPeriod: { start, end } });
+
+  it('🔴 여행일에 열리지 않는 행사는 권하지 않는다 — 10월 축제를 11월 상품에 넣을 수 없다', () => {
+    expect(onEventDays(trip, event('2026-10-09', '2026-10-11'))).toBeNull();
+  });
+
+  it('🔴 기간을 모르는 행사도 권하지 않는다 — 열리는 날을 모르고 넣을 수 있다고 하지 않는다', () => {
+    expect(onEventDays(trip, event(null, '2026-11-18'))).toBeNull();
+    expect(onEventDays(trip, { ...content({ contenttypeid: '15' }), eventPeriod: null })).toBeNull();
+  });
+
+  it('🔴 겹치는 일차의 일정만 남겨 넣을 자리가 그날에서만 잡힌다', () => {
+    const kept = onEventDays(trip, event('2026-11-18', '2026-11-30'));
+    expect(kept?.items.map((i) => i.dayNo)).toEqual([2, 3]);
+  });
+
+  it('행사가 아니면 그대로다', () => {
+    expect(onEventDays(trip, { ...content(), eventPeriod: null })).toBe(trip);
   });
 });
 

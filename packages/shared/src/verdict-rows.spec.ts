@@ -87,6 +87,9 @@ describe('판정 입력값을 사람 말로 (#478)', () => {
       { label: '실내 · 야외를 모르는 곳', value: '0곳' },
       { label: '강수확률', value: '37%' },
       { label: '야외 비중 기준', value: '60%' },
+      // #849 전 실제 근거라 기준 평년 · 출처가 없다 — 리포트처럼 채운다 (#968)
+      { label: '기준 평년', value: '1991~2020' },
+      { label: '평년값 출처', value: '기상청 기상자료개방포털' },
     ]);
   });
 
@@ -133,5 +136,25 @@ describe('판정 입력값을 사람 말로 (#478)', () => {
   it('객체가 아니면 빈 목록이다', () => {
     expect(verdictRows(null)).toEqual([]);
     expect(verdictRows('CLOSED')).toEqual([]);
+  });
+});
+
+describe('기준 평년이 근거에 들기 전 저장된 우천 판정 (#968)', () => {
+  const find = (rows: { label: string; value: string }[], label: string) => rows.filter((r) => r.label === label).map((r) => r.value);
+
+  it('🔴 평년 근거에 기준 평년 · 출처를 리포트와 같게 채운다', () => {
+    const rows = verdictRows({ rainSource: 'CLIMATE', rainDays: 9.8, normalMonth: 11 });
+    expect(find(rows, '기준 평년')).toEqual(['1991~2020']);
+    expect(find(rows, '평년값 출처')).toEqual(['기상청 기상자료개방포털']);
+  });
+
+  it('근거에 있으면 그것만 보인다 — 두 번 적지 않는다', () => {
+    const rows = verdictRows({ rainSource: 'CLIMATE', normalPeriod: '1991~2020', normalSource: '기상청 기상자료개방포털 · 대표지점 제주' });
+    expect(find(rows, '기준 평년')).toEqual(['1991~2020']);
+    expect(find(rows, '평년값 출처')).toEqual(['기상청 기상자료개방포털 · 대표지점 제주']);
+  });
+
+  it('예보 근거에는 붙이지 않는다', () => {
+    expect(find(verdictRows({ rainSource: 'MID', probability: 0.6 }), '기준 평년')).toEqual([]);
   });
 });

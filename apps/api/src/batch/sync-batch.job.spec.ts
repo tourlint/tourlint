@@ -869,6 +869,18 @@ describe('2단계 — 새 소식 (조건 4 ~ 6 · FR-MO-030 ④⑤⑥ · #616)',
     expect(notif.saved.filter((n) => n.kind === 'RISK')).toHaveLength(5);
   });
 
+  it('🔴 여행일에 열리지 않는 행사는 새 소식으로 권하지 않는다 — 넣으면 R02 가 막는다 (FR-MO-052 · #966)', async () => {
+    const { repo: state } = stubState({ lastCovered: '2026-08-25' });
+    const { kto } = stubKto({ '20260826': [fresh('fest', 'EV01', { contenttypeid: '15' })] });
+    const notif = stubNotifications({ watched: [product9()], opportunity: [product9()] });
+    // 11-17 출발 상품에 10월 9 ~ 11일 축제 — 전에는 빈 시간대가 있다고 조건 5 로 알렸다
+    await job(kto, state, {
+      notifications: notif.repo,
+      fetchDetail: async () => ({ eventstartdate: '20261009', eventenddate: '20261011' }),
+    }).run();
+    expect(notif.saved).toEqual([]);
+  });
+
   it('🔴 오래된 곳이 고쳐진 것은 새 소식이 아니다', async () => {
     const { run, saved } = setup([item({ contentid: 'old', contenttypeid: '12', lclsSystm2: 'VE01' })]);
     await run();
