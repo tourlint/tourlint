@@ -1,7 +1,7 @@
 import { DWELL_MINUTES_SEED, type Transport } from '@tourlint/shared';
 import { addDays, formatIsoDate, parseIsoDate } from '../engine/calendar/dates';
 import { straightMeters } from '../engine/geo';
-import { sameDistrict, type Impact, type ImpactCandidate } from './impact-finder';
+import { sameDistrict, travelDatesOf, type ChangedContent, type Impact, type ImpactCandidate } from './impact-finder';
 import type { SyncedContent } from './sync-batch.job';
 
 /**
@@ -66,6 +66,25 @@ export function isNewlyRegistered(content: SyncedContent, since: string): boolea
   if (content.showFlag !== '1') return false;
   const created = content.createdTime.slice(0, 8);
   return /^\d{8}$/.test(created) && created >= since.replace(/-/g, '');
+}
+
+/**
+ * 행사는 열리는 날에만 넣을 수 있다 (FR-MO-052 「반영 가능한 일정 구간」).
+ *
+ * 여행일과 겹치는 일차의 항목만 남긴 후보를 돌려준다 — 조건 4 ~ 6 과 넣을 자리가 그날에서만 잡힌다.
+ * 겹치는 날이 없거나 기간을 모르면 `null` 이다 — 제안하지 않는다. 10월 9 ~ 11일 축제를 11월 강릉
+ * 상품 다섯에 「빈 시간대에 넣을 만한 곳」 으로 알렸다 (#966). 행사가 아니면 그대로다.
+ */
+export function onEventDays(candidate: OpportunityCandidate, content: ChangedContent): OpportunityCandidate | null {
+  if (content.contentTypeId !== '15') return candidate;
+  const period = content.eventPeriod;
+  if (period === null || period.start === null || period.end === null) return null;
+  const { start, end } = period;
+  const days = travelDatesOf(candidate)
+    .map((date, i) => (date >= start && date <= end ? i + 1 : 0))
+    .filter((day) => day > 0);
+  if (days.length === 0) return null;
+  return { ...candidate, items: candidate.items.filter((item) => days.includes(item.dayNo)) };
 }
 
 /** 그 중분류의 기본 체류시간 (FR-IN-011). 표에 없으면 모른다 — 빈 시간대에 들어가는지 말할 수 없다 */
