@@ -68,9 +68,11 @@ DB 테스트는 `TEST_DATABASE_URL=postgres://postgres:test@localhost:55432/tour
 같은 결과를 봐야 한다(NF-MT-001). 실호출로 확인할 것이 있으면 한다. 국문 관광정보 한도가
 트래픽 증설로 10,000 건이 되어 일일 예산은 8,000 건이다(2026-09-17). 새 서비스는 무장애 ·
 반려동물 · 연관 관광지 3종이 함께 늘어 각 8,000 건이고, 두루누비 · 방문자수는 각 800 건이라
-그쪽만 아낀다. **증설은 국문이 2026-10-11, 새 서비스 3종이 10-16 까지다** — 끝난 다음 날부터
-800 으로 돌아가고 앱이 날짜를 안다(`korDailyQuota` · `extraServiceDailyCap`). 국문 마지막 날은
-DB(`system_setting.kor_quota_raised_until`)에 있어 연장되면 `batch_switch.mjs --kor-until` 로 바꾼다.
+그쪽만 아낀다. **증설은 네 서비스 모두 2026-11-11 까지다**(10-01 공사 회신 · #792) — 끝난 다음
+날부터 800 으로 돌아가고 앱이 날짜를 안다(`korDailyQuota` · `extraServiceDailyCap`). 국문 마지막 날은
+DB(`system_setting.kor_quota_raised_until`)에 있어 `batch_switch.mjs --kor-until` 로 11-11 로 바꿨다.
+새 서비스 3종은 앱 상수(`EXTRA_SERVICE_QUOTA_RAISED`)가 아직 10-16 이라 배포 금지 기간에는 10-17 부터
+앱이 800 으로 아낀다.
 
 **새로 넣은 가드는 고치기 전으로 되돌려 실제로 실패하는지 본다.** 통과하는데 아무것도
 안 지키는 검사가 실제로 여러 번 나왔다.
